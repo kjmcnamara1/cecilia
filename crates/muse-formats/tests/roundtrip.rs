@@ -362,3 +362,58 @@ fn corpus_survives_gpx_round_trip() {
         failures.join("\n")
     );
 }
+
+/// MIDI keeps sounding notes, not notation: compare (onset, pitch) of the performances.
+#[test]
+fn corpus_survives_midi_round_trip() {
+    use std::collections::HashMap;
+    let mut failures = Vec::new();
+    let (mut total, mut matched) = (0usize, 0usize);
+    for f in corpus_files(&["gp3", "gp4", "gp5", "gpx", "gp"]) {
+        let original = muse_formats::read_file(&f).unwrap();
+        let bytes = muse_formats::midi::write_midi(&original).unwrap();
+        let back = match muse_formats::midi::read_midi(&bytes) {
+            Ok(s) => s,
+            Err(e) => {
+                failures.push(format!("{}: {e}", f.display()));
+                continue;
+            }
+        };
+        let notes = |s: &Score| {
+            let perf = muse_core::Performance::build(s, &vec![false; s.tracks.len()]);
+            let mut m: HashMap<(u64, u8), usize> = HashMap::new();
+            // Compare on the import grid: strums spread chord notes by a few ticks.
+            let grid = |t: u64| {
+                let snap = |g: u64| (t + g / 2) / g * g;
+                let (a, b) = (snap(120), snap(160));
+                if a.abs_diff(t) <= b.abs_diff(t) { a } else { b }
+            };
+            for n in perf.notes {
+                // Unisons in two voices sound as one note.
+                m.insert((grid(n.start), n.key), 1);
+            }
+            m
+        };
+        let (a, b) = (notes(&original), notes(&back));
+        let n: usize = a.values().sum();
+        let same: usize = a
+            .iter()
+            .map(|(k, v)| (*v).min(b.get(k).copied().unwrap_or(0)))
+            .sum();
+        total += n;
+        matched += same;
+        if n > 0 && (same as f64) < 0.9 * n as f64 {
+            failures.push(format!("{}: only {same} of {n} notes survive", f.display()));
+        }
+    }
+    eprintln!(
+        "MIDI round trip: {matched} of {total} notes ({:.2}%)",
+        matched as f64 * 100.0 / total.max(1) as f64
+    );
+    assert!(
+        failures.is_empty(),
+        "{} failures:\n{}",
+        failures.len(),
+        failures.join("\n")
+    );
+}

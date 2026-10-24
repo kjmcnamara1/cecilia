@@ -57,9 +57,14 @@ pub struct Performance {
 const MAX_PLAYED_BARS: usize = 100_000;
 
 /// Expands repeats and alternate endings into the order bars are played.
+///
+/// Each closing repeat bar keeps its own play counter (as Guitar Pro does), so several closing
+/// bars that share one opening bar always terminate. Alternate endings are chosen by the pass
+/// number through the current repeated section.
 pub fn play_order(score: &Score) -> Vec<usize> {
     let bars = &score.master_bars;
     let mut order = Vec::new();
+    let mut counts = vec![0u8; bars.len()];
     let mut i = 0;
     let mut repeat_start = 0;
     let mut pass: u8 = 1;
@@ -77,12 +82,14 @@ pub fn play_order(score: &Score) -> Vec<usize> {
         }
         order.push(i);
         if let Some(total) = mb.repeat_end {
-            if pass < total {
-                pass += 1;
+            counts[i] += 1;
+            if counts[i] < total {
+                pass = pass.saturating_add(1);
                 i = repeat_start;
                 jumped_to = Some(i);
                 continue;
             }
+            counts[i] = 0;
             pass = 1;
         }
         i += 1;
@@ -140,7 +147,7 @@ impl Performance {
                     t.midi.channel.min(15)
                 },
                 program: t.midi.program.min(127),
-                bank: t.midi.bank,
+                bank: t.midi.bank.min(127),
                 volume: t.midi.volume.min(127),
                 pan: t.midi.pan.min(127),
                 muted: muted
@@ -324,6 +331,29 @@ mod tests {
             MasterBar::default(),
         ];
         assert_eq!(play_order(&score_with_bars(bars)), vec![0, 1, 2, 1, 3, 4]);
+    }
+
+    #[test]
+    fn two_closing_repeats_share_one_opening() {
+        let bars = vec![
+            MasterBar {
+                repeat_start: true,
+                ..MasterBar::default()
+            },
+            MasterBar {
+                repeat_end: Some(2),
+                ..MasterBar::default()
+            },
+            MasterBar {
+                repeat_end: Some(2),
+                ..MasterBar::default()
+            },
+            MasterBar::default(),
+        ];
+        assert_eq!(
+            play_order(&score_with_bars(bars)),
+            vec![0, 1, 0, 1, 2, 0, 1, 0, 1, 2, 3]
+        );
     }
 
     #[test]

@@ -6,6 +6,7 @@ pub mod gp_write;
 pub mod gpif;
 pub mod gpif_write;
 pub mod gpx;
+pub mod midi;
 
 use std::path::Path;
 
@@ -36,6 +37,8 @@ pub enum Format {
     Gpx,
     /// Guitar Pro 7/8 (`.gp`).
     Gp7,
+    /// Standard MIDI File.
+    Midi,
 }
 
 /// Identifies a file's format from its magic bytes, falling back to the extension.
@@ -46,11 +49,15 @@ pub fn detect(bytes: &[u8], path: Option<&Path>) -> Option<Format> {
     if bytes.starts_with(b"BCFZ") || bytes.starts_with(b"BCFS") {
         return Some(Format::Gpx);
     }
+    if bytes.starts_with(b"MThd") {
+        return Some(Format::Midi);
+    }
     let ext = path?.extension()?.to_str()?.to_ascii_lowercase();
     match ext.as_str() {
         "gp3" | "gp4" | "gp5" => Some(Format::GuitarPro3To5),
         "gpx" => Some(Format::Gpx),
         "gp" => Some(Format::Gp7),
+        "mid" | "midi" => Some(Format::Midi),
         _ => None,
     }
 }
@@ -61,6 +68,7 @@ pub fn read_bytes(bytes: &[u8], path: Option<&Path>) -> Result<Score> {
         Some(Format::GuitarPro3To5) => gp::read(bytes),
         Some(Format::Gpx) => gpif::read_gpx(bytes),
         Some(Format::Gp7) => gpif::read_gp7(bytes),
+        Some(Format::Midi) => midi::read_midi(bytes),
         None => Err(Error::Unsupported("unrecognised file".into())),
     }
 }
@@ -77,6 +85,7 @@ pub fn write_bytes(score: &Score, extension: &str) -> Result<Vec<u8>> {
         "gp5" => gp_write::write_gp5(score),
         "gp" => gpif_write::write_gp7(score),
         "gpx" => gpif_write::write_gpx(score),
+        "mid" | "midi" => midi::write_midi(score),
         other => Err(Error::Unsupported(format!("cannot write .{other} files"))),
     }
 }
