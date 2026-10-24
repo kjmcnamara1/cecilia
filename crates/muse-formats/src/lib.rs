@@ -76,6 +76,7 @@ pub fn write_bytes(score: &Score, extension: &str) -> Result<Vec<u8>> {
     match extension.to_ascii_lowercase().as_str() {
         "gp5" => gp_write::write_gp5(score),
         "gp" => gpif_write::write_gp7(score),
+        "gpx" => gpif_write::write_gpx(score),
         other => Err(Error::Unsupported(format!("cannot write .{other} files"))),
     }
 }

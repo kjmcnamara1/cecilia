@@ -669,27 +669,38 @@ pub(crate) fn drum_row(key: u8) -> u8 {
 /// GP6 drum kit element and variation to General MIDI percussion key. Element order follows
 /// the GP6 "drmkt" instrument; this mapping is approximate.
 fn gp6_drum_key(element: usize, variation: usize) -> u8 {
-    const KEYS: [[u8; 3]; 17] = [
-        [36, 35, 36], // kick
-        [38, 40, 37], // snare: hit, rim shot, side stick
-        [42, 44, 46], // hi-hat: closed, pedal, open
-        [41, 41, 41], // low floor tom
-        [43, 43, 43], // high floor tom
-        [45, 45, 45], // low tom
-        [47, 47, 47], // low-mid tom
-        [48, 48, 48], // high-mid tom
-        [50, 50, 50], // high tom
-        [44, 44, 44], // pedal hi-hat
-        [51, 59, 53], // ride: middle, edge, bell
-        [49, 49, 49], // crash medium
-        [57, 57, 57], // crash high
-        [52, 52, 52], // china
-        [55, 55, 55], // splash
-        [56, 56, 56], // cowbell
-        [54, 54, 54], // tambourine
-    ];
-    KEYS.get(element).map_or(38, |v| v[variation.min(2)])
+    GP6_DRUM_KEYS
+        .get(element)
+        .map_or(38, |v| v[variation.min(2)])
 }
+
+/// Inverse of [`gp6_drum_key`]: the element and variation that produce a MIDI key.
+pub(crate) fn gp6_drum_element(key: u8) -> Option<(usize, usize)> {
+    GP6_DRUM_KEYS
+        .iter()
+        .enumerate()
+        .find_map(|(e, v)| v.iter().position(|k| *k == key).map(|var| (e, var)))
+}
+
+const GP6_DRUM_KEYS: [[u8; 3]; 17] = [
+    [36, 35, 36], // kick
+    [38, 40, 37], // snare: hit, rim shot, side stick
+    [42, 44, 46], // hi-hat: closed, pedal, open
+    [41, 41, 41], // low floor tom
+    [43, 43, 43], // high floor tom
+    [45, 45, 45], // low tom
+    [47, 47, 47], // low-mid tom
+    [48, 48, 48], // high-mid tom
+    [50, 50, 50], // high tom
+    [44, 44, 44], // pedal hi-hat
+    [51, 59, 53], // ride: middle, edge, bell
+    [49, 49, 49], // crash medium
+    [57, 57, 57], // crash high
+    [52, 52, 52], // china
+    [55, 55, 55], // splash
+    [56, 56, 56], // cowbell
+    [54, 54, 54], // tambourine
+];
 
 fn note_name_to_midi(pitch: Node) -> Option<u8> {
     let step = match text(pitch, "Step")? {

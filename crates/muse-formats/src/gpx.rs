@@ -28,6 +28,18 @@ pub fn read_container(bytes: &[u8]) -> Result<Vec<(String, Vec<u8>)>> {
     }
 }
 
+/// The decompressed BCFS filesystem image (after the "BCFS" magic), for inspection.
+pub fn filesystem_image(bytes: &[u8]) -> Result<Vec<u8>> {
+    match bytes.get(..4) {
+        Some(b"BCFZ") => Ok(decompress(&bytes[4..])?
+            .get(4..)
+            .unwrap_or_default()
+            .to_vec()),
+        Some(b"BCFS") => Ok(bytes[4..].to_vec()),
+        _ => Err(err("not a GPX file")),
+    }
+}
+
 /// Reads bits most-significant first.
 struct Bits<'a> {
     data: &'a [u8],
@@ -147,6 +159,115 @@ fn read_filesystem(data: &[u8]) -> Result<Vec<(String, Vec<u8>)>> {
     Ok(files)
 }
 
+/// Largest file a BCFS entry can describe: its block list fills the rest of the entry sector.
+const MAX_FILE: usize = ((SECTOR - 0x94) / 4 - 1) * SECTOR;
+
+/// Builds a BCFZ-compressed GPX container holding `files`.
+pub fn write_container(files: &[(&str, &[u8])]) -> Result<Vec<u8>> {
+    if let Some((name, data)) = files.iter().find(|(_, d)| d.len() > MAX_FILE) {
+        return Err(err(format!(
+            "{name} is too large for a GPX file ({} bytes)",
+            data.len()
+        )));
+    }
+    let mut fs = b"BCFS".to_vec();
+    fs.extend(build_filesystem(files));
+    Ok(compress(&fs))
+}
+
+/// BCFS layout: sector 0 is a free-sector bitmap, sector 1 the root directory entry, sector 2
+/// the directory's list of entry sectors, then each file's entry sector and data sectors.
+fn build_filesystem(files: &[(&str, &[u8])]) -> Vec<u8> {
+    let mut sectors: Vec<[u8; SECTOR]> = vec![[0; SECTOR]; 3];
+    let put = |sec: &mut [u8; SECTOR], at: usize, v: u32| {
+        sec[at..at + 4].copy_from_slice(&v.to_le_bytes())
+    };
+    let mut entries = Vec::new();
+    for (name, data) in files {
+        let entry_index = sectors.len();
+        entries.push(entry_index as u32);
+        let mut entry = [0u8; SECTOR];
+        put(&mut entry, 0, 2);
+        let name = &name.as_bytes()[..name.len().min(126)];
+        entry[4..4 + name.len()].copy_from_slice(name);
+        put(&mut entry, 0x88, 1);
+        put(&mut entry, 0x8C, data.len() as u32);
+        sectors.push(entry);
+        for (i, chunk) in data.chunks(SECTOR).enumerate() {
+            let block = sectors.len() as u32;
+            put(&mut sectors[entry_index], 0x94 + 4 * i, block);
+            let mut sec = [0u8; SECTOR];
+            sec[..chunk.len()].copy_from_slice(chunk);
+            sectors.push(sec);
+        }
+    }
+    put(&mut sectors[1], 0, 1);
+    sectors[1][4] = b'/';
+    put(&mut sectors[1], 0x88, 1);
+    put(&mut sectors[1], 0x8C, 4 * entries.len() as u32);
+    put(&mut sectors[1], 0x94, 2);
+    for (i, e) in entries.iter().enumerate() {
+        put(&mut sectors[2], 4 * i, *e);
+    }
+    // Bitmap: bit n (LSB first) is sector n + 1; 0 = used, 1 = free.
+    let mut bitmap = [0xFFu8; SECTOR];
+    for n in 0..sectors.len() - 1 {
+        bitmap[n / 8] &= !(1 << (n % 8));
+    }
+    sectors[0] = bitmap;
+    sectors.concat()
+}
+
+/// BCFZ compression using literal blocks only (valid for any BCFZ decoder).
+fn compress(data: &[u8]) -> Vec<u8> {
+    let mut out = b"BCFZ".to_vec();
+    out.extend((data.len() as i32).to_le_bytes());
+    let mut bits = BitWriter::default();
+    for chunk in data.chunks(3) {
+        bits.push(0, 1);
+        bits.push_reversed(chunk.len() as u32, 2);
+        for &b in chunk {
+            bits.push(b as u32, 8);
+        }
+    }
+    out.extend(bits.finish());
+    out
+}
+
+#[derive(Default)]
+struct BitWriter {
+    bytes: Vec<u8>,
+    used: u32,
+}
+
+impl BitWriter {
+    fn bit(&mut self, b: u32) {
+        if self.used % 8 == 0 {
+            self.bytes.push(0);
+        }
+        if b != 0 {
+            *self.bytes.last_mut().unwrap() |= 1 << (7 - self.used % 8);
+        }
+        self.used += 1;
+    }
+
+    fn push(&mut self, v: u32, n: u32) {
+        for i in (0..n).rev() {
+            self.bit((v >> i) & 1);
+        }
+    }
+
+    fn push_reversed(&mut self, v: u32, n: u32) {
+        for i in 0..n {
+            self.bit((v >> i) & 1);
+        }
+    }
+
+    fn finish(self) -> Vec<u8> {
+        self.bytes
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -180,5 +301,15 @@ mod tests {
         let mut data = 4i32.to_le_bytes().to_vec();
         data.extend(packed);
         assert_eq!(decompress(&data).unwrap(), b"abab");
+    }
+
+    #[test]
+    fn container_round_trips() {
+        let big: Vec<u8> = (0..10_000u32).map(|i| (i * 7 % 251) as u8).collect();
+        let bytes = write_container(&[("score.gpif", &big), ("misc.xml", b"<x/>")]).unwrap();
+        let files = read_container(&bytes).unwrap();
+        assert_eq!(files.len(), 2);
+        assert_eq!(files[0], ("score.gpif".to_string(), big));
+        assert_eq!(files[1].1, b"<x/>");
     }
 }

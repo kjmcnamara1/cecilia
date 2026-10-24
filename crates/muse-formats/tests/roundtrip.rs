@@ -327,3 +327,38 @@ fn corpus_survives_gp7_round_trip() {
         failures.join("\n")
     );
 }
+
+#[test]
+fn corpus_survives_gpx_round_trip() {
+    let mut failures = Vec::new();
+    for f in corpus_files(&["gp3", "gp4", "gp5", "gpx", "gp"]) {
+        let mut original = muse_formats::read_file(&f).unwrap();
+        let bytes = muse_formats::gpif_write::write_gpx(&original).unwrap();
+        let mut back = match muse_formats::gpif::read_gpx(&bytes) {
+            Ok(s) => s,
+            Err(e) => {
+                failures.push(format!("{}: {e}", f.display()));
+                continue;
+            }
+        };
+        normalize_gpif(&mut original);
+        normalize_gpif(&mut back);
+        // GP6 has no sound bank selection.
+        for t in original.tracks.iter_mut().chain(back.tracks.iter_mut()) {
+            t.midi.bank = 0;
+        }
+        if original != back {
+            failures.push(format!(
+                "{}: {}",
+                f.display(),
+                first_difference(&original, &back)
+            ));
+        }
+    }
+    assert!(
+        failures.is_empty(),
+        "{} failures:\n{}",
+        failures.len(),
+        failures.join("\n")
+    );
+}

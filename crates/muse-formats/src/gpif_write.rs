@@ -32,6 +32,20 @@ pub fn write_gp7(score: &Score) -> Result<Vec<u8>> {
     Ok(zip.finish().map_err(zerr)?.into_inner())
 }
 
+/// Encodes a score as a GP6 `.gpx` file.
+pub fn write_gpx(score: &Score) -> Result<Vec<u8>> {
+    let xml = write_gpif_flavour(score, true);
+    let part = part_configuration(score);
+    let layout = layout_configuration(score.tracks.len());
+    let empty_style = 0u32.to_be_bytes();
+    crate::gpx::write_container(&[
+        ("score.gpif", xml.as_bytes()),
+        ("BinaryStylesheet", &empty_style),
+        ("PartConfiguration", &part),
+        ("LayoutConfiguration", &layout),
+    ])
+}
+
 /// One score view for the whole score plus one per track; each lists staff flags per track
 /// (1 = standard notation, 2 = tablature).
 fn part_configuration(score: &Score) -> Vec<u8> {
@@ -161,6 +175,8 @@ fn instrument_type(t: &Track) -> (&'static str, &'static str) {
 
 #[derive(Default)]
 struct Ids {
+    /// Write Guitar Pro 6 conventions instead of Guitar Pro 7.
+    gp6: bool,
     /// Chord diagrams and drum keys of the track being written.
     chords: Vec<Chord>,
     drum_keys: Vec<u8>,
@@ -171,11 +187,30 @@ struct Ids {
     rhythms: Vec<Duration>,
     next_bar: usize,
     next_voice: usize,
-    next_beat: usize,
-    next_note: usize,
+    /// Identical notes and beats share one id (as Guitar Pro does), keyed by their XML body.
+    note_ids: HashMap<String, usize>,
+    beat_ids: HashMap<String, usize>,
 }
 
 impl Ids {
+    fn add_note(&mut self, body: String) -> usize {
+        let next = self.note_ids.len();
+        let id = *self.note_ids.entry(body.clone()).or_insert(next);
+        if id == next {
+            let _ = writeln!(self.notes, "<Note id=\"{id}\">{body}</Note>");
+        }
+        id
+    }
+
+    fn add_beat(&mut self, body: String) -> usize {
+        let next = self.beat_ids.len();
+        let id = *self.beat_ids.entry(body.clone()).or_insert(next);
+        if id == next {
+            let _ = writeln!(self.beats, "<Beat id=\"{id}\">{body}</Beat>");
+        }
+        id
+    }
+
     fn rhythm(&mut self, d: Duration) -> usize {
         match self.rhythms.iter().position(|r| *r == d) {
             Some(i) => i,
@@ -189,10 +224,21 @@ impl Ids {
 
 /// Serialises a score as GPIF (Guitar Pro 7 flavour).
 pub fn write_gpif(score: &Score) -> String {
+    write_gpif_flavour(score, false)
+}
+
+/// Serialises a score as GPIF; `gp6` selects Guitar Pro 6 conventions (tuning on the track,
+/// instrument references, drum elements) for `.gpx` files.
+pub fn write_gpif_flavour(score: &Score, gp6: bool) -> String {
     let mut x = String::with_capacity(1 << 16);
-    x.push_str("<?xml version=\"1.0\" encoding=\"utf-8\"?>\n<GPIF>\n<GPVersion>7</GPVersion>\n");
-    x.push_str("<GPRevision required=\"12021\" recommended=\"12023\">12024</GPRevision>\n");
-    x.push_str("<Encoding><EncodingDescription>GP7</EncodingDescription></Encoding>\n");
+    x.push_str("<?xml version=\"1.0\" encoding=\"utf-8\"?>\n<GPIF>\n");
+    if gp6 {
+        x.push_str("<GPRevision>7840</GPRevision>\n");
+    } else {
+        x.push_str("<GPVersion>7</GPVersion>\n");
+        x.push_str("<GPRevision required=\"12021\" recommended=\"12023\">12024</GPRevision>\n");
+        x.push_str("<Encoding><EncodingDescription>GP7</EncodingDescription></Encoding>\n");
+    }
     write_score_info(&mut x, score);
 
     // Master track: track list and tempo automation.
@@ -218,11 +264,18 @@ pub fn write_gpif(score: &Score) -> String {
 
     x.push_str("<Tracks>\n");
     for (i, t) in score.tracks.iter().enumerate() {
-        write_track(&mut x, score, i, t);
+        if gp6 {
+            write_track_gp6(&mut x, score, i, t);
+        } else {
+            write_track(&mut x, score, i, t);
+        }
     }
     x.push_str("</Tracks>\n");
 
-    let mut ids = Ids::default();
+    let mut ids = Ids {
+        gp6,
+        ..Ids::default()
+    };
     let mut master = String::new();
     for (b, mb) in score.master_bars.iter().enumerate() {
         let mut bar_ids = Vec::new();
@@ -282,6 +335,115 @@ fn write_score_info(x: &mut String, score: &Score) {
     let _ = writeln!(x, "<Notices>{}</Notices>", cdata(&m.notices.join("\n")));
     x.push_str("<ScoreSystemsDefaultLayout>4</ScoreSystemsDefaultLayout>\n<ScoreSystemsLayout>4</ScoreSystemsLayout>\n");
     x.push_str("</Score>\n");
+}
+
+/// GP6 instrument reference for a track.
+fn gp6_instrument(t: &Track) -> &'static str {
+    match t.kind {
+        TrackKind::Drums => "drmkt",
+        TrackKind::Fretted => {
+            let bass = instrument_type(t).0 == "electricBass";
+            match (bass, t.strings.len()) {
+                (true, 5) => "e-bass5",
+                (true, 6) => "e-bass6",
+                (true, _) => "e-bass4",
+                (false, 7) => "e-gtr7",
+                _ => match t.midi.program {
+                    24 => "n-gtr6",
+                    25 => "s-gtr6",
+                    _ => "e-gtr6",
+                },
+            }
+        }
+        _ => match t.midi.program {
+            16..=23 => "em-organ-ss",
+            48..=55 => "sprn-s",
+            _ => "a-piano-ss",
+        },
+    }
+}
+
+fn write_track_gp6(x: &mut String, score: &Score, index: usize, t: &Track) {
+    let _ = writeln!(x, "<Track id=\"{index}\">");
+    let _ = writeln!(x, "<Name>{}</Name>", cdata(&t.name));
+    let short: String = t.name.chars().take(8).collect();
+    let _ = writeln!(x, "<ShortName>{}</ShortName>", cdata(&short));
+    let _ = writeln!(
+        x,
+        "<Color>{} {} {}</Color>",
+        t.color.r, t.color.g, t.color.b
+    );
+    x.push_str("<SystemsDefautLayout>3</SystemsDefautLayout>\n<SystemsLayout></SystemsLayout>\n<PlayingStyle>Default</PlayingStyle>\n");
+    let _ = writeln!(x, "<Instrument ref=\"{}\" />", gp6_instrument(t));
+    let transposition = if t.kind == TrackKind::Fretted { -12 } else { 0 };
+    let _ = writeln!(
+        x,
+        "<PartSounding><NominalKey>{}</NominalKey><TranspositionPitch>{transposition}</TranspositionPitch></PartSounding>",
+        if t.is_percussion() { "Neutral" } else { "C" }
+    );
+    let (primary, secondary) = if t.is_percussion() {
+        (9, 9)
+    } else {
+        (t.midi.channel.min(15), t.midi.effect_channel.min(15))
+    };
+    let _ = writeln!(
+        x,
+        "<GeneralMidi table=\"{}\"><Program>{}</Program><Port>0</Port><PrimaryChannel>{primary}</PrimaryChannel><SecondaryChannel>{secondary}</SecondaryChannel><ForeOneChannelPerString>false</ForeOneChannelPerString></GeneralMidi>",
+        if t.is_percussion() {
+            "Percussion"
+        } else {
+            "Instrument"
+        },
+        t.midi.program
+    );
+    let state = if t.solo {
+        "Solo"
+    } else if t.mute {
+        "Mute"
+    } else {
+        "Default"
+    };
+    let _ = writeln!(x, "<PlaybackState>{state}</PlaybackState>");
+    write_track_lyrics(x, score, index);
+    x.push_str("<Properties>\n");
+    let _ = writeln!(
+        x,
+        "<Property name=\"CapoFret\"><Fret>{}</Fret></Property>",
+        t.capo
+    );
+    let _ = writeln!(
+        x,
+        "<Property name=\"FretCount\"><Number>{}</Number></Property>",
+        t.fret_count.max(1)
+    );
+    if t.kind == TrackKind::Fretted {
+        let pitches: Vec<String> = t.strings.iter().rev().map(|p| p.to_string()).collect();
+        let _ = writeln!(
+            x,
+            "<Property name=\"Tuning\"><Pitches>{}</Pitches></Property>",
+            pitches.join(" ")
+        );
+        write_diagrams(x, t);
+    }
+    x.push_str("</Properties>\n</Track>\n");
+}
+
+fn write_track_lyrics(x: &mut String, score: &Score, index: usize) {
+    x.push_str("<Lyrics dispatched=\"true\">\n");
+    let lyrics = score
+        .lyrics
+        .as_ref()
+        .filter(|l| l.track.unwrap_or(0) == index);
+    for i in 0..5 {
+        let line = lyrics.and_then(|l| l.lines.get(i));
+        let _ = writeln!(
+            x,
+            "<Line><Text>{}</Text><Offset>{}</Offset></Line>",
+            cdata(line.map_or("", |l| l.text.as_str())),
+            line.map_or(0, |l| l.start_bar)
+        );
+    }
+    x.push_str("</Lyrics>\n");
 }
 
 fn write_track(x: &mut String, score: &Score, index: usize, t: &Track) {
@@ -346,22 +508,7 @@ fn write_track(x: &mut String, score: &Score, index: usize, t: &Track) {
         "<PlaybackState>{state}</PlaybackState>\n<AudioEngineState>MIDI</AudioEngineState>"
     );
 
-    // GP5-style lyric lines belong to one track.
-    x.push_str("<Lyrics dispatched=\"true\">\n");
-    let lyrics = score
-        .lyrics
-        .as_ref()
-        .filter(|l| l.track.unwrap_or(0) == index);
-    for i in 0..5 {
-        let line = lyrics.and_then(|l| l.lines.get(i));
-        let _ = writeln!(
-            x,
-            "<Line><Text>{}</Text><Offset>{}</Offset></Line>",
-            cdata(line.map_or("", |l| l.text.as_str())),
-            line.map_or(0, |l| l.start_bar)
-        );
-    }
-    x.push_str("</Lyrics>\n");
+    write_track_lyrics(x, score, index);
 
     x.push_str("<Staves>\n<Staff>\n<Properties>\n");
     let _ = writeln!(
@@ -610,13 +757,11 @@ fn write_voice(ids: &mut Ids, t: &Track, voice: &Voice) {
                 .copied()
                 .filter(|(_, g)| (g.duration, g.on_beat) == kind)
                 .collect();
-            beat_ids.push(ids.next_beat);
-            write_grace_beat(ids, t, &group);
+            beat_ids.push(write_grace_beat(ids, t, &group));
         }
-        beat_ids.push(ids.next_beat);
         let tie_origin =
             |n: &Note| next.is_some_and(|b| b.notes.iter().any(|m| m.string == n.string && m.tie));
-        write_beat(ids, t, beat, &tie_origin, &mut hopo_from);
+        beat_ids.push(write_beat(ids, t, beat, &tie_origin, &mut hopo_from));
     }
     let list: Vec<String> = beat_ids.iter().map(|i| i.to_string()).collect();
     let _ = writeln!(
@@ -626,13 +771,10 @@ fn write_voice(ids: &mut Ids, t: &Track, voice: &Voice) {
     );
 }
 
-fn write_grace_beat(ids: &mut Ids, t: &Track, graces: &[(&Note, &Grace)]) {
-    let id = ids.next_beat;
-    ids.next_beat += 1;
+fn write_grace_beat(ids: &mut Ids, t: &Track, graces: &[(&Note, &Grace)]) -> usize {
     let rhythm = ids.rhythm(Duration::new(graces[0].1.duration));
     let mut note_ids = Vec::new();
     for (n, g) in graces {
-        note_ids.push(ids.next_note);
         let note = Note {
             fret: g.fret,
             dead: g.dead,
@@ -647,7 +789,7 @@ fn write_grace_beat(ids: &mut Ids, t: &Track, graces: &[(&Note, &Grace)]) {
             },
             ..Note::new(n.string, g.fret)
         };
-        write_note(ids, t, &note, false, false, false);
+        note_ids.push(write_note(ids, t, &note, false, false, false));
     }
     let kind = if graces[0].1.on_beat {
         "OnBeat"
@@ -655,12 +797,11 @@ fn write_grace_beat(ids: &mut Ids, t: &Track, graces: &[(&Note, &Grace)]) {
         "BeforeBeat"
     };
     let list: Vec<String> = note_ids.iter().map(|i| i.to_string()).collect();
-    let _ = writeln!(
-        ids.beats,
-        "<Beat id=\"{id}\"><GraceNotes>{kind}</GraceNotes><Dynamic>{}</Dynamic><Rhythm ref=\"{rhythm}\" /><Notes>{}</Notes></Beat>",
+    ids.add_beat(format!(
+        "<GraceNotes>{kind}</GraceNotes><Dynamic>{}</Dynamic><Rhythm ref=\"{rhythm}\" /><Notes>{}</Notes>",
         dynamic(graces[0].1.velocity),
         list.join(" ")
-    );
+    ))
 }
 
 fn write_beat(
@@ -669,30 +810,21 @@ fn write_beat(
     beat: &Beat,
     tie_origin: &dyn Fn(&Note) -> bool,
     hopo_from: &mut HashMap<u8, bool>,
-) {
-    let id = ids.next_beat;
-    ids.next_beat += 1;
+) -> usize {
     let rhythm = ids.rhythm(beat.duration);
     let mut b = String::new();
     let velocity = beat.notes.first().map_or(DEFAULT_VELOCITY, |n| n.velocity);
     let _ = write!(
         b,
-        "<Beat id=\"{id}\"><Dynamic>{}</Dynamic><Rhythm ref=\"{rhythm}\" />",
+        "<Dynamic>{}</Dynamic><Rhythm ref=\"{rhythm}\" />",
         dynamic(velocity)
     );
     if !beat.notes.is_empty() {
         let mut note_ids = Vec::new();
         for n in &beat.notes {
-            note_ids.push(ids.next_note);
             let hopo_dest = hopo_from.get(&n.string).copied().unwrap_or(false);
-            write_note(
-                ids,
-                t,
-                n,
-                tie_origin(n),
-                hopo_dest,
-                beat.effects.slap == Slap::Tap,
-            );
+            let tapped = beat.effects.slap == Slap::Tap;
+            note_ids.push(write_note(ids, t, n, tie_origin(n), hopo_dest, tapped));
         }
         hopo_from.clear();
         for n in &beat.notes {
@@ -776,16 +908,19 @@ fn write_beat(
     if !props.is_empty() {
         let _ = write!(b, "<Properties>{props}</Properties>");
     }
-    b.push_str("</Beat>\n");
-    ids.beats.push_str(&b);
+    ids.add_beat(b)
 }
 
-fn write_note(ids: &mut Ids, t: &Track, n: &Note, tie_origin: bool, hopo_dest: bool, tapped: bool) {
-    let id = ids.next_note;
-    ids.next_note += 1;
+fn write_note(
+    ids: &mut Ids,
+    t: &Track,
+    n: &Note,
+    tie_origin: bool,
+    hopo_dest: bool,
+    tapped: bool,
+) -> usize {
     let key = t.pitch_of(n);
     let mut x = String::new();
-    let _ = write!(x, "<Note id=\"{id}\">");
     if tie_origin || n.tie {
         let _ = write!(
             x,
@@ -820,7 +955,7 @@ fn write_note(ids: &mut Ids, t: &Track, n: &Note, tie_origin: bool, hopo_dest: b
         };
         let _ = write!(x, "<Trill>{}</Trill>", open + tr.fret as i32);
     }
-    if t.kind == TrackKind::Drums {
+    if t.kind == TrackKind::Drums && !ids.gp6 {
         let art = ids.drum_keys.iter().position(|k| *k == key).unwrap_or(0);
         let _ = write!(x, "<InstrumentArticulation>{art}</InstrumentArticulation>");
     }
@@ -837,11 +972,31 @@ fn write_note(ids: &mut Ids, t: &Track, n: &Note, tie_origin: bool, hopo_dest: b
             n.fret
         );
     }
-    let _ = write!(
-        x,
-        "<Property name=\"Midi\"><Number>{key}</Number></Property><Property name=\"ConcertPitch\">{p}</Property><Property name=\"TransposedPitch\">{p}</Property>",
-        p = pitch_xml(key)
-    );
+    if !ids.gp6 {
+        let _ = write!(
+            x,
+            "<Property name=\"Midi\"><Number>{key}</Number></Property><Property name=\"ConcertPitch\">{p}</Property><Property name=\"TransposedPitch\">{p}</Property>",
+            p = pitch_xml(key)
+        );
+    } else if t.kind == TrackKind::Drums {
+        if let Some((element, variation)) = crate::gpif::gp6_drum_element(key) {
+            let _ = write!(
+                x,
+                "<Property name=\"Element\"><Element>{element}</Element></Property><Property name=\"Variation\"><Variation>{variation}</Variation></Property>"
+            );
+        }
+        let _ = write!(
+            x,
+            "<Property name=\"Midi\"><Number>{key}</Number></Property>"
+        );
+    } else if t.kind != TrackKind::Fretted {
+        let _ = write!(
+            x,
+            "<Property name=\"Octave\"><Number>{}</Number></Property><Property name=\"Tone\"><Step>{}</Step></Property>",
+            key / 12,
+            key % 12
+        );
+    }
     if n.dead {
         x.push_str("<Property name=\"Muted\"><Enable /></Property>");
     }
@@ -892,8 +1047,8 @@ fn write_note(ids: &mut Ids, t: &Track, n: &Note, tie_origin: bool, hopo_dest: b
     if let Some(b) = &fx.bend {
         write_bend(&mut x, b);
     }
-    x.push_str("</Properties></Note>\n");
-    ids.notes.push_str(&x);
+    x.push_str("</Properties>");
+    ids.add_note(x)
 }
 
 fn write_bend(x: &mut String, b: &Bend) {
