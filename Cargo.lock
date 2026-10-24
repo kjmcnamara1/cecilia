@@ -1896,6 +1896,7 @@ dependencies = [
  "clap",
  "muse-app",
  "muse-audio",
+ "muse-convert",
  "muse-core",
  "muse-engrave",
  "muse-formats",
@@ -1994,6 +1995,7 @@ dependencies = [
  "muse-app",
  "muse-audio",
  "muse-core",
+ "muse-formats",
  "ratatui",
 ]
 

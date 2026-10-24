@@ -3,14 +3,19 @@
 A keyboard-first, open-source editor and player for guitar tablature, standard notation and
 Gregorian chant, with Guitar Pro compatibility and audio play-along. Written in Rust.
 
-**Status:** milestones 1–5 (terminal reader, MIDI playback, file formats, engraving and GUI,
-editing, audio play-along). See [docs/SPEC.md](docs/SPEC.md) for the
+**Status:** milestones 1–6 (terminal reader, MIDI playback, file formats, engraving and GUI,
+editing, audio play-along, Gregorian chant). See [docs/SPEC.md](docs/SPEC.md) for the
 full specification and roadmap, and [docs/keymap.md](docs/keymap.md) for key bindings.
 
 ## What works now
 
 - Reading Guitar Pro 3–8 (`.gp3`, `.gp4`, `.gp5`, `.gpx`, `.gp`), MusicXML (`.musicxml`, `.mxl`),
-  MIDI and muse's own `.muse`; writing `.gp5`, `.gpx`, `.gp`, `.musicxml`, `.mxl`, `.mid`, `.muse`
+  MIDI, GABC (Gregorio chant) and muse's own `.muse`; writing `.gp5`, `.gpx`, `.gp`, `.musicxml`,
+  `.mxl`, `.mid`, `.gabc`, `.muse`
+- Gregorian chant: square notation (neumes, clefs, divisions, custodes, episemata, morae, drop-cap
+  initial) in the GUI and PDF/SVG/PNG, a text staff in the terminal UI, playback, editing (`:gabc`,
+  pitch keys, delete, undo), equalist or Solesmes rhythm, and conversion to and from modern
+  notation (`:modern-to-chant` uses lyrics as syllables)
 - GUI (wgpu/vello): engraved standard notation and tablature in split panes and tabs, with page,
   continuous-vertical and continuous-horizontal layouts, zoom, click-to-place cursor and a
   playback cursor; everything keyboard-driven with the same keymaps as the terminal UI
@@ -38,6 +43,8 @@ cargo run --release -- play song.gp5       # headless playback
 cargo run --release -- convert in.gpx out.musicxml   # convert by output extension
 cargo run --release -- convert song.gp5 song.pdf --track 2 --layout page   # engrave
 cargo run --release -- convert song.gp song.flac     # render MIDI + recording to audio
+cargo run --release -- convert hymn.gp5 hymn.gabc    # melody and lyrics as chant (lossy)
+cargo run --release -- convert chant.gabc chant.pdf  # square notation
 ```
 
 In the UI: `h j k l` move by beat/string, `w b` jump between notes, `{ }` bars, `J K` tracks,

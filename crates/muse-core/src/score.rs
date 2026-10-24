@@ -219,8 +219,11 @@ pub struct Track {
     pub color: Color,
     pub mute: bool,
     pub solo: bool,
-    /// One bar per master bar.
+    /// One bar per master bar. On a chant track these hold the transcription of `chant`.
     pub bars: Vec<Bar>,
+    /// Chant notation (chant tracks only).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub chant: Option<Box<crate::chant::Chant>>,
     pub extras: Extras,
 }
 

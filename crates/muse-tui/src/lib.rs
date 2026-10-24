@@ -1,5 +1,6 @@
 //! Terminal frontend for muse.
 
+mod chantview;
 mod tabview;
 
 use std::time::{Duration, Instant};
@@ -197,17 +198,32 @@ fn draw(
             .filter(|(b, ..)| *b == pane.buffer && app.playing)
             .map(|(_, l, ..)| (l.bar, l.tick));
         let mut scroll = pane.scroll;
-        f.render_widget(
-            TabView {
-                app,
-                pane: id,
-                focused: id == focused,
-                play: play_here,
-                hits,
-                scroll: &mut scroll,
-            },
-            inner,
-        );
+        let chant = app.chant_view && track.is_some_and(|t| t.chant.is_some());
+        if chant {
+            f.render_widget(
+                chantview::ChantView {
+                    app,
+                    pane: id,
+                    focused: id == focused,
+                    play: play_here,
+                    hits,
+                    scroll: &mut scroll,
+                },
+                inner,
+            );
+        } else {
+            f.render_widget(
+                TabView {
+                    app,
+                    pane: id,
+                    focused: id == focused,
+                    play: play_here,
+                    hits,
+                    scroll: &mut scroll,
+                },
+                inner,
+            );
+        }
         if let Some(p) = app.panes.get_mut(&id) {
             p.scroll = scroll;
         }
@@ -224,7 +240,12 @@ fn draw(
 }
 
 fn page_bars(area: Rect, track: &muse_core::Track) -> usize {
-    let rows = (area.height / tabview::system_height(track)).max(1) as usize;
+    let height = if track.chant.is_some() {
+        chantview::system_height()
+    } else {
+        tabview::system_height(track)
+    };
+    let rows = (area.height / height).max(1) as usize;
     rows * 2
 }
 
@@ -497,6 +518,26 @@ mod render_tests {
             }
         }
         println!("{}", render(&mut app, 120, 40));
+    }
+
+    #[test]
+    fn renders_chant_staff_and_syllables() {
+        let chant =
+            muse_formats::gabc::parse("name: t;\n%%\n(c4) Al(fg)le(h.) lu(ixi)ia.(f) (::)\n")
+                .unwrap();
+        let mut app = App::new(muse_app::Config::default(), None);
+        app.buffers[0].score = muse_formats::gabc::chant_score(chant);
+        let screen = render(&mut app, 60, 24);
+        assert!(screen.contains("Al- le lu- ia."), "{screen}");
+        assert!(
+            screen.contains('■') && screen.contains('♭') && screen.contains('‖'),
+            "{screen}"
+        );
+        assert!(screen.contains("C─"), "{screen}");
+        // Square notation off: the transcription shows as a staff track.
+        app.run(muse_app::Command::ChantView);
+        let screen = render(&mut app, 60, 24);
+        assert!(screen.contains("F4"), "{screen}");
     }
 
     #[test]

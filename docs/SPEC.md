@@ -77,7 +77,7 @@ Score
 │              lyrics, stroke/brush, pick stroke, tremolo/whammy bar, slap/pop/tap, fade, octave sign
 │        notes[]: string+fret (fretted) or pitch (staff/chant), velocity, tie, dead, ghost, accent,
 │                 effects (see 4.1)
-├─ chant_blocks[] (for chant tracks; see 4.2)
+│  └─ chant (chant tracks; see 4.2)
 ├─ lyrics, chord library, page setup
 └─ extras: opaque key/value store preserving unsupported source-format fields for round-trip
 ```
@@ -106,6 +106,15 @@ salicus, strophae, horizontal/vertical episema, mora (dot), custos, bar lines (q
 full, double), flats/naturals. Pitch stored as staff position + clef, resolved to MIDI pitch for
 playback/conversion.
 
+As built (M6): a chant track holds `chant` (syllables with their GABC text and items: notes with
+their modifiers kept in written order, spaces, clefs, divisions, alterations, custodes, anything
+else verbatim) and, in its ordinary bars, a transcription of it: one free-time bar per phrase
+between divisions, one eighth-note beat per sounded note (a mora doubles it; the `solesmes`
+reading also lengthens episemata and the note before a quilisma). Do under a C clef is C5. The
+transcription is what plays, exports to modern formats and carries the cursor; edits made to it
+(pitch changes, deletions, insertions) are reconciled back into the chant, adding flats or
+naturals where needed.
+
 ## 5. File formats (`muse-formats`)
 
 | format | read | write | status / notes |
@@ -115,7 +124,7 @@ playback/conversion.
 | GP (GP7/8) | ✔ | ✔ | done (M2); zip with `Content/score.gpif`. Backing track, frame padding and sync points are read and written (M5); an attached external recording is embedded on save |
 | MusicXML (partwise, .musicxml/.mxl) | ✔ | ✔ | done (M2); tuning and string/fret kept for tab; D.S./coda directions and chord diagrams not exported yet |
 | Standard MIDI File | ✔ | ✔ | done (M2); export expands repeats; import quantises to 32nd/triplet grid |
-| GABC (Gregorio) | ✔ | ✔ | M6 |
+| GABC (Gregorio) | ✔ | ✔ | done (M6); checked note-for-note against Gregorio 6.2 on its 480-file test suite and on GregoBase chants; written files re-read identically. NABC (adiastematic) sections are kept verbatim |
 | ASCII tab | — | ✔ | shared with TUI rendering |
 | `.muse` (native) | ✔ | ✔ | done (M2); see 5.1 |
 
@@ -210,7 +219,8 @@ select, drag pane borders, click tabs, scroll/zoom, context menus that invoke th
 - **GUI** (`muse-gui`): full functionality. Score views support three layouts: page, continuous
   horizontal, continuous vertical. Notation uses SMuFL fonts (Bravura, SIL OFL), including the
   plainchant ranges.
-- **TUI** (`muse-tui`): read, play and basic editing of tablature (frets, durations, ties, rests,
+- **TUI** (`muse-tui`): chant tracks show as a text staff with neume marks and syllables; read,
+  play and basic editing of tablature (frets, durations, ties, rests,
   basic techniques) rendered as text tab. Same keymaps, config and commands as the GUI; commands not
   available in the TUI report an error instead of failing silently.
 - **Mobile** (later): the same GUI crate with a touch interaction layer (tap to place cursor, gestures,
@@ -290,7 +300,7 @@ Lua/plugin API, external MIDI output, MIDI input (step entry / recording), adias
 5. **M5 Playalong** (done; the mixer is commands plus the status line rather than a dedicated pane,
    and per-track pan/master volume are not exposed yet): audio loading, waveform/sync pane, manual
    sync + beat assist, stretch/pitch, A–B loop, count-in, mixer, audio export.
-6. **M6 Chant**: chant model, GABC I/O, square-notation engraving, chant↔modern transcription.
+6. **M6 Chant** (done): chant model, GABC I/O, square-notation engraving, chant↔modern transcription.
 7. **M7 Instruments**: drums/percussion, piano grand staff, lyrics.
 8. **M8 Platforms**: Windows/macOS packaging, then Android, then iOS.
 

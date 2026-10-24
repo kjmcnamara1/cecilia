@@ -105,6 +105,18 @@ pub enum Command {
     Volume(String, u32),
     Mute(Option<usize>),
     Solo(Option<usize>),
+    /// Show the cursor syllable as GABC, or replace it (`Glo(fg)`, or just notes `fgh`).
+    Gabc(Option<String>),
+    /// Chant rhythm: "equalist" or "solesmes" (None shows it).
+    Interpretation(Option<String>),
+    /// Initial clef of a chant track (`c4`, `cb3`, `f3`); notes keep their staff positions.
+    ChantClef(String),
+    /// Turn a chant track into an ordinary staff track (its transcription).
+    ChantToModern,
+    /// Open the cursor track's melody as chant in a new buffer.
+    ModernToChant,
+    /// Toggle square notation / modern transcription for chant tracks.
+    ChantView,
     BeatNext,
     BeatPrev,
     StringDown,
@@ -376,6 +388,12 @@ impl Command {
                     pct.trim().parse().map_err(|_| "volume: bad percent")?,
                 )
             }
+            "gabc" => Gabc(arg.map(String::from)),
+            "interpretation" => Interpretation(arg.map(String::from)),
+            "clef" => ChantClef(arg.ok_or("clef: expected c1–c4, f1–f4 or cb3")?.to_string()),
+            "chant-to-modern" => ChantToModern,
+            "modern-to-chant" => ModernToChant,
+            "chant-view" => ChantView,
             "mute" => Mute(arg.and_then(|a| a.parse().ok())),
             "solo" => Solo(arg.and_then(|a| a.parse().ok())),
             _ => return Err(format!("unknown command: {name}")),

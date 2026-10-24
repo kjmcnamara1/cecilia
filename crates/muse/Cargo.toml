@@ -9,6 +9,7 @@ rust-version.workspace = true
 [dependencies]
 muse-core.workspace = true
 muse-formats.workspace = true
+muse-convert.workspace = true
 muse-app.workspace = true
 muse-audio.workspace = true
 muse-tui.workspace = true

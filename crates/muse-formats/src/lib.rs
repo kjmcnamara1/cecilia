@@ -1,6 +1,7 @@
 //! File format import/export for muse.
 
 mod binary;
+pub mod gabc;
 pub mod gp;
 pub mod gp_write;
 pub mod gpif;
@@ -47,6 +48,8 @@ pub enum Format {
     Mxl,
     /// muse's own format.
     Muse,
+    /// Gregorio chant notation.
+    Gabc,
 }
 
 /// Identifies a file's format from its magic bytes, falling back to the extension.
@@ -67,6 +70,9 @@ pub fn detect(bytes: &[u8], path: Option<&Path>) -> Option<Format> {
     if head.contains("<score-partwise") {
         return Some(Format::MusicXml);
     }
+    if gabc::is_gabc(bytes) {
+        return Some(Format::Gabc);
+    }
     let ext = path?.extension()?.to_str()?.to_ascii_lowercase();
     match ext.as_str() {
         "gp3" | "gp4" | "gp5" => Some(Format::GuitarPro3To5),
@@ -76,6 +82,7 @@ pub fn detect(bytes: &[u8], path: Option<&Path>) -> Option<Format> {
         "musicxml" | "xml" => Some(Format::MusicXml),
         "mxl" => Some(Format::Mxl),
         "muse" => Some(Format::Muse),
+        "gabc" => Some(Format::Gabc),
         _ => None,
     }
 }
@@ -90,6 +97,7 @@ pub fn read_bytes(bytes: &[u8], path: Option<&Path>) -> Result<Score> {
         Some(Format::MusicXml) => musicxml::read_musicxml(bytes),
         Some(Format::Mxl) => musicxml::read_mxl(bytes),
         Some(Format::Muse) => native::read_muse(bytes),
+        Some(Format::Gabc) => gabc::read_gabc(bytes),
         None => Err(Error::Unsupported("unrecognised file".into())),
     }
 }
@@ -110,6 +118,7 @@ pub fn write_bytes(score: &Score, extension: &str) -> Result<Vec<u8>> {
         "musicxml" | "xml" => musicxml::write_musicxml(score),
         "mxl" => musicxml::write_mxl(score),
         "muse" => native::write_muse(score),
+        "gabc" => gabc::write_gabc(score),
         other => Err(Error::Unsupported(format!("cannot write .{other} files"))),
     }
 }

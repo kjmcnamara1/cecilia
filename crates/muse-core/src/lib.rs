@@ -4,6 +4,7 @@
 //! quarter note. Every note on a fretted track resolves to a MIDI pitch through its track's
 //! tuning, so tablature and standard notation are two views of the same notes.
 
+pub mod chant;
 mod duration;
 pub mod performance;
 mod score;

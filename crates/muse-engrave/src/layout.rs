@@ -28,6 +28,8 @@ pub struct Options {
     /// Title block above the first system.
     pub header: bool,
     pub margin: f64,
+    /// Show chant tracks in square notation (otherwise as their modern transcription).
+    pub chant: bool,
 }
 
 impl Default for Options {
@@ -42,6 +44,7 @@ impl Default for Options {
             tab: true,
             header: true,
             margin: 40.0,
+            chant: true,
         }
     }
 }
@@ -208,7 +211,12 @@ fn spell(midi: i32, key: i8) -> (i32, i32, i32) {
     ];
     let pc = midi.rem_euclid(12) as usize;
     let octave = midi.div_euclid(12) - 1;
-    let (step, alter) = if key < 0 { FLATS[pc] } else { SHARPS[pc] };
+    // Flat keys use flats; in C, B♭ is far commoner than A♯.
+    let (step, alter) = if key < 0 || (key == 0 && pc == 10) {
+        FLATS[pc]
+    } else {
+        SHARPS[pc]
+    };
     (step, alter, octave)
 }
 
@@ -285,6 +293,9 @@ pub fn engrave(score: &Score, track_index: usize, options: &Options) -> Layout {
     let Some(track) = score.tracks.get(track_index) else {
         return Layout::default();
     };
+    if let Some(chant) = track.chant.as_deref().filter(|_| options.chant) {
+        return crate::chant::engrave_chant(score, track_index, track, chant, options);
+    }
     let sp = options.sp;
     let standard = options.standard || !matches!(track.kind, TrackKind::Fretted);
     let tab = options.tab && track.kind == TrackKind::Fretted && !track.strings.is_empty();
@@ -405,7 +416,7 @@ impl Ctx<'_> {
         if prev.is_some_and(|p| p.key_signature.accidentals != mb.key_signature.accidentals) {
             lead += self.key_width(mb.key_signature.accidentals) + 0.5 * sp;
         }
-        if prev.is_none_or(|p| p.time_signature != mb.time_signature) {
+        if !mb.free_time && prev.is_none_or(|p| p.time_signature != mb.time_signature) {
             lead += 2.5 * sp;
         }
         if mb.repeat_start {
@@ -863,7 +874,7 @@ impl Ctx<'_> {
             self.draw_key(page, mb.key_signature.accidentals, lead_x, std_bottom);
             lead_x += self.key_width(mb.key_signature.accidentals) + 0.5 * sp;
         }
-        if prev.is_none_or(|p| p.time_signature != mb.time_signature) {
+        if !mb.free_time && prev.is_none_or(|p| p.time_signature != mb.time_signature) {
             let ts = mb.time_signature;
             for &(a, b) in &staves {
                 let mid = (a + b) / 2.0;

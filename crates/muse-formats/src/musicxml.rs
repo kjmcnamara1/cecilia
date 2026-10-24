@@ -43,7 +43,7 @@ fn spell(midi: u8, key: i8) -> (&'static str, i32, i32) {
     let pc = midi as usize % 12;
     let octave = midi as i32 / 12 - 1;
     let (step, alter) = STEPS[pc];
-    if alter == 1 && key < 0 {
+    if alter == 1 && (key < 0 || (key == 0 && pc == 10)) {
         const FLAT: [&str; 12] = ["", "D", "", "E", "", "", "G", "", "A", "", "B", ""];
         return (FLAT[pc], -1, octave);
     }
@@ -449,8 +449,14 @@ fn write_part(x: &mut String, score: &Score, ti: usize, t: &Track) {
             let ts = mb.time_signature;
             let _ = write!(
                 attrs,
-                "<time><beats>{}</beats><beat-type>{}</beat-type></time>",
-                ts.numerator, ts.denominator
+                "<time{}><beats>{}</beats><beat-type>{}</beat-type></time>",
+                if mb.free_time {
+                    " print-object=\"no\""
+                } else {
+                    ""
+                },
+                ts.numerator,
+                ts.denominator
             );
         }
         if bi == 0 {
@@ -792,11 +798,16 @@ fn write_beat(
         if k == 0 {
             for (line, syllable) in beat.lyrics.iter().enumerate().take(lyric_lines) {
                 if !syllable.is_empty() {
+                    // A trailing hyphen marks a syllable continued by the next one.
+                    let (text, syllabic) = match syllable.strip_suffix('-') {
+                        Some(t) if !t.is_empty() => (t, "begin"),
+                        _ => (syllable.as_str(), "single"),
+                    };
                     let _ = write!(
                         x,
-                        "<lyric number=\"{}\"><syllabic>single</syllabic><text>{}</text></lyric>",
+                        "<lyric number=\"{}\"><syllabic>{syllabic}</syllabic><text>{}</text></lyric>",
                         line + 1,
-                        esc(syllable)
+                        esc(text)
                     );
                 }
             }
@@ -1005,6 +1016,8 @@ fn read_part(score: &mut Score, part: Node, index: usize, info: PartInfo) {
     // Notes per (staff, voice) per bar.
     let mut bars: Vec<BTreeMap<(u32, u32), Vec<XmlNote>>> = Vec::new();
     let mut ts = TimeSignature::default();
+    // A hidden time signature marks free time (chant transcriptions).
+    let mut free = false;
     let mut ks = KeySignature::default();
     let mut open_ending: Option<u8> = None;
     for (bi, measure) in children(part, "measure").enumerate() {
@@ -1016,6 +1029,7 @@ fn read_part(score: &mut Score, part: Node, index: usize, info: PartInfo) {
         let mut voices: BTreeMap<(u32, u32), Vec<XmlNote>> = BTreeMap::new();
         let mut mb = MasterBar {
             time_signature: ts,
+            free_time: free,
             key_signature: ks,
             ..MasterBar::default()
         };
@@ -1050,6 +1064,8 @@ fn read_part(score: &mut Score, part: Node, index: usize, info: PartInfo) {
                             };
                             mb.time_signature = ts;
                         }
+                        free = t.attribute("print-object") == Some("no");
+                        mb.free_time = free;
                     }
                     if children(el, "clef").any(|c| text(c, "sign") == Some("percussion")) {
                         drums = true;
@@ -1262,9 +1278,13 @@ fn read_part(score: &mut Score, part: Node, index: usize, info: PartInfo) {
                     });
                     let lyrics = children(el, "lyric")
                         .filter_map(|l| {
+                            let mut t = text(l, "text")?.to_string();
+                            if matches!(text(l, "syllabic"), Some("begin" | "middle")) {
+                                t.push('-');
+                            }
                             Some((
                                 num::<usize>(l.attribute("number")).unwrap_or(1).max(1) - 1,
-                                text(l, "text")?.to_string(),
+                                t,
                             ))
                         })
                         .collect();

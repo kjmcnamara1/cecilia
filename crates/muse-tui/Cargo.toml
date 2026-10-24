@@ -12,3 +12,6 @@ muse-app.workspace = true
 muse-audio.workspace = true
 ratatui.workspace = true
 anyhow.workspace = true
+
+[dev-dependencies]
+muse-formats.workspace = true

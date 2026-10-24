@@ -48,6 +48,27 @@ impl<'a> EditCx<'a> {
         self.score
     }
 
+    /// Carries edits of a chant track's transcription back into its chant notation and
+    /// rewrites the transcription from it.
+    pub fn sync_chant(&mut self) {
+        let t = self.cursor.track;
+        let Some(chant) = self.score.tracks.get(t).and_then(|x| x.chant.as_deref()) else {
+            return;
+        };
+        let expected = muse_core::chant::transcribe(chant);
+        if expected.bars == self.score.tracks[t].bars
+            && expected.master_bars == self.score.master_bars
+        {
+            return;
+        }
+        let bars = self.score.tracks[t].bars.clone();
+        let score = self.whole();
+        let mut chant = (**score.tracks[t].chant.as_ref().unwrap()).clone();
+        muse_convert::chant::reconcile(&mut chant, &bars);
+        score.tracks[t].chant = Some(Box::new(chant));
+        muse_core::chant::retranscribe(score, t);
+    }
+
     /// The recorded change, if anything changed.
     pub fn finish(self) -> Option<Change> {
         if let Some(before) = self.snapshot {

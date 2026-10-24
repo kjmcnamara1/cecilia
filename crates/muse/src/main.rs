@@ -43,7 +43,7 @@ enum Cmd {
     Convert {
         input: PathBuf,
         output: PathBuf,
-        /// Track to engrave (1-based) for .pdf/.svg/.png.
+        /// Track to engrave (1-based) for .pdf/.svg/.png, or to turn into chant for .gabc.
         #[arg(long, default_value_t = 1)]
         track: usize,
         /// Engraving layout: page, vertical or horizontal.
@@ -93,6 +93,26 @@ fn main() -> Result<()> {
             }
             if matches!(ext.as_str(), "wav" | "flac") {
                 return export_audio(&score, &input, &output, &ext, &config);
+            }
+            if ext == "gabc" && score.tracks.iter().all(|t| t.chant.is_none()) {
+                let index = track
+                    .saturating_sub(1)
+                    .min(score.tracks.len().saturating_sub(1));
+                let r = muse_convert::chant::modern_to_chant(&score, index)
+                    .map_err(anyhow::Error::msg)?;
+                std::fs::write(
+                    &output,
+                    muse_formats::gabc::write(&r.chant, &score.meta.title),
+                )?;
+                eprintln!(
+                    "wrote {} (chant from track {}; lossy: transposed {:+} semitones, {} notes rounded, {} chords reduced)",
+                    output.display(),
+                    index + 1,
+                    r.transpose,
+                    r.rounded,
+                    r.chords
+                );
+                return Ok(());
             }
             muse_formats::write_file(&score, &output)
                 .with_context(|| format!("writing {}", output.display()))?;

@@ -4,7 +4,7 @@
 
 use std::collections::HashMap;
 
-use crate::{Score, TICKS_PER_QUARTER, TrackKind};
+use crate::{Score, TICKS_PER_QUARTER};
 
 /// One bar occurrence in playback order.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -153,8 +153,7 @@ impl Performance {
                 muted: muted
                     .get(i)
                     .copied()
-                    .unwrap_or(t.mute || (any_solo && !t.solo))
-                    || t.kind == TrackKind::Chant,
+                    .unwrap_or(t.mute || (any_solo && !t.solo)),
             })
             .collect();
 

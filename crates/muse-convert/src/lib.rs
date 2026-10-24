@@ -4,6 +4,8 @@
 //! that keeps the hand near its previous position; the cost-based fingering in the spec
 //! (milestone 4) will replace it.
 
+pub mod chant;
+
 use muse_core::{Note, Track, TrackKind};
 
 /// Highest fret the fingering will use.

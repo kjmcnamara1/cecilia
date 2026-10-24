@@ -121,6 +121,8 @@ pub struct App {
     pub quit: bool,
     /// GUI score layout ("page", "vertical", "horizontal") and zoom.
     pub score_layout: String,
+    /// Chant tracks show square notation (false: their modern transcription).
+    pub chant_view: bool,
     pub zoom: f64,
     pub(crate) ed: crate::editor::EditorState,
     /// Play-along settings.
@@ -182,6 +184,7 @@ impl App {
             effects: Vec::new(),
             quit: false,
             score_layout,
+            chant_view: true,
             zoom,
             ed: Default::default(),
             pa: Default::default(),
@@ -204,7 +207,7 @@ impl App {
         &self.panes[&self.focused()]
     }
 
-    fn pane_mut(&mut self) -> &mut Pane {
+    pub(crate) fn pane_mut(&mut self) -> &mut Pane {
         let id = self.focused();
         self.panes.get_mut(&id).unwrap()
     }
@@ -407,7 +410,7 @@ impl App {
     /// Executes a command.
     pub fn run(&mut self, cmd: Command) {
         use Command::*;
-        if self.run_edit(&cmd) || self.run_playalong(&cmd) {
+        if self.run_edit(&cmd) || self.run_playalong(&cmd) || self.run_chant(&cmd) {
             return;
         }
         match cmd {

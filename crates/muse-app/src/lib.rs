@@ -3,6 +3,7 @@
 //! out the [`Effect`]s it requests.
 
 mod app;
+mod chant;
 pub mod command;
 pub mod config;
 pub mod edit;

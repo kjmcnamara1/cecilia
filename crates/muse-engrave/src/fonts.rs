@@ -77,6 +77,11 @@ impl Fonts {
         size / self.face(kind).units_per_em() as f64
     }
 
+    /// Whether the font has a glyph for a character.
+    pub fn has(&self, kind: FontKind, ch: char) -> bool {
+        self.glyph(kind, ch).is_some()
+    }
+
     /// Advance width of a character at an em size.
     pub fn advance(&self, kind: FontKind, ch: char, size: f64) -> f64 {
         let face = self.face(kind);
@@ -88,7 +93,35 @@ impl Fonts {
     }
 
     pub fn text_width(&self, kind: FontKind, text: &str, size: f64) -> f64 {
-        text.chars().map(|c| self.advance(kind, c, size)).sum()
+        self.display(kind, text)
+            .chars()
+            .map(|c| self.advance(kind, c, size))
+            .sum()
+    }
+
+    /// Text as the font can show it: liturgical signs it lacks are spelled out (℣ → V/) and
+    /// other missing characters dropped.
+    pub fn display<'t>(&self, kind: FontKind, text: &'t str) -> std::borrow::Cow<'t, str> {
+        if text.chars().all(|c| self.has(kind, c) || c.is_whitespace()) {
+            return std::borrow::Cow::Borrowed(text);
+        }
+        let mut out = String::new();
+        for c in text.chars() {
+            if self.has(kind, c) || c.is_whitespace() {
+                out.push(c);
+                continue;
+            }
+            out.push_str(match c {
+                '℣' => "V/",
+                '℟' => "R/",
+                'Ⱥ' => "A/",
+                '✠' => "+",
+                '✱' => "*",
+                '♩' => "q",
+                _ => "",
+            });
+        }
+        std::borrow::Cow::Owned(out)
     }
 
     /// Bounding box of a glyph drawn at the origin (y down).
@@ -156,7 +189,7 @@ impl Fonts {
             Align::Right => x - width,
         };
         let mut out = BezPath::new();
-        for c in text.chars() {
+        for c in self.display(kind, text).chars() {
             if let Some(p) = self.glyph_path(kind, c, pen, y, size) {
                 out.extend(p);
             }

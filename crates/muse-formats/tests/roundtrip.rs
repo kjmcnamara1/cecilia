@@ -565,3 +565,22 @@ fn corpus_survives_native_round_trip_exactly() {
         assert!(original == back, "{}", f.display());
     }
 }
+
+#[test]
+fn corpus_survives_gabc_round_trip() {
+    for f in corpus_files(&["gabc"]) {
+        let original = muse_formats::read_file(&f).unwrap();
+        let bytes = muse_formats::write_bytes(&original, "gabc").unwrap();
+        let back = muse_formats::read_bytes(&bytes, None).unwrap();
+        assert!(original == back, "{}", f.display());
+        // The chant also survives `.muse`, and its transcription is consistent.
+        let native = muse_formats::native::write_muse(&original).unwrap();
+        assert!(muse_formats::read_bytes(&native, None).unwrap() == original);
+        let t = &original.tracks[0];
+        assert_eq!(t.bars.len(), original.master_bars.len(), "{}", f.display());
+        for (mb, bar) in original.master_bars.iter().zip(&t.bars) {
+            let ticks: u32 = bar.voices[0].beats.iter().map(Beat::ticks).sum();
+            assert_eq!(mb.ticks(), ticks, "{}", f.display());
+        }
+    }
+}

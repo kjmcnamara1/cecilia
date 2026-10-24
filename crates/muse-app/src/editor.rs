@@ -353,6 +353,7 @@ impl App {
         }
         let mut cx = EditCx::new(&mut buffer.score, pane.cursor);
         let result = f(&mut cx);
+        cx.sync_chant();
         let mut cursor = cx.cursor;
         if let Some(change) = cx.finish() {
             match self.ed.group {

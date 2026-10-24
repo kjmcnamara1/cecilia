@@ -32,7 +32,7 @@ const BASE_SCALE: f64 = 1.6;
 
 struct Cached {
     /// (buffer, track, layout mode, width bucket, score version)
-    key: (usize, usize, String, i64, u64),
+    key: (usize, usize, String, i64, u64, bool),
     layout: Layout,
     scenes: Vec<Scene>,
     /// Y offset (points) of each page in the pane's scroll space.
@@ -289,6 +289,7 @@ fn draw_pane(
             0
         },
         buffer.version,
+        app.chant_view,
     );
     if views.cache.get(&id).is_none_or(|c| c.key != key) {
         let mode = match mode_name {
@@ -305,6 +306,7 @@ fn draw_pane(
             mode,
             header: mode_name != "horizontal",
             margin: if mode_name == "page" { 40.0 } else { 16.0 },
+            chant: app.chant_view,
             ..Options::default()
         };
         let layout = muse_engrave::engrave(score, pane.cursor.track, &options);

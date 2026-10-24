@@ -112,6 +112,20 @@ Items marked _(M1)_ are implemented in the first milestone; the rest are the pla
 | `:track-add bass` / `:track-delete` / `:new` | tracks and new scores |
 | `:speed 75` | playback speed in percent |
 
+### Chant _(M6)_
+
+On a chant track the cursor moves note by note; `<C-a>`/`<C-x>` move a note up or down (adding a
+flat or natural when needed), `x` deletes it and `u` undoes, as on any track.
+
+| command | |
+| --- | --- |
+| `:gabc` / `:gabc fgh` / `:gabc Glo(fg)ri(h)` | show the cursor syllable as GABC; replace its notes, or the syllable itself |
+| `:interpretation [equalist\|solesmes]` | rhythm used for playback and the modern transcription |
+| `:clef c3` | change the chant clef (`c1`–`c4`, `f1`–`f4`, `cb3` for a flat clef); notes keep their staff positions |
+| `:chant-view` | square notation / modern transcription of chant tracks |
+| `:modern-to-chant` | open the cursor track's melody as chant in a new buffer (syllables from lyrics) |
+| `:chant-to-modern` | turn the chant track into an ordinary staff track |
+
 ### Play-along _(M5)_
 
 | command | |
