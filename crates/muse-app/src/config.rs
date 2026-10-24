@@ -44,6 +44,10 @@ pub struct UiConfig {
     pub tab_width: u8,
     /// Follow the playback position with the cursor.
     pub follow_playback: bool,
+    /// GUI score layout: "page", "vertical" or "horizontal".
+    pub layout: String,
+    /// GUI zoom factor.
+    pub zoom: f64,
 }
 
 impl Default for UiConfig {
@@ -51,6 +55,8 @@ impl Default for UiConfig {
         Self {
             tab_width: 2,
             follow_playback: true,
+            layout: "vertical".into(),
+            zoom: 1.0,
         }
     }
 }
@@ -129,6 +135,11 @@ const DEFAULT_NORMAL: &[(&str, &str)] = &[
     (":", "command-mode"),
     ("ZQ", "quit!"),
     ("<F1>", "help"),
+    ("<leader>v", "layout"),
+    ("<C-=>", "zoom-in"),
+    ("<C-+>", "zoom-in"),
+    ("<C-->", "zoom-out"),
+    ("<C-0>", "zoom-reset"),
 ];
 
 /// Resolved key bindings for one mode.

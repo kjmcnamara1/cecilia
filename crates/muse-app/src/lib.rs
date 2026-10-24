@@ -7,6 +7,7 @@ pub mod command;
 pub mod config;
 pub mod keys;
 pub mod layout;
+pub mod playback;
 
 pub use app::{App, Buffer, Cursor, Effect, Message, Pane, Tab, beat_at_tick, beats, cursor_tick};
 pub use command::Command;

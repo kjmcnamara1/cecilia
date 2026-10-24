@@ -1,0 +1,18 @@
+[package]
+name = "muse-engrave"
+description = "Notation layout engine for muse: score to display list, plus SVG/PNG/PDF output"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+rust-version.workspace = true
+
+[dependencies]
+muse-core.workspace = true
+kurbo = "0.11"
+ttf-parser = "0.25"
+tiny-skia = "0.11"
+pdf-writer = "0.12"
+
+[dev-dependencies]
+muse-formats.workspace = true
+kurbo = "0.11"

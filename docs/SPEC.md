@@ -279,11 +279,11 @@ Lua/plugin API, external MIDI output, MIDI input (step entry / recording), adias
 
 ## 13. Milestones
 
-1. **M1 MVP**: workspace, `muse-core` (fretted subset), GP3/4/5 reader, `muse-app` (modes, keymap,
+1. **M1 MVP** (done): workspace, `muse-core` (fretted subset), GP3/4/5 reader, `muse-app` (modes, keymap,
    config, pane tree), TUI tab reader with vim navigation, MIDI playback with moving cursor, `muse info`.
-2. **M2 Formats**: GP7/8 + GPX read, GP5/GP7 write, MIDI + MusicXML I/O, `.muse`, `muse convert`,
+2. **M2 Formats** (done): GP7/8 + GPX read, GP5/GP7 write, MIDI + MusicXML I/O, `.muse`, `muse convert`,
    round-trip tests.
-3. **M3 GUI viewer**: `muse-engrave` (tab + standard staff, 3 layouts), `muse-gui` panes/tabs/
+3. **M3 GUI viewer** (done): `muse-engrave` (tab + standard staff, 3 layouts), `muse-gui` panes/tabs/
    workspaces, PDF/SVG/PNG export.
 4. **M4 Editing**: Insert/Visual/operators, undo tree, macros, full technique set, linked staff↔tab,
    auto-fingering, retune; TUI basic editing.

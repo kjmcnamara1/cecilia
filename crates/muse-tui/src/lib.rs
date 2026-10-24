@@ -2,13 +2,12 @@
 
 mod tabview;
 
-use std::collections::HashMap;
-use std::sync::Arc;
 use std::time::{Duration, Instant};
 
 use anyhow::Result;
-use muse_app::{App, Effect, Key, KeyCode, Mode};
-use muse_audio::{Location, Player, Sequence, SequenceOptions};
+use muse_app::playback::Playback;
+use muse_app::{App, Key, KeyCode, Mode};
+use muse_audio::Location;
 use ratatui::crossterm::event::{
     self, DisableMouseCapture, EnableMouseCapture, Event, KeyEvent, KeyEventKind, KeyModifiers,
     MouseButton, MouseEventKind,
@@ -22,99 +21,6 @@ use ratatui::{DefaultTerminal, Frame};
 
 use tabview::{Hit, TabView};
 
-struct Playback {
-    player: Option<Player>,
-    sequences: HashMap<usize, Arc<Sequence>>,
-    loaded: Option<usize>,
-}
-
-impl Playback {
-    fn sequence(&mut self, app: &App, buffer: usize) -> Arc<Sequence> {
-        self.sequences
-            .entry(buffer)
-            .or_insert_with(|| {
-                Arc::new(Sequence::build(
-                    &app.buffers[buffer].score,
-                    &SequenceOptions::default(),
-                ))
-            })
-            .clone()
-    }
-
-    fn ensure_player(&mut self, app: &mut App) -> bool {
-        if self.player.is_none() {
-            let soundfont = app
-                .config
-                .file
-                .audio
-                .soundfont
-                .clone()
-                .or_else(muse_app::config::find_system_soundfont);
-            match Player::new(soundfont.as_deref()) {
-                Ok(p) => {
-                    if let Some(w) = &p.warning {
-                        app.error(format!("{w}; using built-in synth"));
-                    }
-                    self.player = Some(p);
-                    self.loaded = None;
-                }
-                Err(e) => {
-                    app.error(e.to_string());
-                    return false;
-                }
-            }
-        }
-        true
-    }
-
-    fn apply(&mut self, app: &mut App, effect: Effect) {
-        match effect {
-            Effect::Play { buffer, bar, tick } | Effect::Stop { buffer, bar, tick } => {
-                let play = matches!(effect, Effect::Play { .. });
-                if !self.ensure_player(app) {
-                    return;
-                }
-                let seq = self.sequence(app, buffer);
-                let player = self.player.as_ref().unwrap();
-                if self.loaded != Some(buffer) {
-                    player.load(seq.clone());
-                    self.loaded = Some(buffer);
-                }
-                player.set_speed(app.config.file.audio.speed);
-                player.seek(seq.time_of(Location { bar, tick }).unwrap_or(0.0));
-                if play {
-                    player.play();
-                    app.playing = true;
-                } else {
-                    player.pause();
-                    app.playing = false;
-                }
-            }
-            Effect::Pause => {
-                if let Some(p) = &self.player {
-                    p.pause();
-                }
-                app.playing = false;
-            }
-            Effect::ConfigReloaded => {
-                // Recreate the player on next use so a changed SoundFont takes effect.
-                if !app.playing {
-                    self.player = None;
-                }
-            }
-        }
-    }
-
-    /// Current playback location for the playing buffer.
-    fn location(&self, app: &App) -> Option<(usize, Location, f64, f64)> {
-        let buffer = app.playing_buffer?;
-        let player = self.player.as_ref()?;
-        let seq = self.sequences.get(&buffer)?;
-        let t = player.position();
-        Some((buffer, seq.location_at(t)?, t, seq.duration))
-    }
-}
-
 /// Runs the TUI until the user quits.
 pub fn run(mut app: App) -> Result<()> {
     let mut terminal = ratatui::try_init()?;
@@ -126,17 +32,11 @@ pub fn run(mut app: App) -> Result<()> {
 }
 
 fn event_loop(terminal: &mut DefaultTerminal, app: &mut App) -> Result<()> {
-    let mut playback = Playback {
-        player: None,
-        sequences: HashMap::new(),
-        loaded: None,
-    };
+    let mut playback = Playback::default();
     let mut hits: Vec<Hit> = Vec::new();
     let mut last_config_check = Instant::now();
     while !app.quit {
-        if let Some(p) = &playback.player {
-            app.playing = p.is_playing();
-        }
+        playback.sync(app);
         let play_loc = playback.location(app);
         if app.playing {
             if let Some((buffer, loc, _, _)) = play_loc {

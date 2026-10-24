@@ -1,0 +1,18 @@
+[package]
+name = "muse-gui"
+description = "Graphical frontend for muse (winit + wgpu + vello)"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+rust-version.workspace = true
+
+[dependencies]
+muse-core.workspace = true
+muse-app.workspace = true
+muse-audio.workspace = true
+muse-engrave.workspace = true
+anyhow.workspace = true
+vello = "0.5"
+winit = "0.30"
+pollster = "0.4"
+tiny-skia = "0.11"

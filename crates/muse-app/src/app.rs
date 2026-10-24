@@ -100,11 +100,15 @@ pub struct App {
     pub page_bars: usize,
     effects: Vec<Effect>,
     pub quit: bool,
+    /// GUI score layout ("page", "vertical", "horizontal") and zoom.
+    pub score_layout: String,
+    pub zoom: f64,
 }
 
 impl App {
     pub fn new(config: Config, config_path: Option<PathBuf>) -> Self {
         let follow = config.file.ui.follow_playback;
+        let (score_layout, zoom) = (config.file.ui.layout.clone(), config.file.ui.zoom);
         let config_mtime = config_path.as_deref().and_then(mtime);
         let mut panes = HashMap::new();
         panes.insert(
@@ -153,6 +157,8 @@ impl App {
             page_bars: 4,
             effects: Vec::new(),
             quit: false,
+            score_layout,
+            zoom,
         }
     }
 
@@ -545,6 +551,20 @@ impl App {
             }
             Normal => self.leave_command_mode(),
             Help => self.show_help = !self.show_help,
+            Layout(name) => {
+                self.score_layout = name.unwrap_or_else(|| {
+                    match self.score_layout.as_str() {
+                        "vertical" => "page",
+                        "page" => "horizontal",
+                        _ => "vertical",
+                    }
+                    .to_string()
+                });
+                self.info(format!("layout: {}", self.score_layout));
+            }
+            ZoomIn => self.zoom = (self.zoom * 1.15).min(6.0),
+            ZoomOut => self.zoom = (self.zoom / 1.15).max(0.2),
+            ZoomReset => self.zoom = self.config.file.ui.zoom,
             Nop => {}
         }
     }

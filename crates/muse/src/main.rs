@@ -13,9 +13,15 @@ use muse_audio::{Player, Sequence, SequenceOptions};
 struct Cli {
     /// Files to open.
     files: Vec<PathBuf>,
-    /// Use the terminal interface (currently the only interface).
+    /// Use the terminal interface instead of the GUI.
     #[arg(long)]
     tui: bool,
+    /// Render one GUI frame to this PNG file and exit (keys from --keys are applied first).
+    #[arg(long, hide = true)]
+    screenshot: Option<PathBuf>,
+    /// Keys to feed before a --screenshot, in key notation (e.g. "J4}<C-w>v").
+    #[arg(long, hide = true)]
+    keys: Option<String>,
     /// Config file (default: $XDG_CONFIG_HOME/muse/config.toml).
     #[arg(long, global = true)]
     config: Option<PathBuf>,
@@ -32,8 +38,21 @@ enum Cmd {
         #[arg(long)]
         json: bool,
     },
-    /// Convert between formats, chosen by the output file's extension.
-    Convert { input: PathBuf, output: PathBuf },
+    /// Convert between formats, chosen by the output file's extension. Engraved output
+    /// (.pdf, .svg, .png) shows one track.
+    Convert {
+        input: PathBuf,
+        output: PathBuf,
+        /// Track to engrave (1-based) for .pdf/.svg/.png.
+        #[arg(long, default_value_t = 1)]
+        track: usize,
+        /// Engraving layout: page, vertical or horizontal.
+        #[arg(long, default_value = "page")]
+        layout: String,
+        /// Pixels per point for .png output.
+        #[arg(long, default_value_t = 2.0)]
+        scale: f64,
+    },
     /// Play a file without the interface.
     Play {
         file: PathBuf,
@@ -56,15 +75,28 @@ fn main() -> Result<()> {
     match cli.command {
         Some(Cmd::Info { file, json }) => info(&file, json),
         Some(Cmd::Play { file, speed }) => play(&file, &config, speed),
-        Some(Cmd::Convert { input, output }) => {
+        Some(Cmd::Convert {
+            input,
+            output,
+            track,
+            layout,
+            scale,
+        }) => {
             let score = load(&input)?;
+            let ext = output
+                .extension()
+                .and_then(|e| e.to_str())
+                .unwrap_or_default()
+                .to_ascii_lowercase();
+            if matches!(ext.as_str(), "pdf" | "svg" | "png") {
+                return export_engraving(&score, &output, &ext, track, &layout, scale);
+            }
             muse_formats::write_file(&score, &output)
                 .with_context(|| format!("writing {}", output.display()))?;
             eprintln!("wrote {}", output.display());
             Ok(())
         }
         None => {
-            let _ = cli.tui; // the GUI arrives in milestone 3; the TUI is the default until then
             let mut app = App::new(config, config_path);
             if !warnings.is_empty() {
                 app.error(warnings.join("; "));
@@ -79,9 +111,90 @@ fn main() -> Result<()> {
             if cli.files.len() > 1 {
                 app.run(Command::TabNext);
             }
-            muse_tui::run(app)
+            if let Some(out) = &cli.screenshot {
+                if let Some(keys) = &cli.keys {
+                    for k in muse_app::keys::parse_keys(keys, &app.config.leader.clone())
+                        .map_err(anyhow::Error::msg)?
+                    {
+                        app.handle_key(k);
+                    }
+                }
+                std::fs::write(out, muse_gui::screenshot(app, 1400, 900)?)?;
+                return Ok(());
+            }
+            let has_display = std::env::var_os("WAYLAND_DISPLAY").is_some()
+                || std::env::var_os("DISPLAY").is_some()
+                || cfg!(not(target_os = "linux"));
+            if cli.tui || !has_display {
+                return muse_tui::run(app);
+            }
+            muse_gui::run(app)
         }
     }
+}
+
+/// Writes engraved notation; multi-page SVG/PNG output gets one file per page (`name-N.ext`).
+fn export_engraving(
+    score: &muse_core::Score,
+    output: &Path,
+    ext: &str,
+    track: usize,
+    layout: &str,
+    scale: f64,
+) -> Result<()> {
+    let index = track.checked_sub(1).filter(|&t| t < score.tracks.len());
+    let Some(index) = index else {
+        bail!(
+            "track {track} does not exist ({} tracks)",
+            score.tracks.len()
+        )
+    };
+    let mode = match layout {
+        "page" => muse_engrave::Mode::Page {
+            width: 595.0,
+            height: 842.0,
+        },
+        "vertical" => muse_engrave::Mode::Vertical { width: 842.0 },
+        "horizontal" => muse_engrave::Mode::Horizontal,
+        other => bail!("unknown layout '{other}' (page, vertical, horizontal)"),
+    };
+    let engraved = muse_engrave::engrave(
+        score,
+        index,
+        &muse_engrave::Options {
+            mode,
+            ..Default::default()
+        },
+    );
+    let pages = &engraved.pages;
+    let path_for = |i: usize| -> PathBuf {
+        if pages.len() == 1 {
+            return output.to_path_buf();
+        }
+        let stem = output.file_stem().unwrap_or_default().to_string_lossy();
+        output.with_file_name(format!("{stem}-{}.{ext}", i + 1))
+    };
+    match ext {
+        "pdf" => std::fs::write(output, muse_engrave::output::to_pdf(pages))?,
+        "svg" => {
+            for (i, p) in pages.iter().enumerate() {
+                std::fs::write(path_for(i), muse_engrave::output::to_svg(p))?;
+            }
+        }
+        _ => {
+            for (i, p) in pages.iter().enumerate() {
+                let png = muse_engrave::output::to_png(p, scale).map_err(anyhow::Error::msg)?;
+                std::fs::write(path_for(i), png)?;
+            }
+        }
+    }
+    eprintln!(
+        "wrote {} ({} page{})",
+        output.display(),
+        pages.len(),
+        if pages.len() == 1 { "" } else { "s" }
+    );
+    Ok(())
 }
 
 fn load(path: &Path) -> Result<muse_core::Score> {

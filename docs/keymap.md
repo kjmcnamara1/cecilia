@@ -32,6 +32,8 @@ Items marked _(M1)_ are implemented in the first milestone; the rest are the pla
 | `<leader>m`               | toggle metronome          |        |
 | `<leader>-` / `<leader>=` | speed −5% / +5%           |        |
 | `<leader>a`               | toggle audio track / MIDI |        |
+| `<leader>v`               | cycle score layout (vertical / page / horizontal) | _(M3)_ |
+| `<C-=>` / `<C-->` / `<C-0>` | zoom in / out / reset (GUI; also Ctrl+wheel) | _(M3)_ |
 
 ### Panes, tabs, buffers
 
@@ -96,3 +98,4 @@ Items marked _(M1)_ are implemented in the first milestone; the rest are the pla
 | `:tempo {percent}`                               | playback speed                 |
 | `:audio {file}` / `:sync`                        | attach audio / enter Sync mode |
 | `:export {file}`                                 | export by extension            |
+| `:layout [page\|vertical\|horizontal]`            | GUI score layout _(M3)_        |

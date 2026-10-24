@@ -3,13 +3,17 @@
 A keyboard-first, open-source editor and player for guitar tablature, standard notation and
 Gregorian chant, with Guitar Pro compatibility and audio play-along. Written in Rust.
 
-**Status:** milestones 1–2 (terminal reader, MIDI playback, file formats). See [docs/SPEC.md](docs/SPEC.md) for the
+**Status:** milestones 1–3 (terminal reader, MIDI playback, file formats, engraving and GUI). See [docs/SPEC.md](docs/SPEC.md) for the
 full specification and roadmap, and [docs/keymap.md](docs/keymap.md) for key bindings.
 
 ## What works now
 
 - Reading Guitar Pro 3–8 (`.gp3`, `.gp4`, `.gp5`, `.gpx`, `.gp`), MusicXML (`.musicxml`, `.mxl`),
   MIDI and muse's own `.muse`; writing `.gp5`, `.gpx`, `.gp`, `.musicxml`, `.mxl`, `.mid`, `.muse`
+- GUI (wgpu/vello): engraved standard notation and tablature in split panes and tabs, with page,
+  continuous-vertical and continuous-horizontal layouts, zoom, click-to-place cursor and a
+  playback cursor; everything keyboard-driven with the same keymaps as the terminal UI
+- PDF, SVG and PNG export of engraved notation
 - Terminal UI: tablature view, vim-style navigation with counts, `:` commands, split panes
   (`<C-w>s` / `<C-w>v`), tabs (`:tabnew`, `gt`), which-key hints, mouse clicks and scrolling
 - MIDI playback with a moving cursor, repeats and tempo changes, through a SoundFont or a built-in
@@ -19,14 +23,17 @@ full specification and roadmap, and [docs/keymap.md](docs/keymap.md) for key bin
 ## Usage
 
 ```sh
-cargo run --release -- song.gp5            # open in the terminal UI
+cargo run --release -- song.gp5            # open in the GUI (terminal UI without a display)
+cargo run --release -- --tui song.gp5      # open in the terminal UI
 cargo run --release -- info song.gp5       # tracks, tunings, tempo, length (--json for the model)
 cargo run --release -- play song.gp5       # headless playback
 cargo run --release -- convert in.gpx out.musicxml   # convert by output extension
+cargo run --release -- convert song.gp5 song.pdf --track 2 --layout page   # engrave
 ```
 
 In the UI: `h j k l` move by beat/string, `w b` jump between notes, `{ }` bars, `J K` tracks,
-`<Space><Space>` play/pause, `<Space>s` stop, `:q` close pane, `<F1>` all bindings.
+`<Space><Space>` play/pause, `<Space>s` stop, `<Space>v` cycle layout, `<C-=>`/`<C-->` zoom,
+`:q` close pane, `<F1>` all bindings.
 
 ## Configuration
 

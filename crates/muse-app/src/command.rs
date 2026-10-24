@@ -59,6 +59,11 @@ pub enum Command {
     CommandMode,
     Normal,
     Help,
+    /// Score view layout: "page", "vertical" or "horizontal"; None cycles.
+    Layout(Option<String>),
+    ZoomIn,
+    ZoomOut,
+    ZoomReset,
     Nop,
 }
 
@@ -133,6 +138,18 @@ impl Command {
             "command-mode" => CommandMode,
             "normal" => Normal,
             "help" | "h" => Help,
+            "layout" => match arg {
+                None => Layout(None),
+                Some(a @ ("page" | "vertical" | "horizontal")) => Layout(Some(a.to_string())),
+                Some(a) => {
+                    return Err(format!(
+                        "layout: unknown layout '{a}' (page, vertical, horizontal)"
+                    ));
+                }
+            },
+            "zoom-in" => ZoomIn,
+            "zoom-out" => ZoomOut,
+            "zoom-reset" => ZoomReset,
             "nop" => Nop,
             _ => return Err(format!("unknown command: {name}")),
         })
