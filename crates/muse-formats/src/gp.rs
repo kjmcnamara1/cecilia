@@ -152,6 +152,9 @@ impl<'a> GpReader<'a> {
             let mut changes = std::mem::take(&mut self.bar_tempos);
             changes.sort_by_key(|c| c.tick);
             changes.dedup_by_key(|c| c.tick);
+            if bar == 0 && changes.first().is_some_and(|c| c.tick == 0) {
+                score.tempo = changes.remove(0).bpm.round() as u32;
+            }
             score.master_bars[bar].tempo_changes = changes;
         }
         Ok(score)
@@ -450,13 +453,10 @@ impl<'a> GpReader<'a> {
     fn read_beat(&mut self, track: &Track, track_index: usize, voice: usize) -> Result<Beat> {
         let flags = self.r.u8()?;
         let mut beat = Beat::default();
-        let mut rest = false;
-        if flags & 0x40 != 0 {
-            match self.r.u8()? {
-                0 => beat.empty = true,
-                2 => rest = true,
-                _ => {}
-            }
+        // Status: 0 = empty, 1 = normal, 2 = rest. Notes on a "rest" beat still sound in Guitar
+        // Pro (and other readers keep them), so only the empty status matters here.
+        if flags & 0x40 != 0 && self.r.u8()? == 0 {
+            beat.empty = true;
         }
         beat.duration = self.read_duration(flags)?;
         let mut shared = NoteEffects::default();
@@ -478,9 +478,6 @@ impl<'a> GpReader<'a> {
                 let note = self.read_note(s as u8, &shared, track_index, voice)?;
                 beat.notes.push(note);
             }
-        }
-        if rest {
-            beat.notes.clear();
         }
         if self.gp5() {
             let flags2 = self.r.i16()?;

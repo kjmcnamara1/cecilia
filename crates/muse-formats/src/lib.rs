@@ -4,6 +4,7 @@ mod binary;
 pub mod gp;
 pub mod gp_write;
 pub mod gpif;
+pub mod gpif_write;
 pub mod gpx;
 
 use std::path::Path;
@@ -74,6 +75,7 @@ pub fn read_file(path: &Path) -> Result<Score> {
 pub fn write_bytes(score: &Score, extension: &str) -> Result<Vec<u8>> {
     match extension.to_ascii_lowercase().as_str() {
         "gp5" => gp_write::write_gp5(score),
+        "gp" => gpif_write::write_gp7(score),
         other => Err(Error::Unsupported(format!("cannot write .{other} files"))),
     }
 }

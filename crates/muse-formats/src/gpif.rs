@@ -49,8 +49,13 @@ fn text<'a>(n: Node<'a, 'a>, name: &str) -> Option<&'a str> {
     child(n, name).and_then(|c| c.text()).map(str::trim)
 }
 
+/// Text content for user-visible strings: keeps spaces, drops layout newlines and tabs.
 fn text_or_empty(n: Node, name: &str) -> String {
-    text(n, name).unwrap_or_default().to_string()
+    child(n, name)
+        .and_then(|c| c.text())
+        .unwrap_or_default()
+        .trim_matches(['\n', '\r', '\t'])
+        .to_string()
 }
 
 fn num<T: std::str::FromStr>(s: Option<&str>) -> Option<T> {
@@ -117,9 +122,10 @@ pub fn read_gpif(xml: &str) -> Result<Score> {
         m.copyright = text_or_empty(s, "Copyright");
         m.tab_author = text_or_empty(s, "Tabber");
         m.instructions = text_or_empty(s, "Instructions");
-        m.notices = text(s, "Notices")
+        m.notices = child(s, "Notices")
+            .and_then(|n| n.text())
             .filter(|n| !n.is_empty())
-            .map(|n| n.lines().map(String::from).collect())
+            .map(|n| n.split('\n').map(String::from).collect())
             .unwrap_or_default();
     }
 
@@ -143,7 +149,7 @@ pub fn read_gpif(xml: &str) -> Result<Score> {
                 .into_iter()
                 .flat_map(|l| l.children().filter(|c| c.has_tag_name("Line")))
                 .filter_map(|l| {
-                    let line = text(l, "Text")?.to_string();
+                    let line = child(l, "Text")?.text()?.to_string();
                     let start_bar = num(text(l, "Offset")).unwrap_or(0);
                     (!line.is_empty()).then_some(LyricLine {
                         start_bar,
@@ -158,8 +164,21 @@ pub fn read_gpif(xml: &str) -> Result<Score> {
                 });
             }
         }
-        score.tracks.push(track);
-        infos.push(info);
+        // Multi-staff tracks (e.g. a piano grand staff) list one bar per staff; until the model
+        // has staves, each extra staff becomes its own track.
+        let staves = staff_count(t);
+        for staff in 1..staves {
+            let mut extra = track.clone();
+            extra.name = format!("{} ({})", track.name.trim(), staff + 1);
+            score.tracks.push(extra);
+            infos.push(TrackInfo {
+                tuning: info.tuning.clone(),
+                articulations: info.articulations.clone(),
+                diagrams: info.diagrams.clone(),
+            });
+        }
+        score.tracks.insert(score.tracks.len() + 1 - staves, track);
+        infos.insert(infos.len() + 1 - staves, info);
     }
 
     for mb_node in child(root, "MasterBars")
@@ -185,6 +204,20 @@ pub fn read_gpif(xml: &str) -> Result<Score> {
     score.anacrusis = path(root, &["MasterTrack", "Anacrusis"]).is_some();
     read_automations(root, &mut score);
     Ok(score)
+}
+
+/// Number of staves of a track: GP7 lists them; GP6 marks grand-staff instruments "-gs".
+fn staff_count(t: Node) -> usize {
+    let listed = path(t, &["Staves"]).map_or(0, |s| {
+        s.children().filter(|c| c.has_tag_name("Staff")).count()
+    });
+    if listed > 0 {
+        return listed;
+    }
+    match child(t, "Instrument").and_then(|i| i.attribute("ref")) {
+        Some(r) if r.ends_with("-gs") => 2,
+        _ => 1,
+    }
 }
 
 fn rhythm(n: Node) -> Duration {
@@ -251,7 +284,10 @@ fn read_track(t: Node) -> (Track, TrackInfo) {
         .get("CapoFret")
         .and_then(|n| num(text(*n, "Fret")))
         .unwrap_or(0);
-    if let Some(n) = p.get("FretCount").and_then(|n| num(text(*n, "Fret"))) {
+    if let Some(n) = p
+        .get("FretCount")
+        .and_then(|n| num(text(*n, "Number").or(text(*n, "Fret"))))
+    {
         track.fret_count = n;
     }
 
@@ -370,16 +406,16 @@ fn read_master_bar(n: Node, previous: Option<&MasterBar>) -> MasterBar {
         }
     }
     if let Some(s) = child(n, "Section") {
-        let title = text(s, "Text")
-            .filter(|t| !t.is_empty())
-            .or(text(s, "Letter"))
-            .unwrap_or_default();
-        if !title.is_empty() {
-            mb.marker = Some(Marker {
-                title: title.to_string(),
-                color: Color { r: 255, g: 0, b: 0 },
-            });
-        }
+        let text = text_or_empty(s, "Text");
+        let title = if text.is_empty() {
+            text_or_empty(s, "Letter")
+        } else {
+            text
+        };
+        mb.marker = Some(Marker {
+            title,
+            color: Color { r: 255, g: 0, b: 0 },
+        });
     }
     if let Some(d) = child(n, "Directions") {
         for c in d.children().filter(|c| c.is_element()) {
@@ -470,20 +506,19 @@ fn read_bar(
     for vid in &voice_ids[..=last_used] {
         let mut voice = Voice::default();
         if let Some(v) = voices.get(vid) {
-            let mut pending_grace: Vec<Note> = Vec::new();
-            let mut grace_duration = DurationValue::ThirtySecond;
-            let mut grace_on_beat = false;
+            // Grace notes with their duration and on-beat flag, waiting for the next beat.
+            let mut pending_grace: Vec<(Note, DurationValue, bool)> = Vec::new();
             for bid in ids(text(*v, "Beats")) {
                 let Some(b) = beats.get(bid) else { continue };
                 let mut beat = read_beat(*b, track, info, notes, rhythms);
                 if let Some(kind) = text(*b, "GraceNotes") {
-                    grace_on_beat = kind == "OnBeat";
-                    grace_duration = beat.duration.value;
-                    pending_grace.extend(beat.notes);
+                    let on_beat = kind == "OnBeat";
+                    let duration = beat.duration.value;
+                    pending_grace.extend(beat.notes.into_iter().map(|n| (n, duration, on_beat)));
                     continue;
                 }
                 if !pending_grace.is_empty() && !beat.notes.is_empty() {
-                    for g in pending_grace.drain(..) {
+                    for (g, grace_duration, grace_on_beat) in pending_grace.drain(..) {
                         let target = beat
                             .notes
                             .iter()
@@ -548,16 +583,21 @@ fn read_beat(
         ..Beat::default()
     };
     let velocity = velocity_of(text(b, "Dynamic"));
+    let tremolo = match text(b, "Tremolo") {
+        Some("1/8") => Some(DurationValue::Eighth),
+        Some("1/16") => Some(DurationValue::Sixteenth),
+        Some("1/32") => Some(DurationValue::ThirtySecond),
+        _ => None,
+    };
     for nid in ids(text(b, "Notes")) {
         if let Some(n) = notes.get(nid) {
-            if let Some(note) = read_note(*n, track, info, velocity, &mut beat.effects) {
+            if let Some(mut note) = read_note(*n, track, info, velocity, &mut beat.effects) {
+                note.effects.tremolo_picking = tremolo;
                 beat.notes.push(note);
             }
         }
     }
-    beat.text = text(b, "FreeText")
-        .filter(|t| !t.is_empty())
-        .map(String::from);
+    beat.text = child(b, "FreeText").map(|_| text_or_empty(b, "FreeText"));
     beat.chord = text(b, "Chord").and_then(|c| info.diagrams.get(c)).cloned();
     beat.lyrics = child(b, "Lyrics")
         .map(|l| {
@@ -880,7 +920,7 @@ fn read_automations(root: Node, score: &mut Score) {
                 let Some(&ticks) = bar_ticks.get(bar) else {
                     continue;
                 };
-                let tick = (position.clamp(0.0, 1.0) * ticks as f64) as u32;
+                let tick = (position.clamp(0.0, 1.0) * ticks as f64).round() as u32;
                 if bar == 0 && tick == 0 {
                     score.tempo = bpm.round().max(1.0) as u32;
                 } else {
