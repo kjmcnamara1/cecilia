@@ -108,31 +108,45 @@ playback/conversion.
 
 ## 5. File formats (`muse-formats`)
 
-| format | read | write | notes |
+| format | read | write | status / notes |
 |---|---|---|---|
-| GP3 / GP4 / GP5 (binary) | ✔ | ✔ | all versions incl. 4.06 and 5.10 |
-| GPX (GP6) | ✔ | ✔ | BCFZ/BCFS container with GPIF XML |
-| GP (GP7/8) | ✔ | ✔ | zip with `Content/score.gpif` |
-| MusicXML (partwise, .musicxml/.mxl) | ✔ | ✔ | |
-| Standard MIDI File | ✔ | ✔ | |
-| GABC (Gregorio) | ✔ | ✔ | |
+| GP3 / GP4 / GP5 (binary) | ✔ | GP5 | done (M1/M2); all versions incl. 4.06 and 5.10. Writing produces GP5 v5.00 |
+| GPX (GP6) | ✔ | ✔ | done (M2); BCFZ/BCFS container with GPIF XML. Writer uses literal-only BCFZ blocks (larger files) |
+| GP (GP7/8) | ✔ | ✔ | done (M2); zip with `Content/score.gpif`. Embedded backing audio is not yet carried over (M5) |
+| MusicXML (partwise, .musicxml/.mxl) | ✔ | ✔ | done (M2); tuning and string/fret kept for tab; D.S./coda directions and chord diagrams not exported yet |
+| Standard MIDI File | ✔ | ✔ | done (M2); export expands repeats; import quantises to 32nd/triplet grid |
+| GABC (Gregorio) | ✔ | ✔ | M6 |
 | ASCII tab | — | ✔ | shared with TUI rendering |
-| `.muse` (native) | ✔ | ✔ | see 5.1 |
+| `.muse` (native) | ✔ | ✔ | done (M2); see 5.1 |
 
 Format detection by magic bytes first, extension second.
-Encoding for GP3–5 strings: cp1252 by default, configurable.
+Encoding for GP3–5 strings: Windows-1252, or UTF-8 when the bytes are valid UTF-8.
+
+Until the model has multiple staves per track (M7), multi-staff parts (e.g. a piano grand staff
+in GPIF or MusicXML) are imported as one track per staff.
+
+**Validation.** Every reader and writer is checked against a local corpus (`test-corpus/`,
+163 Guitar Pro files of all versions):
+- GP3/4/5 → GP5, and every file → GP7, GPX and `.muse`, round-trip through muse's own readers
+  without loss (beyond each format's documented limits);
+- PyGuitarPro and alphaTab read the exported GP5/GP7/GPX files with the same note counts as the
+  originals, and muse's readers agree with alphaTab's note counts on every original;
+- MIDI export/import keeps 99.99% of sounding notes; `mido` reads every exported file;
+- MusicXML export validates against the MusicXML 4.0 XSD and MuseScore 4 opens 157 of 163
+  files (the rest contain incomplete tuplet groups, which MuseScore rejects).
 
 ### 5.1 Native `.muse` format
 
 Zip archive:
 - `manifest.toml`: format version, app version, created/modified.
-- `score.json`: versioned serde serialization of `Score` (migrations by version).
-- `sync.toml`: audio reference + sync points (optional).
+- `score.json`: versioned serde serialization of `Score` (migrations by version), including
+  the audio sync points.
 - `undo.bin`: persisted undo tree (optional).
 - `audio/<file>`: embedded audio (optional; otherwise a relative/absolute path in `sync.toml`).
 
-Opening a non-native file and writing back to it is supported (`:w` exports to the source format,
-warning when information would be lost); `:w file.muse` saves everything.
+`:w file.ext` exports to any writable format (by extension); `:w file.muse` saves everything.
+A plain `:w` writes back to the buffer's own file only when the buffer has been modified, so an
+untouched original (which may contain data muse does not model) is never rewritten.
 
 ## 6. Conversion (`muse-convert`)
 

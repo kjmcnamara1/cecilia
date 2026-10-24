@@ -615,6 +615,7 @@ mod render_tests {
             path: None,
             name: "t.gp5".into(),
             score,
+            modified: false,
         };
         let screen = render(&mut app, 80, 20);
         assert!(screen.contains("Lead"), "{screen}");

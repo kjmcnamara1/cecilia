@@ -7,6 +7,8 @@ pub mod gpif;
 pub mod gpif_write;
 pub mod gpx;
 pub mod midi;
+pub mod musicxml;
+pub mod native;
 
 use std::path::Path;
 
@@ -39,6 +41,12 @@ pub enum Format {
     Gp7,
     /// Standard MIDI File.
     Midi,
+    /// MusicXML, uncompressed.
+    MusicXml,
+    /// MusicXML, compressed (`.mxl`).
+    Mxl,
+    /// muse's own format.
+    Muse,
 }
 
 /// Identifies a file's format from its magic bytes, falling back to the extension.
@@ -49,8 +57,15 @@ pub fn detect(bytes: &[u8], path: Option<&Path>) -> Option<Format> {
     if bytes.starts_with(b"BCFZ") || bytes.starts_with(b"BCFS") {
         return Some(Format::Gpx);
     }
+    if native::is_muse(bytes) {
+        return Some(Format::Muse);
+    }
     if bytes.starts_with(b"MThd") {
         return Some(Format::Midi);
+    }
+    let head = String::from_utf8_lossy(&bytes[..bytes.len().min(1024)]);
+    if head.contains("<score-partwise") {
+        return Some(Format::MusicXml);
     }
     let ext = path?.extension()?.to_str()?.to_ascii_lowercase();
     match ext.as_str() {
@@ -58,6 +73,9 @@ pub fn detect(bytes: &[u8], path: Option<&Path>) -> Option<Format> {
         "gpx" => Some(Format::Gpx),
         "gp" => Some(Format::Gp7),
         "mid" | "midi" => Some(Format::Midi),
+        "musicxml" | "xml" => Some(Format::MusicXml),
+        "mxl" => Some(Format::Mxl),
+        "muse" => Some(Format::Muse),
         _ => None,
     }
 }
@@ -69,6 +87,9 @@ pub fn read_bytes(bytes: &[u8], path: Option<&Path>) -> Result<Score> {
         Some(Format::Gpx) => gpif::read_gpx(bytes),
         Some(Format::Gp7) => gpif::read_gp7(bytes),
         Some(Format::Midi) => midi::read_midi(bytes),
+        Some(Format::MusicXml) => musicxml::read_musicxml(bytes),
+        Some(Format::Mxl) => musicxml::read_mxl(bytes),
+        Some(Format::Muse) => native::read_muse(bytes),
         None => Err(Error::Unsupported("unrecognised file".into())),
     }
 }
@@ -86,6 +107,9 @@ pub fn write_bytes(score: &Score, extension: &str) -> Result<Vec<u8>> {
         "gp" => gpif_write::write_gp7(score),
         "gpx" => gpif_write::write_gpx(score),
         "mid" | "midi" => midi::write_midi(score),
+        "musicxml" | "xml" => musicxml::write_musicxml(score),
+        "mxl" => musicxml::write_mxl(score),
+        "muse" => native::write_muse(score),
         other => Err(Error::Unsupported(format!("cannot write .{other} files"))),
     }
 }

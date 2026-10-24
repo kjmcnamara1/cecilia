@@ -46,6 +46,9 @@ pub enum Command {
     TabNew(Option<PathBuf>),
     TabClose,
     Edit(PathBuf),
+    /// Write the buffer, to its own file or (exporting) to another path.
+    Write(Option<PathBuf>),
+    WriteQuit,
     Quit {
         force: bool,
     },
@@ -120,6 +123,8 @@ impl Command {
             "tabnew" | "tabe" | "tabedit" => TabNew(arg.map(expand_tilde)),
             "tabclose" | "tabc" => TabClose,
             "edit" | "e" => Edit(path()?),
+            "write" | "w" => Write(arg.map(expand_tilde)),
+            "wq" | "x" | "write-quit" => WriteQuit,
             "quit" | "q" => Quit { force: false },
             "quit!" | "q!" => Quit { force: true },
             "quitall" | "qa" => QuitAll { force: false },
@@ -180,6 +185,11 @@ mod tests {
             Ok(Command::Edit("song.gp5".into()))
         );
         assert_eq!(Command::parse("tabnew"), Ok(Command::TabNew(None)));
+        assert_eq!(
+            Command::parse("w out.gp"),
+            Ok(Command::Write(Some("out.gp".into())))
+        );
+        assert_eq!(Command::parse("w"), Ok(Command::Write(None)));
         assert!(Command::parse("e").is_err());
         assert!(Command::parse("frobnicate").is_err());
     }

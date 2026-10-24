@@ -348,7 +348,7 @@ fn quantize(tick: u64) -> u64 {
 }
 
 /// Splits a tick length into note values (longest first), using dots and triplets.
-fn durations_for(mut ticks: u32) -> Vec<Duration> {
+pub(crate) fn durations_for(mut ticks: u32) -> Vec<Duration> {
     let mut out = Vec::new();
     let mut candidates: Vec<Duration> = Vec::new();
     for v in DurationValue::ALL {

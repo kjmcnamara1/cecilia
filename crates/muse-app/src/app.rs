@@ -17,6 +17,8 @@ pub struct Buffer {
     pub path: Option<PathBuf>,
     pub name: String,
     pub score: Score,
+    /// Changed since it was opened or last written.
+    pub modified: bool,
 }
 
 /// A position in a score: track, bar, beat index (voice 1) and string.
@@ -121,6 +123,7 @@ impl App {
                 path: None,
                 name: "[No file]".into(),
                 score: Score::default(),
+                modified: false,
             }],
             panes,
             next_pane: 2,
@@ -221,6 +224,7 @@ impl App {
             path: Some(canonical),
             name,
             score,
+            modified: false,
         };
         if self.buffers.len() == 1 && self.buffers[0].path.is_none() {
             self.buffers[0] = buffer;
@@ -524,6 +528,16 @@ impl App {
                 Ok(b) => self.show_buffer(b),
                 Err(e) => self.error(e),
             },
+            Write(path) => self.write(path),
+            WriteQuit => {
+                if self.buffer().modified {
+                    self.write(None);
+                    if self.message.as_ref().is_some_and(|m| m.error) {
+                        return;
+                    }
+                }
+                self.close_pane();
+            }
             Source => self.reload_config(),
             CommandMode => {
                 self.mode = Mode::Command;
@@ -532,6 +546,35 @@ impl App {
             Normal => self.leave_command_mode(),
             Help => self.show_help = !self.show_help,
             Nop => {}
+        }
+    }
+
+    /// Writes the focused buffer. Without a path it writes back to the buffer's file, but only
+    /// when there are changes, so opening and saving never rewrites an untouched original.
+    fn write(&mut self, path: Option<PathBuf>) {
+        let index = self.pane().buffer;
+        let buffer = &self.buffers[index];
+        let target = match path {
+            Some(p) => p,
+            None => {
+                let Some(p) = buffer.path.clone() else {
+                    return self.error("no file name (use :w <file>)");
+                };
+                if !buffer.modified {
+                    return self.info("no changes to write");
+                }
+                p
+            }
+        };
+        match muse_formats::write_file(&buffer.score, &target) {
+            Ok(()) => {
+                let size = std::fs::metadata(&target).map(|m| m.len()).unwrap_or(0);
+                if buffer.path.as_deref() == Some(target.as_path()) {
+                    self.buffers[index].modified = false;
+                }
+                self.info(format!("\"{}\" written, {size} bytes", target.display()));
+            }
+            Err(e) => self.error(format!("{}: {e}", target.display())),
         }
     }
 
@@ -749,6 +792,7 @@ mod tests {
             path: None,
             name: "test".into(),
             score,
+            modified: false,
         };
         app
     }
@@ -802,6 +846,22 @@ mod tests {
         assert!(app.message.as_ref().is_some_and(|m| m.error));
         keys(&mut app, ":qa<CR>");
         assert!(app.quit);
+    }
+
+    #[test]
+    fn write_exports_and_protects_untouched_originals() {
+        let dir = std::env::temp_dir().join(format!("muse-test-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let mut app = test_app();
+        let out = dir.join("out.gp5");
+        app.run(Command::Write(Some(out.clone())));
+        assert!(out.exists(), "{:?}", app.message);
+        app.buffers[0].path = Some(out.clone());
+        app.run(Command::Write(None));
+        assert_eq!(app.message.as_ref().unwrap().text, "no changes to write");
+        app.run(Command::Write(Some(dir.join("out.unknown"))));
+        assert!(app.message.as_ref().unwrap().error);
+        std::fs::remove_dir_all(&dir).unwrap();
     }
 
     #[test]

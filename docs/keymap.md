@@ -86,7 +86,7 @@ Items marked _(M1)_ are implemented in the first milestone; the rest are the pla
 
 | command                                          |                                |
 | ------------------------------------------------ | ------------------------------ |
-| `:e {file}` / `:w [file]` / `:q` / `:wq` / `:q!` | _(M1: `:e`, `:q`, `:q!`)_      |
+| `:e {file}` / `:w [file]` / `:q` / `:wq` / `:q!` | _(M2)_ `:w file.ext` exports by extension |
 | `:tabnew [file]` / `:tabclose`                   | _(M1)_                         |
 | `:split` / `:vsplit`                             | _(M1)_                         |
 | `:track {n}`                                     | _(M1)_                         |

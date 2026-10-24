@@ -3,12 +3,13 @@
 A keyboard-first, open-source editor and player for guitar tablature, standard notation and
 Gregorian chant, with Guitar Pro compatibility and audio play-along. Written in Rust.
 
-**Status:** milestone 1 (terminal reader + MIDI playback). See [docs/SPEC.md](docs/SPEC.md) for the
+**Status:** milestones 1–2 (terminal reader, MIDI playback, file formats). See [docs/SPEC.md](docs/SPEC.md) for the
 full specification and roadmap, and [docs/keymap.md](docs/keymap.md) for key bindings.
 
 ## What works now
 
-- Reading Guitar Pro 3, 4 and 5 files (`.gp3`, `.gp4`, `.gp5`)
+- Reading Guitar Pro 3–8 (`.gp3`, `.gp4`, `.gp5`, `.gpx`, `.gp`), MusicXML (`.musicxml`, `.mxl`),
+  MIDI and muse's own `.muse`; writing `.gp5`, `.gpx`, `.gp`, `.musicxml`, `.mxl`, `.mid`, `.muse`
 - Terminal UI: tablature view, vim-style navigation with counts, `:` commands, split panes
   (`<C-w>s` / `<C-w>v`), tabs (`:tabnew`, `gt`), which-key hints, mouse clicks and scrolling
 - MIDI playback with a moving cursor, repeats and tempo changes, through a SoundFont or a built-in
@@ -21,6 +22,7 @@ full specification and roadmap, and [docs/keymap.md](docs/keymap.md) for key bin
 cargo run --release -- song.gp5            # open in the terminal UI
 cargo run --release -- info song.gp5       # tracks, tunings, tempo, length (--json for the model)
 cargo run --release -- play song.gp5       # headless playback
+cargo run --release -- convert in.gpx out.musicxml   # convert by output extension
 ```
 
 In the UI: `h j k l` move by beat/string, `w b` jump between notes, `{ }` bars, `J K` tracks,

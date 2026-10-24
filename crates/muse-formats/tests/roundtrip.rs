@@ -417,3 +417,151 @@ fn corpus_survives_midi_round_trip() {
         failures.join("\n")
     );
 }
+
+/// What MusicXML keeps of a bar: per voice, each beat's onset, length and notes.
+type MxlBar = Vec<Vec<(u32, u32, Vec<(u8, u8, bool, bool)>)>>;
+
+fn mxl_view(s: &Score) -> Vec<Vec<MxlBar>> {
+    s.tracks
+        .iter()
+        .map(|t| {
+            t.bars
+                .iter()
+                .zip(&s.master_bars)
+                .map(|(bar, mb)| {
+                    bar.voices
+                        .iter()
+                        .map(|v| {
+                            let mut out = Vec::new();
+                            let mut tick = 0;
+                            for b in &v.beats {
+                                if b.empty {
+                                    continue;
+                                }
+                                // Notes past the bar line are trimmed on export.
+                                if !b.notes.is_empty() && tick < mb.ticks() {
+                                    let len = b.ticks().min(mb.ticks() - tick);
+                                    let mut notes: Vec<_> = b
+                                        .notes
+                                        .iter()
+                                        .map(|n| match t.kind {
+                                            TrackKind::Drums => (0, n.fret, n.tie, n.dead),
+                                            _ => (n.string, n.fret, n.tie, n.dead),
+                                        })
+                                        .collect();
+                                    notes.sort();
+                                    notes.dedup();
+                                    out.push((tick, len, notes));
+                                }
+                                tick += b.ticks();
+                            }
+                            out
+                        })
+                        .filter(|v| !v.is_empty())
+                        .collect()
+                })
+                .collect()
+        })
+        .collect()
+}
+
+#[test]
+fn corpus_survives_musicxml_round_trip() {
+    let mut failures = Vec::new();
+    for f in corpus_files(&["gp3", "gp4", "gp5", "gpx", "gp"]) {
+        let original = muse_formats::read_file(&f).unwrap();
+        let bytes = muse_formats::musicxml::write_musicxml(&original).unwrap();
+        let back = match muse_formats::musicxml::read_musicxml(&bytes) {
+            Ok(s) => s,
+            Err(e) => {
+                failures.push(format!("{}: {e}", f.display()));
+                continue;
+            }
+        };
+        let structure = |s: &Score| -> Vec<_> {
+            s.master_bars
+                .iter()
+                .map(|m| {
+                    (
+                        m.time_signature,
+                        m.key_signature,
+                        m.repeat_start,
+                        m.repeat_end,
+                        m.alternate_endings,
+                        m.marker.as_ref().map(|x| x.title.clone()),
+                    )
+                })
+                .collect()
+        };
+        let tracks = |s: &Score| -> Vec<_> {
+            s.tracks
+                .iter()
+                .map(|t| {
+                    (
+                        t.name.clone(),
+                        t.kind,
+                        t.strings.clone(),
+                        t.capo,
+                        t.midi.program,
+                    )
+                })
+                .collect()
+        };
+        if structure(&original) != structure(&back) {
+            let (x, y) = (structure(&original), structure(&back));
+            let i = x
+                .iter()
+                .zip(&y)
+                .position(|(a, b)| a != b)
+                .unwrap_or(x.len().min(y.len()));
+            failures.push(format!(
+                "{}: bar {i} differs: {:?} vs {:?} ({} vs {} bars)",
+                f.display(),
+                x.get(i),
+                y.get(i),
+                x.len(),
+                y.len()
+            ));
+        } else if tracks(&original) != tracks(&back) {
+            failures.push(format!(
+                "{}: tracks differ: {:?} vs {:?}",
+                f.display(),
+                tracks(&original),
+                tracks(&back)
+            ));
+        } else if (original.meta.title.as_str(), original.tempo)
+            != (back.meta.title.as_str(), back.tempo)
+        {
+            failures.push(format!("{}: title/tempo differ", f.display()));
+        } else {
+            let (a, b) = (mxl_view(&original), mxl_view(&back));
+            'outer: for (ti, (x, y)) in a.iter().zip(&b).enumerate() {
+                for (bi, (p, q)) in x.iter().zip(y).enumerate() {
+                    if p != q {
+                        failures.push(format!(
+                            "{}: track {ti} bar {bi}:\n  {p:?}\n  {q:?}",
+                            f.display()
+                        ));
+                        break 'outer;
+                    }
+                }
+            }
+        }
+    }
+    assert!(
+        failures.is_empty(),
+        "{} failures:\n{}",
+        failures.len(),
+        failures.join("\n")
+    );
+}
+
+#[test]
+fn corpus_survives_native_round_trip_exactly() {
+    for f in corpus_files(&["gp3", "gp4", "gp5", "gpx", "gp"]) {
+        let original = muse_formats::read_file(&f).unwrap();
+        let bytes = muse_formats::native::write_muse(&original).unwrap();
+        let back = muse_formats::read_bytes(&bytes, None).unwrap();
+        assert!(original == back, "{}", f.display());
+    }
+}
