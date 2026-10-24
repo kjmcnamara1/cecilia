@@ -51,6 +51,40 @@ impl Change {
     }
 }
 
+/// One change equivalent to applying `a` then `b`.
+fn merge(a: Change, b: Change) -> Change {
+    match (a, b) {
+        (Change::Bars(mut a), Change::Bars(b)) => {
+            for c in b {
+                match a.iter_mut().find(|x| x.track == c.track && x.bar == c.bar) {
+                    Some(x) => x.after = c.after,
+                    None => a.push(c),
+                }
+            }
+            Change::Bars(a)
+        }
+        (a @ Change::Bars(_), Change::Score { before, after }) => {
+            let mut original = *before;
+            a.apply(&mut original, false);
+            Change::Score {
+                before: Box::new(original),
+                after,
+            }
+        }
+        (Change::Score { before, after }, b @ Change::Bars(_)) => {
+            let mut end = *after;
+            b.apply(&mut end, true);
+            Change::Score {
+                before,
+                after: Box::new(end),
+            }
+        }
+        (Change::Score { before, .. }, Change::Score { after, .. }) => {
+            Change::Score { before, after }
+        }
+    }
+}
+
 #[derive(Debug, Clone)]
 struct Node {
     parent: Option<usize>,
@@ -102,6 +136,18 @@ impl History {
         });
         self.nodes[self.current].children.push(id);
         self.current = id;
+    }
+
+    /// Folds a change into the current node (one undo step for a whole insert session).
+    pub fn amend(&mut self, change: Change, cursor_after: Cursor) {
+        let node = &mut self.nodes[self.current];
+        let Some(old) = node.change.take() else {
+            // Nothing to amend at the root: record normally.
+            let before = node.cursor_after;
+            return self.push(change, before, cursor_after);
+        };
+        node.change = Some(merge(old, change));
+        node.cursor_after = cursor_after;
     }
 
     pub fn current_seq(&self) -> u64 {

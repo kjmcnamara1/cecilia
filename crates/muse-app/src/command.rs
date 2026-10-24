@@ -10,8 +10,74 @@ pub enum Direction {
     Right,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq)]
+/// Operators that act on a motion or selection.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Operator {
+    Delete,
+    Yank,
+    Change,
+}
+
+#[derive(Debug, Clone, PartialEq)]
 pub enum Command {
+    // Editing
+    Insert,
+    Append,
+    DeleteNote,
+    Operator(Operator),
+    Put {
+        before: bool,
+    },
+    Undo,
+    Redo,
+    UndoOlder,
+    UndoNewer,
+    Repeat,
+    RecordMacro,
+    PlayMacro,
+    Register,
+    Visual {
+        bars: bool,
+    },
+    BarInsert {
+        after: bool,
+    },
+    BarDelete,
+    DurationLonger,
+    DurationShorter,
+    /// Note value by denominator (1 = whole ... 64).
+    Duration(u32),
+    Dot,
+    Tuplet(u8),
+    PitchUp,
+    PitchDown,
+    OctaveUp,
+    OctaveDown,
+    Rest,
+    Toggle(String),
+    /// Insert mode: next beat, appending one at the end of the bar.
+    InsertNext,
+    /// Insert a new beat after the cursor.
+    BeatNew,
+    /// Set the cursor note's pitch ("C#4" or a MIDI number).
+    Note(String),
+    Time(u8, u8),
+    Key(i8),
+    Tempo(u32),
+    RepeatStart,
+    RepeatEnd(Option<u8>),
+    Section(Option<String>),
+    Text(Option<String>),
+    Tuning(String),
+    Capo(u8),
+    Refinger,
+    Transpose(i32),
+    TrackAdd(String),
+    TrackDelete,
+    New,
+    Voice(usize),
+    /// Playback speed in percent.
+    Speed(u32),
     BeatNext,
     BeatPrev,
     StringDown,
@@ -151,6 +217,85 @@ impl Command {
             "zoom-out" => ZoomOut,
             "zoom-reset" => ZoomReset,
             "nop" => Nop,
+            "insert" => Insert,
+            "append" => Append,
+            "delete-note" => DeleteNote,
+            "delete" => Operator(self::Operator::Delete),
+            "yank" => Operator(self::Operator::Yank),
+            "change" => Operator(self::Operator::Change),
+            "put" => Put { before: false },
+            "put-before" => Put { before: true },
+            "undo" | "u" => Undo,
+            "redo" | "red" => Redo,
+            "undo-older" | "earlier" => UndoOlder,
+            "undo-newer" | "later" => UndoNewer,
+            "repeat" => Repeat,
+            "record-macro" => RecordMacro,
+            "play-macro" => PlayMacro,
+            "register" => Register,
+            "visual" => Visual { bars: false },
+            "visual-bar" => Visual { bars: true },
+            "bar-insert-after" => BarInsert { after: true },
+            "bar-insert-before" => BarInsert { after: false },
+            "bar-delete" => BarDelete,
+            "duration-longer" => DurationLonger,
+            "duration-shorter" => DurationShorter,
+            "duration" => {
+                let n = number("note value")?;
+                if ![1, 2, 4, 8, 16, 32, 64, 128].contains(&n) {
+                    return Err(format!("duration: {n} is not 1, 2, 4 ... 128"));
+                }
+                Duration(n as u32)
+            }
+            "dot" => Dot,
+            "tuplet" => Tuplet(arg.and_then(|a| a.parse().ok()).unwrap_or(3)),
+            "pitch-up" => PitchUp,
+            "pitch-down" => PitchDown,
+            "octave-up" => OctaveUp,
+            "octave-down" => OctaveDown,
+            "rest" => Rest,
+            "toggle" => Toggle(arg.ok_or("toggle: missing technique")?.to_string()),
+            "insert-next" => InsertNext,
+            "beat-new" => BeatNew,
+            "note" => Note(arg.ok_or("note: missing pitch (e.g. C#4)")?.to_string()),
+            "time" => {
+                let a = arg.ok_or("time: missing signature (e.g. 3/4)")?;
+                let (n, d) = a.split_once('/').ok_or("time: expected N/D")?;
+                let (n, d) = (
+                    n.trim().parse::<u8>().map_err(|_| "time: bad numerator")?,
+                    d.trim()
+                        .parse::<u8>()
+                        .map_err(|_| "time: bad denominator")?,
+                );
+                if n == 0 || ![1, 2, 4, 8, 16, 32].contains(&d) {
+                    return Err("time: invalid signature".into());
+                }
+                Time(n, d)
+            }
+            "key" => Key(arg
+                .and_then(|a| a.parse().ok())
+                .filter(|k: &i8| (-7..=7).contains(k))
+                .ok_or("key: expected sharps (1..7) or flats (-1..-7)")?),
+            "tempo" => Tempo(number("tempo")? as u32),
+            "repeat-start" => RepeatStart,
+            "repeat-end" => RepeatEnd(arg.and_then(|a| a.parse().ok())),
+            "section" => Section(arg.map(String::from)),
+            "text" => Text(arg.map(String::from)),
+            "tuning" => Tuning(
+                arg.ok_or("tuning: missing tuning (e.g. drop-d or 'D A D G B E')")?
+                    .to_string(),
+            ),
+            "capo" => Capo(number("fret")? as u8),
+            "refinger" => Refinger,
+            "transpose" => Transpose(
+                arg.and_then(|a| a.parse().ok())
+                    .ok_or("transpose: expected semitones")?,
+            ),
+            "track-add" => TrackAdd(arg.unwrap_or("guitar").to_string()),
+            "track-delete" => TrackDelete,
+            "new" | "enew" => New,
+            "voice" => Voice(number("voice")?),
+            "speed" => Speed(number("percent")? as u32),
             _ => return Err(format!("unknown command: {name}")),
         })
     }
@@ -174,6 +319,39 @@ impl Command {
                 | PageUp
                 | TabNext
                 | TabPrev
+                | PitchUp
+                | PitchDown
+                | DurationLonger
+                | DurationShorter
+                | InsertNext
+                | DeleteNote
+        )
+    }
+
+    /// Whether the command changes the score (and can be repeated with `.`).
+    pub fn is_change(&self) -> bool {
+        use Command::*;
+        matches!(
+            self,
+            Insert
+                | Append
+                | DeleteNote
+                | Operator(_)
+                | Put { .. }
+                | BarInsert { .. }
+                | BarDelete
+                | DurationLonger
+                | DurationShorter
+                | Duration(_)
+                | Dot
+                | Tuplet(_)
+                | PitchUp
+                | PitchDown
+                | OctaveUp
+                | OctaveDown
+                | Rest
+                | Toggle(_)
+                | Note(_)
         )
     }
 }

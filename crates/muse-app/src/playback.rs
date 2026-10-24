@@ -84,6 +84,14 @@ impl Playback {
                 }
                 app.playing = false;
             }
+            Effect::ScoreChanged { buffer } => {
+                // Rebuild the sequence on next play; keep playing the old one meanwhile.
+                // The player keeps the old sequence until the next play reloads it.
+                self.sequences.remove(&buffer);
+                if self.loaded == Some(buffer) {
+                    self.loaded = None;
+                }
+            }
             Effect::ConfigReloaded => {
                 // Recreate the player on next use so a changed SoundFont takes effect.
                 if !app.playing {

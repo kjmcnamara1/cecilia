@@ -19,6 +19,9 @@ pub struct Buffer {
     pub score: Score,
     /// Changed since it was opened or last written.
     pub modified: bool,
+    pub history: crate::history::History,
+    /// Incremented on every change, so views know to re-layout.
+    pub version: u64,
 }
 
 /// A position in a score: track, bar, beat index (voice 1) and string.
@@ -70,6 +73,10 @@ pub enum Effect {
     },
     /// The configuration changed (e.g. a new SoundFont).
     ConfigReloaded,
+    /// A buffer's score was edited.
+    ScoreChanged {
+        buffer: usize,
+    },
 }
 
 pub struct App {
@@ -100,11 +107,12 @@ pub struct App {
     pub viewport: Rect,
     /// Bars moved by page-down/up, set by the frontend.
     pub page_bars: usize,
-    effects: Vec<Effect>,
+    pub(crate) effects: Vec<Effect>,
     pub quit: bool,
     /// GUI score layout ("page", "vertical", "horizontal") and zoom.
     pub score_layout: String,
     pub zoom: f64,
+    pub(crate) ed: crate::editor::EditorState,
 }
 
 impl App {
@@ -130,6 +138,8 @@ impl App {
                 name: "[No file]".into(),
                 score: Score::default(),
                 modified: false,
+                history: Default::default(),
+                version: 0,
             }],
             panes,
             next_pane: 2,
@@ -161,6 +171,7 @@ impl App {
             quit: false,
             score_layout,
             zoom,
+            ed: Default::default(),
         }
     }
 
@@ -233,6 +244,8 @@ impl App {
             name,
             score,
             modified: false,
+            history: Default::default(),
+            version: 0,
         };
         if self.buffers.len() == 1 && self.buffers[0].path.is_none() {
             self.buffers[0] = buffer;
@@ -301,50 +314,10 @@ impl App {
     // ---- keys ----
 
     pub fn handle_key(&mut self, key: Key) {
-        match self.mode {
-            Mode::Command => self.handle_command_key(key),
-            Mode::Normal => self.handle_normal_key(key),
-        }
+        self.dispatch_key(key);
     }
 
-    fn handle_normal_key(&mut self, key: Key) {
-        let close_help = self.show_help && self.pending.is_empty() && key.as_char() == Some('q');
-        if key.code == KeyCode::Esc || close_help {
-            self.show_help = false;
-            self.pending.clear();
-            self.count = None;
-            return;
-        }
-        if self.pending.is_empty() {
-            if let Some(d) = key.as_char().and_then(|c| c.to_digit(10)) {
-                if d != 0 || self.count.is_some() {
-                    self.count = Some(
-                        self.count
-                            .unwrap_or(0)
-                            .saturating_mul(10)
-                            .saturating_add(d as usize),
-                    );
-                    return;
-                }
-            }
-        }
-        self.pending.push(key);
-        let lookup = match self.config.keymap(Mode::Normal).lookup(&self.pending) {
-            Lookup::Exact(cmds) => Some(cmds.to_vec()),
-            Lookup::Prefix => return,
-            Lookup::None => None,
-        };
-        self.pending.clear();
-        let count = self.count.take();
-        if let Some(cmds) = lookup {
-            self.message = None;
-            for cmd in cmds {
-                self.run_counted(cmd, count);
-            }
-        }
-    }
-
-    fn handle_command_key(&mut self, key: Key) {
+    pub(crate) fn handle_command_key(&mut self, key: Key) {
         let bound = match self.config.keymap(Mode::Command).lookup(&[key]) {
             Lookup::Exact(cmds) => Some(cmds.to_vec()),
             _ => None,
@@ -397,7 +370,7 @@ impl App {
         self.history_pos = None;
     }
 
-    fn run_counted(&mut self, cmd: Command, count: Option<usize>) {
+    pub(crate) fn run_counted(&mut self, cmd: Command, count: Option<usize>) {
         match (&cmd, count) {
             (Command::GotoFirst | Command::GotoLast, Some(n)) => self.run(Command::GotoBar(n)),
             (c, Some(n)) if c.repeatable() => {
@@ -412,6 +385,9 @@ impl App {
     /// Executes a command.
     pub fn run(&mut self, cmd: Command) {
         use Command::*;
+        if self.run_edit(&cmd) {
+            return;
+        }
         match cmd {
             BeatNext => self.move_cursor(|s, c| {
                 step_beat(s, c, true);
@@ -551,7 +527,10 @@ impl App {
                 self.mode = Mode::Command;
                 self.cmdline.clear();
             }
-            Normal => self.leave_command_mode(),
+            Normal => {
+                self.leave_command_mode();
+                self.ed.visual_anchor = None;
+            }
             Help => self.show_help = !self.show_help,
             Layout(name) => {
                 self.score_layout = name.unwrap_or_else(|| {
@@ -568,6 +547,7 @@ impl App {
             ZoomOut => self.zoom = (self.zoom / 1.15).max(0.2),
             ZoomReset => self.zoom = self.config.file.ui.zoom,
             Nop => {}
+            _ => {}
         }
     }
 
@@ -726,7 +706,7 @@ pub fn beat_at_tick(score: &Score, track: usize, bar: usize, tick: u32) -> usize
     beats(score, &c).len().saturating_sub(1)
 }
 
-fn clamp_cursor(score: &Score, c: &mut Cursor) {
+pub(crate) fn clamp_cursor(score: &Score, c: &mut Cursor) {
     c.track = c.track.min(score.tracks.len().saturating_sub(1));
     c.bar = c.bar.min(score.master_bars.len().saturating_sub(1));
     c.beat = c.beat.min(beats(score, c).len().saturating_sub(1));
@@ -816,6 +796,8 @@ mod tests {
             name: "test".into(),
             score,
             modified: false,
+            history: Default::default(),
+            version: 0,
         };
         app
     }

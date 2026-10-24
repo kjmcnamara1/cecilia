@@ -28,7 +28,8 @@ const UI_FONT: f64 = 14.0;
 const BASE_SCALE: f64 = 1.6;
 
 struct Cached {
-    key: (usize, usize, String, i64),
+    /// (buffer, track, layout mode, width bucket, score version)
+    key: (usize, usize, String, i64, u64),
     layout: Layout,
     scenes: Vec<Scene>,
     /// Y offset (points) of each page in the pane's scroll space.
@@ -267,6 +268,7 @@ fn draw_pane(
         } else {
             0
         },
+        buffer.version,
     );
     if views.cache.get(&id).is_none_or(|c| c.key != key) {
         let mode = match mode_name {
@@ -310,7 +312,7 @@ fn draw_pane(
     let cursor_ref = BeatRef {
         track: pane.cursor.track,
         bar: pane.cursor.bar,
-        voice: 0,
+        voice: pane.cursor.voice,
         beat: pane.cursor.beat,
     };
     let mut scroll = views.scroll.get(&id).copied().unwrap_or((0.0, 0.0));
@@ -391,6 +393,34 @@ fn draw_pane(
         }
         let _ = pb;
     }
+    // Visual selection.
+    if let Some((anchor, cursor, bars)) = app.selection().filter(|_| focused) {
+        let (a, b) = if (anchor.bar, anchor.beat) <= (cursor.bar, cursor.beat) {
+            (anchor, cursor)
+        } else {
+            (cursor, anchor)
+        };
+        for (r, pos) in &cached.layout.beats {
+            if r.track != pane.cursor.track || r.voice != pane.cursor.voice {
+                continue;
+            }
+            let inside = if bars {
+                (a.bar..=b.bar).contains(&r.bar)
+            } else {
+                (a.bar, a.beat) <= (r.bar, r.beat) && (r.bar, r.beat) <= (b.bar, b.beat)
+            };
+            if inside {
+                let rect = Rect::new(pos.x, pos.top, pos.x + pos.width, pos.bottom);
+                scene.fill(
+                    Fill::NonZero,
+                    to_screen(pos.page),
+                    Color::from_rgba8(150, 90, 220, 55),
+                    None,
+                    &rect,
+                );
+            }
+        }
+    }
     // Cursor.
     if let Some(pos) = cached.layout.beats.get(&cursor_ref) {
         let alpha = if focused { 60 } else { 30 };
@@ -439,6 +469,8 @@ fn draw_status(
     let (label, color) = match app.mode {
         Mode::Normal => (" NORMAL ", Color::from_rgba8(90, 150, 230, 255)),
         Mode::Command => (" COMMAND ", Color::from_rgba8(100, 190, 120, 255)),
+        Mode::Insert => (" INSERT ", Color::from_rgba8(240, 180, 60, 255)),
+        Mode::Visual => (" VISUAL ", Color::from_rgba8(190, 120, 220, 255)),
     };
     let w = muse_engrave::fonts::fonts().text_width(FontKind::Bold, label, 13.0) + 8.0;
     scene.fill(
@@ -494,6 +526,20 @@ fn draw_status(
             f(total)
         ));
     }
+    if let Some(r) = app.recording_macro() {
+        right.push_str(&format!("   recording @{r}"));
+    }
+    if app.mode == Mode::Insert {
+        let d = app.insert_duration();
+        right.push_str(&format!(
+            "   new beats: 1/{}{}",
+            d.value.denominator(),
+            ".".repeat(d.dots as usize)
+        ));
+    }
+    if app.buffer().modified {
+        right.push_str("   [+]");
+    }
     right.push_str(&format!("   {}  {:.0}%", mode_tag(app), app.zoom * 100.0));
     text(
         scene,
@@ -525,7 +571,7 @@ fn draw_status(
                 10.0 + muse_engrave::fonts::fonts().text_width(FontKind::Text, &line, 14.0) + 1.0;
             fill(scene, Rect::new(cx, cy - 13.0, cx + 2.0, cy + 3.0), ACCENT);
         }
-        Mode::Normal => {
+        Mode::Normal | Mode::Insert | Mode::Visual => {
             if let Some(m) = &app.message {
                 let c = if m.error {
                     Color::from_rgba8(255, 110, 100, 255)

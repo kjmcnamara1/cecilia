@@ -257,6 +257,14 @@ fn draw_status(f: &mut Frame, app: &App, play: Option<(usize, Location, f64, f64
             " NORMAL ",
             Style::default().fg(Color::Black).bg(Color::Blue),
         ),
+        Mode::Insert => (
+            " INSERT ",
+            Style::default().fg(Color::Black).bg(Color::Yellow),
+        ),
+        Mode::Visual => (
+            " VISUAL ",
+            Style::default().fg(Color::Black).bg(Color::Magenta),
+        ),
         Mode::Command => (
             " COMMAND ",
             Style::default().fg(Color::Black).bg(Color::Green),
@@ -320,7 +328,7 @@ fn draw_cmdline(f: &mut Frame, app: &App, area: Rect) {
             f.render_widget(Paragraph::new(format!(":{}", app.cmdline)), area);
             f.set_cursor_position((area.x + 1 + app.cmdline.chars().count() as u16, area.y));
         }
-        Mode::Normal => {
+        Mode::Normal | Mode::Insert | Mode::Visual => {
             if let Some(m) = &app.message {
                 let style = if m.error {
                     Style::default().fg(Color::Red)
@@ -516,6 +524,8 @@ mod render_tests {
             name: "t.gp5".into(),
             score,
             modified: false,
+            history: Default::default(),
+            version: 0,
         };
         let screen = render(&mut app, 80, 20);
         assert!(screen.contains("Lead"), "{screen}");

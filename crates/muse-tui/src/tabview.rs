@@ -248,6 +248,19 @@ impl Widget for TabView<'_> {
                         pb == bl.bar && pt >= tick && (pt < tick + len || (len == 0 && pt == tick))
                     });
                     let is_cursor_beat = pane.cursor.bar == bl.bar && pane.cursor.beat == i;
+                    let selected = self.focused
+                        && self.app.selection().is_some_and(|(a, c, bars)| {
+                            let (lo, hi) = if (a.bar, a.beat) <= (c.bar, c.beat) {
+                                (a, c)
+                            } else {
+                                (c, a)
+                            };
+                            if bars {
+                                (lo.bar..=hi.bar).contains(&bl.bar)
+                            } else {
+                                (lo.bar, lo.beat) <= (bl.bar, i) && (bl.bar, i) <= (hi.bar, hi.beat)
+                            }
+                        });
                     for s in 0..rows {
                         let y = y0 + 1 + s as u16;
                         let cell = Rect {
@@ -269,6 +282,8 @@ impl Widget for TabView<'_> {
                         });
                         if is_play {
                             buf.set_style(cell, play_style);
+                        } else if selected {
+                            buf.set_style(cell, Style::default().bg(Color::Rgb(80, 40, 100)));
                         } else if is_cursor_beat {
                             buf.set_style(cell, column_style);
                         }

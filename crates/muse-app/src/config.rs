@@ -12,6 +12,10 @@ use crate::keys::{Key, parse_keys};
 pub enum Mode {
     Normal,
     Command,
+    /// Typing notes: digits set frets, letters toggle techniques.
+    Insert,
+    /// Selecting beats (or whole bars).
+    Visual,
 }
 
 #[derive(Debug, Clone, Default, Deserialize)]
@@ -92,6 +96,8 @@ pub enum Binding {
 pub struct KeymapConfig {
     pub normal: HashMap<String, Binding>,
     pub command: HashMap<String, Binding>,
+    pub insert: HashMap<String, Binding>,
+    pub visual: HashMap<String, Binding>,
 }
 
 const DEFAULT_NORMAL: &[(&str, &str)] = &[
@@ -134,12 +140,99 @@ const DEFAULT_NORMAL: &[(&str, &str)] = &[
     ("gT", "tab-prev"),
     (":", "command-mode"),
     ("ZQ", "quit!"),
+    ("ZZ", "wq"),
+    // Editing
+    ("i", "insert"),
+    ("a", "append"),
+    ("x", "delete-note"),
+    ("d", "delete"),
+    ("y", "yank"),
+    ("c", "change"),
+    ("p", "put"),
+    ("P", "put-before"),
+    ("u", "undo"),
+    ("<C-r>", "redo"),
+    ("g-", "undo-older"),
+    ("g+", "undo-newer"),
+    (".", "repeat"),
+    ("q", "record-macro"),
+    ("@", "play-macro"),
+    ("\"", "register"),
+    ("v", "visual"),
+    ("V", "visual-bar"),
+    ("o", "bar-insert-after"),
+    ("O", "bar-insert-before"),
+    ("+", "duration-longer"),
+    ("-", "duration-shorter"),
+    ("<C-a>", "pitch-up"),
+    ("<C-x>", "pitch-down"),
+    ("r", "rest"),
+    ("th", "toggle hammer"),
+    ("tb", "toggle bend"),
+    ("ts", "toggle slide"),
+    ("tv", "toggle vibrato"),
+    ("tx", "toggle dead"),
+    ("tm", "toggle palm-mute"),
+    ("tl", "toggle let-ring"),
+    ("tg", "toggle ghost"),
+    ("ta", "toggle accent"),
+    ("tn", "toggle harmonic"),
+    ("tt", "toggle tie"),
+    ("t.", "dot"),
+    ("t3", "tuplet 3"),
     ("<F1>", "help"),
     ("<leader>v", "layout"),
     ("<C-=>", "zoom-in"),
     ("<C-+>", "zoom-in"),
     ("<C-->", "zoom-out"),
     ("<C-0>", "zoom-reset"),
+];
+
+const DEFAULT_INSERT: &[(&str, &str)] = &[
+    ("<Esc>", "normal"),
+    ("<Left>", "beat-prev"),
+    ("<Right>", "insert-next"),
+    ("<Space>", "insert-next"),
+    ("<Up>", "string-up"),
+    ("<Down>", "string-down"),
+    ("<BS>", "delete-note"),
+    ("<Del>", "delete-note"),
+    ("<CR>", "beat-new"),
+    ("h", "toggle hammer"),
+    ("b", "toggle bend"),
+    ("s", "toggle slide"),
+    ("~", "toggle vibrato"),
+    ("x", "toggle dead"),
+    ("m", "toggle palm-mute"),
+    ("l", "toggle let-ring"),
+    ("g", "toggle ghost"),
+    ("a", "toggle accent"),
+    ("n", "toggle harmonic"),
+    ("t", "toggle tie"),
+    ("r", "rest"),
+    (".", "dot"),
+    ("+", "duration-longer"),
+    ("-", "duration-shorter"),
+    ("<A-1>", "duration 1"),
+    ("<A-2>", "duration 2"),
+    ("<A-3>", "duration 4"),
+    ("<A-4>", "duration 8"),
+    ("<A-5>", "duration 16"),
+    ("<A-6>", "duration 32"),
+    ("<A-7>", "duration 64"),
+    ("<C-t>", "tuplet 3"),
+    ("<C-a>", "pitch-up"),
+    ("<C-x>", "pitch-down"),
+];
+
+const DEFAULT_VISUAL: &[(&str, &str)] = &[
+    ("<Esc>", "normal"),
+    ("d", "delete"),
+    ("x", "delete"),
+    ("y", "yank"),
+    ("c", "change"),
+    ("v", "visual"),
+    ("V", "visual-bar"),
 ];
 
 /// Resolved key bindings for one mode.
@@ -219,6 +312,33 @@ impl Config {
             "keymap.normal",
             &mut errors,
         );
+        let mut insert = Keymap::default();
+        let mut visual = Keymap::default();
+        for (map, defaults) in [(&mut insert, DEFAULT_INSERT), (&mut visual, DEFAULT_VISUAL)] {
+            for (keys, cmd) in defaults {
+                let keys = parse_keys(keys, &leader).expect("valid default key");
+                map.bindings.insert(
+                    keys,
+                    vec![Command::parse(cmd).expect("valid default command")],
+                );
+            }
+        }
+        apply_user(
+            &mut insert,
+            &file.keymap.insert,
+            &leader,
+            "keymap.insert",
+            &mut errors,
+        );
+        apply_user(
+            &mut visual,
+            &file.keymap.visual,
+            &leader,
+            "keymap.visual",
+            &mut errors,
+        );
+        keymaps.insert(Mode::Insert, insert);
+        keymaps.insert(Mode::Visual, visual);
         let mut command = Keymap::default();
         apply_user(
             &mut command,

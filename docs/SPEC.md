@@ -285,7 +285,7 @@ Lua/plugin API, external MIDI output, MIDI input (step entry / recording), adias
    round-trip tests.
 3. **M3 GUI viewer** (done): `muse-engrave` (tab + standard staff, 3 layouts), `muse-gui` panes/tabs/
    workspaces, PDF/SVG/PNG export.
-4. **M4 Editing**: Insert/Visual/operators, undo tree, macros, full technique set, linked staff↔tab,
+4. **M4 Editing** (done; undo history is not yet saved in `.muse`): Insert/Visual/operators, undo tree, macros, full technique set, linked staff↔tab,
    auto-fingering, retune; TUI basic editing.
 5. **M5 Playalong**: audio loading, waveform/sync pane, manual sync + beat assist, stretch/pitch,
    A–B loop, count-in, mixer, audio export.
