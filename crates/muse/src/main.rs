@@ -32,6 +32,8 @@ enum Cmd {
         #[arg(long)]
         json: bool,
     },
+    /// Convert between formats, chosen by the output file's extension.
+    Convert { input: PathBuf, output: PathBuf },
     /// Play a file without the interface.
     Play {
         file: PathBuf,
@@ -54,6 +56,13 @@ fn main() -> Result<()> {
     match cli.command {
         Some(Cmd::Info { file, json }) => info(&file, json),
         Some(Cmd::Play { file, speed }) => play(&file, &config, speed),
+        Some(Cmd::Convert { input, output }) => {
+            let score = load(&input)?;
+            muse_formats::write_file(&score, &output)
+                .with_context(|| format!("writing {}", output.display()))?;
+            eprintln!("wrote {}", output.display());
+            Ok(())
+        }
         None => {
             let _ = cli.tui; // the GUI arrives in milestone 3; the TUI is the default until then
             let mut app = App::new(config, config_path);
@@ -117,7 +126,7 @@ fn info(path: &Path, json: bool) -> Result<()> {
         "{:<9} {} ({} played with repeats)",
         "Bars",
         score.master_bars.len(),
-        seq.bars.len()
+        seq.bars().len()
     )?;
     let secs = seq.duration as u64;
     writeln!(out, "{:<9} {}:{:02}", "Length", secs / 60, secs % 60)?;
@@ -126,6 +135,8 @@ fn info(path: &Path, json: bool) -> Result<()> {
         let tuning: Vec<String> = t.strings.iter().rev().map(|&p| note_name(p)).collect();
         let kind = match t.kind {
             muse_core::TrackKind::Drums => "drums".to_string(),
+            muse_core::TrackKind::Pitched => "pitched".to_string(),
+            muse_core::TrackKind::Chant => "chant".to_string(),
             _ => format!("{} strings [{}]", t.strings.len(), tuning.join(" ")),
         };
         let capo = if t.capo > 0 {

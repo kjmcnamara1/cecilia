@@ -15,7 +15,33 @@ pub struct Score {
     pub master_bars: Vec<MasterBar>,
     pub tracks: Vec<Track>,
     pub lyrics: Option<Lyrics>,
+    /// The first bar is a pickup (anacrusis) lasting only as long as its contents.
+    pub anacrusis: bool,
+    /// Audio track synchronised to the score.
+    pub audio: Option<AudioSync>,
     pub extras: Extras,
+}
+
+/// A recorded audio track and the points that align it with the score.
+#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
+pub struct AudioSync {
+    /// Path of the audio file, relative to the score file or inside its container.
+    pub file: Option<String>,
+    /// Sample offset of the audio relative to the start of the score (44.1 kHz frames).
+    pub frame_padding: i64,
+    pub points: Vec<SyncPoint>,
+}
+
+/// Aligns the start of a bar occurrence (in playback order) with a position in the audio.
+#[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
+pub struct SyncPoint {
+    pub bar: usize,
+    /// Which repetition of the bar (0 = first time it is played).
+    pub occurrence: u32,
+    /// Audio position in 44.1 kHz frames.
+    pub frame: i64,
+    /// Tempo of the recording from this point, in quarter notes per minute.
+    pub tempo: f64,
 }
 
 #[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
@@ -123,6 +149,18 @@ pub struct MasterBar {
     pub directions: Vec<Direction>,
     pub triplet_feel: TripletFeel,
     pub double_bar: bool,
+    /// Tempo changes within this bar, ordered by tick.
+    pub tempo_changes: Vec<TempoChange>,
+    /// Free time: the bar lasts as long as its contents, regardless of time signature.
+    pub free_time: bool,
+}
+
+/// A tempo change at a tick offset within a bar.
+#[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
+pub struct TempoChange {
+    pub tick: u32,
+    /// Quarter notes per minute.
+    pub bpm: f64,
 }
 
 impl MasterBar {
@@ -183,15 +221,13 @@ pub struct Track {
 }
 
 impl Track {
-    /// Sounding MIDI pitch of a fretted note.
+    /// Sounding MIDI pitch of a note.
     pub fn pitch_of(&self, note: &Note) -> u8 {
+        if self.kind != TrackKind::Fretted {
+            return note.fret.min(127);
+        }
         let open = self.strings.get(note.string as usize).copied().unwrap_or(0) as u32;
-        let capo = if self.kind == TrackKind::Fretted {
-            self.capo as u32
-        } else {
-            0
-        };
-        (open + capo + note.fret as u32).min(127) as u8
+        (open + self.capo as u32 + note.fret as u32).min(127) as u8
     }
 
     pub fn is_percussion(&self) -> bool {
@@ -224,8 +260,8 @@ pub struct Beat {
     pub text: Option<String>,
     pub chord: Option<Chord>,
     pub effects: BeatEffects,
-    /// Tempo change (quarter notes per minute) taking effect at this beat.
-    pub tempo: Option<u32>,
+    /// Lyric syllables, one per lyric line (empty strings for lines without a syllable here).
+    pub lyrics: Vec<String>,
 }
 
 impl Beat {
@@ -316,7 +352,7 @@ pub struct Chord {
 pub struct Note {
     /// String index, 0 = highest string. For drums this is the drum lane.
     pub string: u8,
-    /// Fret; for drum tracks the MIDI percussion key.
+    /// Fret on fretted tracks; the MIDI key on drum and other non-fretted tracks.
     pub fret: u8,
     /// MIDI velocity 1..=127.
     pub velocity: u8,
@@ -449,6 +485,24 @@ pub struct Lyrics {
 }
 
 impl Score {
+    /// Played length of a bar: the time signature length, or the length of the longest voice
+    /// for free-time bars and a pickup first bar.
+    pub fn played_ticks(&self, bar: usize) -> u32 {
+        let mb = &self.master_bars[bar];
+        if !(mb.free_time || (bar == 0 && self.anacrusis)) {
+            return mb.ticks();
+        }
+        let content = self
+            .tracks
+            .iter()
+            .filter_map(|t| t.bars.get(bar))
+            .flat_map(|b| &b.voices)
+            .map(|v| v.beats.iter().map(Beat::ticks).sum::<u32>())
+            .max()
+            .unwrap_or(0);
+        if content == 0 { mb.ticks() } else { content }
+    }
+
     /// Start tick of every master bar (written order, ignoring repeats).
     pub fn bar_starts(&self) -> Vec<u32> {
         let mut t = 0;

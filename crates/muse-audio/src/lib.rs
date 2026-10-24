@@ -5,9 +5,7 @@ mod sequence;
 mod synth;
 
 pub use player::{Player, Renderer, make_synth, render_offline};
-pub use sequence::{
-    Location, MidiEvent, PlayedBar, Sequence, SequenceOptions, TimedEvent, play_order,
-};
+pub use sequence::{Location, MidiEvent, Sequence, SequenceOptions, TimedEvent};
 pub use synth::{PluckSynth, SoundFontSynth, Synth};
 
 #[derive(Debug, thiserror::Error)]

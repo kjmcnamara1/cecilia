@@ -8,4 +8,8 @@ rust-version.workspace = true
 
 [dependencies]
 muse-core.workspace = true
+muse-convert.workspace = true
 thiserror.workspace = true
+roxmltree.workspace = true
+zip.workspace = true
+serde_json.workspace = true

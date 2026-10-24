@@ -5,9 +5,11 @@
 //! tuning, so tablature and standard notation are two views of the same notes.
 
 mod duration;
+pub mod performance;
 mod score;
 
 pub use duration::{Duration, DurationValue, Tuplet};
+pub use performance::{Performance, play_order};
 pub use score::*;
 
 /// Ticks per quarter note used throughout the model.

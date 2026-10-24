@@ -2,6 +2,9 @@
 
 mod binary;
 pub mod gp;
+pub mod gp_write;
+pub mod gpif;
+pub mod gpx;
 
 use std::path::Path;
 
@@ -55,9 +58,8 @@ pub fn detect(bytes: &[u8], path: Option<&Path>) -> Option<Format> {
 pub fn read_bytes(bytes: &[u8], path: Option<&Path>) -> Result<Score> {
     match detect(bytes, path) {
         Some(Format::GuitarPro3To5) => gp::read(bytes),
-        Some(other) => Err(Error::Unsupported(format!(
-            "{other:?} (planned for milestone 2)"
-        ))),
+        Some(Format::Gpx) => gpif::read_gpx(bytes),
+        Some(Format::Gp7) => gpif::read_gp7(bytes),
         None => Err(Error::Unsupported("unrecognised file".into())),
     }
 }
@@ -66,4 +68,23 @@ pub fn read_bytes(bytes: &[u8], path: Option<&Path>) -> Result<Score> {
 pub fn read_file(path: &Path) -> Result<Score> {
     let bytes = std::fs::read(path)?;
     read_bytes(&bytes, Some(path))
+}
+
+/// Output formats, chosen by file extension.
+pub fn write_bytes(score: &Score, extension: &str) -> Result<Vec<u8>> {
+    match extension.to_ascii_lowercase().as_str() {
+        "gp5" => gp_write::write_gp5(score),
+        other => Err(Error::Unsupported(format!("cannot write .{other} files"))),
+    }
+}
+
+/// Writes a score to a file in the format given by its extension.
+pub fn write_file(score: &Score, path: &Path) -> Result<()> {
+    let ext = path
+        .extension()
+        .and_then(|e| e.to_str())
+        .unwrap_or_default();
+    let bytes = write_bytes(score, ext)?;
+    std::fs::write(path, bytes)?;
+    Ok(())
 }

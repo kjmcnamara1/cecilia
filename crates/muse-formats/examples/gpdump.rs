@@ -3,8 +3,12 @@
 
 fn main() {
     let args: Vec<String> = std::env::args().collect();
-    let bytes = std::fs::read(args.get(1).expect("usage: gpdump FILE [TRACK BAR]")).unwrap();
-    let (score, trailing) = muse_formats::gp::read_with_trailing(&bytes).expect("parse");
+    let path = std::path::PathBuf::from(args.get(1).expect("usage: gpdump FILE [TRACK BAR]"));
+    let bytes = std::fs::read(&path).unwrap();
+    let (score, trailing) = match muse_formats::gp::read_with_trailing(&bytes) {
+        Ok(r) => r,
+        Err(_) => (muse_formats::read_file(&path).expect("parse"), 0),
+    };
     if let (Some(t), Some(b)) = (args.get(2), args.get(3)) {
         let bar = &score.tracks[t.parse::<usize>().unwrap()].bars[b.parse::<usize>().unwrap()];
         for (v, voice) in bar.voices.iter().enumerate() {

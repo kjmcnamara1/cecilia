@@ -304,8 +304,7 @@ mod tests {
 
     #[test]
     fn offline_render_plays_events_and_stops_at_end() {
-        let mut seq = Sequence::default();
-        seq.events = vec![
+        let events = vec![
             TimedEvent {
                 time: 0.0,
                 event: MidiEvent::NoteOn {
@@ -322,7 +321,11 @@ mod tests {
                 },
             },
         ];
-        seq.duration = 0.5;
+        let seq = Sequence {
+            events,
+            duration: 0.5,
+            ..Sequence::default()
+        };
         let out = render_offline(
             Arc::new(seq),
             Box::new(PluckSynth::new(48_000)),

@@ -31,6 +31,10 @@ struct GpReader<'a> {
     triplet_feel: TripletFeel,
     /// Last fret per track, voice and string, used to resolve tied notes.
     last_fret: Vec<[[u8; MAX_STRINGS]; 2]>,
+    /// Tempo change read from the current beat's mix table.
+    beat_tempo: Option<u32>,
+    /// Tempo changes found in the current bar (any track), by tick.
+    bar_tempos: Vec<TempoChange>,
 }
 
 struct Channel {
@@ -50,6 +54,8 @@ impl<'a> GpReader<'a> {
             version,
             triplet_feel: TripletFeel::None,
             last_fret: Vec::new(),
+            beat_tempo: None,
+            bar_tempos: Vec::new(),
         })
     }
 
@@ -143,6 +149,10 @@ impl<'a> GpReader<'a> {
                 let b = self.read_bar(&score.tracks[t], t)?;
                 score.tracks[t].bars.push(b);
             }
+            let mut changes = std::mem::take(&mut self.bar_tempos);
+            changes.sort_by_key(|c| c.tick);
+            changes.dedup_by_key(|c| c.tick);
+            score.master_bars[bar].tempo_changes = changes;
         }
         Ok(score)
     }
@@ -417,8 +427,17 @@ impl<'a> GpReader<'a> {
         for v in 0..voice_count {
             let n = self.r.count(MAX_BEATS, "beat")?;
             let mut voice = Voice::default();
+            let mut tick = 0;
             for _ in 0..n {
-                voice.beats.push(self.read_beat(track, track_index, v)?);
+                let beat = self.read_beat(track, track_index, v)?;
+                if let Some(bpm) = self.beat_tempo.take() {
+                    self.bar_tempos.push(TempoChange {
+                        tick,
+                        bpm: bpm as f64,
+                    });
+                }
+                tick += beat.ticks();
+                voice.beats.push(beat);
             }
             bar.voices.push(voice);
         }
@@ -451,7 +470,7 @@ impl<'a> GpReader<'a> {
             beat.effects = self.read_beat_effects(&mut shared)?;
         }
         if flags & 0x10 != 0 {
-            beat.tempo = self.read_mix_table()?;
+            self.beat_tempo = self.read_mix_table()?;
         }
         let string_flags = self.r.u8()?;
         for s in 0..track.strings.len() {
@@ -825,8 +844,10 @@ impl<'a> GpReader<'a> {
             fx.harmonic = match kind {
                 1 => Some(Harmonic::Natural),
                 2 if self.gp5() => {
-                    self.r.skip(3)?; // pitch class, accidental, octave
-                    Some(Harmonic::Artificial { semitones: 12 })
+                    self.r.skip(2)?; // pitch class, accidental
+                    // Octave: 0 = 8va, 1 = 15ma.
+                    let semitones = if self.r.u8()? == 1 { 24 } else { 12 };
+                    Some(Harmonic::Artificial { semitones })
                 }
                 3 => {
                     let fret = if self.gp5() {

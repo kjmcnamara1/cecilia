@@ -11,6 +11,7 @@ rust-version = "1.85"
 [workspace.dependencies]
 muse-core = { path = "crates/muse-core" }
 muse-formats = { path = "crates/muse-formats" }
+muse-convert = { path = "crates/muse-convert" }
 muse-audio = { path = "crates/muse-audio" }
 muse-app = { path = "crates/muse-app" }
 muse-tui = { path = "crates/muse-tui" }
@@ -24,6 +25,8 @@ directories = "6"
 ratatui = "0.30"
 rustysynth = "1.3"
 cpal = "0.15"
+roxmltree = "0.20"
+zip = { version = "2", default-features = false, features = ["deflate"] }
 
 [profile.dev.package."*"]
 opt-level = 2

@@ -35,7 +35,7 @@ pub fn system_height(track: &Track) -> u16 {
 
 const LABEL_WIDTH: u16 = 3;
 
-fn beat_width(beat: &Beat, scale: u16) -> u16 {
+fn beat_width(beat: &Beat, track: &Track, scale: u16) -> u16 {
     let base: u16 = match beat.duration.value {
         DurationValue::Whole => 8,
         DurationValue::Half => 6,
@@ -45,7 +45,7 @@ fn beat_width(beat: &Beat, scale: u16) -> u16 {
     let fret_w = beat
         .notes
         .iter()
-        .map(|n| note_text(n).len() as u16)
+        .map(|n| note_text(n, track).len() as u16)
         .max()
         .unwrap_or(1)
         + 1;
@@ -68,7 +68,7 @@ pub fn layout_systems(score: &Score, track: usize, width: u16, scale: u16) -> Ve
         let mut offs = vec![];
         let mut bx = 1; // bar line
         for b in beats {
-            let w = beat_width(b, scale);
+            let w = beat_width(b, t, scale);
             offs.push((bx, w));
             bx += w;
         }
@@ -102,9 +102,11 @@ pub fn system_of_bar(systems: &[System], bar: usize) -> usize {
         .unwrap_or(0)
 }
 
-fn note_text(n: &Note) -> String {
+fn note_text(n: &Note, track: &Track) -> String {
     let fret = if n.dead {
         "x".to_string()
+    } else if matches!(track.kind, TrackKind::Pitched | TrackKind::Chant) {
+        format!("{}{}", pitch_name(n.fret), n.fret as i32 / 12 - 1)
     } else {
         n.fret.to_string()
     };
@@ -162,6 +164,7 @@ impl Widget for TabView<'_> {
         let scale = self.app.config.file.ui.tab_width.clamp(1, 8) as u16;
         let systems = layout_systems(score, pane.cursor.track, area.width, scale);
         let sh = system_height(track);
+        let rows = track.strings.len().max(1);
         let visible = (area.height / sh).max(1) as usize;
         let cursor_sys = system_of_bar(&systems, pane.cursor.bar);
         let mut scroll = (*self.scroll).min(systems.len().saturating_sub(1));
@@ -196,6 +199,9 @@ impl Widget for TabView<'_> {
                 };
                 buf.set_string(area.x, y0 + 1 + s as u16, format!("{label:>2}"), dim);
             }
+            if track.strings.is_empty() {
+                buf.set_string(area.x, y0 + 1, " ♪", dim);
+            }
             let x0 = area.x + LABEL_WIDTH;
             for bl in &system.bars {
                 let bx = x0 + bl.x;
@@ -218,7 +224,7 @@ impl Widget for TabView<'_> {
                 let header: String = header.chars().take(bl.width as usize).collect();
                 buf.set_string(bx, y0, header, Style::default().fg(Color::Cyan));
                 // Staff lines and bar lines.
-                for s in 0..track.strings.len() as u16 {
+                for s in 0..rows as u16 {
                     let y = y0 + 1 + s;
                     let bar_char = if mb.repeat_start { "‖" } else { "|" };
                     buf.set_string(bx, y, bar_char, line_style);
@@ -242,7 +248,7 @@ impl Widget for TabView<'_> {
                         pb == bl.bar && pt >= tick && (pt < tick + len || (len == 0 && pt == tick))
                     });
                     let is_cursor_beat = pane.cursor.bar == bl.bar && pane.cursor.beat == i;
-                    for s in 0..track.strings.len() {
+                    for s in 0..rows {
                         let y = y0 + 1 + s as u16;
                         let cell = Rect {
                             x: bx_beat,
@@ -276,14 +282,14 @@ impl Widget for TabView<'_> {
                             buf.set_string(
                                 bx_beat,
                                 y,
-                                note_text(n),
+                                note_text(n, track),
                                 style.add_modifier(Modifier::BOLD),
                             );
                         }
                         if is_cursor_beat && pane.cursor.string == s {
                             let text_w = beat
                                 .and_then(|b| b.notes.iter().find(|n| n.string as usize == s))
-                                .map_or(1, |n| note_text(n).len() as u16);
+                                .map_or(1, |n| note_text(n, track).len() as u16);
                             buf.set_style(
                                 Rect {
                                     x: bx_beat,
@@ -312,7 +318,7 @@ impl Widget for TabView<'_> {
                 // Closing repeat.
                 if let Some(n) = mb.repeat_end {
                     let end_x = bx + bl.width;
-                    for s in 0..track.strings.len() as u16 {
+                    for s in 0..rows as u16 {
                         buf.set_string(end_x.saturating_sub(1), y0 + 1 + s, "‖", line_style);
                     }
                     buf.set_string(
@@ -327,7 +333,7 @@ impl Widget for TabView<'_> {
             if let Some(last) = system.bars.last() {
                 let x = x0 + last.x + last.width;
                 if x < area.x + area.width {
-                    for s in 0..track.strings.len() as u16 {
+                    for s in 0..rows as u16 {
                         buf.set_string(x, y0 + 1 + s, "|", line_style);
                     }
                 }
@@ -373,8 +379,8 @@ mod tests {
     fn note_markers() {
         let mut n = Note::new(0, 7);
         n.effects.hammer_pull = true;
-        assert_eq!(note_text(&n), "7h");
+        assert_eq!(note_text(&n, &Track::default()), "7h");
         n.tie = true;
-        assert_eq!(note_text(&n), "(7)h");
+        assert_eq!(note_text(&n, &Track::default()), "(7)h");
     }
 }
