@@ -264,6 +264,7 @@ impl Widget for TabView<'_> {
                                 bar: bl.bar,
                                 beat: i,
                                 string: s,
+                                voice: 0,
                             },
                         });
                         if is_play {

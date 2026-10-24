@@ -28,6 +28,8 @@ pub struct Cursor {
     pub bar: usize,
     pub beat: usize,
     pub string: usize,
+    /// Voice being edited (0 = voice 1).
+    pub voice: usize,
 }
 
 #[derive(Debug, Clone)]
@@ -692,7 +694,7 @@ pub fn beats<'a>(score: &'a Score, c: &Cursor) -> &'a [Beat] {
         .tracks
         .get(c.track)
         .and_then(|t| t.bars.get(c.bar))
-        .and_then(|b| b.voices.first())
+        .and_then(|b| b.voices.get(c.voice))
         .map_or(&[], |v| v.beats.as_slice())
 }
 
@@ -712,6 +714,7 @@ pub fn beat_at_tick(score: &Score, track: usize, bar: usize, tick: u32) -> usize
         bar,
         beat: 0,
         string: 0,
+        voice: 0,
     };
     let mut t = 0;
     for (i, b) in beats(score, &c).iter().enumerate() {

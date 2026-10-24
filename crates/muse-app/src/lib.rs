@@ -5,6 +5,8 @@
 mod app;
 pub mod command;
 pub mod config;
+pub mod edit;
+pub mod history;
 pub mod keys;
 pub mod layout;
 pub mod playback;

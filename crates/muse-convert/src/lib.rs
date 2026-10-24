@@ -217,3 +217,294 @@ mod tests {
         assert_eq!(fret_chord(&[30], &STANDARD, 0, &mut pos), vec![None]);
     }
 }
+
+/// Per-bar, per-voice, per-beat note pitches.
+type Pitches = Vec<Vec<Vec<Vec<u8>>>>;
+/// A chord fingering: (string, fret) per note, None when it cannot be placed.
+type Shape = Vec<Option<(u8, u8)>>;
+
+/// Cost of one chord fingering: (dropped notes, stretch, height) folded into one number.
+fn shape_cost(placed: &[Option<(u8, u8)>]) -> f64 {
+    let dropped = placed.iter().filter(|p| p.is_none()).count() as f64;
+    let fretted: Vec<i32> = placed
+        .iter()
+        .flatten()
+        .map(|&(_, f)| f as i32)
+        .filter(|&f| f > 0)
+        .collect();
+    let span = match (fretted.iter().min(), fretted.iter().max()) {
+        (Some(a), Some(b)) => (b - a) as f64,
+        _ => 0.0,
+    };
+    let height: f64 = fretted.iter().map(|&f| f as f64).sum::<f64>() / fretted.len().max(1) as f64;
+    dropped * 100.0 + span.max(3.0) * 2.0 - 6.0
+        + height * 0.1
+        + if span > 4.0 { (span - 4.0) * 10.0 } else { 0.0 }
+}
+
+/// Hand position of a fingering (mean fretted fret), or None for all-open chords.
+fn centre(placed: &[Option<(u8, u8)>]) -> Option<f64> {
+    let fretted: Vec<f64> = placed
+        .iter()
+        .flatten()
+        .map(|&(_, f)| f as f64)
+        .filter(|&f| f > 0.0)
+        .collect();
+    (!fretted.is_empty()).then(|| fretted.iter().sum::<f64>() / fretted.len() as f64)
+}
+
+/// Chooses string/fret for a sequence of chords (MIDI pitches) so the hand moves as little as
+/// possible: a Viterbi search over candidate shapes per chord.
+pub fn finger_sequence(chords: &[Vec<u8>], strings: &[u8], capo: u8) -> Vec<Vec<Option<(u8, u8)>>> {
+    const SEEDS: [i32; 9] = [0, 2, 3, 5, 7, 9, 10, 12, 14];
+    let candidates: Vec<Vec<Shape>> = chords
+        .iter()
+        .map(|pitches| {
+            let mut c: Vec<Vec<Option<(u8, u8)>>> = Vec::new();
+            for seed in SEEDS {
+                let mut pos = seed;
+                let shape = fret_chord(pitches, strings, capo, &mut pos);
+                if !c.contains(&shape) {
+                    c.push(shape);
+                }
+            }
+            c
+        })
+        .collect();
+    if chords.is_empty() {
+        return vec![];
+    }
+    // cost[i][k], back[i][k]
+    let mut cost: Vec<Vec<f64>> = Vec::with_capacity(chords.len());
+    let mut back: Vec<Vec<usize>> = Vec::with_capacity(chords.len());
+    // Where the hand is after each candidate (open chords keep the previous position).
+    let mut hand: Vec<Vec<Option<f64>>> = Vec::with_capacity(chords.len());
+    for (i, cands) in candidates.iter().enumerate() {
+        let mut row = Vec::with_capacity(cands.len());
+        let mut brow = Vec::with_capacity(cands.len());
+        let mut hrow = Vec::with_capacity(cands.len());
+        for shape in cands {
+            let own = shape_cost(shape);
+            let c = centre(shape);
+            if i == 0 {
+                row.push(own + c.unwrap_or(0.0) * 0.2);
+                brow.push(0);
+                hrow.push(c);
+                continue;
+            }
+            let mut best = (f64::MAX, 0, None);
+            for (k, prev) in cost[i - 1].iter().enumerate() {
+                let from = hand[i - 1][k];
+                let moved = match (from, c) {
+                    (Some(a), Some(b)) => (a - b).abs(),
+                    _ => 0.0,
+                };
+                let total = prev + own + moved * 1.5;
+                if total < best.0 {
+                    best = (total, k, c.or(from));
+                }
+            }
+            row.push(best.0);
+            brow.push(best.1);
+            hrow.push(best.2);
+        }
+        cost.push(row);
+        back.push(brow);
+        hand.push(hrow);
+    }
+    let last = cost.len() - 1;
+    let mut k = (0..cost[last].len())
+        .min_by(|&a, &b| cost[last][a].total_cmp(&cost[last][b]))
+        .unwrap_or(0);
+    let mut out = vec![Vec::new(); chords.len()];
+    for i in (0..chords.len()).rev() {
+        out[i] = candidates[i][k].clone();
+        k = back[i][k];
+    }
+    out
+}
+
+/// Re-fingers every voice of a fretted track in `bars` from the notes' pitches. Returns the
+/// number of notes that could not be placed (they are removed).
+pub fn refinger(track: &mut Track, bars: std::ops::Range<usize>) -> usize {
+    let pitches: Pitches = track.bars[bars.clone()]
+        .iter()
+        .map(|b| {
+            b.voices
+                .iter()
+                .map(|v| {
+                    v.beats
+                        .iter()
+                        .map(|beat| beat.notes.iter().map(|n| track.pitch_of(n)).collect())
+                        .collect()
+                })
+                .collect()
+        })
+        .collect();
+    let (strings, capo) = (track.strings.clone(), track.capo);
+    apply_fingering(track, bars, &pitches, &strings, capo)
+}
+
+fn apply_fingering(
+    track: &mut Track,
+    bars: std::ops::Range<usize>,
+    pitches: &[Vec<Vec<Vec<u8>>>],
+    strings: &[u8],
+    capo: u8,
+) -> usize {
+    let voices = pitches.iter().map(|b| b.len()).max().unwrap_or(0);
+    let mut dropped = 0;
+    for v in 0..voices {
+        let chords: Vec<Vec<u8>> = pitches
+            .iter()
+            .filter_map(|b| b.get(v))
+            .flatten()
+            .filter(|c| !c.is_empty())
+            .cloned()
+            .collect();
+        let mut shapes = finger_sequence(&chords, strings, capo).into_iter();
+        for bar in &mut track.bars[bars.clone()] {
+            let Some(voice) = bar.voices.get_mut(v) else {
+                continue;
+            };
+            for beat in &mut voice.beats {
+                if beat.notes.is_empty() {
+                    continue;
+                }
+                let Some(shape) = shapes.next() else { break };
+                let old = std::mem::take(&mut beat.notes);
+                for (note, place) in old.into_iter().zip(shape) {
+                    match place {
+                        Some((string, fret)) => beat.notes.push(Note {
+                            string,
+                            fret,
+                            ..note
+                        }),
+                        None => dropped += 1,
+                    }
+                }
+            }
+        }
+    }
+    dropped
+}
+
+/// Changes a fretted track's tuning and capo, keeping every note's pitch (moving notes out of
+/// range by octaves) and re-fingering. Returns (octave-shifted notes, dropped notes).
+pub fn retune(track: &mut Track, strings: Vec<u8>, capo: u8) -> (usize, usize) {
+    let low = strings.iter().copied().min().unwrap_or(40) as i32 + capo as i32;
+    let high = strings.iter().copied().max().unwrap_or(64) as i32 + MAX_FRET;
+    let mut shifted = 0;
+    let pitches: Pitches = track
+        .bars
+        .iter()
+        .map(|b| {
+            b.voices
+                .iter()
+                .map(|v| {
+                    v.beats
+                        .iter()
+                        .map(|beat| {
+                            beat.notes
+                                .iter()
+                                .map(|n| {
+                                    let mut p = track.pitch_of(n) as i32;
+                                    let original = p;
+                                    while p < low {
+                                        p += 12;
+                                    }
+                                    while p > high {
+                                        p -= 12;
+                                    }
+                                    if p != original {
+                                        shifted += 1;
+                                    }
+                                    p.clamp(0, 127) as u8
+                                })
+                                .collect()
+                        })
+                        .collect()
+                })
+                .collect()
+        })
+        .collect();
+    track.strings = strings.clone();
+    track.capo = capo;
+    track.kind = TrackKind::Fretted;
+    let n = track.bars.len();
+    let dropped = apply_fingering(track, 0..n, &pitches, &strings, capo);
+    (shifted, dropped)
+}
+
+/// Standard tunings by name (index 0 = highest string).
+pub fn tuning_preset(name: &str) -> Option<Vec<u8>> {
+    Some(match name.to_ascii_lowercase().as_str() {
+        "standard" | "guitar" | "e" => vec![64, 59, 55, 50, 45, 40],
+        "drop-d" | "dropd" => vec![64, 59, 55, 50, 45, 38],
+        "eb" | "half-step-down" => vec![63, 58, 54, 49, 44, 39],
+        "d" | "whole-step-down" => vec![62, 57, 53, 48, 43, 38],
+        "dadgad" => vec![62, 57, 55, 50, 45, 38],
+        "open-g" => vec![62, 59, 55, 50, 43, 38],
+        "open-d" => vec![62, 57, 54, 50, 45, 38],
+        "open-e" => vec![64, 59, 56, 52, 47, 40],
+        "7-string" => vec![64, 59, 55, 50, 45, 40, 35],
+        "bass" | "bass4" => vec![43, 38, 33, 28],
+        "bass5" => vec![43, 38, 33, 28, 23],
+        "ukulele" => vec![69, 64, 60, 67],
+        _ => return None,
+    })
+}
+
+#[cfg(test)]
+mod sequence_tests {
+    use super::*;
+    use muse_core::*;
+
+    #[test]
+    fn sequence_stays_in_position() {
+        // A scale fragment around the 5th fret should not jump to open strings.
+        let chords: Vec<Vec<u8>> = [57, 59, 60, 62, 64, 65].iter().map(|&p| vec![p]).collect();
+        let shapes = finger_sequence(&chords, &[64, 59, 55, 50, 45, 40], 0);
+        let frets: Vec<u8> = shapes.iter().map(|s| s[0].unwrap().1).collect();
+        let (lo, hi) = (*frets.iter().min().unwrap(), *frets.iter().max().unwrap());
+        assert!(hi - lo <= 5, "{frets:?}");
+    }
+
+    #[test]
+    fn retune_keeps_pitches() {
+        let beat = |s, f| Beat {
+            notes: vec![Note::new(s, f)],
+            ..Beat::default()
+        };
+        let mut track = Track {
+            strings: vec![64, 59, 55, 50, 45, 40],
+            bars: vec![Bar {
+                voices: vec![Voice {
+                    beats: vec![beat(5, 0), beat(4, 2), beat(0, 3)],
+                }],
+            }],
+            ..Track::default()
+        };
+        let before: Vec<u8> = track.bars[0].voices[0]
+            .beats
+            .iter()
+            .map(|b| track.pitch_of(&b.notes[0]))
+            .collect();
+        let (shifted, dropped) = retune(&mut track, tuning_preset("drop-d").unwrap(), 0);
+        let after: Vec<u8> = track.bars[0].voices[0]
+            .beats
+            .iter()
+            .map(|b| track.pitch_of(&b.notes[0]))
+            .collect();
+        assert_eq!((shifted, dropped), (0, 0));
+        assert_eq!(before, after);
+        // Low E is now fret 2 on the low D string.
+        assert_eq!(
+            (
+                track.bars[0].voices[0].beats[0].notes[0].string,
+                track.bars[0].voices[0].beats[0].notes[0].fret
+            ),
+            (5, 2)
+        );
+    }
+}
