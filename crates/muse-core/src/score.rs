@@ -182,6 +182,13 @@ pub enum TrackKind {
     Chant,
 }
 
+/// Clef of a standard staff, when the source file names one (otherwise chosen from the range).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+pub enum StaffClef {
+    Treble,
+    Bass,
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 pub struct MidiSettings {
     pub program: u8,
@@ -221,6 +228,13 @@ pub struct Track {
     pub solo: bool,
     /// One bar per master bar. On a chant track these hold the transcription of `chant`.
     pub bars: Vec<Bar>,
+    /// A further staff of the part begun by the previous track (e.g. the left hand of a piano
+    /// grand staff). Parts are engraved together and saved as one multi-staff instrument.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub extra_staff: bool,
+    /// Clef of a non-fretted, non-drum staff.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub clef: Option<StaffClef>,
     /// Chant notation (chant tracks only).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub chant: Option<Box<crate::chant::Chant>>,
@@ -235,6 +249,27 @@ impl Track {
         }
         let open = self.strings.get(note.string as usize).copied().unwrap_or(0) as u32;
         (open + self.capo as u32 + note.fret as u32).min(127) as u8
+    }
+
+    /// Clef of a non-fretted staff: the one from the source file, else bass for low parts.
+    pub fn staff_clef(&self) -> StaffClef {
+        if let Some(c) = self.clef {
+            return c;
+        }
+        let pitches: Vec<u32> = self
+            .bars
+            .iter()
+            .flat_map(|b| &b.voices)
+            .flat_map(|v| &v.beats)
+            .flat_map(|b| &b.notes)
+            .map(|n| n.fret as u32)
+            .collect();
+        let avg = pitches.iter().sum::<u32>() / pitches.len().max(1) as u32;
+        if !pitches.is_empty() && avg < 55 {
+            StaffClef::Bass
+        } else {
+            StaffClef::Treble
+        }
     }
 
     pub fn is_percussion(&self) -> bool {
@@ -521,6 +556,35 @@ impl Score {
                 s
             })
             .collect()
+    }
+
+    /// The tracks forming the part that `track` belongs to (its staves).
+    pub fn part_tracks(&self, track: usize) -> std::ops::Range<usize> {
+        let n = self.tracks.len();
+        if track >= n {
+            return track..track;
+        }
+        let mut start = track;
+        while start > 0 && self.tracks[start].extra_staff {
+            start -= 1;
+        }
+        let mut end = track + 1;
+        while end < n && self.tracks[end].extra_staff {
+            end += 1;
+        }
+        start..end
+    }
+
+    /// The parts of the score as track ranges, in order.
+    pub fn parts(&self) -> Vec<std::ops::Range<usize>> {
+        let mut out = Vec::new();
+        let mut t = 0;
+        while t < self.tracks.len() {
+            let r = self.part_tracks(t);
+            t = r.end;
+            out.push(r);
+        }
+        out
     }
 
     pub fn total_ticks(&self) -> u32 {

@@ -129,7 +129,9 @@ pub fn write_musicxml(score: &Score) -> Result<Vec<u8>> {
     x.push_str("<encoding><software>muse</software><supports element=\"accidental\" type=\"no\"/></encoding>\n</identification>\n");
 
     x.push_str("<part-list>\n");
-    for (i, t) in score.tracks.iter().enumerate() {
+    // A multi-staff part (several model tracks) is one MusicXML part with several staves.
+    let parts = score.parts();
+    for (i, t) in parts.iter().map(|p| &score.tracks[p.start]).enumerate() {
         let id = i + 1;
         let _ = writeln!(
             x,
@@ -175,8 +177,8 @@ pub fn write_musicxml(score: &Score) -> Result<Vec<u8>> {
     }
     x.push_str("</part-list>\n");
 
-    for (ti, t) in score.tracks.iter().enumerate() {
-        write_part(&mut x, score, ti, t);
+    for (pi, part) in parts.iter().enumerate() {
+        write_part(&mut x, score, pi, part.clone());
     }
     x.push_str("</score-partwise>\n");
     Ok(x.into_bytes())
@@ -374,31 +376,22 @@ fn clef_xml(t: &Track) -> String {
                 "<clef><sign>G</sign><line>2</line><clef-octave-change>-1</clef-octave-change></clef>".into()
             }
         }
-        _ => {
-            let pitches: Vec<u8> = t
-                .bars
-                .iter()
-                .flat_map(|b| &b.voices)
-                .flat_map(|v| &v.beats)
-                .flat_map(|b| &b.notes)
-                .map(|n| n.fret)
-                .collect();
-            let avg = pitches.iter().map(|&p| p as u32).sum::<u32>() / pitches.len().max(1) as u32;
-            if !pitches.is_empty() && avg < 55 {
-                "<clef><sign>F</sign><line>4</line></clef>".into()
-            } else {
-                "<clef><sign>G</sign><line>2</line></clef>".into()
-            }
-        }
+        _ => match t.staff_clef() {
+            StaffClef::Bass => "<clef><sign>F</sign><line>4</line></clef>".into(),
+            StaffClef::Treble => "<clef><sign>G</sign><line>2</line></clef>".into(),
+        },
     }
 }
 
-fn write_part(x: &mut String, score: &Score, ti: usize, t: &Track) {
+fn write_part(x: &mut String, score: &Score, ti: usize, part: std::ops::Range<usize>) {
     let _ = writeln!(x, "<part id=\"P{}\">", ti + 1);
-    let links = links(t);
-    let lyric_lines = t
-        .bars
+    let staves: Vec<&Track> = score.tracks[part].iter().collect();
+    let t = staves[0];
+    let multi = staves.len() > 1;
+    let links: Vec<Links> = staves.iter().map(|t| links(t)).collect();
+    let lyric_lines = staves
         .iter()
+        .flat_map(|t| &t.bars)
         .flat_map(|b| &b.voices)
         .flat_map(|v| &v.beats)
         .map(|b| b.lyrics.len())
@@ -459,7 +452,16 @@ fn write_part(x: &mut String, score: &Score, ti: usize, t: &Track) {
                 ts.denominator
             );
         }
-        if bi == 0 {
+        if bi == 0 && multi {
+            let _ = write!(attrs, "<staves>{}</staves>", staves.len());
+            for (k, st) in staves.iter().enumerate() {
+                attrs.push_str(&clef_xml(st).replacen(
+                    "<clef>",
+                    &format!("<clef number=\"{}\">", k + 1),
+                    1,
+                ));
+            }
+        } else if bi == 0 {
             attrs.push_str(&clef_xml(t));
             if t.kind == TrackKind::Fretted {
                 let _ = write!(
@@ -519,33 +521,59 @@ fn write_part(x: &mut String, score: &Score, ti: usize, t: &Track) {
             }
         }
 
-        let bar = t.bars.get(bi);
-        let voices: Vec<&Voice> = bar.map(|b| b.voices.iter().collect()).unwrap_or_default();
         let mut written = 0;
         let exact = !(mb.free_time || (bi == 0 && score.anacrusis));
-        for (v, voice) in voices.iter().enumerate() {
-            if voice.beats.iter().all(|b| b.empty) && v > 0 {
-                continue;
+        for (k, (st, links)) in staves.iter().zip(&links).enumerate() {
+            let t = *st;
+            let staff = multi.then_some(k);
+            let bar = t.bars.get(bi);
+            let voices: Vec<&Voice> = bar.map(|b| b.voices.iter().collect()).unwrap_or_default();
+            for (v, voice) in voices.iter().enumerate() {
+                if voice.beats.iter().all(|b| b.empty) && v > 0 {
+                    continue;
+                }
+                if written > 0 {
+                    let _ = writeln!(x, "<backup><duration>{written}</duration></backup>");
+                }
+                written = 0;
+                let beats: Vec<(Option<usize>, Beat)> = if exact {
+                    fit_voice(voice, mb.time_signature)
+                } else {
+                    voice
+                        .beats
+                        .iter()
+                        .enumerate()
+                        .filter(|(_, b)| !b.empty)
+                        .map(|(i, b)| (Some(i), b.clone()))
+                        .collect()
+                };
+                let brackets = tuplet_brackets(&beats);
+                for ((i, beat), bracket) in beats.iter().zip(brackets) {
+                    let pos = i.map(|i| (bi, v, i));
+                    written += write_beat(
+                        x,
+                        t,
+                        ti + 1,
+                        mb,
+                        beat,
+                        pos,
+                        (v, staff),
+                        links,
+                        lyric_lines,
+                        bracket,
+                    );
+                }
             }
-            if written > 0 {
-                let _ = writeln!(x, "<backup><duration>{written}</duration></backup>");
-            }
-            written = 0;
-            let beats: Vec<(Option<usize>, Beat)> = if exact {
-                fit_voice(voice, mb.time_signature)
-            } else {
-                voice
-                    .beats
-                    .iter()
-                    .enumerate()
-                    .filter(|(_, b)| !b.empty)
-                    .map(|(i, b)| (Some(i), b.clone()))
-                    .collect()
-            };
-            let brackets = tuplet_brackets(&beats);
-            for ((i, beat), bracket) in beats.iter().zip(brackets) {
-                let pos = i.map(|i| (bi, v, i));
-                written += write_beat(x, t, ti + 1, mb, beat, pos, v, &links, lyric_lines, bracket);
+            // Every staff of a multi-staff part needs something in each measure.
+            if multi && written == 0 {
+                let _ = writeln!(
+                    x,
+                    "<note><rest measure=\"yes\"/><duration>{}</duration><voice>{}</voice><staff>{}</staff></note>",
+                    mb.ticks(),
+                    1 + 4 * k,
+                    k + 1
+                );
+                written = mb.ticks();
             }
         }
         if written == 0 {
@@ -607,7 +635,7 @@ fn write_beat(
     mb: &MasterBar,
     beat: &Beat,
     pos: Option<(usize, usize, usize)>,
-    v: usize,
+    (v, staff): (usize, Option<usize>),
     links: &Links,
     lyric_lines: usize,
     (tuplet_start, tuplet_stop): (bool, bool),
@@ -617,7 +645,9 @@ fn write_beat(
     };
     let d = beat.duration;
     let ticks = d.ticks();
-    let voice = v + 1;
+    // Voices are numbered across the part: 1–4 on the first staff, 5–8 on the second, …
+    let voice = v + 1 + 4 * staff.unwrap_or(0);
+    let staff_xml = staff.map_or(String::new(), |k| format!("<staff>{}</staff>", k + 1));
     if let Some(text) = &beat.text {
         let _ = writeln!(
             x,
@@ -654,6 +684,7 @@ fn write_beat(
             "<note><rest/><duration>{ticks}</duration><voice>{voice}</voice>"
         );
         rhythm(x);
+        x.push_str(&staff_xml);
         let tx = tuplet_xml();
         if !tx.is_empty() {
             let _ = write!(x, "<notations>{tx}</notations>");
@@ -677,7 +708,7 @@ fn write_beat(
             write_pitch(x, t, &grace_note, mb.key_signature.accidentals);
             let _ = write!(
                 x,
-                "<voice>{voice}</voice><type>{}</type>",
+                "<voice>{voice}</voice><type>{}</type>{staff_xml}",
                 type_name(g.duration)
             );
             if t.kind == TrackKind::Fretted {
@@ -723,6 +754,7 @@ fn write_beat(
         } else if n.ghost {
             x.push_str("<notehead parentheses=\"yes\">normal</notehead>");
         }
+        x.push_str(&staff_xml);
         let mut notations = if k == 0 { tuplet_xml() } else { String::new() };
         if n.tie {
             notations.push_str("<tied type=\"stop\"/>");
@@ -1013,6 +1045,8 @@ fn read_part(score: &mut Score, part: Node, index: usize, info: PartInfo) {
     let mut tuning: Vec<u8> = Vec::new();
     let mut capo = 0;
     let mut drums = info.drums;
+    // First clef seen on each staff.
+    let mut clefs: HashMap<u32, StaffClef> = HashMap::new();
     // Notes per (staff, voice) per bar.
     let mut bars: Vec<BTreeMap<(u32, u32), Vec<XmlNote>>> = Vec::new();
     let mut ts = TimeSignature::default();
@@ -1066,6 +1100,17 @@ fn read_part(score: &mut Score, part: Node, index: usize, info: PartInfo) {
                         }
                         free = t.attribute("print-object") == Some("no");
                         mb.free_time = free;
+                    }
+                    for c in children(el, "clef") {
+                        let staff = num(c.attribute("number")).unwrap_or(1);
+                        let clef = match text(c, "sign") {
+                            Some("G") => Some(StaffClef::Treble),
+                            Some("F") => Some(StaffClef::Bass),
+                            _ => None,
+                        };
+                        if let Some(clef) = clef {
+                            clefs.entry(staff).or_insert(clef);
+                        }
                     }
                     if children(el, "clef").any(|c| text(c, "sign") == Some("percussion")) {
                         drums = true;
@@ -1344,7 +1389,7 @@ fn read_part(score: &mut Score, part: Node, index: usize, info: PartInfo) {
         TrackKind::Drums => vec![0; 6],
         _ => vec![],
     };
-    // Staves become separate tracks (as for multi-staff Guitar Pro tracks).
+    // Each staff becomes a track; further staves are marked as part of the same instrument.
     let staves: Vec<u32> = {
         let mut s: Vec<u32> = bars.iter().flat_map(|b| b.keys().map(|k| k.0)).collect();
         s.sort_unstable();
@@ -1362,6 +1407,12 @@ fn read_part(score: &mut Score, part: Node, index: usize, info: PartInfo) {
             strings: strings.clone(),
             fret_count: 24,
             capo,
+            extra_staff: si > 0,
+            clef: if kind == TrackKind::Pitched {
+                clefs.get(&staff).copied()
+            } else {
+                None
+            },
             midi: MidiSettings {
                 program: info.program,
                 channel: info.channel,

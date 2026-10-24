@@ -28,9 +28,27 @@ pub struct System {
     bars: Vec<BarLayout>,
 }
 
-/// Rows used by a system: header + strings + spacer.
+/// Rows used by a system: header + strings + one row per lyric verse + spacer.
 pub fn system_height(track: &Track) -> u16 {
-    track.strings.len().max(1) as u16 + 2
+    track.strings.len().max(1) as u16 + 2 + verses(track)
+}
+
+/// Number of lyric verses on a track's first voice.
+fn verses(track: &Track) -> u16 {
+    track
+        .bars
+        .iter()
+        .flat_map(|b| b.voices.first())
+        .flat_map(|v| &v.beats)
+        .map(|b| {
+            b.lyrics
+                .iter()
+                .rposition(|l| !l.is_empty())
+                .map_or(0, |i| i + 1)
+        })
+        .max()
+        .unwrap_or(0)
+        .min(5) as u16
 }
 
 const LABEL_WIDTH: u16 = 3;
@@ -49,8 +67,16 @@ fn beat_width(beat: &Beat, track: &Track, scale: u16) -> u16 {
         .max()
         .unwrap_or(1)
         + 1;
+    // Wide enough for the beat's syllables too.
+    let lyric_w = beat
+        .lyrics
+        .iter()
+        .map(|l| l.chars().count() as u16 + 1)
+        .max()
+        .unwrap_or(0);
     (base * scale / 2 + beat.duration.dots as u16)
         .max(fret_w)
+        .max(lyric_w)
         .max(2)
 }
 
@@ -102,7 +128,29 @@ pub fn system_of_bar(systems: &[System], bar: usize) -> usize {
         .unwrap_or(0)
 }
 
+/// Tab line a note is shown on: its string, or on drum tracks its instrument's lane.
+fn row_of(n: &Note, track: &Track) -> usize {
+    if track.kind == TrackKind::Drums {
+        muse_core::drums::lane(n.fret) as usize
+    } else {
+        n.string as usize
+    }
+}
+
 fn note_text(n: &Note, track: &Track) -> String {
+    if track.kind == TrackKind::Drums {
+        let c = if muse_core::drums::is_cymbal(n.fret) {
+            "x"
+        } else {
+            "o"
+        };
+        let c = if n.accent != muse_core::Accent::None {
+            c.to_uppercase()
+        } else {
+            c.to_string()
+        };
+        return if n.ghost { format!("({c})") } else { c };
+    }
     let fret = if n.dead {
         "x".to_string()
     } else if matches!(track.kind, TrackKind::Pitched | TrackKind::Chant) {
@@ -193,7 +241,7 @@ impl Widget for TabView<'_> {
             // String labels.
             for (s, &open) in track.strings.iter().enumerate() {
                 let label = if track.kind == TrackKind::Drums {
-                    ""
+                    muse_core::drums::LANES.get(s).copied().unwrap_or("")
                 } else {
                     pitch_name(open)
                 };
@@ -288,7 +336,7 @@ impl Widget for TabView<'_> {
                             buf.set_style(cell, column_style);
                         }
                         if let Some(n) =
-                            beat.and_then(|b| b.notes.iter().find(|n| n.string as usize == s))
+                            beat.and_then(|b| b.notes.iter().find(|n| row_of(n, track) == s))
                         {
                             let style = if n.ghost || n.tie {
                                 dim
@@ -304,7 +352,7 @@ impl Widget for TabView<'_> {
                         }
                         if is_cursor_beat && pane.cursor.string == s {
                             let text_w = beat
-                                .and_then(|b| b.notes.iter().find(|n| n.string as usize == s))
+                                .and_then(|b| b.notes.iter().find(|n| row_of(n, track) == s))
                                 .map_or(1, |n| note_text(n, track).len() as u16);
                             buf.set_style(
                                 Rect {
@@ -314,6 +362,24 @@ impl Widget for TabView<'_> {
                                     height: 1,
                                 },
                                 cursor_style,
+                            );
+                        }
+                    }
+                    // Lyrics under the staff, one row per verse.
+                    for (li, syl) in beat
+                        .map_or(&[][..], |b| &b.lyrics[..])
+                        .iter()
+                        .enumerate()
+                        .take(5)
+                    {
+                        if !syl.is_empty() {
+                            let room = (area.x + area.width).saturating_sub(bx_beat) as usize;
+                            let t: String = syl.chars().take(room).collect();
+                            buf.set_string(
+                                bx_beat,
+                                y0 + 1 + rows as u16 + li as u16,
+                                t,
+                                Style::default().fg(Color::Green),
                             );
                         }
                     }

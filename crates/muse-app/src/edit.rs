@@ -129,6 +129,23 @@ impl<'a> EditCx<'a> {
     }
 }
 
+/// Adds a drum instrument to the cursor beat of a drum track, or removes it if present.
+pub fn toggle_drum(cx: &mut EditCx, key: u8, duration: Duration) -> Result<(), String> {
+    if cx.track().kind != TrackKind::Drums {
+        return Err("not a drum track".into());
+    }
+    let beat = cx.beat();
+    ensure_real(beat, duration);
+    if let Some(i) = beat.notes.iter().position(|n| n.fret == key) {
+        beat.notes.remove(i);
+    } else {
+        beat.notes.push(Note::new(muse_core::drums::lane(key), key));
+        beat.notes.sort_by_key(|n| n.string);
+    }
+    cx.cursor.string = muse_core::drums::lane(key) as usize;
+    Ok(())
+}
+
 /// Fills an empty bar placeholder so it can hold notes.
 fn ensure_real(beat: &mut Beat, duration: Duration) {
     if beat.empty {

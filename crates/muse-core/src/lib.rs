@@ -5,7 +5,9 @@
 //! tuning, so tablature and standard notation are two views of the same notes.
 
 pub mod chant;
+pub mod drums;
 mod duration;
+pub mod lyrics;
 pub mod performance;
 mod score;
 

@@ -85,6 +85,8 @@ const NATURAL: char = '\u{E261}';
 const SHARP: char = '\u{E262}';
 const DOT: char = '\u{E1E7}';
 const METRONOME_QUARTER: char = '\u{E1D5}';
+const BRACE: char = '\u{E000}';
+const OPEN: char = '\u{E5E7}';
 
 fn time_digit(d: u32) -> char {
     char::from_u32(0xE080 + d).unwrap_or('0')
@@ -125,22 +127,10 @@ impl Clef {
                 Clef::Bass8vb
             }
             TrackKind::Fretted => Clef::Treble8vb,
-            _ => {
-                let pitches: Vec<u32> = t
-                    .bars
-                    .iter()
-                    .flat_map(|b| &b.voices)
-                    .flat_map(|v| &v.beats)
-                    .flat_map(|b| &b.notes)
-                    .map(|n| n.fret as u32)
-                    .collect();
-                let avg = pitches.iter().sum::<u32>() / pitches.len().max(1) as u32;
-                if !pitches.is_empty() && avg < 55 {
-                    Clef::Bass
-                } else {
-                    Clef::Treble
-                }
-            }
+            _ => match t.staff_clef() {
+                StaffClef::Bass => Clef::Bass,
+                StaffClef::Treble => Clef::Treble,
+            },
         }
     }
 
@@ -269,6 +259,10 @@ struct Ctx<'a> {
     score: &'a Score,
     track: &'a Track,
     track_index: usize,
+    /// All staves of the part (this one included): columns line up across them.
+    part: Vec<&'a Track>,
+    /// The top staff of its part draws bar numbers, markers, tempo and endings.
+    first_staff: bool,
     o: Options,
     clef: Clef,
     sp: f64,
@@ -276,7 +270,12 @@ struct Ctx<'a> {
     tab: bool,
     lyrics: usize,
     nh_width: f64,
+    /// Syllables drawn so far, for hyphens: (page, verse y, left, right, continues).
+    syllables: std::cell::RefCell<Vec<Syllable>>,
 }
+
+/// A drawn lyric syllable: page, baseline y, left and right x, and whether a hyphen follows.
+type Syllable = (usize, f64, f64, f64, bool);
 
 /// Note positions on the standard staff, for ties.
 #[derive(Clone, Copy)]
@@ -296,6 +295,29 @@ pub fn engrave(score: &Score, track_index: usize, options: &Options) -> Layout {
     if let Some(chant) = track.chant.as_deref().filter(|_| options.chant) {
         return crate::chant::engrave_chant(score, track_index, track, chant, options);
     }
+    // All staves of the part, drum tracks split into hands and feet.
+    let part = score.part_tracks(track_index);
+    let display: Vec<std::borrow::Cow<Track>> = part
+        .clone()
+        .map(|t| display_track(&score.tracks[t]))
+        .collect();
+    let refs: Vec<&Track> = display.iter().map(|t| t.as_ref()).collect();
+    let ctxs: Vec<Ctx> = part
+        .zip(&refs)
+        .enumerate()
+        .map(|(k, (ti, t))| make_ctx(score, t, ti, options, refs.clone(), k == 0))
+        .collect();
+    run_part(&ctxs)
+}
+
+fn make_ctx<'a>(
+    score: &'a Score,
+    track: &'a Track,
+    track_index: usize,
+    options: &Options,
+    part: Vec<&'a Track>,
+    first_staff: bool,
+) -> Ctx<'a> {
     let sp = options.sp;
     let standard = options.standard || !matches!(track.kind, TrackKind::Fretted);
     let tab = options.tab && track.kind == TrackKind::Fretted && !track.strings.is_empty();
@@ -308,10 +330,12 @@ pub fn engrave(score: &Score, track_index: usize, options: &Options) -> Layout {
         .max()
         .unwrap_or(0);
     let nh_width = fonts().bbox(FontKind::Music, HEAD_BLACK, 4.0 * sp).width();
-    let ctx = Ctx {
+    Ctx {
         score,
         track,
         track_index,
+        part,
+        first_staff,
         o: *options,
         clef: Clef::for_track(track),
         sp,
@@ -319,8 +343,214 @@ pub fn engrave(score: &Score, track_index: usize, options: &Options) -> Layout {
         tab,
         lyrics,
         nh_width,
+        syllables: Default::default(),
+    }
+}
+
+/// MIDI keys played with the feet (bass drums, hi-hat pedal).
+fn is_foot(key: u8) -> bool {
+    matches!(key, 35 | 36 | 44)
+}
+
+/// A drum track as engraved: where hands and feet share the first voice (and the second is
+/// unused), the feet move to a second voice so they get stems down. Other tracks are shown as
+/// they are.
+fn display_track(track: &Track) -> std::borrow::Cow<'_, Track> {
+    use std::borrow::Cow;
+    if track.kind != TrackKind::Drums {
+        return Cow::Borrowed(track);
+    }
+    let mut t = track.clone();
+    for bar in &mut t.bars {
+        let second_used = bar.voices.iter().skip(1).any(|v| !v.is_empty());
+        let Some(first) = bar.voices.first() else {
+            continue;
+        };
+        let notes = first.beats.iter().flat_map(|b| &b.notes);
+        let (feet, hands) = notes.fold((false, false), |(f, h), n| {
+            (f || is_foot(n.fret), h || !is_foot(n.fret))
+        });
+        if second_used || !(feet && hands) {
+            continue;
+        }
+        let mut upper = first.beats.clone();
+        let mut lower = first.beats.clone();
+        for (u, l) in upper.iter_mut().zip(&mut lower) {
+            u.notes.retain(|n| !is_foot(n.fret));
+            l.notes.retain(|n| is_foot(n.fret));
+            l.text = None;
+            l.lyrics.clear();
+        }
+        merge_rests(&mut lower);
+        bar.voices.truncate(1);
+        bar.voices[0].beats = upper;
+        bar.voices.push(muse_core::Voice { beats: lower });
+    }
+    Cow::Owned(t)
+}
+
+/// Joins pairs of equal rests into the next longer rest where the result starts on a multiple
+/// of its own length.
+fn merge_rests(beats: &mut Vec<Beat>) {
+    loop {
+        let mut changed = false;
+        let mut tick = 0;
+        let mut i = 0;
+        while i + 1 < beats.len() {
+            let (a, b) = (&beats[i], &beats[i + 1]);
+            let plain =
+                |x: &Beat| x.is_rest() && x.duration.dots == 0 && x.duration.tuplet.is_none();
+            if plain(a)
+                && plain(b)
+                && a.duration.value == b.duration.value
+                && a.duration.value != DurationValue::Whole
+            {
+                let longer = a.duration.value.longer();
+                if tick % longer.ticks() == 0 {
+                    beats[i].duration.value = longer;
+                    beats.remove(i + 1);
+                    changed = true;
+                    continue;
+                }
+            }
+            tick += beats[i].ticks();
+            i += 1;
+        }
+        if !changed {
+            break;
+        }
+    }
+}
+
+/// Lays out a part: one system per line holding each of its staves.
+fn run_part(ctxs: &[Ctx]) -> Layout {
+    let main = &ctxs[0];
+    let sp = main.sp;
+    let plans: Vec<MeasurePlan> = (0..main.score.master_bars.len())
+        .map(|b| main.plan_measure(b))
+        .collect();
+    let multi = ctxs.len() > 1;
+    // Room for the brace of a multi-staff part.
+    let margin = main.o.margin;
+    let left = margin + if multi { 2.2 * sp } else { 0.0 };
+    let header_width = ctxs.iter().map(|c| c.header_width()).fold(0.0, f64::max);
+    let width = match main.o.mode {
+        Mode::Page { width, .. } | Mode::Vertical { width } => width,
+        Mode::Horizontal => {
+            left + margin + header_width + plans.iter().map(|p| p.natural).sum::<f64>() + sp
+        }
     };
-    ctx.run()
+    let avail = (width - left - margin - header_width).max(20.0 * sp);
+
+    // Break into systems.
+    let mut systems: Vec<Vec<usize>> = Vec::new();
+    let mut current: Vec<usize> = Vec::new();
+    let mut used = 0.0;
+    for (i, p) in plans.iter().enumerate() {
+        if !current.is_empty() && used + p.natural > avail && main.o.mode != Mode::Horizontal {
+            systems.push(std::mem::take(&mut current));
+            used = 0.0;
+        }
+        current.push(i);
+        used += p.natural;
+    }
+    if !current.is_empty() {
+        systems.push(current);
+    }
+
+    let heights: Vec<f64> = ctxs.iter().map(|c| c.metrics().2).collect();
+    let system_height: f64 = heights.iter().sum();
+    let mut layout = Layout {
+        pages: Vec::new(),
+        beats: HashMap::new(),
+        bars: vec![(0, 0.0, 0.0); plans.len()],
+    };
+    let page_height = match main.o.mode {
+        Mode::Page { height, .. } => height,
+        _ => 0.0,
+    };
+    let mut page = Page {
+        width,
+        height: page_height,
+        ..Page::default()
+    };
+    let mut y = margin;
+    if main.o.header {
+        y = main.draw_header(&mut page, width, y);
+    }
+    let mut placed: Vec<HashMap<(usize, usize, usize, u8), Placed>> =
+        vec![HashMap::new(); ctxs.len()];
+    let mut system_ends: Vec<(usize, f64, f64)> = Vec::new();
+    for (si, sys) in systems.iter().enumerate() {
+        if let Mode::Page { height, .. } = main.o.mode {
+            if y + system_height > height - margin && y > margin + 1.0 {
+                main.draw_page_number(&mut page, layout.pages.len());
+                layout.pages.push(std::mem::replace(
+                    &mut page,
+                    Page {
+                        width,
+                        height,
+                        ..Page::default()
+                    },
+                ));
+                y = margin;
+            }
+        }
+        let natural: f64 = sys.iter().map(|&i| plans[i].natural).sum();
+        let last = si + 1 == systems.len();
+        let stretch = if main.o.mode == Mode::Horizontal || (last && natural < avail * 0.75) {
+            1.0
+        } else {
+            avail / natural
+        };
+        let page_index = layout.pages.len();
+        let mut x_end = left;
+        let mut top = y;
+        let mut spans = Vec::new();
+        for (k, c) in ctxs.iter().enumerate() {
+            x_end = c.draw_system(
+                &mut page,
+                page_index,
+                si,
+                sys,
+                &plans,
+                top,
+                left,
+                stretch,
+                &mut layout,
+                &mut placed[k],
+            );
+            spans.push(c.staff_span(top));
+            top += heights[k];
+        }
+        if multi {
+            // Brace, and lines joining the staves at the start and at every barline.
+            let (a, b) = (spans[0].0, spans[spans.len() - 1].1);
+            page.line((left, a), (left, b), 0.16 * sp);
+            for &bi in sys {
+                let end = layout.bars[bi].2;
+                page.line((end, a), (end, b), 0.16 * sp);
+            }
+            let unit = fonts().bbox(FontKind::Music, BRACE, 4.0 * sp);
+            let size = 4.0 * sp * (b - a) / unit.height().max(1.0);
+            let bb = fonts().bbox(FontKind::Music, BRACE, size);
+            page.glyph(BRACE, (left - 0.4 * sp - bb.x1, b - bb.y1), size);
+        }
+        system_ends.push((page_index, left, x_end));
+        y += system_height;
+    }
+    if let Mode::Page { height, .. } = main.o.mode {
+        page.height = height;
+        main.draw_page_number(&mut page, layout.pages.len());
+    } else {
+        page.height = y + margin;
+    }
+    layout.pages.push(page);
+    for (k, c) in ctxs.iter().enumerate() {
+        c.draw_ties(&mut layout, &placed[k], &system_ends);
+        c.draw_hyphens(&mut layout);
+    }
+    layout
 }
 
 impl Ctx<'_> {
@@ -331,9 +561,10 @@ impl Ctx<'_> {
     /// Vertical metrics of a system relative to its top: (standard top, tab top, height).
     fn metrics(&self) -> (f64, f64, f64) {
         let sp = self.sp;
-        let std_top = 10.0 * sp;
+        let std_top = if self.first_staff { 10.0 } else { 3.0 } * sp;
         let std_height = if self.standard { 4.0 * sp } else { 0.0 };
-        let lyric_space = self.lyrics as f64 * 1.8 * sp;
+        let lyric_space =
+            self.lyrics as f64 * 1.8 * sp + if self.lyrics > 0 { 1.5 * sp } else { 0.0 };
         let tab_top = if self.standard {
             std_top + std_height + 6.0 * sp + lyric_space
         } else {
@@ -376,7 +607,7 @@ impl Ctx<'_> {
         let mb = &self.score.master_bars[bi];
         let bar_ticks = self.score.played_ticks(bi);
         let mut ticks: Vec<u32> = Vec::new();
-        if let Some(bar) = self.track.bars.get(bi) {
+        for bar in self.part.iter().filter_map(|t| t.bars.get(bi)) {
             for v in &bar.voices {
                 let mut t = 0;
                 for b in &v.beats {
@@ -403,10 +634,12 @@ impl Ctx<'_> {
             columns.push(Column { tick: t, width });
         }
         if ticks.len() == 1
-            && self.track.bars.get(bi).is_none_or(|b| {
-                b.voices
-                    .iter()
-                    .all(|v| v.beats.iter().all(|x| x.notes.is_empty()))
+            && self.part.iter().all(|t| {
+                t.bars.get(bi).is_none_or(|b| {
+                    b.voices
+                        .iter()
+                        .all(|v| v.beats.iter().all(|x| x.notes.is_empty()))
+                })
             })
         {
             columns[0].width = columns[0].width.max(6.0 * sp);
@@ -439,120 +672,60 @@ impl Ctx<'_> {
     }
 
     fn has_accidental_or_wide_fret(&self, bi: usize, tick: u32) -> bool {
-        let Some(bar) = self.track.bars.get(bi) else {
-            return false;
-        };
-        bar.voices.iter().any(|v| {
-            let mut t = 0;
-            v.beats.iter().any(|b| {
-                let here = t == tick;
-                t += b.ticks();
-                here && b.notes.iter().any(|n| n.fret >= 10 || n.tie || n.ghost)
+        self.part.iter().filter_map(|t| t.bars.get(bi)).any(|bar| {
+            bar.voices.iter().any(|v| {
+                let mut t = 0;
+                v.beats.iter().any(|b| {
+                    let here = t == tick;
+                    t += b.ticks();
+                    here && b.notes.iter().any(|n| n.fret >= 10 || n.tie || n.ghost)
+                })
             })
         })
     }
 
-    fn run(&self) -> Layout {
+    /// Hyphens between the syllables of a word: centred in the gap to the next syllable on the
+    /// same line, or just after the syllable at the end of a system.
+    fn draw_hyphens(&self, layout: &mut Layout) {
         let sp = self.sp;
-        let plans: Vec<MeasurePlan> = (0..self.score.master_bars.len())
-            .map(|b| self.plan_measure(b))
-            .collect();
-        let margin = self.o.margin;
-        let width = match self.o.mode {
-            Mode::Page { width, .. } | Mode::Vertical { width } => width,
-            Mode::Horizontal => {
-                margin * 2.0
-                    + self.header_width()
-                    + plans.iter().map(|p| p.natural).sum::<f64>()
-                    + sp
+        let mut syl = self.syllables.borrow().clone();
+        syl.sort_by(|a, b| (a.0, a.1, a.2).partial_cmp(&(b.0, b.1, b.2)).unwrap());
+        let size = 1.9 * sp;
+        let hyphen = fonts().text_width(FontKind::Text, "-", size);
+        for (k, &(page, y, _, right, continues)) in syl.iter().enumerate() {
+            if !continues {
+                continue;
             }
-        };
-        let avail = (width - 2.0 * margin - self.header_width()).max(20.0 * sp);
-
-        // Break into systems.
-        let mut systems: Vec<Vec<usize>> = Vec::new();
-        let mut current: Vec<usize> = Vec::new();
-        let mut used = 0.0;
-        for (i, p) in plans.iter().enumerate() {
-            if !current.is_empty() && used + p.natural > avail && self.o.mode != Mode::Horizontal {
-                systems.push(std::mem::take(&mut current));
-                used = 0.0;
-            }
-            current.push(i);
-            used += p.natural;
-        }
-        if !current.is_empty() {
-            systems.push(current);
-        }
-
-        let (_, _, system_height) = self.metrics();
-        let mut layout = Layout {
-            pages: Vec::new(),
-            beats: HashMap::new(),
-            bars: vec![(0, 0.0, 0.0); plans.len()],
-        };
-        let page_height = match self.o.mode {
-            Mode::Page { height, .. } => height,
-            _ => 0.0,
-        };
-        let mut page = Page {
-            width,
-            height: page_height,
-            ..Page::default()
-        };
-        let mut y = margin;
-        if self.o.header {
-            y = self.draw_header(&mut page, width, y);
-        }
-        let mut placed: HashMap<(usize, usize, usize, u8), Placed> = HashMap::new();
-        let mut system_ends: Vec<(usize, f64, f64)> = Vec::new(); // page, x start, x end per system
-        for (si, sys) in systems.iter().enumerate() {
-            if let Mode::Page { height, .. } = self.o.mode {
-                if y + system_height > height - margin && y > margin + 1.0 {
-                    self.draw_page_number(&mut page, layout.pages.len());
-                    layout.pages.push(std::mem::replace(
-                        &mut page,
-                        Page {
-                            width,
-                            height,
-                            ..Page::default()
-                        },
-                    ));
-                    y = margin;
-                }
-            }
-            let natural: f64 = sys.iter().map(|&i| plans[i].natural).sum();
-            let last = si + 1 == systems.len();
-            let stretch = if self.o.mode == Mode::Horizontal || (last && natural < avail * 0.75) {
-                1.0
-            } else {
-                avail / natural
+            let next = syl
+                .get(k + 1)
+                .filter(|n| n.0 == page && (n.1 - y).abs() < 0.01);
+            let x = match next {
+                Some(n) if n.2 - right > hyphen * 1.5 => (right + n.2) / 2.0,
+                Some(_) => continue,
+                None => right + 0.4 * sp + hyphen / 2.0,
             };
-            let page_index = layout.pages.len();
-            let x_end = self.draw_system(
-                &mut page,
-                page_index,
-                si,
-                sys,
-                &plans,
-                y,
-                margin,
-                stretch,
-                &mut layout,
-                &mut placed,
-            );
-            system_ends.push((page_index, margin, x_end));
-            y += system_height;
+            if let Some(p) = layout.pages.get_mut(page) {
+                p.text(FontKind::Text, "-", (x, y), size, Align::Center);
+            }
         }
-        if let Mode::Page { height, .. } = self.o.mode {
-            page.height = height;
-            self.draw_page_number(&mut page, layout.pages.len());
+    }
+
+    /// Top and bottom y of this staff (standard staff, or tablature) in a system at `top`.
+    fn staff_span(&self, top: f64) -> (f64, f64) {
+        let (std_rel, tab_rel, _) = self.metrics();
+        let tab_bottom =
+            top + tab_rel + (self.track.strings.len().max(1) - 1) as f64 * 1.5 * self.sp;
+        let first = if self.standard {
+            top + std_rel
         } else {
-            page.height = y + margin;
-        }
-        layout.pages.push(page);
-        self.draw_ties(&mut layout, &placed, &system_ends);
-        layout
+            top + tab_rel
+        };
+        let last = if self.tab {
+            tab_bottom
+        } else {
+            top + std_rel + 4.0 * self.sp
+        };
+        (first, last)
     }
 
     fn draw_header(&self, page: &mut Page, width: f64, y: f64) -> f64 {
@@ -681,7 +854,7 @@ impl Ctx<'_> {
             page.glyph(TAB_CLEF, (x0 + 0.8 * sp, mid - (b.y0 + b.y1) / 2.0), size);
         }
         // Bar number above the first bar.
-        if system_index > 0 || first_bar > 0 {
+        if self.first_staff && (system_index > 0 || first_bar > 0) {
             page.text(
                 FontKind::Italic,
                 format!("{}", first_bar + 1),
@@ -783,7 +956,7 @@ impl Ctx<'_> {
                 self.repeat_dots(page, x + 1.4 * sp, a, b);
             }
         }
-        if let Some(n) = mb.repeat_end.filter(|&n| n > 2) {
+        if let Some(n) = mb.repeat_end.filter(|&n| n > 2 && self.first_staff) {
             page.text(
                 FontKind::Bold,
                 format!("x{n}"),
@@ -799,7 +972,7 @@ impl Ctx<'_> {
             }
         }
         // Alternate ending bracket.
-        if mb.alternate_endings != 0 {
+        if mb.alternate_endings != 0 && self.first_staff {
             let y = top - 5.5 * sp;
             page.line((x, y), (end - 0.3 * sp, y), 0.12 * sp);
             let starts = prev.is_none_or(|p| p.alternate_endings != mb.alternate_endings);
@@ -819,53 +992,54 @@ impl Ctx<'_> {
             }
         }
         // Section marker, directions and tempo.
-        let mut above = top - 7.5 * sp;
-        if let Some(m) = &mb.marker {
-            if !m.title.trim().is_empty() {
-                let label = m.title.trim().to_string();
-                let w = fonts().text_width(FontKind::Bold, &label, 2.2 * sp);
-                page.items.push(Item::Rect {
-                    rect: Rect::new(
-                        x - 0.3 * sp,
-                        above - 2.0 * sp,
-                        x + w + 0.3 * sp,
-                        above + 0.5 * sp,
-                    ),
-                    color: Color::rgb(235, 235, 235),
-                });
-                page.text(FontKind::Bold, label, (x, above), 2.2 * sp, Align::Left);
-                above -= 3.0 * sp;
+        if self.first_staff {
+            let mut above = top - 7.5 * sp;
+            if let Some(m) = &mb.marker {
+                if !m.title.trim().is_empty() {
+                    let label = m.title.trim().to_string();
+                    let w = fonts().text_width(FontKind::Bold, &label, 2.2 * sp);
+                    page.items.push(Item::Rect {
+                        rect: Rect::new(
+                            x - 0.3 * sp,
+                            above - 2.0 * sp,
+                            x + w + 0.3 * sp,
+                            above + 0.5 * sp,
+                        ),
+                        color: Color::rgb(235, 235, 235),
+                    });
+                    page.text(FontKind::Bold, label, (x, above), 2.2 * sp, Align::Left);
+                    above -= 3.0 * sp;
+                }
+            }
+            let tempos: Vec<(u32, f64)> = if bi == 0 {
+                vec![(0, self.score.tempo as f64)]
+            } else {
+                vec![]
+            }
+            .into_iter()
+            .chain(mb.tempo_changes.iter().map(|c| (c.tick, c.bpm)))
+            .collect();
+            if let Some(&(_, bpm)) = tempos.first() {
+                page.glyph(METRONOME_QUARTER, (x + 0.5 * sp, above), 3.2 * sp);
+                page.text(
+                    FontKind::Text,
+                    format!("= {}", bpm.round()),
+                    (x + 2.0 * sp, above),
+                    2.2 * sp,
+                    Align::Left,
+                );
+            }
+            for d in &mb.directions {
+                let label = format!("{d:?}");
+                page.text(
+                    FontKind::Italic,
+                    label,
+                    (end, top - 2.0 * sp),
+                    1.8 * sp,
+                    Align::Right,
+                );
             }
         }
-        let tempos: Vec<(u32, f64)> = if bi == 0 {
-            vec![(0, self.score.tempo as f64)]
-        } else {
-            vec![]
-        }
-        .into_iter()
-        .chain(mb.tempo_changes.iter().map(|c| (c.tick, c.bpm)))
-        .collect();
-        if let Some(&(_, bpm)) = tempos.first() {
-            page.glyph(METRONOME_QUARTER, (x + 0.5 * sp, above), 3.2 * sp);
-            page.text(
-                FontKind::Text,
-                format!("= {}", bpm.round()),
-                (x + 2.0 * sp, above),
-                2.2 * sp,
-                Align::Left,
-            );
-        }
-        for d in &mb.directions {
-            let label = format!("{d:?}");
-            page.text(
-                FontKind::Italic,
-                label,
-                (end, top - 2.0 * sp),
-                1.8 * sp,
-                Align::Right,
-            );
-        }
-
         // Key and time signature changes.
         let mut lead_x = x + 0.6 * sp;
         if self.standard
@@ -1062,15 +1236,27 @@ impl Ctx<'_> {
                     }
                 }
                 for (li, syl) in beat.lyrics.iter().enumerate() {
-                    if !syl.is_empty() {
-                        let y = std_bottom + 3.5 * sp + li as f64 * 1.8 * sp;
+                    // A trailing hyphen is drawn between this syllable and the next.
+                    let continues = syl.ends_with('-');
+                    let text = syl.trim_end_matches('-');
+                    if !text.is_empty() {
+                        let y = std_bottom + 5.0 * sp + li as f64 * 1.8 * sp;
+                        let cx = bx + self.nh_width / 2.0;
+                        let w = fonts().text_width(FontKind::Text, text, 1.9 * sp);
                         page.text(
                             FontKind::Text,
-                            syl.clone(),
-                            (bx + self.nh_width / 2.0, y),
+                            text.to_string(),
+                            (cx, y),
                             1.9 * sp,
                             Align::Center,
                         );
+                        self.syllables.borrow_mut().push((
+                            page_index,
+                            y,
+                            cx - w / 2.0,
+                            cx + w / 2.0,
+                            continues,
+                        ));
                     }
                 }
                 // Tablature.
@@ -1140,9 +1326,14 @@ impl Ctx<'_> {
         let key = self.score.master_bars[pos.0].key_signature.accidentals;
         // (staff position, accidental, x notehead, string)
         let mut heads: Vec<(i32, Option<char>, bool, u8, bool)> = Vec::new();
+        // Open hi-hats are marked with a small circle.
+        let mut open: Vec<i32> = Vec::new();
         for n in &beat.notes {
             if self.clef == Clef::Percussion {
                 let (p, xhead) = drum_position(n.fret);
+                if n.fret == 46 {
+                    open.push(p);
+                }
                 heads.push((p, None, xhead, n.string, n.tie));
                 continue;
             }
@@ -1194,6 +1385,9 @@ impl Ctx<'_> {
             ys.push(y);
             let g = if xhead { HEAD_X } else { head };
             page.glyph(g, (hx, y), 4.0 * sp);
+            if open.contains(&p) {
+                page.glyph(OPEN, (hx, self.staff_y(bottom, p.max(9) + 3)), 4.0 * sp);
+            }
             // Ledger lines.
             let lx0 = hx - 0.4 * sp;
             let lx1 = hx + self.nh_width + 0.4 * sp;
@@ -1600,6 +1794,89 @@ mod tests {
         assert_eq!(spell(61, -2), (1, -1, 4)); // Db4
         assert_eq!(key_alters(2), [1, 0, 0, 1, 0, 0, 0]); // F#, C#
         assert_eq!(key_alters(-1), [0, 0, 0, 0, 0, 0, -1]); // Bb
+    }
+
+    #[test]
+    fn grand_staff_and_drum_voices() {
+        let beat = |keys: &[u8], v: DurationValue| Beat {
+            duration: Duration::new(v),
+            notes: keys.iter().map(|&k| Note::new(0, k)).collect(),
+            ..Beat::default()
+        };
+        let bar = |beats: Vec<Beat>| Bar {
+            voices: vec![Voice { beats }],
+        };
+        let q = DurationValue::Quarter;
+        let right = Track {
+            name: "Piano".into(),
+            kind: TrackKind::Pitched,
+            bars: vec![bar(vec![
+                beat(&[72], q),
+                beat(&[74], q),
+                beat(&[76], q),
+                beat(&[77], q),
+            ])],
+            ..Track::default()
+        };
+        let left = Track {
+            name: "Piano (2)".into(),
+            kind: TrackKind::Pitched,
+            extra_staff: true,
+            bars: vec![bar(vec![beat(&[48], DurationValue::Whole)])],
+            ..Track::default()
+        };
+        let mut score = Score {
+            tempo: 100,
+            master_bars: vec![MasterBar::default()],
+            tracks: vec![right, left],
+            ..Score::default()
+        };
+        // Both staves are in one layout whichever is engraved, on the same page.
+        let layout = engrave(&score, 1, &Options::default());
+        assert_eq!(layout.beats.keys().filter(|b| b.track == 0).count(), 4);
+        assert_eq!(layout.beats.keys().filter(|b| b.track == 1).count(), 1);
+        let top = layout.beats.iter().find(|(b, _)| b.track == 0).unwrap().1;
+        let low = layout.beats.iter().find(|(b, _)| b.track == 1).unwrap().1;
+        assert!(low.top > top.top);
+        // The lower staff takes the bass clef from its range.
+        assert_eq!(Clef::for_track(&score.tracks[1]), Clef::Bass);
+
+        // Drums: hands and feet in one voice are shown as two.
+        score.tracks = vec![Track {
+            kind: TrackKind::Drums,
+            bars: vec![bar(vec![
+                beat(&[36, 42], DurationValue::Eighth),
+                beat(&[42], DurationValue::Eighth),
+                beat(&[38, 42], DurationValue::Eighth),
+                beat(&[42], DurationValue::Eighth),
+                beat(&[36, 42], DurationValue::Half),
+            ])],
+            ..Track::default()
+        }];
+        let shown = display_track(&score.tracks[0]);
+        let voices = &shown.bars[0].voices;
+        assert_eq!(voices.len(), 2);
+        assert!(
+            voices[0]
+                .beats
+                .iter()
+                .all(|b| b.notes.iter().all(|n| !is_foot(n.fret)))
+        );
+        // Feet: kick, eighth rest, quarter rest, kick (two eighth rests merged on the beat).
+        let feet: Vec<(bool, DurationValue)> = voices[1]
+            .beats
+            .iter()
+            .map(|b| (b.is_rest(), b.duration.value))
+            .collect();
+        assert_eq!(
+            feet,
+            [
+                (false, DurationValue::Eighth),
+                (true, DurationValue::Eighth),
+                (true, DurationValue::Quarter),
+                (false, DurationValue::Half)
+            ]
+        );
     }
 
     #[test]

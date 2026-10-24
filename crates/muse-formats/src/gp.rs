@@ -157,6 +157,8 @@ impl<'a> GpReader<'a> {
             }
             score.master_bars[bar].tempo_changes = changes;
         }
+        // Guitar Pro sings the lyric lines one syllable per note; put them on the beats.
+        muse_core::lyrics::attach(&mut score);
         Ok(score)
     }
 

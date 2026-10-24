@@ -93,6 +93,10 @@ Items marked _(M1)_ are implemented in the first milestone; the rest are the pla
 | `+` / `-` / `<A-1>`…`<A-7>` | longer / shorter / whole … 64th |
 | `<Esc>` | back to Normal (the whole session is one undo step) |
 
+On drum tracks _(M7)_, letters add or remove an instrument on the cursor beat: `k` bass drum,
+`s` snare, `h` closed hi-hat, `o` open hi-hat, `p` pedal hi-hat, `c` crash, `d` ride, `t` high
+tom, `m` mid tom, `f` floor tom (`r` is still a rest, `g`/`a` ghost and accent).
+
 ## Command mode (selected)
 
 | command                                          |                                |
@@ -109,7 +113,9 @@ Items marked _(M1)_ are implemented in the first milestone; the rest are the pla
 | `:note C#4` / `:voice 2` | set the cursor note's pitch / edit another voice |
 | `:tuning drop-d` or `:tuning D2 A2 D3 G3 B3 E4` / `:capo 2` | retune keeping pitches |
 | `:refinger` / `:transpose 2` | re-finger the track to minimise hand movement / transpose |
-| `:track-add bass` / `:track-delete` / `:new` | tracks and new scores |
+| `:track-add bass` / `:track-delete` / `:new` | tracks and new scores (`:track-add piano` adds a grand staff: two staves of one part) |
+| `:lyrics [verse] TEXT` _(M7)_ | syllables from the cursor on, one per note, in Guitar Pro syntax: spaces and hyphens separate syllables (`he-si-tate`), an extra space skips a note, `+` joins words on one note; verse 1–5 |
+| `:lyrics-clear [verse]` _(M7)_ | remove a verse (all verses without a number) from the track |
 | `:speed 75` | playback speed in percent |
 
 ### Chant _(M6)_

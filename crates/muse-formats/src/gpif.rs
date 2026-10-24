@@ -176,12 +176,13 @@ pub fn read_gpif(xml: &str) -> Result<Score> {
                 });
             }
         }
-        // Multi-staff tracks (e.g. a piano grand staff) list one bar per staff; until the model
-        // has staves, each extra staff becomes its own track.
+        // Multi-staff tracks (e.g. a piano grand staff) list one bar per staff; each further
+        // staff becomes a track marked as part of the same instrument.
         let staves = staff_count(t);
         for staff in 1..staves {
             let mut extra = track.clone();
             extra.name = format!("{} ({})", track.name.trim(), staff + 1);
+            extra.extra_staff = true;
             score.tracks.push(extra);
             infos.push(TrackInfo {
                 tuning: info.tuning.clone(),
@@ -200,9 +201,15 @@ pub fn read_gpif(xml: &str) -> Result<Score> {
         let mb = read_master_bar(mb_node, score.master_bars.last());
         let bar_ids = ids(text(mb_node, "Bars"));
         for (ti, track) in score.tracks.iter_mut().enumerate() {
-            let bar = bar_ids
-                .get(ti)
-                .and_then(|id| bars.get(id))
+            let node = bar_ids.get(ti).and_then(|id| bars.get(id));
+            if track.bars.is_empty() && track.kind == TrackKind::Pitched {
+                track.clef = match node.and_then(|b| text(*b, "Clef")) {
+                    Some("F4") => Some(StaffClef::Bass),
+                    Some("G2") => Some(StaffClef::Treble),
+                    _ => None,
+                };
+            }
+            let bar = node
                 .map(|b| read_bar(*b, track, &infos[ti], &voices, &beats, &notes, &rhythms))
                 .unwrap_or_else(empty_bar);
             track.bars.push(bar);
@@ -668,14 +675,7 @@ const DRUM_ROWS: usize = 6;
 
 /// Display row of a drum note in tablature (0 = top: cymbals, 5 = bottom: kick).
 pub(crate) fn drum_row(key: u8) -> u8 {
-    match key {
-        35 | 36 => 5,
-        41 | 43 | 45 => 4,
-        37..=40 => 3,
-        47 | 48 | 50 => 2,
-        42 | 44 | 46 => 1,
-        _ => 0,
-    }
+    muse_core::drums::lane(key)
 }
 
 /// GP6 drum kit element and variation to General MIDI percussion key. Element order follows

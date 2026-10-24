@@ -16,7 +16,7 @@ pub fn write_gp7(score: &Score) -> Result<Vec<u8>> {
     let options = zip::write::SimpleFileOptions::default()
         .compression_method(zip::CompressionMethod::Deflated);
     let zerr = |e: zip::result::ZipError| Error::Unsupported(e.to_string());
-    let tracks = score.tracks.len();
+    let tracks = score.parts().len();
     let files: [(&str, Vec<u8>); 6] = [
         ("VERSION", b"7.0".to_vec()),
         ("Content/score.gpif", xml.into_bytes()),
@@ -69,7 +69,7 @@ fn asset_path(audio: &AudioSync) -> Option<String> {
 pub fn write_gpx(score: &Score) -> Result<Vec<u8>> {
     let xml = write_gpif_flavour(score, true);
     let part = part_configuration(score);
-    let layout = layout_configuration(score.tracks.len());
+    let layout = layout_configuration(score.parts().len());
     let empty_style = 0u32.to_be_bytes();
     crate::gpx::write_container(&[
         ("score.gpif", xml.as_bytes()),
@@ -83,8 +83,9 @@ pub fn write_gpx(score: &Score) -> Result<Vec<u8>> {
 /// (1 = standard notation, 2 = tablature).
 fn part_configuration(score: &Score) -> Vec<u8> {
     let flags: Vec<u8> = score
-        .tracks
+        .parts()
         .iter()
+        .map(|p| &score.tracks[p.start])
         .map(|t| if t.kind == TrackKind::Fretted { 3 } else { 1 })
         .collect();
     let mut out = Vec::new();
@@ -275,7 +276,9 @@ pub fn write_gpif_flavour(score: &Score, gp6: bool) -> String {
     write_score_info(&mut x, score);
 
     // Master track: track list and tempo automation.
-    let list: Vec<String> = (0..score.tracks.len()).map(|i| i.to_string()).collect();
+    // Guitar Pro tracks are parts; a multi-staff part spans several model tracks.
+    let parts = score.parts();
+    let list: Vec<String> = (0..parts.len()).map(|i| i.to_string()).collect();
     let _ = write!(x, "<MasterTrack>\n<Tracks>{}</Tracks>\n", list.join(" "));
     if score.anacrusis {
         x.push_str("<Anacrusis />\n");
@@ -317,11 +320,12 @@ pub fn write_gpif_flavour(score: &Score, gp6: bool) -> String {
     }
 
     x.push_str("<Tracks>\n");
-    for (i, t) in score.tracks.iter().enumerate() {
+    for (i, part) in parts.iter().enumerate() {
+        let t = &score.tracks[part.start];
         if gp6 {
-            write_track_gp6(&mut x, score, i, t);
+            write_track_gp6(&mut x, score, i, part.clone(), t);
         } else {
-            write_track(&mut x, score, i, t);
+            write_track(&mut x, score, i, part.clone(), t);
         }
     }
     x.push_str("</Tracks>\n");
@@ -429,7 +433,13 @@ fn gp6_instrument(t: &Track) -> &'static str {
     }
 }
 
-fn write_track_gp6(x: &mut String, score: &Score, index: usize, t: &Track) {
+fn write_track_gp6(
+    x: &mut String,
+    score: &Score,
+    index: usize,
+    part: std::ops::Range<usize>,
+    t: &Track,
+) {
     let _ = writeln!(x, "<Track id=\"{index}\">");
     let _ = writeln!(x, "<Name>{}</Name>", cdata(&t.name));
     let short: String = t.name.chars().take(8).collect();
@@ -440,7 +450,14 @@ fn write_track_gp6(x: &mut String, score: &Score, index: usize, t: &Track) {
         t.color.r, t.color.g, t.color.b
     );
     x.push_str("<SystemsDefautLayout>3</SystemsDefautLayout>\n<SystemsLayout></SystemsLayout>\n<PlayingStyle>Default</PlayingStyle>\n");
-    let _ = writeln!(x, "<Instrument ref=\"{}\" />", gp6_instrument(t));
+    let instrument = gp6_instrument(t);
+    // GP6 marks two-staff instruments with "-gs"; other kinds use the piano's.
+    let instrument = match instrument.strip_suffix("-ss") {
+        Some(base) if part.len() > 1 => format!("{base}-gs"),
+        _ if part.len() > 1 => "a-piano-gs".to_string(),
+        _ => instrument.to_string(),
+    };
+    let _ = writeln!(x, "<Instrument ref=\"{instrument}\" />");
     let transposition = if t.kind == TrackKind::Fretted { -12 } else { 0 };
     let _ = writeln!(
         x,
@@ -470,7 +487,7 @@ fn write_track_gp6(x: &mut String, score: &Score, index: usize, t: &Track) {
         "Default"
     };
     let _ = writeln!(x, "<PlaybackState>{state}</PlaybackState>");
-    write_track_lyrics(x, score, index);
+    write_track_lyrics(x, score, part.start);
     x.push_str("<Properties>\n");
     let _ = writeln!(
         x,
@@ -512,7 +529,13 @@ fn write_track_lyrics(x: &mut String, score: &Score, index: usize) {
     x.push_str("</Lyrics>\n");
 }
 
-fn write_track(x: &mut String, score: &Score, index: usize, t: &Track) {
+fn write_track(
+    x: &mut String,
+    score: &Score,
+    index: usize,
+    part: std::ops::Range<usize>,
+    t: &Track,
+) {
     let (itype, iname) = instrument_type(t);
     let _ = writeln!(x, "<Track id=\"{index}\">");
     let _ = writeln!(x, "<Name>{}</Name>", cdata(&t.name));
@@ -574,30 +597,34 @@ fn write_track(x: &mut String, score: &Score, index: usize, t: &Track) {
         "<PlaybackState>{state}</PlaybackState>\n<AudioEngineState>MIDI</AudioEngineState>"
     );
 
-    write_track_lyrics(x, score, index);
+    write_track_lyrics(x, score, part.start);
 
-    x.push_str("<Staves>\n<Staff>\n<Properties>\n");
-    let _ = writeln!(
-        x,
-        "<Property name=\"CapoFret\"><Fret>{}</Fret></Property>",
-        t.capo
-    );
-    let _ = writeln!(
-        x,
-        "<Property name=\"FretCount\"><Number>{}</Number></Property>",
-        t.fret_count.max(1)
-    );
-    if t.kind == TrackKind::Fretted {
-        let pitches: Vec<String> = t.strings.iter().rev().map(|p| p.to_string()).collect();
+    x.push_str("<Staves>\n");
+    for _ in part {
+        x.push_str("<Staff>\n<Properties>\n");
         let _ = writeln!(
             x,
-            "<Property name=\"Tuning\"><Pitches>{}</Pitches><Flat></Flat><Instrument>{iname}</Instrument><Label>{}</Label><LabelVisible>true</LabelVisible></Property>",
-            pitches.join(" "),
-            cdata("")
+            "<Property name=\"CapoFret\"><Fret>{}</Fret></Property>",
+            t.capo
         );
-        write_diagrams(x, t);
+        let _ = writeln!(
+            x,
+            "<Property name=\"FretCount\"><Number>{}</Number></Property>",
+            t.fret_count.max(1)
+        );
+        if t.kind == TrackKind::Fretted {
+            let pitches: Vec<String> = t.strings.iter().rev().map(|p| p.to_string()).collect();
+            let _ = writeln!(
+                x,
+                "<Property name=\"Tuning\"><Pitches>{}</Pitches><Flat></Flat><Instrument>{iname}</Instrument><Label>{}</Label><LabelVisible>true</LabelVisible></Property>",
+                pitches.join(" "),
+                cdata("")
+            );
+            write_diagrams(x, t);
+        }
+        x.push_str("<Name><![CDATA[Standard]]></Name>\n</Properties>\n</Staff>\n");
     }
-    x.push_str("<Name><![CDATA[Standard]]></Name>\n</Properties>\n</Staff>\n</Staves>\n</Track>\n");
+    x.push_str("</Staves>\n</Track>\n");
 }
 
 /// Chord diagrams used in a track, by position of first use.
@@ -770,6 +797,7 @@ fn clef(t: &Track) -> &'static str {
     match t.kind {
         TrackKind::Drums => "Neutral",
         TrackKind::Fretted if instrument_type(t).0 == "electricBass" => "F4",
+        TrackKind::Pitched | TrackKind::Chant if t.staff_clef() == StaffClef::Bass => "F4",
         _ => "G2",
     }
 }

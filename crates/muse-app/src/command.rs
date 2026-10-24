@@ -105,6 +105,11 @@ pub enum Command {
     Volume(String, u32),
     Mute(Option<usize>),
     Solo(Option<usize>),
+    /// Lyrics from the cursor on (verse 1–5, default 1), in Guitar Pro syntax: spaces and
+    /// hyphens separate syllables, one per note.
+    Lyrics(usize, String),
+    /// Remove a verse of lyrics from the cursor track (all verses without a number).
+    LyricsClear(Option<usize>),
     /// Show the cursor syllable as GABC, or replace it (`Glo(fg)`, or just notes `fgh`).
     Gabc(Option<String>),
     /// Chant rhythm: "equalist" or "solesmes" (None shows it).
@@ -388,6 +393,24 @@ impl Command {
                     pct.trim().parse().map_err(|_| "volume: bad percent")?,
                 )
             }
+            "lyrics" => {
+                let a = arg.ok_or("lyrics: expected [verse] TEXT")?;
+                match a.split_once(' ') {
+                    Some((n, rest)) if n.parse::<usize>().is_ok_and(|n| (1..=5).contains(&n)) => {
+                        Lyrics(n.parse::<usize>().unwrap() - 1, rest.to_string())
+                    }
+                    _ => Lyrics(0, a.to_string()),
+                }
+            }
+            "lyrics-clear" => LyricsClear(
+                arg.map(|a| {
+                    a.trim()
+                        .parse::<usize>()
+                        .map_err(|_| "lyrics-clear: expected a verse number")
+                })
+                .transpose()?
+                .map(|n| n.saturating_sub(1)),
+            ),
             "gabc" => Gabc(arg.map(String::from)),
             "interpretation" => Interpretation(arg.map(String::from)),
             "clef" => ChantClef(arg.ok_or("clef: expected c1–c4, f1–f4 or cb3")?.to_string()),

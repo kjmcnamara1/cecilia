@@ -131,8 +131,13 @@ naturals where needed.
 Format detection by magic bytes first, extension second.
 Encoding for GP3–5 strings: Windows-1252, or UTF-8 when the bytes are valid UTF-8.
 
-Until the model has multiple staves per track (M7), multi-staff parts (e.g. a piano grand staff
-in GPIF or MusicXML) are imported as one track per staff.
+Multi-staff parts (a piano grand staff in GPIF or MusicXML) are one model track per staff, the
+further staves flagged `extra_staff`; they are engraved together (brace, joined barlines) and
+written back as one multi-staff instrument to GP7, GPX and MusicXML (GP5, which has no staves,
+gets one track per staff). Lyrics: GP3–5 lyric lines are put on the beats with Guitar Pro's
+rules (checked against alphaTab: identical on 8 of 10 corpus files; the other two differ only at
+grace notes, which alphaTab treats as separate beats) and rebuilt from the beats on export when
+they were edited.
 
 **Validation.** Every reader and writer is checked against a local corpus (`test-corpus/`,
 163 Guitar Pro files of all versions):
@@ -301,7 +306,9 @@ Lua/plugin API, external MIDI output, MIDI input (step entry / recording), adias
    and per-track pan/master volume are not exposed yet): audio loading, waveform/sync pane, manual
    sync + beat assist, stretch/pitch, A–B loop, count-in, mixer, audio export.
 6. **M6 Chant** (done): chant model, GABC I/O, square-notation engraving, chant↔modern transcription.
-7. **M7 Instruments**: drums/percussion, piano grand staff, lyrics.
+7. **M7 Instruments** (done): drums/percussion (hands/feet voices, drum tab lanes, letter
+   entry), piano grand staff (multi-staff parts), lyrics (verses, GP3–5 attachment, `:lyrics`,
+   centred hyphens, terminal display).
 8. **M8 Platforms**: Windows/macOS packaging, then Android, then iOS.
 
 ## 14. Quality

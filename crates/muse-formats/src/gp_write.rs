@@ -164,6 +164,29 @@ impl Writer {
 
     fn write_lyrics(&mut self, score: &Score) {
         let mut lyrics = score.lyrics.clone().unwrap_or_default();
+        // Keep the stored lines unless the syllables on the beats were changed since.
+        if !lyrics.lines.is_empty() {
+            let mut check = score.clone();
+            if let Some(t) = lyrics.track.and_then(|t| check.tracks.get_mut(t)) {
+                for b in t
+                    .bars
+                    .iter_mut()
+                    .flat_map(|b| &mut b.voices)
+                    .flat_map(|v| &mut v.beats)
+                {
+                    b.lyrics.clear();
+                }
+                muse_core::lyrics::attach(&mut check);
+                let syllables = |s: &Score| {
+                    s.tracks
+                        .get(lyrics.track.unwrap_or(0))
+                        .map(muse_core::lyrics::lines_from_beats)
+                };
+                if syllables(&check) != syllables(score) {
+                    lyrics.lines.clear();
+                }
+            }
+        }
         if lyrics.lines.is_empty() {
             // Build lyric lines from per-beat syllables (GP6+ store lyrics per beat).
             if let Some((ti, t)) = score.tracks.iter().enumerate().find(|(_, t)| {
@@ -174,22 +197,8 @@ impl Writer {
                     .any(|b| !b.lyrics.is_empty())
             }) {
                 lyrics.track = Some(ti);
-                for line in 0..5 {
-                    let words: Vec<&str> = t
-                        .bars
-                        .iter()
-                        .filter_map(|b| b.voices.first())
-                        .flat_map(|v| &v.beats)
-                        .filter_map(|b| b.lyrics.get(line).map(String::as_str))
-                        .filter(|s| !s.is_empty())
-                        .collect();
-                    if !words.is_empty() {
-                        lyrics.lines.push(LyricLine {
-                            start_bar: 0,
-                            text: words.join(" "),
-                        });
-                    }
-                }
+                lyrics.lines = muse_core::lyrics::lines_from_beats(t);
+                lyrics.lines.truncate(5);
             }
         }
         self.i32(lyrics.track.map_or(0, |t| t as i32 + 1));

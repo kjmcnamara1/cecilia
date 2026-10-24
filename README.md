@@ -3,8 +3,8 @@
 A keyboard-first, open-source editor and player for guitar tablature, standard notation and
 Gregorian chant, with Guitar Pro compatibility and audio play-along. Written in Rust.
 
-**Status:** milestones 1–6 (terminal reader, MIDI playback, file formats, engraving and GUI,
-editing, audio play-along, Gregorian chant). See [docs/SPEC.md](docs/SPEC.md) for the
+**Status:** milestones 1–7 (terminal reader, MIDI playback, file formats, engraving and GUI,
+editing, audio play-along, Gregorian chant, drums, piano grand staff and lyrics). See [docs/SPEC.md](docs/SPEC.md) for the
 full specification and roadmap, and [docs/keymap.md](docs/keymap.md) for key bindings.
 
 ## What works now
@@ -12,6 +12,12 @@ full specification and roadmap, and [docs/keymap.md](docs/keymap.md) for key bin
 - Reading Guitar Pro 3–8 (`.gp3`, `.gp4`, `.gp5`, `.gpx`, `.gp`), MusicXML (`.musicxml`, `.mxl`),
   MIDI, GABC (Gregorio chant) and muse's own `.muse`; writing `.gp5`, `.gpx`, `.gp`, `.musicxml`,
   `.mxl`, `.mid`, `.gabc`, `.muse`
+- Drums in standard drum notation (hands stems up, feet stems down, x heads for cymbals) and as
+  drum tab in the terminal (CY/HH/T1/SN/FT/BD lanes), entered with letter keys in Insert mode
+- Piano and other multi-staff parts as braced grand staves, kept as one instrument in GP7/GPX/
+  MusicXML
+- Lyrics: several verses under the staff with centred hyphens, in the terminal under the tab,
+  entered with `:lyrics`; Guitar Pro 3–5 lyrics are placed on the notes as Guitar Pro does
 - Gregorian chant: square notation (neumes, clefs, divisions, custodes, episemata, morae, drop-cap
   initial) in the GUI and PDF/SVG/PNG, a text staff in the terminal UI, playback, editing (`:gabc`,
   pitch keys, delete, undo), equalist or Solesmes rhythm, and conversion to and from modern

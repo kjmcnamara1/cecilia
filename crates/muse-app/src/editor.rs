@@ -287,6 +287,21 @@ impl App {
             return;
         }
         self.ed.digit = None;
+        // On drum tracks, letters enter instruments (k kick, s snare, h hi-hat, …).
+        let cursor = self.pane().cursor;
+        let drums = self
+            .buffer()
+            .score
+            .tracks
+            .get(cursor.track)
+            .is_some_and(|t| t.kind == TrackKind::Drums);
+        if drums && self.pending.is_empty() {
+            if let Some(k) = key.as_char().and_then(muse_core::drums::key_for_letter) {
+                let duration = self.insert_duration();
+                self.edit(|cx| edit::toggle_drum(cx, k, duration));
+                return;
+            }
+        }
         self.pending.push(key);
         let cmds = match self.config.keymap(Mode::Insert).lookup(&self.pending) {
             Lookup::Exact(cmds) => cmds.to_vec(),
@@ -778,6 +793,59 @@ impl App {
                     Ok(())
                 });
             }
+            Lyrics(verse, text) => {
+                let (verse, syllables) = (*verse, muse_core::lyrics::syllables(text));
+                let placed = self.edit(|cx| {
+                    let c = cx.cursor;
+                    let score = cx.whole();
+                    let n = muse_core::lyrics::place(
+                        &mut score.tracks[c.track],
+                        verse,
+                        c.bar,
+                        c.beat,
+                        &syllables,
+                    );
+                    refresh_lyric_lines(score, c.track);
+                    Ok(n)
+                });
+                if let Some(n) = placed {
+                    if n < syllables.len() {
+                        self.error(format!(
+                            "lyrics: {} syllables did not fit",
+                            syllables.len() - n
+                        ));
+                    } else {
+                        self.info(format!("{n} syllables on verse {}", verse + 1));
+                    }
+                }
+            }
+            LyricsClear(verse) => {
+                let verse = *verse;
+                self.edit(|cx| {
+                    let t = cx.cursor.track;
+                    let score = cx.whole();
+                    for b in score.tracks[t]
+                        .bars
+                        .iter_mut()
+                        .flat_map(|b| &mut b.voices)
+                        .flat_map(|v| &mut v.beats)
+                    {
+                        match verse {
+                            Some(v) => {
+                                if let Some(s) = b.lyrics.get_mut(v) {
+                                    s.clear();
+                                }
+                                while b.lyrics.last().is_some_and(String::is_empty) {
+                                    b.lyrics.pop();
+                                }
+                            }
+                            None => b.lyrics.clear(),
+                        }
+                    }
+                    refresh_lyric_lines(score, t);
+                    Ok(())
+                });
+            }
             TrackAdd(kind) => self.add_track(kind),
             TrackDelete => {
                 self.edit(|cx| {
@@ -785,7 +853,14 @@ impl App {
                         return Err("cannot delete the only track".into());
                     }
                     let t = cx.cursor.track;
-                    cx.whole().tracks.remove(t);
+                    let tracks = &mut cx.whole().tracks;
+                    let removed = tracks.remove(t);
+                    // Staves of a deleted part's first track become their own part.
+                    if !removed.extra_staff {
+                        if let Some(next) = tracks.get_mut(t) {
+                            next.extra_staff = false;
+                        }
+                    }
                     cx.cursor.track = t.saturating_sub(1);
                     Ok(())
                 });
@@ -904,9 +979,11 @@ impl App {
                 ));
             }
         };
+        let grand_staff = kind == TrackKind::Pitched && name == "Piano";
         self.edit(|cx| {
             let s = cx.whole();
             let bars = s.master_bars.len();
+            let first = s.tracks.len();
             s.tracks.push(Track {
                 name: name.into(),
                 kind,
@@ -929,9 +1006,18 @@ impl App {
                     };
                     bars
                 ],
+                clef: grand_staff.then_some(StaffClef::Treble),
                 ..Track::default()
             });
-            cx.cursor.track = s.tracks.len() - 1;
+            if grand_staff {
+                // A piano gets a grand staff: a second, bass-clef staff in the same part.
+                let mut lower = s.tracks[first].clone();
+                lower.name = "Piano (2)".into();
+                lower.extra_staff = true;
+                lower.clef = Some(StaffClef::Bass);
+                s.tracks.push(lower);
+            }
+            cx.cursor.track = first;
             cx.cursor.bar = 0;
             cx.cursor.beat = 0;
             Ok(())
@@ -979,6 +1065,25 @@ impl App {
     }
 }
 
+/// Keeps a score's stored lyric lines (Guitar Pro 3–5 form) in step with the syllables of the
+/// track they belong to.
+fn refresh_lyric_lines(score: &mut Score, track: usize) {
+    let lines = muse_core::lyrics::lines_from_beats(&score.tracks[track]);
+    match score.lyrics.as_mut() {
+        Some(l) if l.track == Some(track) || l.lines.is_empty() => {
+            l.track = Some(track);
+            l.lines = lines;
+        }
+        None if !lines.is_empty() => {
+            score.lyrics = Some(Lyrics {
+                track: Some(track),
+                lines,
+            });
+        }
+        _ => {}
+    }
+}
+
 fn report(shifted: usize, dropped: usize) -> Result<(), String> {
     match (shifted, dropped) {
         (0, 0) => Ok(()),
@@ -1013,6 +1118,61 @@ mod tests {
             .filter(|b| !b.empty)
             .map(|b| b.notes.first().map(|n| n.fret))
             .collect()
+    }
+
+    #[test]
+    fn drum_letters_enter_instruments() {
+        let mut a = app();
+        a.run(Command::TrackAdd("drums".into()));
+        keys(&mut a, "ikh<Space>h<Space>sh<Space>hh<Esc>");
+        let keys_at = |a: &App, i: usize| -> Vec<u8> {
+            let mut k: Vec<u8> = a.buffer().score.tracks[1].bars[0].voices[0].beats[i]
+                .notes
+                .iter()
+                .map(|n| n.fret)
+                .collect();
+            k.sort_unstable();
+            k
+        };
+        assert_eq!(keys_at(&a, 0), [36, 42]);
+        assert_eq!(keys_at(&a, 1), [42]);
+        assert_eq!(keys_at(&a, 2), [38, 42]);
+        // Typing an instrument twice removes it again.
+        assert_eq!(keys_at(&a, 3), Vec::<u8>::new());
+    }
+
+    #[test]
+    fn lyrics_commands_and_grand_staff() {
+        let mut a = app();
+        keys(&mut a, "i3<Space>12<Space>5<Space>7<Esc>0");
+        a.run(Command::Lyrics(0, "Hel-lo  world".into()));
+        let lyr = |a: &App| -> Vec<String> {
+            a.buffer().score.tracks[0].bars[0].voices[0]
+                .beats
+                .iter()
+                .map(|b| b.lyrics.first().cloned().unwrap_or_default())
+                .collect()
+        };
+        assert_eq!(lyr(&a), ["Hel-", "lo", "", "world"]);
+        let lines = &a.buffer().score.lyrics.as_ref().unwrap().lines;
+        assert_eq!(lines[0].text, "Hel-lo  world");
+        keys(&mut a, "l");
+        a.run(Command::Lyrics(1, "two".into()));
+        assert_eq!(
+            a.buffer().score.tracks[0].bars[0].voices[0].beats[1].lyrics,
+            ["lo", "two"]
+        );
+        a.run(Command::LyricsClear(Some(0)));
+        assert_eq!(lyr(&a), ["", "", "", ""]);
+        keys(&mut a, "u");
+        assert_eq!(lyr(&a)[0], "Hel-");
+
+        // A piano is two staves of one part.
+        a.run(Command::TrackAdd("piano".into()));
+        let s = &a.buffer().score;
+        assert_eq!(s.tracks.len(), 3);
+        assert_eq!(s.part_tracks(2), 1..3);
+        assert_eq!(s.tracks[2].clef, Some(StaffClef::Bass));
     }
 
     #[test]
