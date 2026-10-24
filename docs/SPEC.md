@@ -1,0 +1,289 @@
+# muse — Specification
+
+Status: draft v0.1 (2026-10-23). Decisions recorded from the initial requirements session.
+
+## 1. Purpose
+
+**muse** is an open-source, keyboard-first application for reading, editing, composing and playing:
+
+- guitar (and other fretted) tablature,
+- standard notation (5-line staff, incl. piano grand staff and voice with lyrics),
+- drums / percussion notation,
+- Gregorian chant in square notation,
+
+with conversion between them, Guitar Pro file compatibility, MIDI playback, and
+GoPlayAlong-style synchronisation of a recorded audio file to the score.
+
+Comparable to: Guitar Pro (editing, file format), GoPlayAlong (audio sync / practice),
+neovim (modal keyboard control, buffers/windows/tabs, TOML-configurable keymaps).
+
+## 2. Licensing & platforms
+
+- License: dual **MIT / Apache-2.0**. No GPL dependencies (keeps App Store distribution possible).
+- Bundled assets must be permissively licensed (fonts: SIL OFL; SoundFont: MIT or equivalent).
+- Platform order: **Linux → Windows/macOS → Android → iOS**. Core crates must be platform-neutral
+  from day one (no direct filesystem/audio/windowing calls outside frontend/platform crates).
+
+## 3. Architecture
+
+Cargo workspace; frontends are thin shells over a headless application core.
+
+| crate | responsibility |
+|---|---|
+| `muse-core` | Score data model (pure data, `serde`). No I/O. |
+| `muse-formats` | Import/export of all file formats. |
+| `muse-convert` | Staff↔tab linkage, auto-fingering, retuning, chant↔modern transcription. |
+| `muse-engrave` | Layout engine → backend-agnostic display list + hit-test map. |
+| `muse-audio` | Audio output, decoding, MIDI synthesis, time-stretch/pitch-shift, mixer. |
+| `muse-sync` | Audio↔score sync map and beat-detection assist. |
+| `muse-app` | Headless app state: buffers, panes/tabs/workspaces, modes, commands, keymaps, undo, config, i18n. |
+| `muse-tui` | ratatui frontend. |
+| `muse-gui` | winit + wgpu + vello + parley frontend (desktop, later mobile). |
+| `muse` | Binary: CLI entry point, launches GUI/TUI/headless commands. |
+
+Dependency direction: `core ← formats/convert/engrave/sync ← audio ← app ← tui/gui ← muse`.
+`muse-app` never depends on a frontend; both frontends drive the same command registry, keymaps and config.
+
+### 3.1 Key third-party choices
+
+| need | crate |
+|---|---|
+| audio output | `cpal` (ALSA/PipeWire/JACK, CoreAudio, WASAPI, AAudio) |
+| audio decode | `symphonia` (mp3, flac, ogg/vorbis, wav, aac/m4a) |
+| MIDI synth | `rustysynth` (SoundFont 2) |
+| time-stretch / pitch-shift | `signalsmith-stretch` (MIT) |
+| TUI | `ratatui` + `crossterm` |
+| GUI | `winit`, `wgpu`, `vello`, `parley` |
+| config | `toml`, `serde`, `directories` |
+| CLI | `clap` |
+| i18n | `fluent` |
+| zip containers | `zip` |
+| XML (GP7/GPX/MusicXML) | `quick-xml` |
+
+## 4. Data model (`muse-core`)
+
+```
+Score
+├─ metadata: title, subtitle, artist, album, words, music, copyright, tab author, instructions, notices
+├─ master_bars[]: time signature, key signature, tempo changes, repeat start/end(count),
+│                 alternate endings, section marker, directions (segno/coda/fine/D.C./D.S. …), triplet feel
+├─ tracks[]
+│  ├─ name, instrument kind (Fretted | Drums | Pitched | Chant), MIDI program/channel/bank,
+│  │  volume/pan, colour, mute/solo
+│  ├─ fretted: strings (tuning, MIDI pitch per string), fret count, capo
+│  ├─ staves: which views are shown (tab, standard, slash, chant)
+│  └─ bars[] (one per master bar) → voices[] (≥4) → beats[]
+│        beat: duration (value, dots, tuplet), rest/empty, text, chord diagram ref,
+│              lyrics, stroke/brush, pick stroke, tremolo/whammy bar, slap/pop/tap, fade, octave sign
+│        notes[]: string+fret (fretted) or pitch (staff/chant), velocity, tie, dead, ghost, accent,
+│                 effects (see 4.1)
+├─ chant_blocks[] (for chant tracks; see 4.2)
+├─ lyrics, chord library, page setup
+└─ extras: opaque key/value store preserving unsupported source-format fields for round-trip
+```
+
+Time is measured in **ticks** (960 per quarter note). Every note has a canonical MIDI pitch; tab
+(string/fret) is a *view* of pitch for fretted tracks, so staff and tab are always linked.
+
+### 4.1 Technique set (target: Guitar Pro 7/8 parity)
+
+Bends (all GP bend types, arbitrary curve points), pre-bend/release, slides (shift, legato, in/out
+above/below), hammer-on/pull-off, left/right-hand tapping, vibrato (note & beat, wide), harmonics
+(natural, artificial, pinch, tapped, semi, feedback), palm mute, let ring, dead/ghost notes,
+accents (normal/heavy), staccato, grace notes (before/on beat, dead, transition), tremolo picking,
+trill, whammy/tremolo bar (dive, dip, release, return, custom), slap/pop, rasgueado, golpe, brush/
+arpeggio strokes, pick strokes, fingering (left/right hand), dynamics, fade in/out, volume swell,
+let-ring/palm-mute ranges, chord diagrams (barres, fingerings), free time, multiple voices,
+tuplets (incl. nested), lyrics, repeats, alternate endings, directions.
+Anything not yet editable must still round-trip through `extras`.
+
+### 4.2 Chant model
+
+Chant track = sequence of syllables with text underlay; each syllable carries neume groups.
+Elements: clefs (C/F on any line, flat clefs), punctum, virga, punctum inclinatum (diamond),
+podatus/pes, clivis, torculus, porrectus, scandicus, climacus, quilisma, oriscus, liquescents,
+salicus, strophae, horizontal/vertical episema, mora (dot), custos, bar lines (quarter, half,
+full, double), flats/naturals. Pitch stored as staff position + clef, resolved to MIDI pitch for
+playback/conversion.
+
+## 5. File formats (`muse-formats`)
+
+| format | read | write | notes |
+|---|---|---|---|
+| GP3 / GP4 / GP5 (binary) | ✔ | ✔ | all versions incl. 4.06 and 5.10 |
+| GPX (GP6) | ✔ | ✔ | BCFZ/BCFS container with GPIF XML |
+| GP (GP7/8) | ✔ | ✔ | zip with `Content/score.gpif` |
+| MusicXML (partwise, .musicxml/.mxl) | ✔ | ✔ | |
+| Standard MIDI File | ✔ | ✔ | |
+| GABC (Gregorio) | ✔ | ✔ | |
+| ASCII tab | — | ✔ | shared with TUI rendering |
+| `.muse` (native) | ✔ | ✔ | see 5.1 |
+
+Format detection by magic bytes first, extension second.
+Encoding for GP3–5 strings: cp1252 by default, configurable.
+
+### 5.1 Native `.muse` format
+
+Zip archive:
+- `manifest.toml`: format version, app version, created/modified.
+- `score.json`: versioned serde serialization of `Score` (migrations by version).
+- `sync.toml`: audio reference + sync points (optional).
+- `undo.bin`: persisted undo tree (optional).
+- `audio/<file>`: embedded audio (optional; otherwise a relative/absolute path in `sync.toml`).
+
+Opening a non-native file and writing back to it is supported (`:w` exports to the source format,
+warning when information would be lost); `:w file.muse` saves everything.
+
+## 6. Conversion (`muse-convert`)
+
+- **Linked staff/tab**: editing pitch in standard view picks a string/fret; editing tab updates pitch.
+- **Auto-fingering** (staff→tab): dynamic programming over candidate (string, fret) positions per
+  beat, minimising cost (fret span within a chord, position shifts, string changes, high frets).
+  Weights, max span and open-string preference come from config (`[fingering]`).
+- **Retune / re-instrument**: change tuning, string count or instrument (guitar→bass, drop D, capo);
+  notes are kept by pitch and re-fingered; out-of-range notes are octave-shifted and flagged.
+- **Chant ↔ modern**: neumes → notes using a rhythm interpretation (`equalist` default, `solesmes`
+  for episema/mora lengthening); modern → chant groups notes per syllable using neume heuristics,
+  always flagged as lossy.
+
+## 7. Playback (`muse-audio`, `muse-sync`)
+
+- MIDI playback through `rustysynth` with a bundled permissive GM SoundFont; user `.sf2/.sf3` in config.
+- Effects rendered: bends/whammy (pitch bend), slides, vibrato, palm mute, dead notes, harmonics,
+  let ring, tremolo picking, grace notes, strokes, swing/triplet feel, repeats and directions.
+- Audio track: load mp3/flac/ogg/wav/m4a per score; play alone or mixed with MIDI.
+- **Sync map**: list of (score position ↔ audio time) points. Positions between points are linearly
+  interpolated in ticks, which handles tempo drift. Users add points by tapping during playback or by
+  placing them on a waveform pane. A beat-detection assist proposes points to accept or adjust.
+- Practice: speed 25–200% without pitch change, pitch shift ±12 semitones (with cents), A–B loop
+  (from a Visual-mode selection), count-in, metronome, speed trainer (increase speed each loop).
+- Mixer: per-track volume/pan/mute/solo, audio-track volume, metronome volume, master volume.
+- Audio thread is real-time safe: no allocation or locks; communication via lock-free queues/atomics.
+- Export: WAV/FLAC rendering of MIDI (and optionally the mixed audio).
+
+## 8. User interface
+
+### 8.1 Layout model (neovim-like)
+
+- **Buffer**: one open score.
+- **Pane** (window): a view of a buffer. Pane kinds: `tab`, `staff`, `staff+tab`, `chant`,
+  `waveform` (sync editor), `mixer`, `tracks`, `files`, `help`. Panes viewing the same buffer can be
+  cursor-linked or independent (`:set linkcursor`).
+- **Tab**: an arrangement of panes (binary split tree).
+- **Workspace**: saved session (open buffers, tabs, layouts, cursor positions) as TOML.
+
+### 8.2 Modes
+
+| mode | purpose |
+|---|---|
+| Normal | navigation, operators, pane management, playback control |
+| Insert | entering/replacing notes (frets, pitches, durations, techniques) |
+| Visual | beat/bar/track range selection (charwise = beats, linewise = bars, block = beats × tracks) |
+| Command | `:` ex-style commands with completion and history |
+| Sync | tap sync points while audio plays |
+
+Vim grammar: `[count] operator motion`, `.` repeat, registers, macros (`q`/`@`), marks, branching
+undo tree (`u`, `<C-r>`, `g-`/`g+`, `:undotree`), leader key with a which-key popup that lists
+available continuations. The default keymap is in [`keymap.md`](keymap.md).
+
+### 8.3 Mouse
+
+Everything reachable by keyboard is also reachable by mouse: click to place the cursor, drag to
+select, drag pane borders, click tabs, scroll/zoom, context menus that invoke the same commands.
+
+### 8.4 Frontends
+
+- **GUI** (`muse-gui`): full functionality. Score views support three layouts: page, continuous
+  horizontal, continuous vertical. Notation uses SMuFL fonts (Bravura, SIL OFL), including the
+  plainchant ranges.
+- **TUI** (`muse-tui`): read, play and basic editing of tablature (frets, durations, ties, rests,
+  basic techniques) rendered as text tab. Same keymaps, config and commands as the GUI; commands not
+  available in the TUI report an error instead of failing silently.
+- **Mobile** (later): the same GUI crate with a touch interaction layer (tap to place cursor, gestures,
+  on-screen fret/duration palette), support for hardware keyboards, and platform file pickers.
+
+### 8.5 Output
+
+PDF, SVG, PNG (from the engraving display list), ASCII tab, WAV/FLAC.
+
+## 9. Configuration
+
+File: `$XDG_CONFIG_HOME/muse/config.toml` on Linux (via `directories` on other platforms;
+override with `--config`). Reloaded automatically when it changes, and on `:source`.
+
+```toml
+[general]
+leader = "<Space>"
+encoding = "cp1252"          # legacy GP string encoding
+
+[ui]
+theme = "dark"
+default_layout = "continuous-vertical"
+tab_width = 3                # TUI: characters per sixteenth
+
+[audio]
+device = "default"
+buffer_size = 512
+soundfont = "~/sf/GeneralUser.sf2"
+count_in = true
+
+[fingering]
+max_span = 4
+prefer_open_strings = true
+
+[keymap.normal]
+"<C-s>" = "write"
+"<leader>p" = "play-toggle"
+"gp" = ["goto-bar 1", "play"] # sequences of commands
+
+[keymap.insert]
+"<C-b>" = "toggle-technique bend"
+```
+
+Keymap values are command names (with arguments) or lists of commands. Unknown commands or keys are
+reported at load time without aborting (the previous valid config stays active).
+
+## 10. CLI
+
+```
+muse [FILE...]                 open in GUI (falls back to TUI if no display)
+muse --tui [FILE...]           open in TUI
+muse play FILE [--audio A]     headless playback
+muse convert IN OUT            convert by output extension (gp5, gp, gpx, musicxml, mid, gabc, txt,
+                               pdf, svg, png, wav, flac, muse); --track, --tuning options
+muse info FILE [--json]        tracks, tunings, tempo, bar count, metadata; --json dumps the model
+```
+
+## 11. Internationalisation
+
+English only in v1, but every user-facing string goes through Fluent (`.ftl` resources).
+
+## 12. Out of scope for v1
+
+Lua/plugin API, external MIDI output, MIDI input (step entry / recording), adiastematic neumes
+(St. Gall/Laon, nabc), translations.
+
+## 13. Milestones
+
+1. **M1 MVP**: workspace, `muse-core` (fretted subset), GP3/4/5 reader, `muse-app` (modes, keymap,
+   config, pane tree), TUI tab reader with vim navigation, MIDI playback with moving cursor, `muse info`.
+2. **M2 Formats**: GP7/8 + GPX read, GP5/GP7 write, MIDI + MusicXML I/O, `.muse`, `muse convert`,
+   round-trip tests.
+3. **M3 GUI viewer**: `muse-engrave` (tab + standard staff, 3 layouts), `muse-gui` panes/tabs/
+   workspaces, PDF/SVG/PNG export.
+4. **M4 Editing**: Insert/Visual/operators, undo tree, macros, full technique set, linked staff↔tab,
+   auto-fingering, retune; TUI basic editing.
+5. **M5 Playalong**: audio loading, waveform/sync pane, manual sync + beat assist, stretch/pitch,
+   A–B loop, count-in, mixer, audio export.
+6. **M6 Chant**: chant model, GABC I/O, square-notation engraving, chant↔modern transcription.
+7. **M7 Instruments**: drums/percussion, piano grand staff, lyrics.
+8. **M8 Platforms**: Windows/macOS packaging, then Android, then iOS.
+
+## 14. Quality
+
+- `cargo test --workspace`; parser tests against a local corpus in `test-corpus/` (gitignored,
+  may contain copyrighted files) plus small committed fixtures authored for the project.
+- Round-trip property: `read(write(score)) == score` for every writable format, within that
+  format's capabilities.
+- `cargo clippy -- -D warnings` and `cargo fmt --check` in CI.
+- Readers never panic on malformed input; they return errors with a location (track/bar/beat).

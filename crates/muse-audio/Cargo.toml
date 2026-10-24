@@ -1,0 +1,16 @@
+[package]
+name = "muse-audio"
+description = "Playback engine for muse"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+rust-version.workspace = true
+
+[dependencies]
+muse-core.workspace = true
+rustysynth.workspace = true
+cpal.workspace = true
+thiserror.workspace = true
+
+[dev-dependencies]
+muse-formats.workspace = true

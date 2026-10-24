@@ -1,0 +1,23 @@
+# muse configuration — copy to ~/.config/muse/config.toml
+# Changes are picked up automatically while muse is running (or run :source).
+
+[general]
+leader = "<Space>"
+
+[ui]
+tab_width = 2            # horizontal spacing of the tab view (1–8)
+follow_playback = true   # move the cursor with playback
+
+[audio]
+# soundfont = "~/soundfonts/GeneralUser-GS.sf2"
+speed = 1.0              # playback speed multiplier
+
+# Bindings map key notation to a command, or a list of commands run in order.
+# Use "nop" to remove a default binding. Commands are listed in docs/keymap.md.
+[keymap.normal]
+# "<C-n>" = "track-next"
+# "<leader>p" = "play-toggle"
+# "gb" = ["goto-first", "play"]
+
+[keymap.command]
+# "<C-p>" = "normal"

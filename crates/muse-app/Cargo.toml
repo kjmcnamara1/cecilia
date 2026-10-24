@@ -1,0 +1,15 @@
+[package]
+name = "muse-app"
+description = "Headless application state, commands and keymaps for muse"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+rust-version.workspace = true
+
+[dependencies]
+muse-core.workspace = true
+muse-formats.workspace = true
+serde.workspace = true
+toml.workspace = true
+directories.workspace = true
+thiserror.workspace = true

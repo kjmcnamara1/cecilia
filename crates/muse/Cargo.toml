@@ -1,0 +1,17 @@
+[package]
+name = "muse"
+description = "Tablature, notation and chant editor and player"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+rust-version.workspace = true
+
+[dependencies]
+muse-core.workspace = true
+muse-formats.workspace = true
+muse-app.workspace = true
+muse-audio.workspace = true
+muse-tui.workspace = true
+anyhow.workspace = true
+clap.workspace = true
+serde_json.workspace = true

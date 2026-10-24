@@ -1,0 +1,11 @@
+[package]
+name = "muse-formats"
+description = "File format import/export for muse"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+rust-version.workspace = true
+
+[dependencies]
+muse-core.workspace = true
+thiserror.workspace = true
