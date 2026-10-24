@@ -45,18 +45,59 @@ pub struct Sequence {
     pub events: Vec<TimedEvent>,
     pub perf: Performance,
     pub duration: f64,
+    /// Sync anchors (performance tick, audio seconds, tempo after the anchor). When set, times
+    /// are positions in the audio track; otherwise the notated tempo is used, shifted by
+    /// `offset`.
+    pub anchors: Vec<(u64, f64, f64)>,
+    pub offset: f64,
+    /// Metronome beats: (time, downbeat).
+    pub beats: Vec<(f64, bool)>,
 }
+
+/// Audio sample rate Guitar Pro's sync frames are counted in.
+pub const SYNC_RATE: f64 = 44_100.0;
 
 /// Which tracks to render.
 #[derive(Debug, Clone, Default)]
 pub struct SequenceOptions {
     /// Per-track mute override; tracks beyond the list use the score's mute/solo flags.
     pub muted: Vec<bool>,
+    /// Time the sequence to the score's audio track (sync points and padding).
+    pub audio_sync: bool,
 }
 
 impl Sequence {
     pub fn build(score: &Score, options: &SequenceOptions) -> Self {
         let perf = Performance::build(score, &options.muted);
+        let mut seq = Sequence {
+            perf,
+            ..Sequence::default()
+        };
+        if options.audio_sync {
+            if let Some(audio) = &score.audio {
+                let pad = audio.frame_padding as f64 / SYNC_RATE;
+                seq.offset = -pad;
+                let mut anchors: Vec<(u64, f64, f64)> = audio
+                    .points
+                    .iter()
+                    .filter_map(|p| {
+                        let pb = seq
+                            .perf
+                            .bars
+                            .iter()
+                            .filter(|b| b.bar == p.bar)
+                            .nth(p.occurrence as usize)?;
+                        Some((pb.start, p.frame as f64 / SYNC_RATE - pad, p.tempo))
+                    })
+                    .collect();
+                anchors.sort_by_key(|a| a.0);
+                anchors.dedup_by_key(|a| a.0);
+                // Keep audio times increasing.
+                anchors.dedup_by(|b, a| b.1 <= a.1);
+                seq.anchors = anchors;
+            }
+        }
+        let perf = &seq.perf;
         let mut events = Vec::with_capacity(perf.notes.len() * 2 + perf.tracks.len() * 3);
         for t in perf.tracks.iter().filter(|t| !t.muted) {
             let channel = t.channel;
@@ -83,7 +124,7 @@ impl Sequence {
         for n in &perf.notes {
             let (channel, key) = (n.channel, n.key);
             events.push(TimedEvent {
-                time: perf.time_at_tick(n.start),
+                time: seq.time_at_tick(n.start),
                 event: MidiEvent::NoteOn {
                     channel,
                     key,
@@ -91,7 +132,7 @@ impl Sequence {
                 },
             });
             events.push(TimedEvent {
-                time: perf.time_at_tick(n.end),
+                time: seq.time_at_tick(n.end),
                 event: MidiEvent::NoteOff { channel, key },
             });
         }
@@ -100,12 +141,81 @@ impl Sequence {
                 .total_cmp(&b.time)
                 .then(order_key(&a.event).cmp(&order_key(&b.event)))
         });
-        let duration = perf.duration();
-        Sequence {
-            events,
-            perf,
-            duration,
+        let mut beats = Vec::new();
+        for pb in &perf.bars {
+            let ts = score.master_bars[pb.bar].time_signature;
+            let unit = (muse_core::TICKS_PER_QUARTER * 4 / ts.denominator.max(1) as u32).max(1);
+            let mut t = 0;
+            while t < pb.ticks {
+                beats.push((seq.time_at_tick(pb.start + t as u64), t == 0));
+                t += unit;
+            }
         }
+        seq.duration = seq.time_at_tick(perf.total_ticks());
+        seq.events = events;
+        seq.beats = beats;
+        seq
+    }
+
+    /// Notated tempo (bpm) at a performance tick.
+    fn score_bpm_at(&self, tick: u64) -> f64 {
+        let i = self.perf.tempo.partition_point(|t| t.tick <= tick);
+        self.perf
+            .tempo
+            .get(i.saturating_sub(1))
+            .map_or(120.0, |t| t.bpm)
+    }
+
+    /// Time (in the audio track's timeline when synced) at a performance tick. Between sync
+    /// points the score's own tempo changes are kept, scaled so the points line up.
+    pub fn time_at_tick(&self, tick: u64) -> f64 {
+        let a = &self.anchors;
+        let p = |t: u64| self.perf.time_at_tick(t);
+        if a.is_empty() {
+            return p(tick) + self.offset;
+        }
+        let i = a.partition_point(|x| x.0 <= tick);
+        // Outside the anchored range, the nearest point's tempo relative to the score's.
+        let scaled = |(t0, s0, bpm): (u64, f64, f64)| {
+            let ratio = self.score_bpm_at(t0) / bpm.max(1.0);
+            s0 + (p(tick) - p(t0)) * ratio
+        };
+        if i == 0 {
+            return scaled(a[0]);
+        }
+        let (t0, s0, _) = a[i - 1];
+        match a.get(i) {
+            Some(&(t1, s1, _)) => {
+                let span = (p(t1) - p(t0)).max(1e-9);
+                s0 + (s1 - s0) * (p(tick) - p(t0)) / span
+            }
+            None => scaled(a[i - 1]),
+        }
+    }
+
+    /// Alias of [`Self::time_at_tick`] for callers holding a played-bar tick.
+    pub fn perf_time(&self, tick: u64) -> f64 {
+        self.time_at_tick(tick)
+    }
+
+    /// Inverse of [`Self::time_at_tick`] (which is monotonic), by bisection.
+    pub fn tick_at_time(&self, time: f64) -> u64 {
+        if self.anchors.is_empty() {
+            return self.perf.tick_at_time(time - self.offset);
+        }
+        let (mut lo, mut hi) = (0u64, self.perf.total_ticks().max(1) * 4);
+        if self.time_at_tick(lo) >= time {
+            return 0;
+        }
+        while hi - lo > 1 {
+            let mid = (lo + hi) / 2;
+            if self.time_at_tick(mid) <= time {
+                lo = mid;
+            } else {
+                hi = mid;
+            }
+        }
+        lo
     }
 
     pub fn bars(&self) -> &[PlayedBar] {
@@ -114,7 +224,7 @@ impl Sequence {
 
     /// Written position being played at `time`.
     pub fn location_at(&self, time: f64) -> Option<Location> {
-        let tick = self.perf.tick_at_time(time);
+        let tick = self.tick_at_time(time);
         let bars = &self.perf.bars;
         let i = bars.partition_point(|b| b.start <= tick).checked_sub(1)?;
         let pb = bars[i];
@@ -127,10 +237,7 @@ impl Sequence {
     /// Time at which a written position is first played.
     pub fn time_of(&self, loc: Location) -> Option<f64> {
         let pb = self.perf.bars.iter().find(|b| b.bar == loc.bar)?;
-        Some(
-            self.perf
-                .time_at_tick(pb.start + loc.tick.min(pb.ticks) as u64),
-        )
+        Some(self.time_at_tick(pb.start + loc.tick.min(pb.ticks) as u64))
     }
 
     /// Index of the first event at or after `time`.
@@ -153,6 +260,64 @@ fn order_key(e: &MidiEvent) -> u8 {
 mod tests {
     use super::*;
     use muse_core::*;
+
+    #[test]
+    fn audio_sync_points_warp_time() {
+        let beat = Beat {
+            duration: Duration::new(DurationValue::Whole),
+            notes: vec![Note::new(0, 0)],
+            ..Beat::default()
+        };
+        let track = Track {
+            strings: vec![64],
+            bars: vec![
+                Bar {
+                    voices: vec![Voice { beats: vec![beat] }]
+                };
+                3
+            ],
+            ..Track::default()
+        };
+        let mut score = Score {
+            tempo: 120,
+            master_bars: vec![MasterBar::default(); 3],
+            tracks: vec![track],
+            ..Score::default()
+        };
+        // Bar 2 starts 3 s into the recording (slower than the notated 2 s).
+        score.audio = Some(AudioSync {
+            file: None,
+            frame_padding: 0,
+            points: vec![
+                SyncPoint {
+                    bar: 0,
+                    occurrence: 0,
+                    frame: 0,
+                    tempo: 120.0,
+                },
+                SyncPoint {
+                    bar: 1,
+                    occurrence: 0,
+                    frame: 3 * 44_100,
+                    tempo: 60.0,
+                },
+            ],
+            ..AudioSync::default()
+        });
+        let seq = Sequence::build(
+            &score,
+            &SequenceOptions {
+                audio_sync: true,
+                ..Default::default()
+            },
+        );
+        assert!((seq.time_of(Location { bar: 1, tick: 0 }).unwrap() - 3.0).abs() < 1e-9);
+        assert!((seq.time_of(Location { bar: 0, tick: 1920 }).unwrap() - 1.5).abs() < 1e-9);
+        // After the last point, its tempo (60 bpm): one 4/4 bar = 4 s.
+        assert!((seq.time_of(Location { bar: 2, tick: 0 }).unwrap() - 7.0).abs() < 1e-9);
+        assert_eq!(seq.location_at(5.0), Some(Location { bar: 1, tick: 1920 }));
+        assert_eq!(seq.beats.len(), 12);
+    }
 
     #[test]
     fn timing_and_locations() {

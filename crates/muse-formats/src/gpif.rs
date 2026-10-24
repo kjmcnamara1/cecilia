@@ -24,7 +24,19 @@ pub fn read_gp7(bytes: &[u8]) -> Result<Score> {
         .map_err(|e| err(e.to_string()))?;
     let mut xml = String::new();
     std::io::Read::read_to_string(&mut file, &mut xml)?;
-    read_gpif(&xml)
+    drop(file);
+    let mut score = read_gpif(&xml)?;
+    // The backing track lives in the archive (Content/Assets/...).
+    if let Some(audio) = score.audio.as_mut() {
+        if let Some(name) = audio.file.clone() {
+            if let Ok(mut entry) = zip.by_name(&name) {
+                let mut data = Vec::new();
+                std::io::Read::read_to_end(&mut entry, &mut data)?;
+                audio.embedded = Some(std::sync::Arc::new(data));
+            }
+        }
+    }
+    Ok(score)
 }
 
 /// Reads a `.gpx` (GP6) file.
@@ -966,6 +978,7 @@ fn read_automations(root: Node, score: &mut Score) {
                 .and_then(|b| num(text(b, "FramePadding")))
                 .unwrap_or(0),
             points: sync,
+            embedded: None,
         });
     }
 }

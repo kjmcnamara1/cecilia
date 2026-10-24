@@ -30,6 +30,10 @@ pub struct AudioSync {
     /// Sample offset of the audio relative to the start of the score (44.1 kHz frames).
     pub frame_padding: i64,
     pub points: Vec<SyncPoint>,
+    /// Audio bytes stored inside the score file (GP7/8 backing tracks, `.muse` archives);
+    /// `file` then names the entry. Not part of the JSON model.
+    #[serde(skip)]
+    pub embedded: Option<std::sync::Arc<Vec<u8>>>,
 }
 
 /// Aligns the start of a bar occurrence (in playback order) with a position in the audio.

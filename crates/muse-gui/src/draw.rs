@@ -4,6 +4,7 @@
 use std::collections::HashMap;
 
 use muse_app::layout::PaneId;
+use muse_app::playback::Playback;
 use muse_app::{App, Mode, beat_at_tick};
 use muse_audio::Location;
 use muse_engrave::display::{Align, BeatRef, FontKind};
@@ -24,6 +25,8 @@ const STATUS: f64 = 26.0;
 const CMDLINE: f64 = 26.0;
 const TITLE: f64 = 24.0;
 const UI_FONT: f64 = 14.0;
+/// Height of the waveform strip.
+const WAVE: f64 = 64.0;
 /// Pixels per point at zoom 1.
 const BASE_SCALE: f64 = 1.6;
 
@@ -103,6 +106,7 @@ pub fn build(
     scene: &mut Scene,
     app: &mut App,
     views: &mut Views,
+    mut playback: Option<&mut Playback>,
     play: Option<(usize, Location, f64, f64)>,
     width: f64,
     height: f64,
@@ -125,7 +129,16 @@ pub fn build(
             (r.x + r.w) as f64 - 3.0,
             (r.y + r.h) as f64 - 3.0,
         );
-        draw_pane(scene, app, views, id, rect, id == focused, play);
+        draw_pane(
+            scene,
+            app,
+            views,
+            playback.as_deref_mut(),
+            id,
+            rect,
+            id == focused,
+            play,
+        );
     }
     draw_status(scene, app, play, width, height);
     if !app.pending.is_empty() {
@@ -187,6 +200,7 @@ fn draw_pane(
     scene: &mut Scene,
     app: &mut App,
     views: &mut Views,
+    playback: Option<&mut Playback>,
     id: PaneId,
     rect: Rect,
     focused: bool,
@@ -235,7 +249,13 @@ fn draw_pane(
         DIM,
         false,
     );
-    let content = Rect::new(rect.x0 + 2.0, rect.y0 + TITLE, rect.x1 - 2.0, rect.y1 - 2.0);
+    let mut content = Rect::new(rect.x0 + 2.0, rect.y0 + TITLE, rect.x1 - 2.0, rect.y1 - 2.0);
+    let waveform = (app.pa.show_waveform && score.audio.is_some() && content.height() > 200.0)
+        .then(|| {
+            let strip = Rect::new(content.x0, content.y1 - WAVE, content.x1, content.y1);
+            content.y1 -= WAVE + 2.0;
+            strip
+        });
     if score.tracks.is_empty() {
         text(
             scene,
@@ -444,6 +464,138 @@ fn draw_pane(
         }
     }
     scene.pop_layer();
+    if let (Some(strip), Some(pb)) = (waveform, playback) {
+        draw_waveform(scene, app, pb, pane.buffer, strip, play);
+    }
+}
+
+/// The audio track around the playhead (or cursor): envelope, sync points, loop and playhead.
+fn draw_waveform(
+    scene: &mut Scene,
+    app: &App,
+    playback: &mut Playback,
+    buffer: usize,
+    r: Rect,
+    play: Option<(usize, Location, f64, f64)>,
+) {
+    fill(scene, r, Color::from_rgba8(28, 30, 36, 255));
+    let Some(audio) = playback.loaded_audio(buffer) else {
+        let label = if playback.audio_loading(buffer) {
+            "loading audio…"
+        } else {
+            "audio not loaded (play or :sync-detect to load)"
+        };
+        text(
+            scene,
+            label,
+            r.x0 + 10.0,
+            r.center().y + 5.0,
+            13.0,
+            Align::Left,
+            DIM,
+            false,
+        );
+        return;
+    };
+    let (peaks, duration) = (audio.peaks.clone(), audio.clip.duration());
+    let cursor = app
+        .panes
+        .values()
+        .find(|p| p.buffer == buffer)
+        .map(|p| p.cursor)
+        .unwrap_or_default();
+    let tick = muse_app::cursor_tick(&app.buffers[buffer].score, &cursor);
+    let now = match play.filter(|p| p.0 == buffer && app.playing) {
+        Some((_, _, t, _)) => t,
+        None => playback
+            .time_of(app, buffer, cursor.bar, tick)
+            .unwrap_or(0.0),
+    };
+    let span = 16.0;
+    let t0 = now - span * 0.35;
+    let x_of = |t: f64| r.x0 + (t - t0) / span * r.width();
+    let mid = r.center().y;
+    let amp = r.height() * 0.45;
+    let wave = Color::from_rgba8(110, 170, 230, 255);
+    let mut x = r.x0;
+    while x < r.x1 {
+        let t = t0 + (x - r.x0) / r.width() * span;
+        let t2 = t + span / r.width();
+        let (a, b) = (
+            (t.max(0.0) * 100.0) as usize,
+            ((t2.max(0.0) * 100.0) as usize).max((t.max(0.0) * 100.0) as usize + 1),
+        );
+        if t >= 0.0 && t < duration {
+            let (lo, hi) = peaks[a.min(peaks.len())..b.min(peaks.len())]
+                .iter()
+                .fold((0f32, 0f32), |acc, p| (acc.0.min(p.0), acc.1.max(p.1)));
+            let rr = Rect::new(
+                x,
+                mid - hi as f64 * amp,
+                x + 1.0,
+                mid - lo as f64 * amp + 1.0,
+            );
+            scene.fill(Fill::NonZero, Affine::IDENTITY, wave, None, &rr);
+        }
+        x += 1.0;
+    }
+    // Loop region.
+    if let Some((a, b)) = app.pa.loop_bars {
+        if let (Some(ta), Some(tb)) = (
+            playback.time_of(app, buffer, a, 0),
+            playback.time_of(app, buffer, b + 1, 0).or(Some(duration)),
+        ) {
+            let rr = Rect::new(x_of(ta).max(r.x0), r.y0, x_of(tb).min(r.x1), r.y1);
+            if rr.width() > 0.0 {
+                scene.fill(
+                    Fill::NonZero,
+                    Affine::IDENTITY,
+                    Color::from_rgba8(60, 190, 110, 50),
+                    None,
+                    &rr,
+                );
+            }
+        }
+    }
+    // Sync points.
+    let score = &app.buffers[buffer].score;
+    if let Some(sync) = &score.audio {
+        let pad = sync.frame_padding as f64 / muse_audio::SYNC_RATE;
+        for p in &sync.points {
+            let t = p.frame as f64 / muse_audio::SYNC_RATE - pad;
+            let x = x_of(t);
+            if x >= r.x0 && x <= r.x1 {
+                fill(scene, Rect::new(x, r.y0, x + 1.5, r.y1), ACCENT);
+                text(
+                    scene,
+                    &format!("{}", p.bar + 1),
+                    x + 3.0,
+                    r.y0 + 12.0,
+                    11.0,
+                    Align::Left,
+                    ACCENT,
+                    false,
+                );
+            }
+        }
+    }
+    let px = x_of(now);
+    fill(
+        scene,
+        Rect::new(px - 1.0, r.y0, px + 1.0, r.y1),
+        Color::from_rgba8(240, 80, 70, 255),
+    );
+    let f = |t: f64| format!("{}:{:04.1}", (t.max(0.0) / 60.0) as u64, t.max(0.0) % 60.0);
+    text(
+        scene,
+        &f(now),
+        r.x1 - 8.0,
+        r.y1 - 6.0,
+        11.0,
+        Align::Right,
+        CHROME_TEXT,
+        false,
+    );
 }
 
 /// Cursor on a beat the layout skipped (e.g. an empty bar): use the bar's first beat.
@@ -526,6 +678,11 @@ fn draw_status(
             f(total)
         ));
     }
+    right.push_str("   ");
+    right.push_str(&app.pa.status(
+        app.config.file.audio.speed,
+        app.buffer().score.audio.is_some(),
+    ));
     if let Some(r) = app.recording_macro() {
         right.push_str(&format!("   recording @{r}"));
     }

@@ -91,6 +91,9 @@ fn main() -> Result<()> {
             if matches!(ext.as_str(), "pdf" | "svg" | "png") {
                 return export_engraving(&score, &output, &ext, track, &layout, scale);
             }
+            if matches!(ext.as_str(), "wav" | "flac") {
+                return export_audio(&score, &input, &output, &ext, &config);
+            }
             muse_formats::write_file(&score, &output)
                 .with_context(|| format!("writing {}", output.display()))?;
             eprintln!("wrote {}", output.display());
@@ -197,6 +200,79 @@ fn export_engraving(
     Ok(())
 }
 
+/// Decodes a score's attached audio track (embedded, or a file relative to the score).
+fn load_audio(score: &muse_core::Score, score_path: &Path) -> Option<muse_audio::AudioClip> {
+    let audio = score.audio.as_ref()?;
+    let ext = audio.file.as_deref().and_then(|f| f.rsplit('.').next());
+    let result = match (&audio.embedded, &audio.file) {
+        (Some(bytes), _) => muse_audio::AudioClip::decode((**bytes).clone(), ext),
+        (None, Some(f)) => {
+            muse_audio::AudioClip::load(&score_path.parent().unwrap_or(Path::new(".")).join(f))
+        }
+        _ => return None,
+    };
+    match result {
+        Ok(c) => Some(c),
+        Err(e) => {
+            eprintln!("warning: {e}");
+            None
+        }
+    }
+}
+
+/// Renders the MIDI performance (mixed with the audio track, if any) to WAV or FLAC.
+fn export_audio(
+    score: &muse_core::Score,
+    input: &Path,
+    output: &Path,
+    ext: &str,
+    config: &Config,
+) -> Result<()> {
+    let rate = 44_100;
+    let seq = Arc::new(Sequence::build(
+        score,
+        &SequenceOptions {
+            audio_sync: score.audio.is_some(),
+            ..Default::default()
+        },
+    ));
+    let clip = load_audio(score, input).map(|c| Arc::new(c.resampled(rate)));
+    let soundfont = config
+        .file
+        .audio
+        .soundfont
+        .clone()
+        .or_else(muse_app::config::find_system_soundfont);
+    let (synth, name, _) = muse_audio::make_synth(soundfont.as_deref(), rate);
+    let length = seq
+        .duration
+        .max(clip.as_ref().map_or(0.0, |c| c.duration()))
+        + 2.0;
+    let mix = muse_audio::Mix {
+        midi: if clip.is_some() { 0.6 } else { 1.0 },
+        ..Default::default()
+    };
+    let samples = muse_audio::render_offline_with(
+        seq,
+        synth,
+        rate,
+        length,
+        &muse_audio::RenderOptions {
+            audio: clip,
+            mix,
+            metronome: false,
+        },
+    );
+    let bytes = if ext == "wav" {
+        muse_audio::encode_wav(&samples, rate)?
+    } else {
+        muse_audio::encode_flac(&samples, rate)?
+    };
+    std::fs::write(output, bytes)?;
+    eprintln!("wrote {} ({:.0} s, {name})", output.display(), length);
+    Ok(())
+}
+
 fn load(path: &Path) -> Result<muse_core::Score> {
     muse_formats::read_file(path).with_context(|| format!("reading {}", path.display()))
 }
@@ -289,7 +365,14 @@ fn play(path: &Path, config: &Config, speed: Option<f64>) -> Result<()> {
     if score.tracks.is_empty() {
         bail!("nothing to play");
     }
-    let seq = Arc::new(Sequence::build(&score, &SequenceOptions::default()));
+    let seq = Arc::new(Sequence::build(
+        &score,
+        &SequenceOptions {
+            audio_sync: score.audio.is_some(),
+            ..Default::default()
+        },
+    ));
+    let clip = load_audio(&score, path);
     let soundfont = config
         .file
         .audio
@@ -307,7 +390,15 @@ fn play(path: &Path, config: &Config, speed: Option<f64>) -> Result<()> {
     );
     player.load(seq.clone());
     player.set_speed(speed.unwrap_or(config.file.audio.speed));
-    player.play();
+    if let Some(clip) = clip {
+        eprintln!("with audio track ({:.0} s)", clip.duration());
+        player.set_audio(Some(Arc::new(clip.resampled(player.sample_rate))));
+        player.set_mix(muse_audio::Mix {
+            midi: 0.6,
+            ..Default::default()
+        });
+    }
+    player.play(false);
     // Give the audio thread a moment to start before polling its state.
     std::thread::sleep(std::time::Duration::from_millis(200));
     while player.is_playing() {

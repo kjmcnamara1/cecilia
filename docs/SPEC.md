@@ -112,7 +112,7 @@ playback/conversion.
 |---|---|---|---|
 | GP3 / GP4 / GP5 (binary) | ✔ | GP5 | done (M1/M2); all versions incl. 4.06 and 5.10. Writing produces GP5 v5.00 |
 | GPX (GP6) | ✔ | ✔ | done (M2); BCFZ/BCFS container with GPIF XML. Writer uses literal-only BCFZ blocks (larger files) |
-| GP (GP7/8) | ✔ | ✔ | done (M2); zip with `Content/score.gpif`. Embedded backing audio is not yet carried over (M5) |
+| GP (GP7/8) | ✔ | ✔ | done (M2); zip with `Content/score.gpif`. Backing track, frame padding and sync points are read and written (M5); an attached external recording is embedded on save |
 | MusicXML (partwise, .musicxml/.mxl) | ✔ | ✔ | done (M2); tuning and string/fret kept for tab; D.S./coda directions and chord diagrams not exported yet |
 | Standard MIDI File | ✔ | ✔ | done (M2); export expands repeats; import quantises to 32nd/triplet grid |
 | GABC (Gregorio) | ✔ | ✔ | M6 |
@@ -287,8 +287,9 @@ Lua/plugin API, external MIDI output, MIDI input (step entry / recording), adias
    workspaces, PDF/SVG/PNG export.
 4. **M4 Editing** (done; undo history is not yet saved in `.muse`): Insert/Visual/operators, undo tree, macros, full technique set, linked staff↔tab,
    auto-fingering, retune; TUI basic editing.
-5. **M5 Playalong**: audio loading, waveform/sync pane, manual sync + beat assist, stretch/pitch,
-   A–B loop, count-in, mixer, audio export.
+5. **M5 Playalong** (done; the mixer is commands plus the status line rather than a dedicated pane,
+   and per-track pan/master volume are not exposed yet): audio loading, waveform/sync pane, manual
+   sync + beat assist, stretch/pitch, A–B loop, count-in, mixer, audio export.
 6. **M6 Chant**: chant model, GABC I/O, square-notation engraving, chant↔modern transcription.
 7. **M7 Instruments**: drums/percussion, piano grand staff, lyrics.
 8. **M8 Platforms**: Windows/macOS packaging, then Android, then iOS.

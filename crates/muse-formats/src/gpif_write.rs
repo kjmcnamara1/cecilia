@@ -29,7 +29,40 @@ pub fn write_gp7(score: &Score) -> Result<Vec<u8>> {
         zip.start_file(name, options).map_err(zerr)?;
         zip.write_all(&data)?;
     }
+    // The backing track, stored as is (it is already compressed).
+    if let Some((name, data)) = score
+        .audio
+        .as_ref()
+        .and_then(|a| Some((asset_path(a)?, a.embedded.as_ref()?)))
+    {
+        let stored = options.compression_method(zip::CompressionMethod::Stored);
+        zip.start_file(name, stored).map_err(zerr)?;
+        zip.write_all(data)?;
+    }
     Ok(zip.finish().map_err(zerr)?.into_inner())
+}
+
+/// The notated tempo at the start of a bar.
+fn original_tempo(score: &Score, bar: usize) -> f64 {
+    let mut bpm = score.tempo as f64;
+    for (b, mb) in score.master_bars.iter().enumerate() {
+        for c in &mb.tempo_changes {
+            if b < bar || (b == bar && c.tick == 0) {
+                bpm = c.bpm;
+            }
+        }
+    }
+    bpm
+}
+
+/// Where an embedded backing track lives in the archive.
+fn asset_path(audio: &AudioSync) -> Option<String> {
+    let file = audio.file.as_deref()?;
+    if file.starts_with("Content/Assets/") {
+        return Some(file.to_string());
+    }
+    let name = std::path::Path::new(file).file_name()?.to_string_lossy();
+    Some(format!("Content/Assets/{name}"))
 }
 
 /// Encodes a score as a GP6 `.gpx` file.
@@ -260,7 +293,28 @@ pub fn write_gpif_flavour(score: &Score, gp6: bool) -> String {
             tempo(&mut x, b, c.tick as f64 / mb.ticks().max(1) as f64, c.bpm);
         }
     }
+    let audio = score.audio.as_ref().filter(|_| !gp6);
+    for p in audio.map(|a| a.points.as_slice()).unwrap_or_default() {
+        let _ = writeln!(
+            x,
+            "<Automation><Type>SyncPoint</Type><Linear>false</Linear><Bar>{bar}</Bar><Position>0</Position><Visible>true</Visible><Value><BarIndex>{bar}</BarIndex><BarOccurrence>{}</BarOccurrence><ModifiedTempo>{}</ModifiedTempo><OriginalTempo>{}</OriginalTempo><FrameOffset>{}</FrameOffset></Value></Automation>",
+            p.occurrence,
+            p.tempo,
+            original_tempo(score, p.bar),
+            p.frame,
+            bar = p.bar,
+        );
+    }
     x.push_str("</Automations>\n</MasterTrack>\n");
+    let asset = audio.filter(|a| a.embedded.is_some()).and_then(asset_path);
+    if let Some(a) = audio {
+        let _ = writeln!(
+            x,
+            "<BackingTrack><Name><![CDATA[Audio Track]]></Name><ShortName><![CDATA[a.track]]></ShortName><PlaybackState>Default</PlaybackState><Enabled>true</Enabled><Source>Local</Source><AssetId>{}</AssetId><YouTubeVideoUrl></YouTubeVideoUrl><Filter>6</Filter><FramesPerPixel>300</FramesPerPixel><FramePadding>{}</FramePadding><Semitones>0</Semitones><Cents>0</Cents></BackingTrack>",
+            if asset.is_some() { "0" } else { "" },
+            a.frame_padding,
+        );
+    }
 
     x.push_str("<Tracks>\n");
     for (i, t) in score.tracks.iter().enumerate() {
@@ -311,7 +365,19 @@ pub fn write_gpif_flavour(score: &Score, gp6: bool) -> String {
         }
         x.push_str("</Rhythm>\n");
     }
-    x.push_str("</Rhythms>\n</GPIF>\n");
+    x.push_str("</Rhythms>\n");
+    if let Some(path) = asset {
+        let original = score
+            .audio
+            .as_ref()
+            .and_then(|a| a.file.as_deref())
+            .unwrap_or_default();
+        let _ = writeln!(
+            x,
+            "<Assets><Asset id=\"0\"><OriginalFilePath><![CDATA[{original}]]></OriginalFilePath><EmbeddedFilePath><![CDATA[{path}]]></EmbeddedFilePath></Asset></Assets>"
+        );
+    }
+    x.push_str("</GPIF>\n");
     x
 }
 

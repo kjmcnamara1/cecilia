@@ -3,7 +3,8 @@
 A keyboard-first, open-source editor and player for guitar tablature, standard notation and
 Gregorian chant, with Guitar Pro compatibility and audio play-along. Written in Rust.
 
-**Status:** milestones 1–3 (terminal reader, MIDI playback, file formats, engraving and GUI). See [docs/SPEC.md](docs/SPEC.md) for the
+**Status:** milestones 1–5 (terminal reader, MIDI playback, file formats, engraving and GUI,
+editing, audio play-along). See [docs/SPEC.md](docs/SPEC.md) for the
 full specification and roadmap, and [docs/keymap.md](docs/keymap.md) for key bindings.
 
 ## What works now
@@ -18,6 +19,13 @@ full specification and roadmap, and [docs/keymap.md](docs/keymap.md) for key bin
   (`<C-w>s` / `<C-w>v`), tabs (`:tabnew`, `gt`), which-key hints, mouse clicks and scrolling
 - MIDI playback with a moving cursor, repeats and tempo changes, through a SoundFont or a built-in
   plucked-string synth
+- Editing in both UIs: vim-style Insert/Visual modes and operators, an undo tree, macros, the
+  Guitar Pro technique set, auto-fingering and retuning
+- Audio play-along: attach an mp3/m4a/flac/ogg/wav recording (or use the one embedded in a GP7/8
+  file), sync it by tapping bars or with beat detection, then play it alone or mixed with MIDI at
+  any speed or pitch, with A–B loops, a speed trainer, metronome and count-in; a waveform strip
+  shows the recording, sync points and loop in the GUI
+- WAV/FLAC export of the MIDI rendering mixed with the recording
 - TOML configuration with custom keybinds, reloaded automatically when the file changes
 
 ## Usage
@@ -29,6 +37,7 @@ cargo run --release -- info song.gp5       # tracks, tunings, tempo, length (--j
 cargo run --release -- play song.gp5       # headless playback
 cargo run --release -- convert in.gpx out.musicxml   # convert by output extension
 cargo run --release -- convert song.gp5 song.pdf --track 2 --layout page   # engrave
+cargo run --release -- convert song.gp song.flac     # render MIDI + recording to audio
 ```
 
 In the UI: `h j k l` move by beat/string, `w b` jump between notes, `{ }` bars, `J K` tracks,

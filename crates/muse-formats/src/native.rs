@@ -33,6 +33,17 @@ pub fn write_muse(score: &Score) -> Result<Vec<u8>> {
     zip.write_all(manifest.as_bytes())?;
     zip.start_file("score.json", options).map_err(zerr)?;
     zip.write_all(&json)?;
+    if let Some(audio) = &score.audio {
+        if let Some(data) = &audio.embedded {
+            let name = audio.file.as_deref().unwrap_or("audio");
+            let base = name.rsplit('/').next().unwrap_or(name);
+            let stored = zip::write::SimpleFileOptions::default()
+                .compression_method(zip::CompressionMethod::Stored);
+            zip.start_file(format!("audio/{base}"), stored)
+                .map_err(zerr)?;
+            zip.write_all(data)?;
+        }
+    }
     Ok(zip.finish().map_err(zerr)?.into_inner())
 }
 
@@ -57,7 +68,21 @@ pub fn read_muse(bytes: &[u8]) -> Result<Score> {
     zip.by_name("score.json")
         .map_err(|e| err(e.to_string()))?
         .read_to_end(&mut json)?;
-    serde_json::from_slice(&json).map_err(|e| err(e.to_string()))
+    let mut score: Score = serde_json::from_slice(&json).map_err(|e| err(e.to_string()))?;
+    if let Some(audio) = score.audio.as_mut() {
+        let base = audio
+            .file
+            .as_deref()
+            .map(|f| f.rsplit('/').next().unwrap_or(f).to_string());
+        if let Some(base) = base {
+            if let Ok(mut entry) = zip.by_name(&format!("audio/{base}")) {
+                let mut data = Vec::new();
+                entry.read_to_end(&mut data)?;
+                audio.embedded = Some(std::sync::Arc::new(data));
+            }
+        }
+    }
+    Ok(score)
 }
 
 /// Whether bytes look like a `.muse` archive (a zip with a muse manifest).

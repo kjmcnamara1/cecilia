@@ -78,6 +78,33 @@ pub enum Command {
     Voice(usize),
     /// Playback speed in percent.
     Speed(u32),
+    // Play-along
+    /// Attach an audio file (None = best match next to the score; "off" detaches).
+    Audio(Option<String>),
+    /// Mixer source: "both", "audio" or "midi" (None cycles).
+    MixMode(Option<String>),
+    Metronome,
+    CountIn,
+    /// Change playback speed by percentage points.
+    SpeedStep(i32),
+    /// Loop the visual selection or current bar (toggles off when looping).
+    LoopToggle,
+    /// Loop bars (1-based, inclusive), or None to stop looping.
+    Loop(Option<(usize, usize)>),
+    /// Speed trainer: start %, target %, step %.
+    Trainer(Option<(u32, u32, u32)>),
+    /// Pitch-shift the audio track (semitones).
+    AudioPitch(f32),
+    /// Start (or stop) tapping sync points from the cursor bar.
+    Sync,
+    SyncTap,
+    SyncClear,
+    SyncDetect,
+    Waveform,
+    /// Level of "midi", "audio" or "metronome" in percent.
+    Volume(String, u32),
+    Mute(Option<usize>),
+    Solo(Option<usize>),
     BeatNext,
     BeatPrev,
     StringDown,
@@ -296,6 +323,61 @@ impl Command {
             "new" | "enew" => New,
             "voice" => Voice(number("voice")?),
             "speed" => Speed(number("percent")? as u32),
+            "audio" => Audio(arg.map(String::from)),
+            "mix" => MixMode(arg.map(String::from)),
+            "metronome" => Metronome,
+            "count-in" | "countin" => CountIn,
+            "speed-up" => SpeedStep(5),
+            "speed-down" => SpeedStep(-5),
+            "loop-toggle" => LoopToggle,
+            "loop" => match arg {
+                None => LoopToggle,
+                Some("off") => Loop(None),
+                Some(a) => {
+                    let parts: Vec<usize> = a
+                        .split_whitespace()
+                        .filter_map(|x| x.parse().ok())
+                        .collect();
+                    match parts[..] {
+                        [x] => Loop(Some((x, x))),
+                        [x, y] => Loop(Some((x.min(y), x.max(y)))),
+                        _ => return Err("loop: expected bars, e.g. :loop 5 8".into()),
+                    }
+                }
+            },
+            "trainer" => match arg {
+                None | Some("off") => Trainer(None),
+                Some(a) => {
+                    let p: Vec<u32> = a
+                        .split_whitespace()
+                        .filter_map(|x| x.parse().ok())
+                        .collect();
+                    match p[..] {
+                        [s, t, step] => Trainer(Some((s, t, step))),
+                        [s, t] => Trainer(Some((s, t, 5))),
+                        _ => return Err("trainer: expected START TARGET [STEP] in percent".into()),
+                    }
+                }
+            },
+            "pitch" => AudioPitch(
+                arg.and_then(|a| a.parse().ok())
+                    .ok_or("pitch: expected semitones")?,
+            ),
+            "sync" => Sync,
+            "sync-tap" => SyncTap,
+            "sync-clear" => SyncClear,
+            "sync-detect" => SyncDetect,
+            "waveform" => Waveform,
+            "volume" => {
+                let a = arg.ok_or("volume: expected SOURCE PERCENT (midi, audio, metronome)")?;
+                let (src, pct) = a.split_once(' ').ok_or("volume: expected SOURCE PERCENT")?;
+                Volume(
+                    src.to_string(),
+                    pct.trim().parse().map_err(|_| "volume: bad percent")?,
+                )
+            }
+            "mute" => Mute(arg.and_then(|a| a.parse().ok())),
+            "solo" => Solo(arg.and_then(|a| a.parse().ok())),
             _ => return Err(format!("unknown command: {name}")),
         })
     }

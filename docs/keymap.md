@@ -27,11 +27,13 @@ Items marked _(M1)_ are implemented in the first milestone; the rest are the pla
 | `<leader><leader>`        | play / pause from cursor  | _(M1)_ |
 | `<leader>s`               | stop                      | _(M1)_ |
 | `<leader>f`               | toggle follow-cursor      | _(M1)_ |
-| `<leader>l`               | loop selection (A–B)      |        |
-| `<leader>c`               | toggle count-in           |        |
-| `<leader>m`               | toggle metronome          |        |
-| `<leader>-` / `<leader>=` | speed −5% / +5%           |        |
-| `<leader>a`               | toggle audio track / MIDI |        |
+| `<leader>l`               | loop the selected bars (or the cursor bar) / loop off | _(M5)_ |
+| `<leader>c`               | toggle count-in           | _(M5)_ |
+| `<leader>m`               | toggle metronome          | _(M5)_ |
+| `<leader>-` / `<leader>=` | speed −5% / +5%           | _(M5)_ |
+| `<leader>a`               | cycle mix: audio + MIDI / audio only / MIDI only | _(M5)_ |
+| `<leader>t`               | sync tap: place the next bar at the current audio time | _(M5)_ |
+| `<leader>w`               | show / hide the waveform strip (GUI) | _(M5)_ |
 | `<leader>v`               | cycle score layout (vertical / page / horizontal) | _(M3)_ |
 | `<C-=>` / `<C-->` / `<C-0>` | zoom in / out / reset (GUI; also Ctrl+wheel) | _(M3)_ |
 
@@ -102,8 +104,6 @@ Items marked _(M1)_ are implemented in the first milestone; the rest are the pla
 | `:bar {n}` / `:{n}`                              | _(M1)_                         |
 | `:set {option}[=value]`                          |                                |
 | `:source`                                        | reload config _(M1)_           |
-| `:tempo {percent}`                               | playback speed                 |
-| `:audio {file}` / `:sync`                        | attach audio / enter Sync mode |
 | `:time 3/4` / `:key -2` / `:tempo 96` | time / key signature from the cursor bar, tempo at the cursor bar |
 | `:repeat-start` / `:repeat-end [n]` / `:section NAME` / `:text TEXT` | bar marks and beat text |
 | `:note C#4` / `:voice 2` | set the cursor note's pitch / edit another voice |
@@ -111,5 +111,21 @@ Items marked _(M1)_ are implemented in the first milestone; the rest are the pla
 | `:refinger` / `:transpose 2` | re-finger the track to minimise hand movement / transpose |
 | `:track-add bass` / `:track-delete` / `:new` | tracks and new scores |
 | `:speed 75` | playback speed in percent |
+
+### Play-along _(M5)_
+
+| command | |
+| --- | --- |
+| `:audio [file]` / `:audio off` | attach a recording (mp3, m4a/aac, flac, ogg, wav; relative to the score). Without a file, the best name match next to the score or in its `mp3/`/`audio/` folder |
+| `:sync` | start (or stop) sync tapping from the cursor bar: play, then `<leader>t` on each downbeat |
+| `:sync-tap` / `:sync-clear` | add a sync point at the playing bar / remove all sync points |
+| `:sync-detect` | beat-detection assist: fill in sync points from the last existing one (tap the first downbeat first for best results) |
+| `:mix [both\|audio\|midi]` | what plays when a recording is attached (no argument cycles) |
+| `:volume midi\|audio\|metronome {percent}` | source levels |
+| `:mute [n]` / `:solo [n]` | toggle a track's mute / solo (cursor track by default) |
+| `:loop [a b]` / `:loop-toggle` | loop bars a–b (1-based), or the selection / cursor bar |
+| `:trainer start target step` | speed trainer: start at `start`%, add `step`% each loop up to `target`% (e.g. `:trainer 60 100 5`) |
+| `:pitch {semitones}` | shift the recording's pitch (−12…12, keeps tempo) |
+| `:metronome` / `:count-in` / `:waveform` | toggles |
 | `:export {file}`                                 | export by extension            |
 | `:layout [page\|vertical\|horizontal]`            | GUI score layout _(M3)_        |

@@ -77,6 +77,16 @@ pub enum Effect {
     ScoreChanged {
         buffer: usize,
     },
+    /// A buffer's audio track was attached, detached or changed.
+    AudioChanged {
+        buffer: usize,
+    },
+    /// Mixer, loop, metronome, speed or pitch settings changed.
+    PlaybackSettings,
+    /// Record a sync point for the next bar at the current audio position.
+    SyncTap,
+    /// Generate sync points from beat detection.
+    SyncDetect,
 }
 
 pub struct App {
@@ -113,6 +123,8 @@ pub struct App {
     pub score_layout: String,
     pub zoom: f64,
     pub(crate) ed: crate::editor::EditorState,
+    /// Play-along settings.
+    pub pa: crate::playalong::PlayAlong,
 }
 
 impl App {
@@ -172,6 +184,7 @@ impl App {
             score_layout,
             zoom,
             ed: Default::default(),
+            pa: Default::default(),
         }
     }
 
@@ -263,7 +276,7 @@ impl App {
         let b = &self.buffers[buffer];
         let s = &b.score;
         let msg = format!(
-            "\"{}\" {} — {} tracks, {} bars, ♩={}",
+            "\"{}\" {} — {} tracks, {} bars, tempo {}",
             b.name,
             if s.meta.title.is_empty() {
                 ""
@@ -274,7 +287,16 @@ impl App {
             s.master_bars.len(),
             s.tempo
         );
-        self.info(msg);
+        let hint = (s.audio.is_none())
+            .then(|| b.path.as_deref().and_then(crate::playalong::find_audio_for))
+            .flatten()
+            .map(|a| {
+                format!(
+                    " — matching audio {}, :audio to attach",
+                    a.file_name().unwrap_or_default().to_string_lossy()
+                )
+            });
+        self.info(msg + &hint.unwrap_or_default());
     }
 
     // ---- config ----
@@ -385,7 +407,7 @@ impl App {
     /// Executes a command.
     pub fn run(&mut self, cmd: Command) {
         use Command::*;
-        if self.run_edit(&cmd) {
+        if self.run_edit(&cmd) || self.run_playalong(&cmd) {
             return;
         }
         match cmd {
@@ -568,7 +590,33 @@ impl App {
                 p
             }
         };
-        match muse_formats::write_file(&buffer.score, &target) {
+        // Guitar Pro keeps the backing track inside the file: embed an attached recording.
+        let mut embedded;
+        let mut score = &buffer.score;
+        let is_gp = target
+            .extension()
+            .is_some_and(|e| e.eq_ignore_ascii_case("gp"));
+        if let Some(audio) = score
+            .audio
+            .as_ref()
+            .filter(|a| is_gp && a.embedded.is_none())
+            && let Some(file) = audio.file.as_deref()
+        {
+            let file = buffer
+                .path
+                .as_deref()
+                .and_then(Path::parent)
+                .map_or_else(|| PathBuf::from(file), |d| d.join(file));
+            match std::fs::read(&file) {
+                Ok(bytes) => {
+                    embedded = score.clone();
+                    embedded.audio.as_mut().unwrap().embedded = Some(std::sync::Arc::new(bytes));
+                    score = &embedded;
+                }
+                Err(e) => return self.error(format!("{}: {e}", file.display())),
+            }
+        }
+        match muse_formats::write_file(score, &target) {
             Ok(()) => {
                 let size = std::fs::metadata(&target).map(|m| m.len()).unwrap_or(0);
                 if buffer.path.as_deref() == Some(target.as_path()) {

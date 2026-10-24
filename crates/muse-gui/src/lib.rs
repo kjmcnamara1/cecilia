@@ -84,6 +84,7 @@ impl Gui {
             &mut self.scene,
             &mut self.app,
             &mut self.views,
+            Some(&mut self.playback),
             play,
             width as f64,
             height as f64,
@@ -265,10 +266,22 @@ pub fn screenshot(mut app: App, width: u32, height: u32) -> Result<Vec<u8>> {
         Renderer::new(device, renderer_options()).map_err(|e| anyhow!("renderer: {e}"))?;
     let mut scene = Scene::new();
     let mut views = Views::default();
+    // Load the focused buffer's audio so the waveform shows.
+    let mut playback = Playback::default();
+    let buffer = app.pane().buffer;
+    playback.ensure_audio(&app, buffer);
+    for _ in 0..200 {
+        playback.sync(&mut app);
+        if playback.loaded_audio(buffer).is_some() || !playback.audio_loading(buffer) {
+            break;
+        }
+        std::thread::sleep(std::time::Duration::from_millis(50));
+    }
     draw::build(
         &mut scene,
         &mut app,
         &mut views,
+        Some(&mut playback),
         None,
         width as f64,
         height as f64,

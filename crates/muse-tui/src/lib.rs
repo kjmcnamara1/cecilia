@@ -304,6 +304,11 @@ fn draw_status(f: &mut Frame, app: &App, play: Option<(usize, Location, f64, f64
         let icon = if app.playing { "▶" } else { "⏸" };
         right.push_str(&format!("  {icon} {}/{}", fmt_time(t), fmt_time(total)));
     }
+    right.push_str("  ");
+    right.push_str(
+        &app.pa
+            .status(app.config.file.audio.speed, score.audio.is_some()),
+    );
     if app.follow {
         right.push_str("  follow");
     }

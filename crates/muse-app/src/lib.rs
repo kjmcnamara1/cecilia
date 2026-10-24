@@ -10,6 +10,7 @@ mod editor;
 pub mod history;
 pub mod keys;
 pub mod layout;
+pub mod playalong;
 pub mod playback;
 
 pub use app::{App, Buffer, Cursor, Effect, Message, Pane, Tab, beat_at_tick, beats, cursor_tick};
