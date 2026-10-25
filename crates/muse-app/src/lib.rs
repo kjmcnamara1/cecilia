@@ -5,6 +5,7 @@
 mod app;
 mod chant;
 pub mod command;
+pub mod complete;
 pub mod config;
 pub mod edit;
 mod editor;

@@ -26,7 +26,7 @@ Items marked _(M1)_ are implemented in the first milestone; the rest are the pla
 | ------------------------- | ------------------------- | ------ |
 | `<leader><leader>`        | play / pause from cursor  | _(M1)_ |
 | `<leader>s`               | stop                      | _(M1)_ |
-| `<leader>f`               | toggle follow-cursor      | _(M1)_ |
+| `<leader>f`               | toggle following the playhead: while playing, a red bar marks the position and the view scrolls with it; the editing cursor stays where `hjkl` put it | _(M1)_ |
 | `<leader>l`               | loop the selected bars (or the cursor bar) / loop off | _(M5)_ |
 | `<leader>c`               | toggle count-in           | _(M5)_ |
 | `<leader>m`               | toggle metronome          | _(M5)_ |
@@ -98,6 +98,13 @@ On drum tracks _(M7)_, letters add or remove an instrument on the cursor beat: `
 tom, `m` mid tom, `f` floor tom (`r` is still a rest, `g`/`a` ghost and accent).
 
 ## Command mode (selected)
+
+`<Tab>` completes the word being typed: command names, then arguments — file names for `:e`,
+`:w`, `:tabnew` and `:audio` (folders first, only files muse can open or write), and the values of
+`:layout`, `:mix`, `:volume`, `:track-add`, `:tuning`, `:toggle`, `:duration`, `:clef`,
+`:interpretation`. A unique match is filled in; otherwise the common part, then further `<Tab>`
+/ `<S-Tab>` cycle through the candidates, which are listed above the command line. `<Up>`/`<Down>`
+recall history.
 
 | command                                          |                                |
 | ------------------------------------------------ | ------------------------------ |

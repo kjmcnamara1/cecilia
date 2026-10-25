@@ -39,11 +39,6 @@ fn event_loop(terminal: &mut DefaultTerminal, app: &mut App) -> Result<()> {
     while !app.quit {
         playback.sync(app);
         let play_loc = playback.location(app);
-        if app.playing {
-            if let Some((buffer, loc, _, _)) = play_loc {
-                app.follow_playback(buffer, loc.bar, loc.tick);
-            }
-        }
         terminal.draw(|f| draw(f, app, play_loc, &mut hits))?;
 
         let timeout = if app.playing {
@@ -229,7 +224,10 @@ fn draw(
         }
     }
 
-    draw_status(f, app, play, status);
+    match app.wildmenu() {
+        Some((items, selected)) => draw_wildmenu(f, items, selected, status),
+        None => draw_status(f, app, play, status),
+    }
     draw_cmdline(f, app, cmdline);
     if !app.pending.is_empty() {
         draw_which_key(f, app, main);
@@ -270,6 +268,36 @@ fn draw_tabline(f: &mut Frame, app: &App, area: Rect) {
 fn fmt_time(t: f64) -> String {
     let t = t.max(0.0) as u64;
     format!("{}:{:02}", t / 60, t % 60)
+}
+
+/// Command-line completion candidates, the selected one highlighted, scrolled to keep it in view.
+fn draw_wildmenu(f: &mut Frame, items: &[String], selected: Option<usize>, area: Rect) {
+    let bg = Style::default().bg(Color::Rgb(30, 30, 30)).fg(Color::Gray);
+    let hl = Style::default().bg(Color::Yellow).fg(Color::Black);
+    let width = area.width as usize;
+    // Start so that the selected item fits.
+    let mut first = 0;
+    if let Some(sel) = selected {
+        let mut used: usize = items[..=sel].iter().map(|s| s.chars().count() + 2).sum();
+        while used > width.saturating_sub(4) && first < sel {
+            used -= items[first].chars().count() + 2;
+            first += 1;
+        }
+    }
+    let mut spans = vec![Span::raw(if first > 0 { "< " } else { " " })];
+    let mut used = 2;
+    for (i, item) in items.iter().enumerate().skip(first) {
+        let w = item.chars().count() + 2;
+        if used + w > width.saturating_sub(2) {
+            spans.push(Span::raw(">"));
+            break;
+        }
+        let style = if Some(i) == selected { hl } else { bg };
+        spans.push(Span::styled(item.clone(), style));
+        spans.push(Span::raw("  "));
+        used += w;
+    }
+    f.render_widget(Paragraph::new(Line::from(spans)).style(bg), area);
 }
 
 fn draw_status(f: &mut Frame, app: &App, play: Option<(usize, Location, f64, f64)>, area: Rect) {
@@ -518,6 +546,53 @@ mod render_tests {
             }
         }
         println!("{}", render(&mut app, 120, 40));
+    }
+
+    #[test]
+    fn playhead_is_a_red_column_apart_from_the_cursor() {
+        use muse_core::*;
+        let beat = |fret| Beat {
+            duration: Duration::new(DurationValue::Quarter),
+            notes: vec![Note::new(1, fret)],
+            ..Beat::default()
+        };
+        let score = Score {
+            tempo: 90,
+            master_bars: vec![MasterBar::default(); 2],
+            tracks: vec![Track {
+                strings: vec![64, 59, 55, 50, 45, 40],
+                bars: vec![
+                    Bar {
+                        voices: vec![Voice {
+                            beats: vec![beat(5), beat(7), beat(9), beat(0)]
+                        }]
+                    };
+                    2
+                ],
+                ..Track::default()
+            }],
+            ..Score::default()
+        };
+        let mut app = App::new(muse_app::Config::default(), None);
+        app.buffers[0].score = score;
+        app.playing = true;
+        let play = Some((0, muse_audio::Location { bar: 1, tick: 1440 }, 3.0, 6.0));
+        let mut terminal = Terminal::new(TestBackend::new(80, 20)).unwrap();
+        let mut hits = vec![];
+        terminal
+            .draw(|f| draw(f, &mut app, play, &mut hits))
+            .unwrap();
+        let buf = terminal.backend().buffer().clone();
+        let red: Vec<(u16, u16)> = (0..20)
+            .flat_map(|y| (0..80).map(move |x| (x, y)))
+            .filter(|&(x, y)| buf[(x, y)].bg == ratatui::style::Color::Rgb(200, 30, 30))
+            .collect();
+        // One column, the six string rows, in bar 2 halfway through its second beat.
+        let cols: std::collections::BTreeSet<u16> = red.iter().map(|p| p.0).collect();
+        assert_eq!(cols.len(), 1, "{red:?}");
+        assert_eq!(red.len(), 6);
+        // The editing cursor has not moved.
+        assert_eq!((app.pane().cursor.bar, app.pane().cursor.beat), (0, 0));
     }
 
     #[test]

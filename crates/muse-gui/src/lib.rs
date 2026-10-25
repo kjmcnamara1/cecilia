@@ -234,9 +234,6 @@ impl ApplicationHandler for Gui {
     fn about_to_wait(&mut self, event_loop: &ActiveEventLoop) {
         self.playback.sync(&mut self.app);
         if self.app.playing {
-            if let Some((buffer, loc, _, _)) = self.playback.location(&self.app) {
-                self.app.follow_playback(buffer, loc.bar, loc.tick);
-            }
             if let Some(gpu) = &self.gpu {
                 gpu.window.request_redraw();
             }

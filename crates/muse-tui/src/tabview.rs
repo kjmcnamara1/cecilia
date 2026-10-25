@@ -214,7 +214,12 @@ impl Widget for TabView<'_> {
         let sh = system_height(track);
         let rows = track.strings.len().max(1);
         let visible = (area.height / sh).max(1) as usize;
-        let cursor_sys = system_of_bar(&systems, pane.cursor.bar);
+        // Follow the playhead while playing (if following), otherwise the cursor.
+        let focus_bar = match self.play.filter(|_| self.app.follow) {
+            Some((bar, _)) => bar,
+            None => pane.cursor.bar,
+        };
+        let cursor_sys = system_of_bar(&systems, focus_bar);
         let mut scroll = (*self.scroll).min(systems.len().saturating_sub(1));
         if cursor_sys < scroll {
             scroll = cursor_sys;
@@ -231,7 +236,9 @@ impl Widget for TabView<'_> {
             Style::default().fg(Color::Black).bg(Color::DarkGray)
         };
         let column_style = Style::default().bg(Color::Rgb(40, 40, 50));
-        let play_style = Style::default().bg(Color::Rgb(20, 70, 40));
+        let playhead_style = Style::default()
+            .bg(Color::Rgb(200, 30, 30))
+            .fg(Color::White);
 
         for (row, system) in systems.iter().enumerate().skip(scroll).take(visible) {
             let y0 = area.y + ((row - scroll) as u16) * sh;
@@ -292,8 +299,15 @@ impl Widget for TabView<'_> {
                     let beat = beats.get(i);
                     let bx_beat = bx + off;
                     let len = beat.map_or(0, |b| b.ticks());
-                    let is_play = self.play.is_some_and(|(pb, pt)| {
-                        pb == bl.bar && pt >= tick && (pt < tick + len || (len == 0 && pt == tick))
+                    // Column of the playhead inside this beat, in proportion to time.
+                    let playhead = self.play.and_then(|(pb, pt)| {
+                        (pb == bl.bar
+                            && pt >= tick
+                            && (pt < tick + len || (len == 0 && pt == tick)))
+                            .then(|| {
+                                let frac = (pt - tick) as f64 / len.max(1) as f64;
+                                bx_beat + (frac * w as f64) as u16
+                            })
                     });
                     let is_cursor_beat = pane.cursor.bar == bl.bar && pane.cursor.beat == i;
                     let selected = self.focused
@@ -328,9 +342,7 @@ impl Widget for TabView<'_> {
                                 voice: 0,
                             },
                         });
-                        if is_play {
-                            buf.set_style(cell, play_style);
-                        } else if selected {
+                        if selected {
                             buf.set_style(cell, Style::default().bg(Color::Rgb(80, 40, 100)));
                         } else if is_cursor_beat {
                             buf.set_style(cell, column_style);
@@ -393,6 +405,17 @@ impl Widget for TabView<'_> {
                                 t,
                                 Style::default().fg(Color::Magenta),
                             );
+                        }
+                    }
+                    if let Some(px) = playhead.filter(|&x| x < area.x + area.width) {
+                        for s in 0..rows as u16 {
+                            let cell = Rect {
+                                x: px,
+                                y: y0 + 1 + s,
+                                width: 1,
+                                height: 1,
+                            };
+                            buf.set_style(cell, playhead_style);
                         }
                     }
                     tick += len;

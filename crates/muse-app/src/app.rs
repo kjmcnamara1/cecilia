@@ -105,6 +105,8 @@ pub struct App {
     pub cmdline: String,
     history: Vec<String>,
     history_pos: Option<usize>,
+    /// Command-line completion in progress: candidates, where they start and which is shown.
+    completion: Option<(crate::complete::Completions, Option<usize>)>,
     pub message: Option<Message>,
     pub show_help: bool,
     /// Set by the frontend to reflect the player state.
@@ -168,6 +170,7 @@ impl App {
             cmdline: String::new(),
             history: Vec::new(),
             history_pos: None,
+            completion: None,
             message: None,
             show_help: false,
             playing: false,
@@ -353,7 +356,12 @@ impl App {
             }
             return;
         }
+        if !matches!(key.code, KeyCode::Tab | KeyCode::BackTab) {
+            self.completion = None;
+        }
         match key.code {
+            KeyCode::Tab => self.complete_step(true),
+            KeyCode::BackTab => self.complete_step(false),
             KeyCode::Esc => self.leave_command_mode(),
             KeyCode::Char('c') if key.ctrl => self.leave_command_mode(),
             KeyCode::Char('u') if key.ctrl => self.cmdline.clear(),
@@ -393,6 +401,66 @@ impl App {
         self.mode = Mode::Normal;
         self.cmdline.clear();
         self.history_pos = None;
+        self.completion = None;
+    }
+
+    /// Tab (or Shift-Tab backwards): extend the word to the candidates' common prefix, then
+    /// cycle through them.
+    fn complete_step(&mut self, forward: bool) {
+        use crate::complete::{common_prefix, complete};
+        if let Some((c, index)) = self.completion.as_mut() {
+            if c.items.len() > 1 {
+                let n = c.items.len();
+                let i = match (*index, forward) {
+                    (None, true) => 0,
+                    (None, false) => n - 1,
+                    (Some(i), true) => (i + 1) % n,
+                    (Some(i), false) => (i + n - 1) % n,
+                };
+                *index = Some(i);
+                self.cmdline.truncate(c.start);
+                self.cmdline.push_str(&c.items[i]);
+            }
+            return;
+        }
+        let cwd = std::env::current_dir().unwrap_or_default();
+        let score_dir = self
+            .buffer()
+            .path
+            .as_deref()
+            .and_then(Path::parent)
+            .map(Path::to_path_buf);
+        let c = complete(&self.cmdline, &cwd, score_dir.as_deref());
+        let typed = self.cmdline[c.start..].to_string();
+        match c.items.len() {
+            0 => self.error(format!("no completions for '{typed}'")),
+            1 => {
+                self.cmdline.truncate(c.start);
+                self.cmdline.push_str(&c.items[0]);
+                if c.commands || !c.items[0].ends_with('/') {
+                    self.cmdline.push(' ');
+                }
+            }
+            _ => {
+                let prefix = common_prefix(&c.items);
+                if prefix.len() > typed.len() {
+                    self.cmdline.truncate(c.start);
+                    self.cmdline.push_str(&prefix);
+                    self.completion = Some((c, None));
+                } else {
+                    self.completion = Some((c, None));
+                    self.complete_step(forward);
+                }
+            }
+        }
+    }
+
+    /// Completion candidates to show while completing, with the selected one.
+    pub fn wildmenu(&self) -> Option<(&[String], Option<usize>)> {
+        self.completion
+            .as_ref()
+            .filter(|(c, _)| c.items.len() > 1)
+            .map(|(c, i)| (c.items.as_slice(), *i))
     }
 
     pub(crate) fn run_counted(&mut self, cmd: Command, count: Option<usize>) {
@@ -691,26 +759,6 @@ impl App {
             self.quit = true;
         }
     }
-
-    // ---- playback feedback ----
-
-    /// Moves cursors to the playback position (called by the frontend while playing).
-    pub fn follow_playback(&mut self, buffer: usize, bar: usize, tick: u32) {
-        if !self.follow {
-            return;
-        }
-        let score = &self.buffers[buffer].score;
-        let focused = self.focused();
-        if let Some(p) = self.panes.get_mut(&focused).filter(|p| p.buffer == buffer) {
-            if p.cursor.bar != bar
-                || cursor_tick(score, &p.cursor) > tick
-                || beat_end(score, &p.cursor) <= tick
-            {
-                p.cursor.bar = bar;
-                p.cursor.beat = beat_at_tick(score, p.cursor.track, bar, tick);
-            }
-        }
-    }
 }
 
 fn mtime(path: &Path) -> Option<SystemTime> {
@@ -732,10 +780,6 @@ pub fn beats<'a>(score: &'a Score, c: &Cursor) -> &'a [Beat] {
 /// Tick within the bar at which the cursor's beat starts.
 pub fn cursor_tick(score: &Score, c: &Cursor) -> u32 {
     beats(score, c).iter().take(c.beat).map(Beat::ticks).sum()
-}
-
-fn beat_end(score: &Score, c: &Cursor) -> u32 {
-    cursor_tick(score, c) + beats(score, c).get(c.beat).map_or(0, |b| b.ticks().max(1))
 }
 
 /// Index of the beat sounding at `tick` in a bar.
@@ -932,9 +976,8 @@ mod tests {
                 tick: 1920
             }]
         );
+        // Playback leaves the editing cursor alone (the playhead is drawn separately).
         app.playing = true;
-        app.follow_playback(0, 3, 1000);
-        assert_eq!((app.pane().cursor.bar, app.pane().cursor.beat), (3, 1));
         keys(&mut app, "<Space>s");
         assert_eq!(
             app.take_effects(),

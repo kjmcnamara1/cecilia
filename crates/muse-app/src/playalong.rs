@@ -95,7 +95,7 @@ impl PlayAlong {
     }
 }
 
-const AUDIO_EXTENSIONS: [&str; 7] = ["mp3", "m4a", "aac", "flac", "ogg", "wav", "opus"];
+pub(crate) const AUDIO_EXTENSIONS: &[&str] = &["mp3", "m4a", "aac", "flac", "ogg", "wav", "opus"];
 
 fn words(s: &str) -> Vec<String> {
     s.to_lowercase()

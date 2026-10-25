@@ -5,7 +5,7 @@ use std::collections::HashMap;
 
 use muse_app::layout::PaneId;
 use muse_app::playback::Playback;
-use muse_app::{App, Mode, beat_at_tick};
+use muse_app::{App, Mode};
 use muse_audio::Location;
 use muse_engrave::display::{Align, BeatRef, FontKind};
 use muse_engrave::output::{Paint, outlines};
@@ -342,21 +342,31 @@ fn draw_pane(
     let view_h = content.height() / scale;
     let cursor_key = (pane.cursor.track, pane.cursor.bar, pane.cursor.beat);
     let moved = views.last_cursor.insert(id, cursor_key) != Some(cursor_key);
-    if let Some(pos) = cached
-        .layout
-        .beats
-        .get(&cursor_ref)
-        .or_else(|| beat_fallback(&cached.layout, &cursor_ref))
-    {
-        let top = cached.offsets[pos.page] + pos.top;
-        let bottom = cached.offsets[pos.page] + pos.bottom;
-        if moved || app.playing {
-            if top < scroll.1 || bottom > scroll.1 + view_h {
-                scroll.1 = (top - view_h * 0.25).max(0.0);
-            }
-            if pos.x < scroll.0 || pos.x + pos.width > scroll.0 + view_w {
-                scroll.0 = (pos.x - view_w * 0.3).max(0.0);
-            }
+    // The playhead, while this buffer plays: (page, x, top, bottom).
+    let playhead = play
+        .filter(|p| p.0 == pane.buffer && app.playing)
+        .and_then(|(_, loc, _, _)| {
+            playhead_at(&cached.layout, score, pane.cursor.track, loc.bar, loc.tick)
+        });
+    // Keep the playhead in view while following playback, otherwise the cursor when it moves.
+    let target = match playhead.filter(|_| app.follow) {
+        Some((page, x, top, bottom)) => Some((page, x, 1.0, top, bottom)),
+        None if moved => cached
+            .layout
+            .beats
+            .get(&cursor_ref)
+            .or_else(|| beat_fallback(&cached.layout, &cursor_ref))
+            .map(|p| (p.page, p.x, p.width, p.top, p.bottom)),
+        None => None,
+    };
+    if let Some((page, x, w, top, bottom)) = target {
+        let top = cached.offsets[page] + top;
+        let bottom = cached.offsets[page] + bottom;
+        if top < scroll.1 || bottom > scroll.1 + view_h {
+            scroll.1 = (top - view_h * 0.25).max(0.0);
+        }
+        if x < scroll.0 || x + w > scroll.0 + view_w {
+            scroll.0 = (x - view_w * 0.3).max(0.0);
         }
     }
     let total_h = cached.offsets.last().copied().unwrap_or(0.0)
@@ -394,26 +404,6 @@ fn draw_pane(
             continue;
         }
         scene.append(page_scene, Some(to_screen(i)));
-    }
-    // Playback position.
-    if let Some((pb, loc, _, _)) = play.filter(|p| p.0 == pane.buffer && app.playing) {
-        let beat = beat_at_tick(score, pane.cursor.track, loc.bar, loc.tick);
-        if let Some(pos) = cached.layout.beats.get(&BeatRef {
-            track: pane.cursor.track,
-            bar: loc.bar,
-            voice: 0,
-            beat,
-        }) {
-            let r = Rect::new(pos.x, pos.top, pos.x + pos.width, pos.bottom);
-            scene.fill(
-                Fill::NonZero,
-                to_screen(pos.page),
-                Color::from_rgba8(60, 190, 110, 70),
-                None,
-                &r,
-            );
-        }
-        let _ = pb;
     }
     // Visual selection.
     if let Some((anchor, cursor, bars)) = app.selection().filter(|_| focused) {
@@ -464,6 +454,17 @@ fn draw_pane(
                 &r,
             );
         }
+    }
+    // Playhead: a red bar at the exact playback position, drawn over the cursor.
+    if let Some((page, x, top, bottom)) = playhead {
+        let w = 2.0 / scale;
+        scene.fill(
+            Fill::NonZero,
+            to_screen(page),
+            Color::from_rgba8(225, 40, 40, 230),
+            None,
+            &Rect::new(x - w / 2.0, top, x + w / 2.0, bottom),
+        );
     }
     scene.pop_layer();
     if let (Some(strip), Some(pb)) = (waveform, playback) {
@@ -601,6 +602,73 @@ fn draw_waveform(
 }
 
 /// Cursor on a beat the layout skipped (e.g. an empty bar): use the bar's first beat.
+/// Where the playhead is drawn at (bar, tick): between the notes of the bar in proportion to
+/// time (on the track's first voice; the bar's edges without notes), never across a line break.
+/// Returns (page, x, top, bottom) in page coordinates.
+fn playhead_at(
+    layout: &Layout,
+    score: &muse_core::Score,
+    track: usize,
+    bar: usize,
+    tick: u32,
+) -> Option<(usize, f64, f64, f64)> {
+    let beats = &score
+        .tracks
+        .get(track)?
+        .bars
+        .get(bar)?
+        .voices
+        .first()?
+        .beats;
+    // (tick, page, x, top, bottom) of each drawn beat, in time order.
+    let mut points = Vec::new();
+    let mut t = 0;
+    for (i, b) in beats.iter().enumerate() {
+        if !b.empty {
+            let r = BeatRef {
+                track,
+                bar,
+                voice: 0,
+                beat: i,
+            };
+            if let Some(p) = layout.beats.get(&r) {
+                points.push((t, p.page, p.x + 4.0, p.top, p.bottom));
+            }
+        }
+        t += b.ticks();
+    }
+    let &(bar_page, bar_x0, bar_x1) = layout.bars.get(bar)?;
+    let end_tick = score.played_ticks(bar).max(1);
+    let (top, bottom) = points.first().map(|p| (p.3, p.4)).or_else(|| {
+        layout
+            .beats
+            .iter()
+            .find(|(r, _)| r.bar == bar && r.track == track)
+            .map(|(_, p)| (p.top, p.bottom))
+    })?;
+    if points.is_empty() {
+        let x = bar_x0 + (bar_x1 - bar_x0) * tick as f64 / end_tick as f64;
+        return Some((bar_page, x, top, bottom));
+    }
+    let k = points.iter().rposition(|p| p.0 <= tick).unwrap_or(0);
+    let a = points[k];
+    let (next_tick, next_x, same_line) = match points.get(k + 1) {
+        Some(b) => (b.0, b.2, b.1 == a.1 && (b.3 - a.3).abs() < 0.5),
+        None => (end_tick, bar_x1 - 2.0, bar_page == a.1 && bar_x1 > a.2),
+    };
+    let frac = if next_tick > a.0 {
+        ((tick.saturating_sub(a.0)) as f64 / (next_tick - a.0) as f64).clamp(0.0, 1.0)
+    } else {
+        0.0
+    };
+    let x = if same_line {
+        a.2 + (next_x - a.2) * frac
+    } else {
+        a.2
+    };
+    Some((a.1, x, a.3, a.4))
+}
+
 fn beat_fallback<'a>(layout: &'a Layout, r: &BeatRef) -> Option<&'a muse_engrave::BeatPos> {
     layout.beats.get(&BeatRef { beat: 0, ..*r }).or_else(|| {
         layout
@@ -609,6 +677,52 @@ fn beat_fallback<'a>(layout: &'a Layout, r: &BeatRef) -> Option<&'a muse_engrave
             .find(|(k, _)| k.bar == r.bar)
             .map(|(_, v)| v)
     })
+}
+
+/// The command line while typing a command, otherwise the last message.
+fn draw_command_line(scene: &mut Scene, app: &App, width: f64, height: f64) {
+    // Command line / message.
+    let cy = height - 8.0;
+    match app.mode {
+        Mode::Command => {
+            let line = format!(":{}", app.cmdline);
+            text(
+                scene,
+                &line,
+                10.0,
+                cy,
+                14.0,
+                Align::Left,
+                Color::WHITE,
+                false,
+            );
+            let cx =
+                10.0 + muse_engrave::fonts::fonts().text_width(FontKind::Text, &line, 14.0) + 1.0;
+            fill(scene, Rect::new(cx, cy - 13.0, cx + 2.0, cy + 3.0), ACCENT);
+        }
+        Mode::Normal | Mode::Insert | Mode::Visual => {
+            if let Some(m) = &app.message {
+                let c = if m.error {
+                    Color::from_rgba8(255, 110, 100, 255)
+                } else {
+                    CHROME_TEXT
+                };
+                text(scene, &m.text, 10.0, cy, 14.0, Align::Left, c, false);
+            }
+            let mut pending = app.count.map(|c| c.to_string()).unwrap_or_default();
+            pending.push_str(&muse_app::keys::format_keys(&app.pending));
+            text(
+                scene,
+                &pending,
+                width - 12.0,
+                cy,
+                14.0,
+                Align::Right,
+                ACCENT,
+                false,
+            );
+        }
+    }
 }
 
 fn draw_status(
@@ -620,6 +734,75 @@ fn draw_status(
 ) {
     let y0 = height - STATUS - CMDLINE;
     fill(scene, Rect::new(0.0, y0, width, height), CHROME);
+    if let Some((items, selected)) = app.wildmenu() {
+        // Completion candidates replace the status line while completing.
+        let fonts = muse_engrave::fonts::fonts();
+        let widths: Vec<f64> = items
+            .iter()
+            .map(|s| fonts.text_width(FontKind::Text, s, 13.0) + 18.0)
+            .collect();
+        let mut first = 0;
+        if let Some(sel) = selected {
+            while widths[first..=sel].iter().sum::<f64>() > width - 40.0 && first < sel {
+                first += 1;
+            }
+        }
+        let mut x = 10.0;
+        for (i, item) in items.iter().enumerate().skip(first) {
+            if x + widths[i] > width - 10.0 {
+                text(
+                    scene,
+                    "…",
+                    x,
+                    y0 + 17.5,
+                    13.0,
+                    Align::Left,
+                    CHROME_TEXT,
+                    false,
+                );
+                break;
+            }
+            if Some(i) == selected {
+                scene.fill(
+                    Fill::NonZero,
+                    Affine::IDENTITY,
+                    ACCENT,
+                    None,
+                    &RoundedRect::new(
+                        x - 4.0,
+                        y0 + 4.0,
+                        x + widths[i] - 14.0,
+                        y0 + STATUS - 4.0,
+                        4.0,
+                    ),
+                );
+                text(
+                    scene,
+                    item,
+                    x + 1.0,
+                    y0 + 17.5,
+                    13.0,
+                    Align::Left,
+                    CHROME,
+                    true,
+                );
+            } else {
+                text(
+                    scene,
+                    item,
+                    x + 1.0,
+                    y0 + 17.5,
+                    13.0,
+                    Align::Left,
+                    CHROME_TEXT,
+                    false,
+                );
+            }
+            x += widths[i];
+        }
+        draw_command_line(scene, app, width, height);
+        return;
+    }
     let (label, color) = match app.mode {
         Mode::Normal => (" NORMAL ", Color::from_rgba8(90, 150, 230, 255)),
         Mode::Command => (" COMMAND ", Color::from_rgba8(100, 190, 120, 255)),
@@ -711,48 +894,7 @@ fn draw_status(
         false,
     );
 
-    // Command line / message.
-    let cy = height - 8.0;
-    match app.mode {
-        Mode::Command => {
-            let line = format!(":{}", app.cmdline);
-            text(
-                scene,
-                &line,
-                10.0,
-                cy,
-                14.0,
-                Align::Left,
-                Color::WHITE,
-                false,
-            );
-            let cx =
-                10.0 + muse_engrave::fonts::fonts().text_width(FontKind::Text, &line, 14.0) + 1.0;
-            fill(scene, Rect::new(cx, cy - 13.0, cx + 2.0, cy + 3.0), ACCENT);
-        }
-        Mode::Normal | Mode::Insert | Mode::Visual => {
-            if let Some(m) = &app.message {
-                let c = if m.error {
-                    Color::from_rgba8(255, 110, 100, 255)
-                } else {
-                    CHROME_TEXT
-                };
-                text(scene, &m.text, 10.0, cy, 14.0, Align::Left, c, false);
-            }
-            let mut pending = app.count.map(|c| c.to_string()).unwrap_or_default();
-            pending.push_str(&muse_app::keys::format_keys(&app.pending));
-            text(
-                scene,
-                &pending,
-                width - 12.0,
-                cy,
-                14.0,
-                Align::Right,
-                ACCENT,
-                false,
-            );
-        }
-    }
+    draw_command_line(scene, app, width, height);
 }
 
 fn command_name(cmd: &muse_app::Command) -> String {
@@ -929,5 +1071,55 @@ impl Views {
         } else {
             entry.1 = (entry.1 + dy / g.scale).max(0.0);
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use muse_core::*;
+
+    #[test]
+    fn playhead_moves_with_time_between_notes() {
+        let beat = |fret| Beat {
+            duration: Duration::new(DurationValue::Quarter),
+            notes: vec![Note::new(0, fret)],
+            ..Beat::default()
+        };
+        let score = Score {
+            tempo: 100,
+            master_bars: vec![MasterBar::default(); 2],
+            tracks: vec![Track {
+                strings: vec![64, 59, 55, 50, 45, 40],
+                bars: vec![
+                    Bar {
+                        voices: vec![Voice {
+                            beats: vec![beat(0), beat(1), beat(2), beat(3)],
+                        }],
+                    };
+                    2
+                ],
+                ..Track::default()
+            }],
+            ..Score::default()
+        };
+        let layout = muse_engrave::engrave(&score, 0, &Options::default());
+        let x = |tick| playhead_at(&layout, &score, 0, 0, tick).unwrap().1;
+        let beat_x = |i| {
+            layout.beats[&BeatRef {
+                track: 0,
+                bar: 0,
+                voice: 0,
+                beat: i,
+            }]
+                .x
+                + 4.0
+        };
+        assert!((x(0) - beat_x(0)).abs() < 1e-6);
+        // Halfway through the first beat: halfway to the second note.
+        assert!((x(480) - (beat_x(0) + beat_x(1)) / 2.0).abs() < 1e-6);
+        assert!(x(960) > x(480) && x(3800) > x(2880));
+        // The last beat runs on towards the barline.
+        assert!(x(3800) < layout.bars[0].2);
     }
 }

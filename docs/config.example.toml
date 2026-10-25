@@ -6,7 +6,7 @@ leader = "<Space>"
 
 [ui]
 tab_width = 2            # horizontal spacing of the tab view (1–8)
-follow_playback = true   # move the cursor with playback
+follow_playback = true   # scroll to keep the playhead (red bar) in view while playing
 
 [audio]
 # soundfont = "~/soundfonts/GeneralUser-GS.sf2"

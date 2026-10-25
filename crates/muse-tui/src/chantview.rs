@@ -175,13 +175,31 @@ impl Widget for ChantView<'_> {
             lines.last_mut().unwrap().push((x, s));
             x += s.width;
         }
-        // The line holding the cursor.
+        // The beat sounding now, as (bar, beat).
+        let playing = self.play.and_then(|(bar, tick)| {
+            let beats = &track.bars.get(bar)?.voices.first()?.beats;
+            let mut t = 0;
+            beats
+                .iter()
+                .position(|b| {
+                    let hit = tick >= t && tick < t + b.ticks();
+                    t += b.ticks();
+                    hit
+                })
+                .map(|i| (bar, i))
+        });
+
+        // The line to keep in view: the playhead's while following playback, else the cursor's.
         let c = pane.cursor;
+        let focus = match playing.filter(|_| self.app.follow) {
+            Some(p) => p,
+            None => (c.bar, c.beat),
+        };
         let cursor_line = lines
             .iter()
             .rposition(|l| {
                 l.iter().flat_map(|(_, s)| &s.marks).any(|(_, m)| {
-                    matches!(m, Mark::Note { beat: Some((b, i, _)), .. } if (*b, *i) <= (c.bar, c.beat))
+                    matches!(m, Mark::Note { beat: Some((b, i, _)), .. } if (*b, *i) <= focus)
                 })
             })
             .unwrap_or(0);
@@ -205,21 +223,7 @@ impl Widget for ChantView<'_> {
             Style::default().fg(Color::Black).bg(Color::DarkGray)
         };
         let column_style = Style::default().bg(Color::Rgb(40, 40, 50));
-        let play_style = Style::default().bg(Color::Rgb(20, 70, 40));
-        // The beat sounding now, as (bar, beat).
-        let playing = self.play.and_then(|(bar, tick)| {
-            let beats = &track.bars.get(bar)?.voices.first()?.beats;
-            let mut t = 0;
-            beats
-                .iter()
-                .position(|b| {
-                    let hit = tick >= t && tick < t + b.ticks();
-                    t += b.ticks();
-                    hit
-                })
-                .map(|i| (bar, i))
-        });
-
+        let play_style = Style::default().bg(Color::Rgb(200, 30, 30));
         let mut clef = chant.initial_clef();
         for (li, line) in lines.iter().enumerate() {
             let visible_line = li >= scroll && li < scroll + visible;
