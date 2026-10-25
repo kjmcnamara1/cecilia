@@ -11,6 +11,8 @@ pub enum PickerKind {
     Buffer,
     View,
     Workspace,
+    Mark,
+    Macro,
 }
 
 impl PickerKind {
@@ -19,6 +21,8 @@ impl PickerKind {
             "buffer" | "buffers" => PickerKind::Buffer,
             "view" | "views" => PickerKind::View,
             "workspace" | "workspaces" => PickerKind::Workspace,
+            "mark" | "marks" => PickerKind::Mark,
+            "macro" | "macros" => PickerKind::Macro,
             _ => return None,
         })
     }
@@ -28,6 +32,8 @@ impl PickerKind {
             PickerKind::Buffer => "Buffers",
             PickerKind::View => "Views",
             PickerKind::Workspace => "Workspaces",
+            PickerKind::Mark => "Marks",
+            PickerKind::Macro => "Macros",
         }
     }
 }
@@ -131,6 +137,33 @@ impl App {
                     }
                 })
                 .collect(),
+            PickerKind::Mark => self
+                .mark_list()
+                .into_iter()
+                .map(|m| Entry {
+                    label: m.name.to_string(),
+                    description: format!(
+                        "{} · bar {}, beat {}, string {}",
+                        m.file,
+                        m.cursor.bar + 1,
+                        m.cursor.beat + 1,
+                        m.cursor.string + 1
+                    ),
+                    action: Command::GotoMark(m.name),
+                })
+                .collect(),
+            PickerKind::Macro => {
+                let mut regs: Vec<(&char, &Vec<crate::keys::Key>)> =
+                    self.ed.macros.iter().collect();
+                regs.sort();
+                regs.into_iter()
+                    .map(|(r, keys)| Entry {
+                        label: format!("@{r}"),
+                        description: crate::keys::format_keys(keys),
+                        action: Command::RunMacro(*r),
+                    })
+                    .collect()
+            }
             PickerKind::Workspace => {
                 let active = self.workspace_name();
                 crate::workspace::workspace_names()
@@ -318,5 +351,21 @@ mod tests {
         keys(&mut app, "<Space>bzzz<CR>");
         assert!(app.message.as_ref().unwrap().error);
         std::fs::remove_dir_all(dir).ok();
+    }
+
+    #[test]
+    fn uppercase_registers_append_and_the_macro_picker_runs_one() {
+        let mut app = App::new(Config::default(), None);
+        app.run(Command::New);
+        keys(&mut app, "qa}q");
+        keys(&mut app, "qA}q");
+        assert_eq!(crate::keys::format_keys(&app.ed.macros[&'a']), "}}");
+        keys(&mut app, "gg");
+        app.run(Command::Pick(PickerKind::Macro));
+        let p = app.palette().unwrap();
+        assert_eq!(p.items[0].text, "@a");
+        assert_eq!(p.items[0].description.as_deref(), Some("}}"));
+        keys(&mut app, "<CR>");
+        assert_eq!(app.pane().cursor.bar, 2);
     }
 }

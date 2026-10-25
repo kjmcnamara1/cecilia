@@ -24,6 +24,12 @@ pub(crate) enum Awaiting {
     Register,
     RecordMacro,
     PlayMacro,
+    /// `m`: the mark's letter.
+    Mark,
+    /// `'` / `` ` ``: the mark to jump to.
+    Jump {
+        exact: bool,
+    },
 }
 
 #[derive(Debug, Default)]
@@ -37,7 +43,7 @@ pub(crate) struct EditorState {
     register: Option<char>,
     awaiting: Option<Awaiting>,
     pub recording: Option<(char, Vec<Key>)>,
-    macros: HashMap<char, Vec<Key>>,
+    pub(crate) macros: HashMap<char, Vec<Key>>,
     last_macro: Option<char>,
     /// Keys of the last change, for `.`.
     last_change: Vec<Key>,
@@ -223,6 +229,15 @@ impl App {
 
     /// Play mode: counts and the Play keymap (playback, navigation and view; no editing).
     fn play_key(&mut self, key: Key) {
+        // A mark letter after `m`, `'` or `` ` ``.
+        if let Some(a) = self.ed.awaiting.take() {
+            if let Some(c) = key.as_char() {
+                if matches!(a, Awaiting::Mark | Awaiting::Jump { .. }) {
+                    self.awaited(a, c);
+                }
+            }
+            return;
+        }
         if self.pending.is_empty() {
             if let Some(d) = key.as_char().and_then(|c| c.to_digit(10)) {
                 if d != 0 || self.count.is_some() {
@@ -255,12 +270,20 @@ impl App {
 
     fn awaited(&mut self, a: Awaiting, c: char) {
         match a {
+            Awaiting::Mark => self.set_mark(c),
+            Awaiting::Jump { exact } => self.jump_to_mark(c, exact),
             Awaiting::Register => {
                 self.ed.register = Some(c);
                 self.ed.cmd_keys = vec![Key::char('"'), Key::char(c)];
             }
             Awaiting::RecordMacro => {
-                if c.is_ascii_alphanumeric() {
+                if c.is_ascii_uppercase() {
+                    // An uppercase register appends to the lowercase one, as in Vim.
+                    let reg = c.to_ascii_lowercase();
+                    let keys = self.ed.macros.get(&reg).cloned().unwrap_or_default();
+                    self.ed.recording = Some((reg, keys));
+                    self.info(format!("recording @{reg} (appending)"));
+                } else if c.is_ascii_alphanumeric() {
                     self.ed.recording = Some((c, Vec::new()));
                     self.info(format!("recording @{c}"));
                 }
@@ -269,7 +292,7 @@ impl App {
                 let reg = if c == '@' {
                     self.ed.last_macro
                 } else {
-                    Some(c)
+                    Some(c.to_ascii_lowercase())
                 };
                 let Some(reg) = reg else {
                     return self.error("no previous macro");
@@ -628,6 +651,10 @@ impl App {
                 None => self.ed.awaiting = Some(Awaiting::RecordMacro),
             },
             PlayMacro => self.ed.awaiting = Some(Awaiting::PlayMacro),
+            SetMark => self.ed.awaiting = Some(Awaiting::Mark),
+            GotoMark(c) => self.jump_to_mark(*c, true),
+            RunMacro(c) => self.awaited(Awaiting::PlayMacro, *c),
+            JumpMark { exact } => self.ed.awaiting = Some(Awaiting::Jump { exact: *exact }),
             Register => self.ed.awaiting = Some(Awaiting::Register),
             Visual { bars } => {
                 self.ed.visual_anchor = Some(self.pane().cursor);

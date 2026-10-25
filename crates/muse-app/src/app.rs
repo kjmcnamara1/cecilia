@@ -69,6 +69,8 @@ pub struct Pane {
     /// Buffers shown in this pane before, most recent first, with their cursors (switching
     /// back restores the cursor; closing a buffer falls back to the most recent one).
     pub recent: Vec<(usize, Cursor)>,
+    /// Where the cursor was before the last jump (`''`).
+    pub jump_back: Option<(usize, Cursor)>,
 }
 
 /// A layout of panes with its own set of loaded buffers (the bufferline's tabs).
@@ -186,6 +188,8 @@ pub struct App {
     pub cmdline: String,
     history: Vec<String>,
     history_pos: Option<usize>,
+    /// Bookmarks (`m{a-z}`, `m{A-Z}`).
+    pub marks: crate::marks::Marks,
     /// The open picker (Picker mode).
     pub(crate) picker: Option<crate::picker::Picker>,
     /// Command-line completion in progress: candidates, where they start and which is shown.
@@ -246,6 +250,7 @@ impl App {
                 layout: score_layout.clone(),
                 waveform: true,
                 recent: Vec::new(),
+                jump_back: None,
             },
         );
         Self {
@@ -270,6 +275,7 @@ impl App {
             history_pos: None,
             completion: None,
             picker: None,
+            marks: Default::default(),
             message: None,
             show_help: false,
             playing: false,
@@ -545,6 +551,7 @@ impl App {
             }
         }
         if !in_other_views {
+            self.forget_marks(buffer);
             // Unloaded: the slot stays (indices are shared) but holds nothing.
             self.buffers[buffer] = Buffer {
                 name: "[closed]".into(),
@@ -616,6 +623,7 @@ impl App {
             self.panes.remove(&id);
         }
         for b in orphans {
+            self.forget_marks(b);
             self.buffers[b] = Buffer {
                 name: "[closed]".into(),
                 ..Buffer::empty()
@@ -900,9 +908,21 @@ impl App {
             BarPrev => self.move_cursor(|s, c| set_bar(s, c, c.bar.saturating_sub(1))),
             BarStart => self.move_cursor(|_, c| c.beat = 0),
             BarEnd => self.move_cursor(|s, c| c.beat = beats(s, c).len().saturating_sub(1)),
-            GotoFirst => self.move_cursor(|s, c| set_bar(s, c, 0)),
-            GotoLast => self.move_cursor(|s, c| set_bar(s, c, usize::MAX)),
-            GotoBar(n) => self.move_cursor(|s, c| set_bar(s, c, n.saturating_sub(1))),
+            // Jumps (remembered for `''`).
+            GotoFirst | GotoLast | GotoBar(_) => {
+                let here = (self.pane().buffer, self.pane().cursor);
+                match cmd {
+                    GotoFirst => self.move_cursor(|s, c| set_bar(s, c, 0)),
+                    GotoLast => self.move_cursor(|s, c| set_bar(s, c, usize::MAX)),
+                    GotoBar(n) => self.move_cursor(|s, c| set_bar(s, c, n.saturating_sub(1))),
+                    _ => unreachable!(),
+                }
+                if self.pane().cursor != here.1 {
+                    self.pane_mut().jump_back = Some(here);
+                }
+            }
+            Mark(name) => self.set_mark(name),
+            DeleteMarks(names) => self.delete_marks(names.as_deref()),
             TrackNext => self.move_cursor(|s, c| set_track(s, c, c.track + 1)),
             TrackPrev => self.move_cursor(|s, c| set_track(s, c, c.track.saturating_sub(1))),
             Track(n) => self.move_cursor(|s, c| set_track(s, c, n.saturating_sub(1))),
@@ -1190,6 +1210,7 @@ impl App {
                 layout,
                 waveform,
                 recent: Vec::new(),
+                jump_back: None,
             },
         );
         id

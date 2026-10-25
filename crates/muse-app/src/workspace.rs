@@ -27,6 +27,23 @@ pub struct Workspace {
     pub follow: bool,
     pub chant_view: bool,
     pub global_waveform: bool,
+    /// Marks: lowercase ones belong to their file, uppercase ones are global.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub marks: Vec<MarkState>,
+    /// Recorded macros by register, in key notation.
+    #[serde(default, skip_serializing_if = "std::collections::BTreeMap::is_empty")]
+    pub macros: std::collections::BTreeMap<String, String>,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct MarkState {
+    pub name: String,
+    pub file: usize,
+    pub track: usize,
+    pub bar: usize,
+    pub beat: usize,
+    pub string: usize,
+    pub voice: usize,
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -232,8 +249,44 @@ impl App {
                 }
             })
             .collect();
+        // Marks of saved files.
+        let mut marks = Vec::new();
+        let mut mark = |name: char,
+                        b: usize,
+                        c: &Cursor,
+                        files: &mut Vec<PathBuf>,
+                        marks: &mut Vec<MarkState>| {
+            if let Some(file) = add(b, files, self) {
+                marks.push(MarkState {
+                    name: name.to_string(),
+                    file,
+                    track: c.track,
+                    bar: c.bar,
+                    beat: c.beat,
+                    string: c.string,
+                    voice: c.voice,
+                });
+            }
+        };
+        for (b, m) in &self.marks.local {
+            for (name, c) in m {
+                mark(*name, *b, c, &mut files, &mut marks);
+            }
+        }
+        for (name, g) in &self.marks.global {
+            mark(*name, g.buffer, &g.cursor, &mut files, &mut marks);
+        }
+        marks.sort_by(|a, b| a.name.cmp(&b.name).then(a.file.cmp(&b.file)));
+        let macros = self
+            .ed
+            .macros
+            .iter()
+            .map(|(r, keys)| (r.to_string(), crate::keys::format_keys(keys)))
+            .collect();
         Workspace {
             version: 2,
+            marks,
+            macros,
             files,
             active_view: self.active_view,
             views,
@@ -372,6 +425,7 @@ impl App {
                     layout: p.layout.clone(),
                     waveform: p.waveform,
                     recent,
+                    jump_back: None,
                 },
             );
         }
@@ -418,6 +472,7 @@ impl App {
                     layout,
                     waveform: true,
                     recent: Vec::new(),
+                    jump_back: None,
                 },
             );
             self.views.push(View {
@@ -426,6 +481,44 @@ impl App {
                 buffers: vec![0],
                 name: None,
             });
+        }
+        self.marks = Default::default();
+        for m in &ws.marks {
+            let (Some(name), Some(&buffer)) = (m.name.chars().next(), buffer_of.get(&m.file))
+            else {
+                continue;
+            };
+            let cursor = Cursor {
+                track: m.track,
+                bar: m.bar,
+                beat: m.beat,
+                string: m.string,
+                voice: m.voice,
+            };
+            if name.is_ascii_uppercase() {
+                self.marks.global.insert(
+                    name,
+                    crate::marks::GlobalMark {
+                        path: self.buffers[buffer].path.clone(),
+                        buffer,
+                        cursor,
+                    },
+                );
+            } else {
+                self.marks
+                    .local
+                    .entry(buffer)
+                    .or_default()
+                    .insert(name, cursor);
+            }
+        }
+        self.ed.macros.clear();
+        for (r, keys) in &ws.macros {
+            let leader = self.config.leader.clone();
+            if let (Some(r), Ok(keys)) = (r.chars().next(), crate::keys::parse_keys(keys, &leader))
+            {
+                self.ed.macros.insert(r, keys);
+            }
         }
         self.next_pane = self.panes.keys().max().copied().unwrap_or(0) + 1;
         self.active_view = ws.active_view.min(self.views.len() - 1);
@@ -480,6 +573,12 @@ mod tests {
         app.run(Command::ViewNew(Some(c.clone())));
         app.run(Command::ViewRename(Some("practice".into())));
         app.zoom = 1.3;
+        // Marks and macros are kept too.
+        app.run(Command::Mark('q'));
+        app.run(Command::Mark('Z'));
+        for k in crate::keys::parse_keys("qa}<C-w>vq", &[crate::keys::Key::char(' ')]).unwrap() {
+            app.handle_key(k);
+        }
         let ws_file = dir.join("session.toml");
         app.run(Command::WorkspaceSave(Some(ws_file.display().to_string())));
         let saved = app.workspace();
@@ -491,6 +590,17 @@ mod tests {
         assert_eq!(other.workspace(), saved);
         assert_eq!(other.views.len(), 2);
         assert_eq!(other.view_labels(), ["1", "practice"]);
+        assert_eq!(
+            other
+                .marks
+                .local
+                .values()
+                .flat_map(|m| m.keys())
+                .collect::<Vec<_>>(),
+            [&'q']
+        );
+        assert!(other.marks.global.contains_key(&'Z'));
+        assert_eq!(saved.macros.get("a").map(String::as_str), Some("}<C-w>v"));
         assert_eq!(other.workspace_file.as_deref(), Some(ws_file.as_path()));
         // Changes are saved automatically.
         other.run(Command::ViewPrev);

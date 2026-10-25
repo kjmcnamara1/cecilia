@@ -17,7 +17,8 @@ Items marked _(M1)_ are implemented in the first milestone; the rest are the pla
 | `gg` / `G`          | first bar / last bar (`[count]G` = bar _count_) | _(M1)_ |
 | `J` / `K`           | next / previous track                           | _(M1)_ |
 | `]s` / `[s`         | next / previous section marker                  |        |
-| `m{a-z}` / `'{a-z}` | set / jump to mark                              |        |
+| `m{a-z}` / `m{A-Z}` | set a mark in this file / a global mark (any file) |      |
+| `'{mark}` / `` `{mark} `` | jump to the mark's bar / exact position; a global mark reopens its file if it was closed. `''` jumps back to before the last jump (also after `gg`, `G`) | |
 | `<C-d>` / `<C-u>`   | half page down / up                             | _(M1)_ |
 
 ### Playback
@@ -76,7 +77,10 @@ view pickers also work while a song plays.
 | command | |
 | --- | --- |
 | `:open {file}` | open a file in the focused pane, adding it to the view's tabs |
-| `:pick-buffer` / `:pick-view` / `:pick-workspace` (`:pick buffer\|view\|workspace`) | open a picker |
+| `:pick-buffer` / `:pick-view` / `:pick-workspace` (`:pick buffer\|view\|workspace\|mark\|macro`) | open a picker |
+| `:marks` / `:macros` (`:registers`) | pick a mark to jump to / a macro to run |
+| `:mark x` (`:k x`) / `:delmarks xyz` / `:delmarks!` | set a mark / delete marks / delete this file's lowercase marks |
+| `:goto-mark x` / `:run-macro r` | jump to a mark / run a macro (for bindings) |
 | `:bnext` / `:bprev` / `:buffer N` | next / previous / Nth buffer tab |
 | `:bdelete [N]` / `:bdelete! [N]` | close the focused (or Nth) buffer tab / discarding unsaved changes |
 | `:view-new [file]` | new view: a copy of the current view's tabs, just the current buffer, or empty (`tabline.new_view`) |
@@ -96,7 +100,7 @@ view pickers also work while a song plays.
 | `"{reg}` | use register for the next yank/delete/put |
 | `.` | repeat the last change (including an insert session) |
 | `u` / `U` / `g-` / `g+` | undo / redo / older / newer state across undo branches |
-| `q{reg}` … `q` / `[count]@{reg}` / `@@` | record / play / replay a macro |
+| `q{reg}` … `q` / `[count]@{reg}` / `@@` | record / play / replay a macro; `q{A-Z}` appends to the lowercase register |
 | `v` / `V` | visual beats / visual bars (then `d`, `y`, `c`, `x`) |
 | `o` / `O` | new bar after / before |
 | `+` / `-` | longer / shorter note value |
@@ -191,7 +195,7 @@ e.g. `"<C-g>" = "completion-ignore-case"`, `"<C-f>" = "completion-fuzzy"`.
 
 A workspace saves the views — each with its pane splits, name and bufferline of loaded files —
 and each pane's file, cursor, recent files, layout and waveform strip, plus zoom, follow, chant
-view and the window waveform bar, to
+view, the window waveform bar, marks (of saved files) and recorded macros, to
 `~/.local/share/muse/workspaces/NAME.toml` (or a path). While one is active it is saved again
 whenever the session changes and when muse quits. Start with one using `muse --workspace NAME`.
 

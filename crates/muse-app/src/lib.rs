@@ -12,6 +12,7 @@ mod editor;
 pub mod history;
 pub mod keys;
 pub mod layout;
+pub mod marks;
 pub mod picker;
 pub mod playalong;
 pub mod playback;

@@ -5,6 +5,16 @@ use std::path::Path;
 
 /// Every command name the parser accepts, long names first where there are aliases.
 pub const COMMANDS: &[&str] = &[
+    "set-mark",
+    "run-macro",
+    "marks",
+    "mark",
+    "macros",
+    "jump-mark-bar",
+    "jump-mark",
+    "goto-mark",
+    "delmarks!",
+    "delmarks",
     "append",
     "audio",
     "bar",
@@ -187,7 +197,7 @@ fn values(command: &str) -> Option<&'static [&'static str]> {
         ],
         "track-add" => &["bass", "drums", "guitar", "piano", "voice"],
         "volume" => &["audio", "metronome", "midi"],
-        "pick" => &["buffer", "view", "workspace"],
+        "pick" => &["buffer", "macro", "mark", "view", "workspace"],
         "completion-ignore-case" | "completion-fuzzy" | "waveform-global" => {
             &["off", "on", "toggle"]
         }
@@ -700,6 +710,16 @@ pub fn describe(command: &str) -> Option<&'static str> {
         "open" => "Open a file",
         "page-down" => "Scroll forward a page of bars",
         "page-up" => "Scroll back a page of bars",
+        "delmarks" => "Delete marks (letters), or :delmarks! for the file's",
+        "delmarks!" => "Delete all lowercase marks of the file",
+        "goto-mark" => "Jump to a mark's exact position",
+        "jump-mark" => "Jump to a mark (then its letter)",
+        "jump-mark-bar" => "Jump to a mark's bar (then its letter)",
+        "macros" => "Pick a recorded macro to run",
+        "mark" => "Set a mark at the cursor (a-z local, A-Z global)",
+        "marks" => "Pick a mark to jump to",
+        "run-macro" => "Play the macro in a register",
+        "set-mark" => "Set a mark (then its letter)",
         "pause" => "Pause playback",
         "pick" => "Open a picker: buffer, view or workspace",
         "pick-buffer" => "Pick a buffer of this view to show",

@@ -123,6 +123,20 @@ pub enum Command {
     WorkspaceOpen(String, bool),
     /// Stop saving the session to the active workspace.
     WorkspaceClose,
+    /// Set a mark: await its letter (`m`).
+    SetMark,
+    /// Jump to a mark: await its letter (`'` to its bar, `` ` `` exactly).
+    JumpMark {
+        exact: bool,
+    },
+    /// Jump to a mark's exact position (`:goto-mark a`).
+    GotoMark(char),
+    /// Play the macro in a register (`:run-macro a`).
+    RunMacro(char),
+    /// Set mark `name` at the cursor (`:mark a`).
+    Mark(char),
+    /// Delete marks by letter, or all lowercase ones of the file (`:delmarks!`).
+    DeleteMarks(Option<String>),
     /// Open a picker: buffers, views or workspaces.
     Pick(crate::picker::PickerKind),
     /// Show the cursor syllable as GABC, or replace it (`Glo(fg)`, or just notes `fgh`).
@@ -486,6 +500,29 @@ impl Command {
                 name.ends_with('!'),
             ),
             "workspace-close" => WorkspaceClose,
+            "set-mark" => SetMark,
+            "goto-mark" => GotoMark(
+                arg.and_then(|a| a.chars().next())
+                    .ok_or("goto-mark: expected a mark letter")?,
+            ),
+            "run-macro" => RunMacro(
+                arg.and_then(|a| a.chars().next())
+                    .ok_or("run-macro: expected a register")?,
+            ),
+            "jump-mark" => JumpMark { exact: true },
+            "jump-mark-bar" => JumpMark { exact: false },
+            "mark" | "k" => Mark(
+                arg.and_then(|a| a.chars().next())
+                    .filter(|c| c.is_ascii_alphabetic())
+                    .ok_or("mark: expected a letter (a-z local, A-Z global)")?,
+            ),
+            "delmarks" | "delm" => DeleteMarks(Some(
+                arg.ok_or("delmarks: expected letters (or :delmarks!)")?
+                    .to_string(),
+            )),
+            "delmarks!" | "delm!" => DeleteMarks(None),
+            "marks" => Pick(crate::picker::PickerKind::Mark),
+            "macros" | "registers" | "reg" => Pick(crate::picker::PickerKind::Macro),
             "pick-buffer" => Pick(crate::picker::PickerKind::Buffer),
             "pick-view" => Pick(crate::picker::PickerKind::View),
             "pick-workspace" => Pick(crate::picker::PickerKind::Workspace),
