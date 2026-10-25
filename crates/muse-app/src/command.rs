@@ -249,6 +249,10 @@ pub enum Command {
     /// Write the buffer, to its own file or (exporting) to another path.
     Write(Option<PathBuf>),
     WriteQuit,
+    /// Write every changed file (`:wall`).
+    WriteAll,
+    /// Write every changed file, then quit (`:wqall`).
+    WriteQuitAll,
     Quit {
         force: bool,
     },
@@ -360,6 +364,8 @@ impl Command {
             "open-dialog" => OpenDialog,
             "write" | "w" => Write(arg.map(expand_tilde)),
             "wq" | "x" | "write-quit" => WriteQuit,
+            "wall" | "wa" => WriteAll,
+            "wqall" | "wqa" | "xall" | "xa" => WriteQuitAll,
             "quit" | "q" => Quit { force: false },
             "quit!" | "q!" => Quit { force: true },
             "quitall" | "qa" => QuitAll { force: false },

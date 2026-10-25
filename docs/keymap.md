@@ -132,7 +132,7 @@ view pickers also work while a song plays.
 | `<F1>`      | help             |        |
 | `<leader>?` | find a key binding (keymaps picker) |        |
 | `ZZ`        | write and quit   |        |
-| `<C-q>`     | quit muse (`:quitall`) | |
+| `<C-q>`     | quit muse (`:quitall`; not while files have unsaved changes) | |
 
 ## Tracks panel
 
@@ -218,6 +218,7 @@ e.g. `"<C-g>" = "completion-ignore-case"`, `"<C-f>" = "completion-fuzzy"`.
 | command                                                              |                                                                                                                                                                                             |
 | -------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | `:open {file}` / `:w [file]` / `:q` / `:wq` / `:q!`                  | _(M2)_ `:w file.ext` exports by extension                                                                                                                                                   |
+| `:wa` (`:wall`) / `:wqa` (`:xa`) / `:qa` / `:qa!` | write every changed file / write them all and quit / quit (refused while a file has unsaved changes, as are `:q` on the last pane and closing the window) / quit, discarding changes |
 | `:split` / `:vsplit`                                                 | _(M1)_                                                                                                                                                                                      |
 | `:track {n}`                                                         | _(M1)_                                                                                                                                                                                      |
 | `:bar {n}` / `:{n}`                                                  | _(M1)_                                                                                                                                                                                      |

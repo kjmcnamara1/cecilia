@@ -1190,10 +1190,22 @@ impl App {
                     self.views[self.active_view].focus = id;
                 }
             }
-            ClosePane | Quit { .. } => self.close_pane(),
-            QuitAll { .. } => {
-                self.autosave_workspace();
-                self.quit = true;
+            ClosePane => self.close_pane(false),
+            Quit { force } => self.close_pane(force),
+            QuitAll { force } => {
+                if self.may_quit(force) {
+                    self.autosave_workspace();
+                    self.quit = true;
+                }
+            }
+            WriteAll => {
+                self.write_all();
+            }
+            WriteQuitAll => {
+                if self.write_all() && self.may_quit(false) {
+                    self.autosave_workspace();
+                    self.quit = true;
+                }
             }
             WorkspaceSave(target) => self.save_workspace(target.as_deref()),
             WorkspaceOpen(name, force) => self.open_workspace(&name, force),
@@ -1262,7 +1274,7 @@ impl App {
                         return;
                     }
                 }
-                self.close_pane();
+                self.close_pane(false);
             }
             Source => self.reload_config(),
             CommandMode => {
@@ -1300,6 +1312,56 @@ impl App {
     /// when there are changes, so opening and saving never rewrites an untouched original.
     fn write(&mut self, path: Option<PathBuf>) {
         let index = self.pane().buffer;
+        self.write_buffer(index, path);
+    }
+
+    /// `:wall`: writes every changed file. False if one could not be written (or has no name).
+    fn write_all(&mut self) -> bool {
+        let changed: Vec<usize> = (0..self.buffers.len())
+            .filter(|&b| self.buffers[b].modified)
+            .collect();
+        let mut written = 0;
+        for b in changed {
+            if self.buffers[b].path.is_none() {
+                self.error(format!(
+                    "\"{}\" has no file name (show it and :w <file>)",
+                    self.buffers[b].name
+                ));
+                return false;
+            }
+            self.write_buffer(b, None);
+            if self.buffers[b].modified {
+                return false;
+            }
+            written += 1;
+        }
+        self.info(match written {
+            0 => "no changes to write".to_string(),
+            1 => "1 file written".to_string(),
+            n => format!("{n} files written"),
+        });
+        true
+    }
+
+    /// Quitting is refused while a file has unsaved changes (unless forced): the message
+    /// names it. True if muse may quit.
+    fn may_quit(&mut self, force: bool) -> bool {
+        if force {
+            return true;
+        }
+        match self.buffers.iter().find(|b| b.modified) {
+            Some(b) => {
+                let name = b.name.clone();
+                self.error(format!(
+                    "\"{name}\" has unsaved changes (:wqa to write all and quit, :qa! to discard)"
+                ));
+                false
+            }
+            None => true,
+        }
+    }
+
+    fn write_buffer(&mut self, index: usize, path: Option<PathBuf>) {
         let buffer = &self.buffers[index];
         let target = match path {
             Some(p) => p,
@@ -1398,13 +1460,13 @@ impl App {
     }
 
     /// `:q` on the focused pane: closes it, its view with the last pane, muse with the last view.
-    fn close_pane(&mut self) {
+    fn close_pane(&mut self, force: bool) {
         let focus = self.focused();
         if self.view().root.panes().len() > 1 {
             self.close_pane_id(focus);
         } else if self.views.len() > 1 {
             self.close_view(false);
-        } else {
+        } else if self.may_quit(force) {
             self.autosave_workspace();
             self.quit = true;
         }
@@ -1910,10 +1972,40 @@ mod tests {
     }
 
     #[test]
-    fn ctrl_q_quits() {
+    fn quitting_is_refused_with_unsaved_changes() {
+        let dir = std::env::temp_dir().join(format!("muse-quit-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let file = dir.join("a.muse");
         let mut app = App::new(Config::default(), None);
+        app.run(Command::New);
+        app.run(Command::Write(Some(file.clone())));
+        let mut app = App::new(Config::default(), None);
+        app.run(Command::Edit(file.clone()));
         keys(&mut app, "<C-q>");
         assert!(app.quit);
+        // A change: <C-q>, :qa and :q on the last pane refuse…
+        let mut app = App::new(Config::default(), None);
+        app.run(Command::Edit(file.clone()));
+        keys(&mut app, "i5<Esc>");
+        keys(&mut app, "<C-q>");
+        assert!(!app.quit && app.message.as_ref().unwrap().error);
+        app.run(Command::Quit { force: false });
+        assert!(!app.quit);
+        // …:qa! discards, :wqa writes it first.
+        app.run(Command::QuitAll { force: true });
+        assert!(app.quit);
+        let mut app = App::new(Config::default(), None);
+        app.run(Command::Edit(file.clone()));
+        keys(&mut app, "i7<Esc>");
+        app.run(Command::WriteQuitAll);
+        assert!(app.quit && !app.buffer().modified);
+        // An unnamed new score can't be written by :wqa.
+        let mut app = App::new(Config::default(), None);
+        app.run(Command::New);
+        keys(&mut app, "i5<Esc>");
+        app.run(Command::WriteQuitAll);
+        assert!(!app.quit);
+        std::fs::remove_dir_all(dir).ok();
     }
 
     #[test]

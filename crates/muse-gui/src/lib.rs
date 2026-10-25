@@ -203,7 +203,11 @@ impl ApplicationHandler for Gui {
 
     fn window_event(&mut self, event_loop: &ActiveEventLoop, _id: WindowId, event: WindowEvent) {
         match event {
-            WindowEvent::CloseRequested => event_loop.exit(),
+            // Like :quitall: refused (with a message) while files have unsaved changes.
+            WindowEvent::CloseRequested => {
+                self.app.run(muse_app::Command::QuitAll { force: false });
+                self.after_input();
+            }
             WindowEvent::Resized(size) => {
                 if let Some(gpu) = self.gpu.as_mut() {
                     self.cx
