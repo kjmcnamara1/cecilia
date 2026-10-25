@@ -13,8 +13,11 @@ use muse_audio::{Player, Sequence, SequenceOptions};
 struct Cli {
     /// Files to open.
     files: Vec<PathBuf>,
-    /// Use the terminal interface instead of the GUI.
+    /// Open in a window (the graphical interface) instead of the terminal.
     #[arg(long)]
+    gui: bool,
+    /// The terminal interface (the default; kept for scripts that ask for it).
+    #[arg(long, hide = true, conflicts_with = "gui")]
     tui: bool,
     /// Render one GUI frame to this PNG file and exit (keys from --keys are applied first).
     #[arg(long, hide = true)]
@@ -179,11 +182,15 @@ fn main() -> Result<()> {
                 std::fs::write(out, muse_gui::screenshot(app, w, h, f, hover)?)?;
                 return Ok(());
             }
+            // The terminal interface by default; --gui opens a window.
+            if !cli.gui {
+                return muse_tui::run(app);
+            }
             let has_display = std::env::var_os("WAYLAND_DISPLAY").is_some()
                 || std::env::var_os("DISPLAY").is_some()
                 || cfg!(not(target_os = "linux"));
-            if cli.tui || !has_display {
-                return muse_tui::run(app);
+            if !has_display {
+                anyhow::bail!("--gui: no display (WAYLAND_DISPLAY or DISPLAY is not set)");
             }
             muse_gui::run(app)
         }

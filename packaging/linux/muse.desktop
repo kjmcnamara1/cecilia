@@ -1,0 +1,13 @@
+[Desktop Entry]
+Type=Application
+Name=muse
+GenericName=Tablature and Score Editor
+Comment=Edit and play guitar tablature, scores and chant
+Exec=muse --gui %F
+Icon=muse
+Terminal=false
+StartupNotify=true
+StartupWMClass=muse
+Categories=AudioVideo;Audio;Music;
+Keywords=guitar;tab;tablature;score;notation;guitar pro;musicxml;midi;chant;gregorian;
+MimeType=application/x-muse;application/x-guitar-pro;application/vnd.recordare.musicxml+xml;application/vnd.recordare.musicxml;audio/midi;text/x-gabc;

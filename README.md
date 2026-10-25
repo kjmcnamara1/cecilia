@@ -48,8 +48,8 @@ full specification and roadmap, and [docs/keymap.md](docs/keymap.md) for key bin
 ## Usage
 
 ```sh
-cargo run --release -- song.gp5            # open in the GUI (terminal UI without a display)
-cargo run --release -- --tui song.gp5      # open in the terminal UI
+cargo run --release -- song.gp5            # open in the terminal UI
+cargo run --release -- --gui song.gp5      # open in a window
 cargo run --release -- info song.gp5       # tracks, tunings, tempo, length (--json for the model)
 cargo run --release -- play song.gp5       # headless playback
 cargo run --release -- convert in.gpx out.musicxml   # convert by output extension
@@ -62,6 +62,17 @@ cargo run --release -- convert chant.gabc chant.pdf  # square notation
 In the UI: `h j k l` move by beat/string, `w b` jump between notes, `{ }` bars, `J K` tracks,
 `<Space><Space>` play/pause, `<Space>s` stop, `<Space>v` cycle layout, `<C-=>`/`<C-->` zoom,
 `:q` close pane, `<F1>` all bindings.
+
+### Installing on Linux
+
+```sh
+packaging/linux/install.sh            # builds muse into ~/.local/bin, with a desktop entry
+sudo packaging/linux/install.sh /usr/local
+```
+
+This installs the binary, `muse.desktop` (which opens muse in a window with `--gui`), an icon,
+and file types for `.muse`, Guitar Pro (`.gp`, `.gpx`, `.gp3`–`.gp5`) and `.gabc` files, so file
+managers offer muse for them. `packaging/linux/uninstall.sh [PREFIX]` removes them again.
 
 ## Configuration
 

@@ -281,8 +281,8 @@ reported at load time without aborting (the previous valid config stays active).
 ## 10. CLI
 
 ```
-muse [FILE...]                 open in GUI (falls back to TUI if no display)
-muse --tui [FILE...]           open in TUI
+muse [FILE...]                 open in the TUI
+muse --gui [FILE...]           open in the GUI (muse.desktop launches this)
 muse play FILE [--audio A]     headless playback
 muse convert IN OUT            convert by output extension (gp5, gp, gpx, musicxml, mid, gabc, txt,
                                pdf, svg, png, wav, flac, muse); --track, --tuning options

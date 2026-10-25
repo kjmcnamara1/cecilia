@@ -1,0 +1,13 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 128 128" width="128" height="128">
+  <!-- A guitar pick with a quaver on it. -->
+  <defs>
+    <linearGradient id="g" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#fbc94a"/>
+      <stop offset="1" stop-color="#e8962a"/>
+    </linearGradient>
+  </defs>
+  <path d="M64 120 C40 96 10 62 12 36 C14 16 38 8 64 8 C90 8 114 16 116 36 C118 62 88 96 64 120 Z"
+        fill="url(#g)" stroke="#282a30" stroke-width="5" stroke-linejoin="round"/>
+  <ellipse cx="52" cy="78" rx="13" ry="10" transform="rotate(-20 52 78)" fill="#282a30"/>
+  <path d="M63 76 V30 C72 38 86 42 88 56 C82 48 74 46 69 45 V76 Z" fill="#282a30"/>
+</svg>

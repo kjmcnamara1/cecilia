@@ -170,6 +170,14 @@ impl ApplicationHandler for Gui {
         let attrs = Window::default_attributes()
             .with_title("muse")
             .with_inner_size(winit::dpi::LogicalSize::new(1280.0, 860.0));
+        // The app ID / WM class matches muse.desktop, so desktops show its name and icon.
+        #[cfg(all(unix, not(target_os = "macos")))]
+        let attrs = {
+            use winit::platform::wayland::WindowAttributesExtWayland;
+            use winit::platform::x11::WindowAttributesExtX11;
+            let attrs = WindowAttributesExtWayland::with_name(attrs, "muse", "muse");
+            WindowAttributesExtX11::with_name(attrs, "muse", "muse")
+        };
         let result = (|| -> Result<Gpu> {
             let window = Arc::new(event_loop.create_window(attrs)?);
             let size = window.inner_size();
