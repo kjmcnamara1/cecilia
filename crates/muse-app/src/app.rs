@@ -81,6 +81,9 @@ pub struct View {
     /// Buffers loaded in this view, in bufferline order.
     pub buffers: Vec<usize>,
     pub name: Option<String>,
+    /// A pane shown alone, filling the view (`:maximize`); the others come back when it is
+    /// toggled off or another pane is focused.
+    pub maximized: Option<PaneId>,
 }
 
 /// One tab of the bufferline (see [`App::bufferline`]).
@@ -186,6 +189,12 @@ pub enum Effect {
     SyncDetect,
 }
 
+pub const DEFAULT_TRACKS_ROWS: usize = 8;
+pub const MAX_TRACKS_ROWS: usize = 64;
+pub const DEFAULT_WAVEFORM_HEIGHT: u16 = 64;
+pub const MIN_WAVEFORM_HEIGHT: u16 = 24;
+pub const MAX_WAVEFORM_HEIGHT: u16 = 600;
+
 pub struct App {
     pub config: Config,
     pub config_path: Option<PathBuf>,
@@ -232,6 +241,10 @@ pub struct App {
     pub global_waveform: bool,
     /// The tracks panel is shown (`ui.tracks_panel`).
     pub tracks_panel: bool,
+    /// Tracks the tracks panel shows at once (`:tracks-resize`, or drag its top edge).
+    pub tracks_rows: usize,
+    /// Height of the GUI's waveform strips and bar in logical pixels (`:waveform-resize`).
+    pub waveform_height: u16,
     /// Screen area for panes, set by the frontend.
     pub viewport: Rect,
     /// Bars moved by page-down/up, set by the frontend.
@@ -286,6 +299,7 @@ impl App {
             panes,
             next_pane: 2,
             views: vec![View {
+                maximized: None,
                 root: Node::Leaf(1),
                 focus: 1,
                 buffers: vec![0],
@@ -314,6 +328,8 @@ impl App {
             completion_fuzzy,
             global_waveform,
             tracks_panel,
+            tracks_rows: DEFAULT_TRACKS_ROWS,
+            waveform_height: DEFAULT_WAVEFORM_HEIGHT,
             viewport: Rect {
                 x: 0,
                 y: 0,
@@ -399,9 +415,38 @@ impl App {
     }
 
     pub fn layout(&self) -> Vec<(PaneId, Rect)> {
+        if let Some(id) = self.maximized() {
+            return vec![(id, self.viewport)];
+        }
+        self.pane_rects()
+    }
+
+    /// Where every pane of the view is, maximized or not (for moving between them).
+    fn pane_rects(&self) -> Vec<(PaneId, Rect)> {
         let mut out = Vec::new();
         self.view().root.layout(self.viewport, &mut out);
         out
+    }
+
+    /// The borders between panes of the active view, for resizing with the mouse.
+    pub fn dividers(&self) -> Vec<crate::layout::Divider> {
+        if self.maximized().is_some() {
+            return Vec::new();
+        }
+        self.view().root.dividers(self.viewport)
+    }
+
+    /// The pane maximized in the active view, while it has the focus.
+    pub fn maximized(&self) -> Option<PaneId> {
+        let v = self.view();
+        v.maximized
+            .filter(|&id| id == v.focus && v.root.panes().len() > 1)
+    }
+
+    /// Moves a pane border (from [`App::dividers`]) to `pos`.
+    pub fn drag_divider(&mut self, d: &crate::layout::Divider, pos: u16) {
+        let v = self.active_view;
+        self.views[v].root.drag_divider(d, pos);
     }
 
     pub fn info(&mut self, text: impl Into<String>) {
@@ -622,6 +667,7 @@ impl App {
         self.views.insert(
             self.active_view + 1,
             View {
+                maximized: None,
                 root: Node::Leaf(id),
                 focus: id,
                 buffers,
@@ -1065,9 +1111,51 @@ impl App {
                 });
             }
             Split => self.split(Axis::Stacked),
+            // In the tracks panel, its height is resized.
+            Resize(Axis::Stacked, amount) if self.mode == Mode::Tracks => {
+                self.run(TracksResize(amount))
+            }
+            Resize(axis, amount) => {
+                let id = self.focused();
+                let (to, by) = match amount {
+                    crate::command::Amount::To(n) => (Some(n as f32), 0.0),
+                    crate::command::Amount::By(d) => (None, d as f32),
+                };
+                let view = &mut self.views[self.active_view];
+                if !view.root.resize(id, axis, to, by) {
+                    self.error(match axis {
+                        Axis::Stacked => "resize: no pane above or below this one",
+                        Axis::SideBySide => "vertical-resize: no pane beside this one",
+                    });
+                }
+            }
+            ResizeEqual => self.views[self.active_view].root.equalize(),
+            Maximize => {
+                let on = self.maximized().is_none();
+                let v = &mut self.views[self.active_view];
+                if on && v.root.panes().len() < 2 {
+                    return self.info("only one pane in this view");
+                }
+                v.maximized = on.then_some(v.focus);
+                self.info(if on {
+                    "pane maximized (again to restore)"
+                } else {
+                    "panes restored"
+                });
+            }
+            TracksResize(amount) => {
+                let rows = amount.apply(self.tracks_rows as i64);
+                self.tracks_rows = rows.clamp(1, MAX_TRACKS_ROWS as i64) as usize;
+                self.tracks_panel = true;
+            }
+            WaveformResize(amount) => {
+                let h = amount.apply(self.waveform_height as i64);
+                self.waveform_height =
+                    h.clamp(MIN_WAVEFORM_HEIGHT as i64, MAX_WAVEFORM_HEIGHT as i64) as u16;
+            }
             VSplit => self.split(Axis::SideBySide),
             Focus(dir) => {
-                if let Some(id) = neighbour(&self.layout(), self.focused(), dir) {
+                if let Some(id) = neighbour(&self.pane_rects(), self.focused(), dir) {
                     self.views[self.active_view].focus = id;
                 }
             }
@@ -1294,7 +1382,7 @@ impl App {
     /// Closes a pane of the active view (focus moves to its nearest neighbour). The last pane
     /// closes the view; the last pane of the last view shows an empty score instead.
     fn close_pane_id(&mut self, id: PaneId) {
-        let rects = self.layout();
+        let rects = self.pane_rects();
         if self.view().root.panes().len() <= 1 {
             if self.views.len() > 1 {
                 self.close_view(true);
@@ -1788,6 +1876,27 @@ mod tests {
         app.set_playing(false);
         assert!(!tab(&app, 2).playing && !tab(&app, 2).paused);
         assert_eq!(app.mode, Mode::Normal);
+    }
+
+    #[test]
+    fn maximize_shows_the_focused_pane_alone() {
+        let mut app = App::new(Config::default(), None);
+        app.viewport = Rect {
+            x: 0,
+            y: 0,
+            w: 80,
+            h: 40,
+        };
+        app.run(Command::VSplit);
+        let id = app.focused();
+        keys(&mut app, "<C-m>");
+        assert_eq!(app.layout(), vec![(id, app.viewport)]);
+        assert!(app.dividers().is_empty());
+        keys(&mut app, "<C-m>");
+        assert_eq!(app.layout().len(), 2);
+        // Focusing another pane brings them all back.
+        keys(&mut app, "<C-w>z<C-w>h");
+        assert_eq!(app.layout().len(), 2);
     }
 
     #[test]

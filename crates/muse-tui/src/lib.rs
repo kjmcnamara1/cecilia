@@ -38,11 +38,40 @@ struct Ui {
     /// Clickable areas of the tracks panel, and its first row and bar shown.
     tracks: Vec<(Rect, TracksHit)>,
     tracks_scroll: (usize, usize),
-    /// A volume being dragged (one undo step).
-    volume_drag: bool,
+    /// What the tracks panel last scrolled to follow (cursor track, bar).
+    tracks_anchor: Option<(usize, usize)>,
+    /// The tracks panel's area, and its header row (dragged to resize it).
+    tracks_area: Option<Rect>,
+    /// A mouse drag in progress.
+    drag: Option<Drag>,
     hits: Vec<Hit>,
     tabline: Vec<(Rect, TablineHit)>,
     hover: Option<(u16, u16)>,
+}
+
+/// A mouse drag in progress.
+#[derive(Debug, Clone, PartialEq)]
+enum Drag {
+    /// A track's volume (one undo step).
+    Volume,
+    /// A border between panes, grabbed this far from its position.
+    Divider(muse_app::layout::Divider, i32),
+    /// The tracks panel's header: the row grabbed and the rows shown then.
+    Tracks(u16, usize),
+}
+
+/// A pane border under a cell: the divider and how far the cell is from its position.
+fn divider_at(app: &App, x: u16, y: u16) -> Option<(muse_app::layout::Divider, i32)> {
+    use muse_app::layout::Axis;
+    app.dividers().into_iter().find_map(|d| {
+        let a = d.area;
+        let (along, across, lo, hi) = match d.axis {
+            Axis::SideBySide => (x, y, a.y, a.y + a.h),
+            Axis::Stacked => (y, x, a.x, a.x + a.w),
+        };
+        let off = d.pos as i32 - along as i32;
+        ((0..=1).contains(&off) && across >= lo && across < hi).then_some((d, off))
+    })
 }
 
 /// What a click on the tabline does.
@@ -81,16 +110,76 @@ fn event_loop(terminal: &mut DefaultTerminal, app: &mut App) -> Result<()> {
                 }
                 Event::Mouse(m) => match m.kind {
                     MouseEventKind::Moved => ui.hover = Some((m.column, m.row)),
+                    // Dragging a pane border or the tracks panel's header resizes them.
+                    MouseEventKind::Drag(MouseButton::Left)
+                        if matches!(ui.drag, Some(Drag::Divider(..) | Drag::Tracks(..))) =>
+                    {
+                        match ui.drag.clone() {
+                            Some(Drag::Divider(d, off)) => {
+                                let along = match d.axis {
+                                    muse_app::layout::Axis::SideBySide => m.column,
+                                    muse_app::layout::Axis::Stacked => m.row,
+                                };
+                                app.drag_divider(&d, (along as i32 + off).max(0) as u16);
+                            }
+                            Some(Drag::Tracks(y0, rows0)) => {
+                                let rows = rows0 as i64 + y0 as i64 - m.row as i64;
+                                app.run(muse_app::Command::TracksResize(
+                                    muse_app::command::Amount::To(rows.max(1) as u32),
+                                ));
+                            }
+                            _ => {}
+                        }
+                    }
+                    MouseEventKind::Down(MouseButton::Left)
+                        if ui
+                            .tracks_area
+                            .is_some_and(|r| m.row == r.y && contains(r, m.column, m.row)) =>
+                    {
+                        let n = app.buffer().score.tracks.len();
+                        ui.drag = Some(Drag::Tracks(m.row, n.clamp(1, app.tracks_rows.max(1))));
+                    }
+                    MouseEventKind::Down(MouseButton::Left)
+                        if divider_at(app, m.column, m.row).is_some() =>
+                    {
+                        let (d, off) = divider_at(app, m.column, m.row).unwrap();
+                        ui.drag = Some(Drag::Divider(d, off));
+                    }
                     MouseEventKind::Down(MouseButton::Left)
                     | MouseEventKind::Drag(MouseButton::Left)
-                        if ui.volume_drag
+                        if ui.drag == Some(Drag::Volume)
                             || ui.tracks.iter().any(|(r, _)| contains(*r, m.column, m.row)) =>
                     {
                         click_tracks(app, &mut ui, m.column, m.row, m.kind);
                     }
-                    MouseEventKind::Up(MouseButton::Left) if ui.volume_drag => {
-                        ui.volume_drag = false;
-                        app.group_edits(false);
+                    MouseEventKind::Up(MouseButton::Left) if ui.drag.is_some() => {
+                        if ui.drag.take() == Some(Drag::Volume) {
+                            app.group_edits(false);
+                        }
+                    }
+                    // The wheel over the tracks panel scrolls its rows (sideways: its bars).
+                    MouseEventKind::ScrollDown
+                    | MouseEventKind::ScrollUp
+                    | MouseEventKind::ScrollLeft
+                    | MouseEventKind::ScrollRight
+                        if ui.tracks_area.is_some_and(|r| contains(r, m.column, m.row)) =>
+                    {
+                        let shift = m.modifiers.contains(KeyModifiers::SHIFT);
+                        let (rows, bars): (i64, i64) = match (m.kind, shift) {
+                            (MouseEventKind::ScrollDown, false) => (1, 0),
+                            (MouseEventKind::ScrollUp, false) => (-1, 0),
+                            (MouseEventKind::ScrollDown, true)
+                            | (MouseEventKind::ScrollRight, _) => (0, 4),
+                            _ => (0, -4),
+                        };
+                        let n = app.buffer().score.tracks.len();
+                        let visible = n.clamp(1, app.tracks_rows.max(1));
+                        let (first, first_bar) = ui.tracks_scroll;
+                        ui.tracks_scroll = (
+                            (first as i64 + rows).clamp(0, n.saturating_sub(visible) as i64)
+                                as usize,
+                            (first_bar as i64 + bars).max(0) as usize,
+                        );
                     }
                     MouseEventKind::Down(button @ (MouseButton::Left | MouseButton::Middle)) => {
                         let tab_hit = ui
@@ -208,7 +297,12 @@ fn convert_key(k: KeyEvent) -> Option<Key> {
 fn draw(f: &mut Frame, app: &mut App, play: Option<(usize, Location, f64, f64)>, ui: &mut Ui) {
     ui.hits.clear();
     let tracks_h = if app.tracks_panel {
-        1 + app.buffer().score.tracks.len().clamp(1, TRACK_ROWS_MAX) as u16
+        1 + app
+            .buffer()
+            .score
+            .tracks
+            .len()
+            .clamp(1, app.tracks_rows.max(1)) as u16
     } else {
         0
     };
@@ -497,13 +591,7 @@ fn draw_tabline(f: &mut Frame, app: &App, area: Rect, ui: &mut Ui) {
     for (n, tab) in app.bufferline().into_iter().enumerate() {
         let name =
             muse_app::truncate_middle(&tab.name, t.max_width, t.prefix_width, t.suffix_width);
-        let icon = file_icon(tab.kind, icons);
-        let mut head = if icon.is_empty() {
-            format!(" {name} ")
-        } else {
-            format!(" {icon} {name} ")
-        };
-        // The file playing audio.
+        // The file playing audio shows ▶ (or ⏸) where its file-type icon goes.
         let play_mark = if tab.playing {
             Some("▶")
         } else if tab.paused {
@@ -511,10 +599,12 @@ fn draw_tabline(f: &mut Frame, app: &App, area: Rect, ui: &mut Ui) {
         } else {
             None
         };
-        if let Some(m) = play_mark {
-            head.push_str(m);
-            head.push(' ');
-        }
+        let icon = play_mark.unwrap_or_else(|| file_icon(tab.kind, icons));
+        let head = if icon.is_empty() {
+            format!(" {name} ")
+        } else {
+            format!(" {icon} {name} ")
+        };
         let w = width(&head) + 2;
         if x + w > right {
             break;
@@ -557,7 +647,7 @@ fn draw_tabline(f: &mut Frame, app: &App, area: Rect, ui: &mut Ui) {
         }
         if play_mark.is_some() {
             let cell = Rect {
-                x: x + width(&head) - 2,
+                x: x + 1,
                 y: area.y,
                 width: 1,
                 height: 1,
@@ -571,8 +661,6 @@ fn draw_tabline(f: &mut Frame, app: &App, area: Rect, ui: &mut Ui) {
     }
 }
 
-/// Rows the tracks panel shows at most (it scrolls to the cursor's track).
-const TRACK_ROWS_MAX: usize = 8;
 /// Width of the tracks panel's columns before the bar grid.
 const TRACK_INFO_W: u16 = 48;
 
@@ -593,7 +681,7 @@ fn click_tracks(app: &mut App, ui: &mut Ui, x: u16, y: u16, kind: MouseEventKind
         .tracks
         .iter()
         .find(|(r, h)| {
-            if ui.volume_drag {
+            if ui.drag == Some(Drag::Volume) {
                 matches!(h, TracksHit::Volume(..)) && y >= r.y && y < r.y + r.height
             } else {
                 contains(*r, x, y)
@@ -603,10 +691,10 @@ fn click_tracks(app: &mut App, ui: &mut Ui, x: u16, y: u16, kind: MouseEventKind
     let drag = matches!(kind, MouseEventKind::Drag(_));
     match hit {
         Some(TracksHit::Volume(t, x0, w)) => {
-            if !ui.volume_drag {
+            if ui.drag != Some(Drag::Volume) {
                 app.select_track_bar(t, None);
                 app.group_edits(true);
-                ui.volume_drag = true;
+                ui.drag = Some(Drag::Volume);
             }
             let frac = (x.saturating_sub(x0) as f64 / (w.max(2) - 1) as f64).clamp(0.0, 1.0);
             app.set_track_volume(t, (frac * 127.0).round() as u8);
@@ -636,14 +724,9 @@ fn draw_tracks(
     let rows = app.track_rows();
     let buffer = app.pane().buffer;
     let cursor = app.pane().cursor;
-    let visible = rows.len().clamp(1, TRACK_ROWS_MAX);
+    let visible = rows.len().clamp(1, app.tracks_rows.max(1));
+    ui.tracks_area = Some(area);
     let (mut first, mut first_bar) = ui.tracks_scroll;
-    if cursor.track < first {
-        first = cursor.track;
-    } else if cursor.track >= first + visible {
-        first = cursor.track + 1 - visible;
-    }
-    first = first.min(rows.len().saturating_sub(visible));
     let gx = area.x + TRACK_INFO_W;
     let gw = area.width.saturating_sub(TRACK_INFO_W + 1) as usize;
     let playing = play.filter(|p| p.0 == buffer && (app.playing || app.paused));
@@ -651,11 +734,23 @@ fn draw_tracks(
         Some((_, loc, ..)) if app.follow && app.playing => loc.bar,
         _ => cursor.bar,
     };
-    if follow_bar < first_bar {
-        first_bar = follow_bar.saturating_sub(4);
-    } else if gw > 0 && follow_bar >= first_bar + gw {
-        first_bar = follow_bar + 1 + 4.min(gw / 2) - gw;
+    // Scroll to the cursor's track and bar when they move (the wheel scrolls freely between).
+    if ui.tracks_anchor != Some((cursor.track, follow_bar)) {
+        ui.tracks_anchor = Some((cursor.track, follow_bar));
+        if cursor.track < first {
+            first = cursor.track;
+        } else if cursor.track >= first + visible {
+            first = cursor.track + 1 - visible;
+        }
+        if follow_bar < first_bar {
+            first_bar = follow_bar.saturating_sub(4);
+        } else if gw > 0 && follow_bar >= first_bar + gw {
+            first_bar = follow_bar + 1 + 4.min(gw / 2) - gw;
+        }
     }
+    first = first.min(rows.len().saturating_sub(visible));
+    let bar_count = rows.first().map_or(0, |r| r.bars.len());
+    first_bar = first_bar.min(bar_count.saturating_sub(gw.max(1)));
     ui.tracks_scroll = (first, first_bar);
     let buf = f.buffer_mut();
     let dim = Style::default().fg(rc(t.dim)).bg(rc(t.panel));
@@ -795,15 +890,23 @@ fn draw_tracks(
                 st = st.fg(rc(t.empty_bar));
                 "·"
             };
-            if bar == cursor.bar {
-                st = st.bg(rc(t.accent.mix(t.panel, 0.7)));
-                if selected {
-                    st = on(app, t.accent);
-                }
-            }
             if play_bar == Some(bar) {
                 st = st.bg(rc(t.playhead));
             }
+            // The edit cursor: a black dot on its bar's block.
+            let ch = if selected && bar == cursor.bar {
+                let block = if notes { row.color } else { t.empty_bar };
+                st = Style::default()
+                    .fg(Color::Black)
+                    .bg(rc(if play_bar == Some(bar) {
+                        t.playhead
+                    } else {
+                        block
+                    }));
+                "●"
+            } else {
+                ch
+            };
             buf.set_string(x, y, ch, st);
             ui.tracks.push((
                 Rect {
@@ -1226,7 +1329,7 @@ mod render_tests {
         app.playing_buffer = Some(0);
         app.playing = true;
         let screen = render(&mut app, 80, 20);
-        assert!(screen.contains("t.gp5 ▶"), "{screen}");
+        assert!(screen.contains("▶ t.gp5"), "{screen}");
         // The tracks panel: a row per track with its name, instrument and bars.
         app.run(muse_app::Command::TracksFocus);
         let screen = render(&mut app, 100, 20);

@@ -2,6 +2,34 @@
 
 use std::path::PathBuf;
 
+/// A size given as `N` (to N) or `+N` / `-N` (by N).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Amount {
+    To(u32),
+    By(i32),
+}
+
+impl Amount {
+    pub fn parse(s: &str) -> Option<Self> {
+        let s = s.trim().trim_end_matches('%');
+        if let Some(d) = s.strip_prefix('+') {
+            return d.parse().ok().map(Amount::By);
+        }
+        if s.starts_with('-') {
+            return s.parse().ok().map(Amount::By);
+        }
+        s.parse().ok().map(Amount::To)
+    }
+
+    /// The new size from the current one.
+    pub fn apply(self, now: i64) -> i64 {
+        match self {
+            Amount::To(n) => n as i64,
+            Amount::By(d) => now + d as i64,
+        }
+    }
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Direction {
     Left,
@@ -186,6 +214,17 @@ pub enum Command {
     Stop,
     FollowToggle,
     Split,
+    /// Height (stacked) or width (side by side) of the focused pane, in percent of its split;
+    /// in the tracks panel, the rows it shows.
+    Resize(crate::layout::Axis, Amount),
+    /// Every pane of the view the same size.
+    ResizeEqual,
+    /// Show the focused pane alone, or the view's panes again.
+    Maximize,
+    /// Rows of the tracks panel.
+    TracksResize(Amount),
+    /// Height of the waveform strips and bar, in pixels.
+    WaveformResize(Amount),
     VSplit,
     Focus(Direction),
     ClosePane,
@@ -278,6 +317,20 @@ impl Command {
             "stop" => Stop,
             "follow-toggle" => FollowToggle,
             "split" | "sp" => Split,
+            "resize" | "res" | "vertical-resize" | "vresize" | "tracks-resize"
+            | "waveform-resize" => {
+                let amount = arg
+                    .and_then(Amount::parse)
+                    .ok_or_else(|| format!("{name}: give a size: N, +N or -N"))?;
+                match name {
+                    "resize" | "res" => Resize(crate::layout::Axis::Stacked, amount),
+                    "tracks-resize" => TracksResize(amount),
+                    "waveform-resize" => WaveformResize(amount),
+                    _ => Resize(crate::layout::Axis::SideBySide, amount),
+                }
+            }
+            "resize-equal" => ResizeEqual,
+            "maximize" | "max" | "zoom-pane" => Maximize,
             "vsplit" | "vs" => VSplit,
             "focus-left" => Focus(Direction::Left),
             "focus-down" => Focus(Direction::Down),

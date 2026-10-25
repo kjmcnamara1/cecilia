@@ -19,7 +19,7 @@ use winit::application::ApplicationHandler;
 use winit::event::{ElementState, MouseButton, MouseScrollDelta, WindowEvent};
 use winit::event_loop::{ActiveEventLoop, ControlFlow, EventLoop};
 use winit::keyboard::ModifiersState;
-use winit::window::{Window, WindowId};
+use winit::window::{CursorIcon, Window, WindowId};
 
 pub use draw::Views;
 
@@ -40,6 +40,8 @@ struct Gui {
     logical: Scene,
     mods: ModifiersState,
     mouse: (f64, f64),
+    /// The pointer shape shown (resize arrows over draggable edges).
+    pointer: draw::Pointer,
     last_config_check: Instant,
     error: Option<anyhow::Error>,
 }
@@ -66,6 +68,7 @@ pub fn run(app: App) -> Result<()> {
         logical: Scene::new(),
         mods: ModifiersState::empty(),
         mouse: (0.0, 0.0),
+        pointer: draw::Pointer::Default,
         last_config_check: Instant::now(),
         error: None,
     };
@@ -229,8 +232,23 @@ impl ApplicationHandler for Gui {
                 let was_over = self.views.over_tabline(self.mouse.1);
                 self.mouse = (position.x / f, position.y / f);
                 self.views.hover = self.mouse;
-                if self.views.drag_to(&mut self.app, self.mouse.0) {
+                if self
+                    .views
+                    .drag_to(&mut self.app, self.mouse.0, self.mouse.1)
+                {
                     self.after_input();
+                }
+                // Resize arrows over pane borders and panel edges.
+                let pointer = self.views.pointer(&self.app, self.mouse.0, self.mouse.1);
+                if pointer != self.pointer {
+                    self.pointer = pointer;
+                    if let Some(gpu) = &self.gpu {
+                        gpu.window.set_cursor(match pointer {
+                            draw::Pointer::Default => CursorIcon::Default,
+                            draw::Pointer::ResizeColumns => CursorIcon::ColResize,
+                            draw::Pointer::ResizeRows => CursorIcon::RowResize,
+                        });
+                    }
                 }
                 // Hover effects on the tabline (close buttons) need a redraw.
                 if was_over || self.views.over_tabline(self.mouse.1) {
@@ -272,19 +290,34 @@ impl ApplicationHandler for Gui {
                 self.after_input();
             }
             WindowEvent::MouseWheel { delta, .. } => {
-                let dy = match delta {
-                    MouseScrollDelta::LineDelta(_, y) => y as f64 * 60.0,
-                    MouseScrollDelta::PixelDelta(p) => p.y / self.scale_factor(),
+                // How far the view moves right and down (the content moves the other way).
+                let (mut dx, mut dy) = match delta {
+                    MouseScrollDelta::LineDelta(x, y) => (-x as f64 * 60.0, -y as f64 * 60.0),
+                    MouseScrollDelta::PixelDelta(p) => {
+                        let f = self.scale_factor();
+                        (-p.x / f, -p.y / f)
+                    }
                 };
-                if self.mods.control_key() {
-                    self.app.run(if dy > 0.0 {
+                // Shift turns the vertical wheel sideways.
+                if self.mods.shift_key() && dx == 0.0 {
+                    (dx, dy) = (dy, 0.0);
+                }
+                let (mx, my) = self.mouse;
+                if self
+                    .views
+                    .wheel(&self.app, mx, my, dx, dy, self.mods.control_key())
+                {
+                    if let Some(gpu) = &self.gpu {
+                        gpu.window.request_redraw();
+                    }
+                } else if self.mods.control_key() {
+                    self.app.run(if dy < 0.0 {
                         muse_app::Command::ZoomIn
                     } else {
                         muse_app::Command::ZoomOut
                     });
                 } else {
-                    self.views
-                        .scroll(&self.app, self.mouse.0, self.mouse.1, -dy);
+                    self.views.scroll(&self.app, mx, my, dx, dy);
                 }
                 self.after_input();
             }

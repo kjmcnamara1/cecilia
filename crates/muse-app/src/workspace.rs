@@ -29,6 +29,12 @@ pub struct Workspace {
     pub global_waveform: bool,
     #[serde(default)]
     pub tracks_panel: bool,
+    /// Tracks the tracks panel shows at once.
+    #[serde(default = "default_tracks_rows")]
+    pub tracks_rows: usize,
+    /// Height of waveform strips and bar (GUI, logical pixels).
+    #[serde(default = "default_waveform_height")]
+    pub waveform_height: u16,
     /// Marks: lowercase ones belong to their file, uppercase ones are global.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub marks: Vec<MarkState>,
@@ -69,6 +75,9 @@ pub struct Split {
     pub axis: Option<String>,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub children: Vec<Split>,
+    /// The children's shares of the split (left out when equal).
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub weights: Vec<f32>,
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -105,8 +114,23 @@ fn split_of(node: &Node) -> Split {
             pane: Some(*id),
             axis: None,
             children: Vec::new(),
+            weights: Vec::new(),
         },
-        Node::Split { axis, children } => Split {
+        Node::Split {
+            axis,
+            children,
+            weights,
+        } => Split {
+            weights: if weights.windows(2).all(|w| (w[0] - w[1]).abs() < 1e-4) {
+                Vec::new()
+            } else {
+                let sum: f32 = weights.iter().sum();
+                // Rounded, to keep the file tidy.
+                weights
+                    .iter()
+                    .map(|w| (w / sum * 1000.0).round() / 1000.0)
+                    .collect()
+            },
             pane: None,
             axis: Some(
                 match axis {
@@ -129,16 +153,35 @@ fn node_of(split: &Split, panes: &HashMap<PaneId, Pane>) -> Option<Node> {
         Some("stacked") => Axis::Stacked,
         _ => Axis::SideBySide,
     };
-    let mut children: Vec<Node> = split
+    let (mut children, weights): (Vec<Node>, Vec<f32>) = split
         .children
         .iter()
-        .filter_map(|c| node_of(c, panes))
-        .collect();
+        .enumerate()
+        .filter_map(|(i, c)| {
+            let w = split.weights.get(i).copied().filter(|w| *w > 0.0);
+            Some((
+                node_of(c, panes)?,
+                w.unwrap_or(1.0 / split.children.len() as f32),
+            ))
+        })
+        .unzip();
     match children.len() {
         0 => None,
         1 => children.pop(),
-        _ => Some(Node::Split { axis, children }),
+        _ => Some(Node::Split {
+            axis,
+            children,
+            weights,
+        }),
     }
+}
+
+fn default_tracks_rows() -> usize {
+    crate::app::DEFAULT_TRACKS_ROWS
+}
+
+fn default_waveform_height() -> u16 {
+    crate::app::DEFAULT_WAVEFORM_HEIGHT
 }
 
 /// Where named workspaces are kept.
@@ -313,6 +356,8 @@ impl App {
             chant_view: self.chant_view,
             global_waveform: self.global_waveform,
             tracks_panel: self.tracks_panel,
+            tracks_rows: self.tracks_rows,
+            waveform_height: self.waveform_height,
         }
     }
 
@@ -514,6 +559,7 @@ impl App {
                 }
             }
             self.views.push(View {
+                maximized: None,
                 root,
                 focus,
                 buffers,
@@ -538,6 +584,7 @@ impl App {
                 },
             );
             self.views.push(View {
+                maximized: None,
                 root: Node::Leaf(1),
                 focus: 1,
                 buffers: vec![0],
@@ -589,6 +636,11 @@ impl App {
         self.chant_view = ws.chant_view;
         self.global_waveform = ws.global_waveform;
         self.tracks_panel = ws.tracks_panel;
+        self.tracks_rows = ws.tracks_rows.clamp(1, crate::app::MAX_TRACKS_ROWS);
+        self.waveform_height = ws.waveform_height.clamp(
+            crate::app::MIN_WAVEFORM_HEIGHT,
+            crate::app::MAX_WAVEFORM_HEIGHT,
+        );
     }
 }
 
@@ -630,6 +682,7 @@ mod tests {
         app.run(Command::Edit(a.clone()));
         app.run(Command::BarNext);
         app.run(Command::Layout(Some("page".into())));
+        // The new pane has the focus: it grows.
         app.run(Command::VSplit);
         app.run(Command::Edit(b.clone()));
         app.run(Command::Waveform);
@@ -676,6 +729,38 @@ mod tests {
         other.run(Command::WorkspaceOpen(ws_file.display().to_string(), false));
         assert!(other.message.as_ref().unwrap().error);
         std::fs::remove_dir_all(dir).ok();
+    }
+
+    #[test]
+    fn pane_and_panel_sizes_are_kept() {
+        let mut app = App::new(Config::default(), None);
+        app.viewport = crate::layout::Rect {
+            x: 0,
+            y: 0,
+            w: 100,
+            h: 50,
+        };
+        // The new pane has the focus: it grows.
+        app.run(Command::VSplit);
+        app.run(Command::Resize(
+            crate::layout::Axis::SideBySide,
+            crate::command::Amount::By(20),
+        ));
+        app.run(Command::TracksResize(crate::command::Amount::To(3)));
+        app.run(Command::WaveformResize(crate::command::Amount::By(36)));
+        let widths = |app: &App| app.layout().iter().map(|(_, r)| r.w).collect::<Vec<_>>();
+        assert_eq!(widths(&app), [30, 70]);
+        let text = toml::to_string_pretty(&app.workspace()).unwrap();
+        let mut other = App::new(Config::default(), None);
+        other.viewport = app.viewport;
+        other.restore(&toml::from_str(&text).unwrap());
+        assert_eq!(widths(&other), [30, 70]);
+        assert_eq!((other.tracks_rows, other.waveform_height), (3, 100));
+        // <C-w>= evens them out again.
+        for k in crate::keys::parse_keys("<C-w>=", &[]).unwrap() {
+            other.handle_key(k);
+        }
+        assert_eq!(widths(&other), [50, 50]);
     }
 
     #[test]

@@ -66,6 +66,18 @@ unless forced (`:bdelete!`).
 | `<C-w>s` / `<C-w>v` | split horizontally / vertically           | _(M1)_ |
 | `<C-w>h/j/k/l`      | focus pane left/down/up/right             | _(M1)_ |
 | `<C-w>q`            | close pane (the last one closes the view) | _(M1)_ |
+| `<C-w>+` / `<C-w>-` | pane taller / shorter by 5% (`:resize +N`, `:resize N` in percent of its split) | |
+| `<C-w>>` / `<C-w><` | pane wider / narrower by 5% (`:vertical-resize`) | |
+| `<C-w>=`            | all panes the same size (`:resize-equal`) | |
+| `<C-m>` / `<C-w>z`  | maximize the pane / restore the others (`:maximize`); focusing another pane restores them too. Terminals often send `<C-m>` as Enter, so in the TUI use `<C-w>z` | |
+
+Drag the border between two panes with the mouse to resize them, and the top edge of the
+tracks panel or of a waveform to make it taller or shorter (`:tracks-resize N` sets the tracks
+it shows, `:waveform-resize N` the waveform height in pixels). Pane sizes, the tracks panel's
+rows and the waveform height are saved in workspaces. Over the tracks panel the mouse wheel
+scrolls through tracks, and sideways (or with Shift) through bars; over a waveform both wheels
+move along the timeline and Ctrl+wheel zooms it. They follow the cursor or playhead again once
+that moves.
 
 **Pickers** open in the command palette's box and list the view's buffers (with their folder,
 ● when modified), the views (with their files) or the saved workspaces (with their view and file
@@ -126,8 +138,8 @@ view pickers also work while a song plays.
 `<leader>T` shows or hides the tracks panel at the bottom of the window (`ui.tracks_panel` sets
 the default; workspaces remember it). Each track of the focused file has a row: its number, a
 volume slider, **S**olo and **M**ute, its name and instrument, then a block per bar — coloured
-where the bar has notes, faded when the track isn't heard. The edit cursor's bar is outlined
-and the red playhead runs across all tracks. Click a block to move the cursor there, click S or
+where the bar has notes, faded when the track isn't heard. The edit cursor is a black dot on
+its bar's block and the red playhead runs across all tracks. Click a block to move the cursor there, click S or
 M to toggle them, drag a slider to set the volume (one undo step).
 
 `<C-w>t` focuses the panel (**TRACKS** in the status line); its keys are `[keymap.tracks]`:
@@ -140,6 +152,7 @@ M to toggle them, drag a slider to set the volume (one undo step).
 | `+` (`=`) / `-` | volume up / down 5% |
 | `c` | next colour of the theme's palette for the track |
 | `<CR>` `<Esc>` `q` `<C-w>k` | back to the score |
+| `<C-w>+` / `<C-w>-` | show more / fewer tracks |
 | `<leader><leader>` `<leader>s` `<leader>f` `:` | play/pause, stop, follow, command line |
 
 | command | |
@@ -153,7 +166,7 @@ M to toggle them, drag a slider to set the volume (one undo step).
 
 Playing is not a mode: Normal, Visual, Insert and the command line all keep working while a
 song plays, and edits are heard at once. One file plays at a time; its tab in the bufferline
-shows ▶ (⏸ when paused).
+shows ▶ (⏸ when paused) in place of its file-type icon.
 
 | keys                                                                    | command                                                                                                                                                                                                                                                 |
 | ----------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |

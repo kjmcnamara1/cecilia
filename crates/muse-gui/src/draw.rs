@@ -62,7 +62,6 @@ const CMDLINE: f64 = 26.0;
 const TITLE: f64 = 24.0;
 const UI_FONT: f64 = 14.0;
 /// Height of the waveform strip.
-const WAVE: f64 = 64.0;
 /// Pixels per point at zoom 1.
 const BASE_SCALE: f64 = 1.6;
 
@@ -101,8 +100,74 @@ pub struct Views {
     tracks: Vec<(Rect, TracksHit)>,
     /// The tracks panel's first visible row and horizontal scroll of its bar grid.
     tracks_scroll: (usize, f64),
-    /// A volume slider being dragged: (track, slider left, slider right).
-    volume_drag: Option<(usize, f64, f64)>,
+    /// What the tracks panel last scrolled to follow (cursor track, bar): it scrolls again
+    /// only when that moves, so the mouse wheel can look elsewhere meanwhile.
+    tracks_anchor: Option<(usize, usize)>,
+    /// The tracks panel's area drawn last frame.
+    tracks_rect: Option<Rect>,
+    /// The waveforms drawn last frame (`None`: the window bar, else a pane's strip).
+    wave_rects: Vec<(Rect, Option<PaneId>)>,
+    /// Scroll and zoom of each waveform.
+    waves: HashMap<Option<PaneId>, WaveView>,
+    /// Edges that resize something when dragged, drawn last frame.
+    edges: Vec<(Rect, Edge)>,
+    /// What the mouse is dragging.
+    drag: Option<Drag>,
+}
+
+/// A waveform's view: where it starts when scrolled by hand (else it follows the playhead or
+/// cursor), and the seconds it spans.
+#[derive(Debug, Clone, PartialEq)]
+struct WaveView {
+    start: Option<f64>,
+    span: f64,
+    /// The cursor position and play state it last followed; when they change it follows again.
+    anchor: Option<(usize, usize, bool)>,
+    /// Where it started when last drawn.
+    drawn: f64,
+}
+
+impl Default for WaveView {
+    fn default() -> Self {
+        Self {
+            start: None,
+            span: 16.0,
+            anchor: None,
+            drawn: 0.0,
+        }
+    }
+}
+
+/// An edge that resizes something.
+#[derive(Debug, Clone, Copy, PartialEq)]
+enum Edge {
+    /// The top of the tracks panel.
+    Tracks,
+    /// The top of a waveform strip or of the window's waveform bar.
+    Wave,
+}
+
+/// A mouse drag in progress.
+#[derive(Debug, Clone, PartialEq)]
+enum Drag {
+    /// A track's volume slider (track, left, right).
+    Volume(usize, f64, f64),
+    /// A border between panes.
+    Divider(muse_app::layout::Divider),
+    /// The tracks panel's top edge: where the drag began and the rows shown then.
+    Tracks(f64, usize),
+    /// A waveform's top edge: where the drag began and the height then.
+    Wave(f64, u16),
+}
+
+/// The pointer shape over something draggable.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub enum Pointer {
+    Default,
+    /// Drag left and right.
+    ResizeColumns,
+    /// Drag up and down.
+    ResizeRows,
 }
 
 /// What a click on the tracks panel does.
@@ -131,8 +196,6 @@ enum TablineHit {
 
 const TRACK_HEAD: f64 = 20.0;
 const TRACK_ROW: f64 = 20.0;
-/// Rows the tracks panel shows at most (it scrolls to the cursor's track).
-const TRACK_ROWS_MAX: usize = 8;
 const BLOCK_W: f64 = 14.0;
 const BLOCK_STEP: f64 = 16.0;
 /// Where the tracks panel's columns start: number, volume, solo, mute, name, instrument, bars.
@@ -145,7 +208,12 @@ const COL_INSTR: f64 = 290.0;
 const COL_GRID: f64 = 430.0;
 
 fn tracks_panel_height(app: &App) -> f64 {
-    let n = app.buffer().score.tracks.len().clamp(1, TRACK_ROWS_MAX);
+    let n = app
+        .buffer()
+        .score
+        .tracks
+        .len()
+        .clamp(1, app.tracks_rows.max(1));
     TRACK_HEAD + n as f64 * TRACK_ROW + 6.0
 }
 
@@ -189,15 +257,14 @@ fn draw_tracks(
     let buffer = app.pane().buffer;
     let score = &app.buffers[buffer].score;
     let cursor = app.pane().cursor;
-    let visible = rows.len().clamp(1, TRACK_ROWS_MAX);
-    // Scroll so the cursor's track and bar are in view.
+    let visible = rows.len().clamp(1, app.tracks_rows.max(1));
+    views.tracks_rect = Some(r);
+    views
+        .edges
+        .push((Rect::new(r.x0, r.y0 - 3.0, r.x1, r.y0 + 3.0), Edge::Tracks));
+    // Scroll so the cursor's track and bar are in view, when they move (the wheel scrolls
+    // freely in between).
     let (mut first, mut hs) = views.tracks_scroll;
-    if cursor.track < first {
-        first = cursor.track;
-    } else if cursor.track >= first + visible {
-        first = cursor.track + 1 - visible;
-    }
-    first = first.min(rows.len().saturating_sub(visible));
     let gx = r.x0 + COL_GRID;
     let gw = (r.x1 - 8.0 - gx).max(BLOCK_STEP);
     let playing_here = play.filter(|p| p.0 == buffer && (app.playing || app.paused));
@@ -205,12 +272,23 @@ fn draw_tracks(
         Some((_, loc, ..)) if app.follow && app.playing => loc.bar,
         _ => cursor.bar,
     };
-    let bx = follow_bar as f64 * BLOCK_STEP;
-    if bx < hs {
-        hs = (bx - 4.0 * BLOCK_STEP).max(0.0);
-    } else if bx + BLOCK_W > hs + gw {
-        hs = bx + BLOCK_W - gw + 4.0 * BLOCK_STEP;
+    if views.tracks_anchor != Some((cursor.track, follow_bar)) {
+        views.tracks_anchor = Some((cursor.track, follow_bar));
+        if cursor.track < first {
+            first = cursor.track;
+        } else if cursor.track >= first + visible {
+            first = cursor.track + 1 - visible;
+        }
+        let bx = follow_bar as f64 * BLOCK_STEP;
+        if bx < hs {
+            hs = (bx - 4.0 * BLOCK_STEP).max(0.0);
+        } else if bx + BLOCK_W > hs + gw {
+            hs = bx + BLOCK_W - gw + 4.0 * BLOCK_STEP;
+        }
     }
+    first = first.min(rows.len().saturating_sub(visible));
+    let bars_w = score.master_bars.len() as f64 * BLOCK_STEP;
+    hs = hs.clamp(0.0, (bars_w - gw + BLOCK_STEP).max(0.0));
     views.tracks_scroll = (first, hs);
 
     // Header: column names and bar numbers.
@@ -246,15 +324,8 @@ fn draw_tracks(
             );
         }
     }
-    // The cursor's bar, down all rows.
     let rows_y0 = r.y0 + TRACK_HEAD;
     let rows_y1 = rows_y0 + visible as f64 * TRACK_ROW;
-    let cx = gx + cursor.bar as f64 * BLOCK_STEP - hs;
-    fill(
-        scene,
-        Rect::new(cx - 1.0, rows_y0, cx + BLOCK_W + 1.0, rows_y1),
-        col(theme.accent.with_alpha(40)),
-    );
     scene.pop_layer();
 
     let text_c = col(theme.chrome_text);
@@ -394,13 +465,14 @@ fn draw_tracks(
                 None,
                 &block.to_rounded_rect(2.0),
             );
+            // The edit cursor: a black dot in its bar.
             if row.index == cursor.track && b == cursor.bar {
-                scene.stroke(
-                    &Stroke::new(2.0),
+                scene.fill(
+                    Fill::NonZero,
                     Affine::IDENTITY,
-                    col(theme.accent),
+                    Color::BLACK,
                     None,
-                    &block.inflate(1.0, 1.0).to_rounded_rect(3.0),
+                    &Circle::new(block.center(), 3.0),
                 );
             }
             views
@@ -486,7 +558,8 @@ pub fn build(
     // The window-wide waveform bar sits between the panes and the status line, the tracks
     // panel above it.
     let global_wave = app.global_waveform && height > 300.0;
-    let bottom = height - STATUS - CMDLINE - if global_wave { WAVE + 4.0 } else { 0.0 };
+    let wave_h = app.waveform_height as f64;
+    let bottom = height - STATUS - CMDLINE - if global_wave { wave_h + 4.0 } else { 0.0 };
     let tracks_h = if app.tracks_panel && height > 300.0 {
         tracks_panel_height(app)
     } else {
@@ -494,6 +567,9 @@ pub fn build(
     };
     let main = Rect::new(0.0, TAB_BAR, width, bottom - tracks_h);
     views.tracks.clear();
+    views.edges.clear();
+    views.wave_rects.clear();
+    views.tracks_rect = None;
     if tracks_h > 0.0 {
         draw_tracks(
             scene,
@@ -532,12 +608,17 @@ pub fn build(
         );
     }
     if global_wave {
-        let r = Rect::new(4.0, bottom + 2.0, width - 4.0, bottom + 2.0 + WAVE);
+        let r = Rect::new(4.0, bottom + 2.0, width - 4.0, bottom + 2.0 + wave_h);
+        views
+            .edges
+            .push((Rect::new(0.0, r.y0 - 3.0, width, r.y0 + 3.0), Edge::Wave));
+        views.wave_rects.push((r, None));
         let buffer = app.pane().buffer;
         match playback {
             Some(pb) if app.buffers[buffer].score.audio.is_some() => {
                 pb.ensure_audio(app, buffer);
-                draw_waveform(scene, app, pb, buffer, r, play);
+                let view = views.waves.entry(None).or_default();
+                draw_waveform(scene, app, pb, buffer, r, play, view);
             }
             _ => {
                 fill(scene, r, tc(|t| t.panel));
@@ -638,8 +719,7 @@ fn draw_tabs(scene: &mut Scene, app: &App, views: &mut Views, width: f64) {
         };
         let name_w = fonts.text_width(font, &name, UI_FONT);
         // Room for the play indicator after the name, on the file playing audio.
-        let play_w = if tab.playing || tab.paused { 14.0 } else { 0.0 };
-        let w = 10.0 + 14.0 + 7.0 + name_w + play_w + 10.0 + 16.0 + 6.0;
+        let w = 10.0 + 14.0 + 7.0 + name_w + 10.0 + 16.0 + 6.0;
         let r = Rect::new(x, 4.0, x + w, TAB_BAR);
         let over = hovering && r.contains((hx, hy));
         let bg = if tab.active {
@@ -664,7 +744,28 @@ fn draw_tabs(scene: &mut Scene, app: &App, views: &mut Views, width: f64) {
             );
         }
         let cy = (r.y0 + r.y1) / 2.0 + 1.0;
-        draw_file_icon(scene, tab.kind, r.x0 + 10.0, cy);
+        // The file playing shows ▶ (or ⏸) where its file-type icon goes.
+        if tab.playing || tab.paused {
+            let px = r.x0 + 12.0;
+            let red = tc(|t| t.playhead);
+            if tab.playing {
+                let mut p = BezPath::new();
+                p.move_to((px, cy - 6.0));
+                p.line_to((px + 10.0, cy));
+                p.line_to((px, cy + 6.0));
+                p.close_path();
+                scene.fill(Fill::NonZero, Affine::IDENTITY, red, None, &p);
+            } else {
+                fill(scene, Rect::new(px, cy - 6.0, px + 3.5, cy + 6.0), red);
+                fill(
+                    scene,
+                    Rect::new(px + 6.5, cy - 6.0, px + 10.0, cy + 6.0),
+                    red,
+                );
+            }
+        } else {
+            draw_file_icon(scene, tab.kind, r.x0 + 10.0, cy);
+        }
         let fg = if tab.active {
             text_on(background())
         } else {
@@ -680,25 +781,6 @@ fn draw_tabs(scene: &mut Scene, app: &App, views: &mut Views, width: f64) {
             fg,
             tab.active,
         );
-        if play_w > 0.0 {
-            let px = r.x0 + 31.0 + name_w + 6.0;
-            let red = tc(|t| t.playhead);
-            if tab.playing {
-                let mut p = BezPath::new();
-                p.move_to((px, cy - 4.5));
-                p.line_to((px + 8.0, cy));
-                p.line_to((px, cy + 4.5));
-                p.close_path();
-                scene.fill(Fill::NonZero, Affine::IDENTITY, red, None, &p);
-            } else {
-                fill(scene, Rect::new(px, cy - 4.5, px + 2.8, cy + 4.5), red);
-                fill(
-                    scene,
-                    Rect::new(px + 5.2, cy - 4.5, px + 8.0, cy + 4.5),
-                    red,
-                );
-            }
-        }
         // Close button on hover; otherwise a dot for unsaved changes.
         let bx = r.x1 - 6.0 - 8.0;
         let close = Rect::new(bx - 8.0, cy - 8.0, bx + 8.0, cy + 8.0);
@@ -926,8 +1008,9 @@ fn draw_pane(
     let mut content = Rect::new(rect.x0 + 2.0, rect.y0 + TITLE, rect.x1 - 2.0, rect.y1 - 2.0);
     let waveform =
         (pane.waveform && score.audio.is_some() && content.height() > 200.0).then(|| {
-            let strip = Rect::new(content.x0, content.y1 - WAVE, content.x1, content.y1);
-            content.y1 -= WAVE + 2.0;
+            let wave_h = app.waveform_height as f64;
+            let strip = Rect::new(content.x0, content.y1 - wave_h, content.x1, content.y1);
+            content.y1 -= wave_h + 2.0;
             strip
         });
     if score.tracks.is_empty() {
@@ -1156,7 +1239,13 @@ fn draw_pane(
     }
     scene.pop_layer();
     if let (Some(strip), Some(pb)) = (waveform, playback) {
-        draw_waveform(scene, app, pb, pane.buffer, strip, play);
+        views.edges.push((
+            Rect::new(strip.x0, strip.y0 - 3.0, strip.x1, strip.y0 + 3.0),
+            Edge::Wave,
+        ));
+        views.wave_rects.push((strip, Some(id)));
+        let view = views.waves.entry(Some(id)).or_default();
+        draw_waveform(scene, app, pb, pane.buffer, strip, play, view);
     }
 }
 
@@ -1168,6 +1257,7 @@ fn draw_waveform(
     buffer: usize,
     r: Rect,
     play: Option<(usize, Location, f64, f64)>,
+    view: &mut WaveView,
 ) {
     fill(scene, r, tc(|t| t.panel));
     let Some(audio) = playback.loaded_audio(buffer) else {
@@ -1202,8 +1292,15 @@ fn draw_waveform(
             .time_of(app, buffer, cursor.bar, tick)
             .unwrap_or(0.0),
     };
-    let span = 16.0;
-    let t0 = now - span * 0.35;
+    // Follow the playhead (or cursor) unless scrolled by hand since they last moved.
+    let anchor = (cursor.bar, cursor.beat, app.playing);
+    if view.anchor != Some(anchor) {
+        view.anchor = Some(anchor);
+        view.start = None;
+    }
+    let span = view.span;
+    let t0 = view.start.unwrap_or(now - span * 0.35);
+    view.drawn = t0;
     let x_of = |t: f64| r.x0 + (t - t0) / span * r.width();
     let mid = r.center().y;
     let amp = r.height() * 0.45;
@@ -1807,8 +1904,8 @@ impl Views {
             TracksHit::Volume(t, x0, x1) => {
                 app.select_track_bar(t, None);
                 app.group_edits(true);
-                self.volume_drag = Some((t, x0, x1));
-                self.drag_to(app, x);
+                self.drag = Some(Drag::Volume(t, x0, x1));
+                self.drag_to(app, x, y);
             }
             TracksHit::Solo(t) => app.run(muse_app::Command::Solo(Some(t + 1))),
             TracksHit::Mute(t) => app.run(muse_app::Command::Mute(Some(t + 1))),
@@ -1818,25 +1915,137 @@ impl Views {
         true
     }
 
-    /// Mouse moved with the button down: drags a volume slider.
-    pub fn drag_to(&mut self, app: &mut App, x: f64) -> bool {
-        let Some((t, x0, x1)) = self.volume_drag else {
-            return false;
-        };
-        let v = ((x - x0) / (x1 - x0)).clamp(0.0, 1.0) * 127.0;
-        app.set_track_volume(t, v.round() as u8);
+    /// Mouse moved with the button down: drags a slider, a pane border or a panel's edge.
+    pub fn drag_to(&mut self, app: &mut App, x: f64, y: f64) -> bool {
+        match self.drag.clone() {
+            Some(Drag::Volume(t, x0, x1)) => {
+                let v = ((x - x0) / (x1 - x0)).clamp(0.0, 1.0) * 127.0;
+                app.set_track_volume(t, v.round() as u8);
+            }
+            Some(Drag::Divider(d)) => {
+                let pos = match d.axis {
+                    muse_app::layout::Axis::SideBySide => x,
+                    muse_app::layout::Axis::Stacked => y,
+                };
+                app.drag_divider(&d, pos.max(0.0).round() as u16);
+            }
+            Some(Drag::Tracks(y0, rows0)) => {
+                let rows = rows0 as f64 + ((y0 - y) / TRACK_ROW).round();
+                app.run(muse_app::Command::TracksResize(
+                    muse_app::command::Amount::To(rows.max(1.0) as u32),
+                ));
+            }
+            Some(Drag::Wave(y0, h0)) => {
+                let h = h0 as f64 + (y0 - y);
+                app.run(muse_app::Command::WaveformResize(
+                    muse_app::command::Amount::To(h.max(0.0).round() as u32),
+                ));
+            }
+            None => return false,
+        }
         true
     }
 
-    /// Mouse up: ends a volume drag (one undo step for all of it).
+    /// Mouse up: ends a drag (a volume drag is one undo step).
     pub fn release(&mut self, app: &mut App) {
-        if self.volume_drag.take().is_some() {
+        if let Some(Drag::Volume(..)) = self.drag.take() {
             app.group_edits(false);
         }
     }
 
+    /// A pane border near a window position.
+    fn divider_at(&self, app: &App, x: f64, y: f64) -> Option<muse_app::layout::Divider> {
+        app.dividers().into_iter().find(|d| {
+            let a = d.area;
+            let pos = d.pos as f64;
+            match d.axis {
+                muse_app::layout::Axis::SideBySide => {
+                    (x - pos).abs() <= 4.0 && y >= a.y as f64 && y <= (a.y + a.h) as f64
+                }
+                muse_app::layout::Axis::Stacked => {
+                    (y - pos).abs() <= 4.0 && x >= a.x as f64 && x <= (a.x + a.w) as f64
+                }
+            }
+        })
+    }
+
+    /// The pointer shape at a window position (resize arrows over draggable edges).
+    pub fn pointer(&self, app: &App, x: f64, y: f64) -> Pointer {
+        if let Some(Drag::Divider(d)) = &self.drag {
+            return match d.axis {
+                muse_app::layout::Axis::SideBySide => Pointer::ResizeColumns,
+                muse_app::layout::Axis::Stacked => Pointer::ResizeRows,
+            };
+        }
+        if matches!(self.drag, Some(Drag::Tracks(..) | Drag::Wave(..))) {
+            return Pointer::ResizeRows;
+        }
+        if self.edges.iter().any(|(r, _)| r.contains((x, y))) {
+            return Pointer::ResizeRows;
+        }
+        match self.divider_at(app, x, y).map(|d| d.axis) {
+            Some(muse_app::layout::Axis::SideBySide) => Pointer::ResizeColumns,
+            Some(muse_app::layout::Axis::Stacked) => Pointer::ResizeRows,
+            None => Pointer::Default,
+        }
+    }
+
+    /// Mouse wheel: scrolls the tracks panel or a waveform under the mouse (`dx`, `dy` in
+    /// pixels the view moves right and down; `zoom` for Ctrl, which zooms a waveform). False
+    /// when nothing there takes it.
+    pub fn wheel(&mut self, app: &App, x: f64, y: f64, dx: f64, dy: f64, zoom: bool) -> bool {
+        if let Some(&(r, key)) = self.wave_rects.iter().find(|(r, _)| r.contains((x, y))) {
+            let view = self.waves.entry(key).or_default();
+            if zoom {
+                view.span = (view.span * if dy > 0.0 { 1.25 } else { 0.8 }).clamp(1.0, 900.0);
+            } else {
+                // Both wheels move along the timeline.
+                let shift = (dx + dy) / r.width().max(1.0) * view.span;
+                view.start = Some(view.start.unwrap_or(view.drawn) + shift);
+            }
+            return true;
+        }
+        if zoom {
+            return false;
+        }
+        if self.tracks_rect.is_some_and(|r| r.contains((x, y))) {
+            let n = app.buffer().score.tracks.len();
+            let visible = n.clamp(1, app.tracks_rows.max(1));
+            let (first, hs) = self.tracks_scroll;
+            let rows = (dy / TRACK_ROW).round() as i64;
+            let rows = if rows == 0 && dy != 0.0 {
+                dy.signum() as i64
+            } else {
+                rows
+            };
+            let first = (first as i64 + rows).clamp(0, n.saturating_sub(visible) as i64) as usize;
+            self.tracks_scroll = (first, (hs + dx).max(0.0));
+            return true;
+        }
+        false
+    }
+
     pub fn click(&mut self, app: &mut App, x: f64, y: f64) {
         if self.click_tracks(app, x, y) {
+            return;
+        }
+        // Edges and pane borders start a resize.
+        if let Some(&(_, edge)) = self.edges.iter().find(|(r, _)| r.contains((x, y))) {
+            self.drag = Some(match edge {
+                Edge::Tracks => Drag::Tracks(
+                    y,
+                    app.buffer()
+                        .score
+                        .tracks
+                        .len()
+                        .clamp(1, app.tracks_rows.max(1)),
+                ),
+                Edge::Wave => Drag::Wave(y, app.waveform_height),
+            });
+            return;
+        }
+        if let Some(d) = self.divider_at(app, x, y) {
+            self.drag = Some(Drag::Divider(d));
             return;
         }
         if let Some(&(_, hit)) = self.tabline.iter().rev().find(|(r, _)| r.contains((x, y))) {
@@ -1884,7 +2093,7 @@ impl Views {
         }
     }
 
-    pub fn scroll(&mut self, app: &App, x: f64, y: f64, dy: f64) {
+    pub fn scroll(&mut self, app: &App, x: f64, y: f64, dx: f64, dy: f64) {
         let Some((g, _, _)) = self.locate(x, y) else {
             return;
         };
@@ -1893,9 +2102,11 @@ impl Views {
             .get(&g.pane)
             .is_some_and(|p| p.layout == "horizontal");
         let entry = self.scroll.entry(g.pane).or_insert((0.0, 0.0));
+        // The vertical wheel scrolls along the score's flow; the horizontal one sideways.
         if horizontal {
-            entry.0 = (entry.0 + dy / g.scale).max(0.0);
+            entry.0 = (entry.0 + (dy + dx) / g.scale).max(0.0);
         } else {
+            entry.0 = (entry.0 + dx / g.scale).max(0.0);
             entry.1 = (entry.1 + dy / g.scale).max(0.0);
         }
     }
