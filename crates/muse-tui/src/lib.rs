@@ -229,16 +229,103 @@ fn draw(
         }
     }
 
-    match app.wildmenu() {
-        Some((items, selected)) => draw_wildmenu(f, items, selected, status),
-        None => draw_status(f, app, play, status),
-    }
+    draw_status(f, app, play, status);
     draw_cmdline(f, app, cmdline);
     if !app.pending.is_empty() {
         draw_which_key(f, app, main);
     }
     if app.show_help {
         draw_help(f, app, main);
+    }
+    if let Some(p) = app.palette() {
+        draw_palette(f, &p, f.area());
+    }
+}
+
+/// The command palette: a rounded box near the top centre with the typed command and the
+/// completions of the word being typed below it (descriptions right-aligned for commands).
+fn draw_palette(f: &mut Frame, p: &muse_app::Palette, screen: Rect) {
+    const ROWS: usize = 12;
+    let w = screen.width.saturating_sub(4).clamp(20, 76);
+    let room = screen.height.saturating_sub(8) as usize;
+    let rows = p.items.len().min(ROWS).min(room);
+    let h = 3 + rows as u16 + u16::from(rows > 0);
+    let area = Rect {
+        x: screen.x + (screen.width.saturating_sub(w)) / 2,
+        y: screen.y + 2,
+        width: w,
+        height: h.min(screen.height),
+    };
+    f.render_widget(Clear, area);
+    let more = match p.selected {
+        Some(i) if p.items.len() > 1 => format!(" {} / {} ", i + 1, p.items.len()),
+        None if p.items.len() > rows => format!(" {} matches ", p.items.len()),
+        _ => String::new(),
+    };
+    let block = Block::bordered()
+        .border_type(BorderType::Rounded)
+        .border_style(Style::default().fg(Color::Yellow))
+        .title(" Command ")
+        .title_bottom(Line::from(more).right_aligned());
+    let inner = block.inner(area);
+    f.render_widget(block, area);
+    let input = format!(":{}", p.input);
+    f.render_widget(Paragraph::new(input.clone()), Rect { height: 1, ..inner });
+    f.set_cursor_position((inner.x + input.chars().count() as u16, inner.y));
+    if rows == 0 {
+        return;
+    }
+    let sep = "─".repeat(inner.width as usize);
+    f.render_widget(
+        Paragraph::new(sep).style(Style::default().fg(Color::DarkGray)),
+        Rect {
+            y: inner.y + 1,
+            height: 1,
+            ..inner
+        },
+    );
+    let first = match p.selected {
+        Some(sel) if sel >= rows => sel + 1 - rows,
+        _ => 0,
+    };
+    for (k, item) in p.items.iter().enumerate().skip(first).take(rows) {
+        let row = Rect {
+            y: inner.y + 2 + (k - first) as u16,
+            height: 1,
+            ..inner
+        };
+        let selected = p.selected == Some(k);
+        let style = if selected {
+            Style::default().fg(Color::Black).bg(Color::Yellow)
+        } else {
+            Style::default()
+        };
+        let width = row.width as usize;
+        let name: String = item.text.chars().take(width.saturating_sub(1)).collect();
+        let mut line = format!(" {name}");
+        if let Some(d) = item.description {
+            let room = width.saturating_sub(line.chars().count() + 3);
+            let d: String = d.chars().take(room).collect();
+            let pad = width.saturating_sub(line.chars().count() + d.chars().count() + 1);
+            line.push_str(&" ".repeat(pad));
+            line.push_str(&d);
+            line.push(' ');
+        }
+        f.render_widget(Paragraph::new(line).style(style), row);
+        if !selected && item.description.is_some() {
+            // Dim the description part.
+            let d = item.description.unwrap();
+            let len = d.chars().take(width).count() as u16;
+            let x = row.x + row.width.saturating_sub(len + 1);
+            f.buffer_mut().set_style(
+                Rect {
+                    x,
+                    width: len.min(row.width),
+                    ..row
+                },
+                Style::default().fg(Color::DarkGray),
+            );
+        }
     }
 }
 
@@ -273,36 +360,6 @@ fn draw_tabline(f: &mut Frame, app: &App, area: Rect) {
 fn fmt_time(t: f64) -> String {
     let t = t.max(0.0) as u64;
     format!("{}:{:02}", t / 60, t % 60)
-}
-
-/// Command-line completion candidates, the selected one highlighted, scrolled to keep it in view.
-fn draw_wildmenu(f: &mut Frame, items: &[String], selected: Option<usize>, area: Rect) {
-    let bg = Style::default().bg(Color::Rgb(30, 30, 30)).fg(Color::Gray);
-    let hl = Style::default().bg(Color::Yellow).fg(Color::Black);
-    let width = area.width as usize;
-    // Start so that the selected item fits.
-    let mut first = 0;
-    if let Some(sel) = selected {
-        let mut used: usize = items[..=sel].iter().map(|s| s.chars().count() + 2).sum();
-        while used > width.saturating_sub(4) && first < sel {
-            used -= items[first].chars().count() + 2;
-            first += 1;
-        }
-    }
-    let mut spans = vec![Span::raw(if first > 0 { "< " } else { " " })];
-    let mut used = 2;
-    for (i, item) in items.iter().enumerate().skip(first) {
-        let w = item.chars().count() + 2;
-        if used + w > width.saturating_sub(2) {
-            spans.push(Span::raw(">"));
-            break;
-        }
-        let style = if Some(i) == selected { hl } else { bg };
-        spans.push(Span::styled(item.clone(), style));
-        spans.push(Span::raw("  "));
-        used += w;
-    }
-    f.render_widget(Paragraph::new(Line::from(spans)).style(bg), area);
 }
 
 fn draw_status(f: &mut Frame, app: &App, play: Option<(usize, Location, f64, f64)>, area: Rect) {
@@ -395,10 +452,8 @@ fn draw_status(f: &mut Frame, app: &App, play: Option<(usize, Location, f64, f64
 
 fn draw_cmdline(f: &mut Frame, app: &App, area: Rect) {
     match app.mode {
-        Mode::Command => {
-            f.render_widget(Paragraph::new(format!(":{}", app.cmdline)), area);
-            f.set_cursor_position((area.x + 1 + app.cmdline.chars().count() as u16, area.y));
-        }
+        // Typed in the command palette.
+        Mode::Command => {}
         Mode::Normal | Mode::Insert | Mode::Visual | Mode::Play => {
             if let Some(m) = &app.message {
                 let style = if m.error {

@@ -35,6 +35,21 @@ pub struct Cursor {
     pub voice: usize,
 }
 
+/// What the command palette shows (see [`App::palette`]).
+#[derive(Debug, Clone, PartialEq)]
+pub struct Palette {
+    pub input: String,
+    pub items: Vec<PaletteItem>,
+    pub selected: Option<usize>,
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub struct PaletteItem {
+    pub text: String,
+    /// Short description, for command names.
+    pub description: Option<&'static str>,
+}
+
 #[derive(Debug, Clone)]
 pub struct Pane {
     pub buffer: usize,
@@ -379,7 +394,10 @@ impl App {
             }
             return;
         }
-        if !matches!(key.code, KeyCode::Tab | KeyCode::BackTab) {
+        if !matches!(
+            key.code,
+            KeyCode::Tab | KeyCode::BackTab | KeyCode::Up | KeyCode::Down
+        ) {
             self.completion = None;
         }
         match key.code {
@@ -404,11 +422,15 @@ impl App {
                     self.leave_command_mode();
                 }
             }
-            KeyCode::Up | KeyCode::Down if !self.history.is_empty() => {
+            // Up/Down move through the palette's candidates; <C-p>/<C-n> recall history.
+            KeyCode::Down => self.complete_step(true),
+            KeyCode::Up => self.complete_step(false),
+            KeyCode::Char('p' | 'n') if key.ctrl && !self.history.is_empty() => {
+                let back = key.code == KeyCode::Char('p');
                 let last = self.history.len() - 1;
-                let pos = match (key.code, self.history_pos) {
-                    (KeyCode::Up, None) => Some(last),
-                    (KeyCode::Up, Some(p)) => Some(p.saturating_sub(1)),
+                let pos = match (back, self.history_pos) {
+                    (true, None) => Some(last),
+                    (true, Some(p)) => Some(p.saturating_sub(1)),
                     (_, Some(p)) if p < last => Some(p + 1),
                     _ => None,
                 };
@@ -488,12 +510,37 @@ impl App {
         }
     }
 
-    /// Completion candidates to show while completing, with the selected one.
-    pub fn wildmenu(&self) -> Option<(&[String], Option<usize>)> {
-        self.completion
-            .as_ref()
-            .filter(|(c, _)| c.items.len() > 1)
-            .map(|(c, i)| (c.items.as_slice(), *i))
+    /// The command palette while in Command mode: the typed line, the completions of the word
+    /// being typed (updated as you type; Tab cycles through them) and which one is selected.
+    pub fn palette(&self) -> Option<Palette> {
+        use crate::complete::{complete, describe};
+        if self.mode != Mode::Command {
+            return None;
+        }
+        let (c, selected) = match &self.completion {
+            Some((c, i)) => (c.clone(), *i),
+            None => {
+                let cwd = std::env::current_dir().unwrap_or_default();
+                let score_dir = self.buffer().path.as_deref().and_then(Path::parent);
+                (
+                    complete(&self.cmdline, &cwd, score_dir, self.completion_ignore_case),
+                    None,
+                )
+            }
+        };
+        let items = c
+            .items
+            .into_iter()
+            .map(|text| PaletteItem {
+                description: if c.commands { describe(&text) } else { None },
+                text,
+            })
+            .collect();
+        Some(Palette {
+            input: self.cmdline.clone(),
+            items,
+            selected,
+        })
     }
 
     pub(crate) fn run_counted(&mut self, cmd: Command, count: Option<usize>) {

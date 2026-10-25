@@ -174,6 +174,9 @@ pub fn build(
     if app.show_help {
         draw_help(scene, app, main);
     }
+    if let Some(p) = app.palette() {
+        draw_palette(scene, &p, width, height);
+    }
     views.cache.retain(|id, _| app.panes.contains_key(id));
 }
 
@@ -706,27 +709,126 @@ fn beat_fallback<'a>(layout: &'a Layout, r: &BeatRef) -> Option<&'a muse_engrave
     })
 }
 
+/// Rows of candidates the palette shows at once.
+const PALETTE_ROWS: usize = 12;
+
+/// The command palette: a rounded box near the top centre with the typed command and, below
+/// it, the completions of the word being typed (descriptions right-aligned for commands).
+fn draw_palette(scene: &mut Scene, p: &muse_app::Palette, width: f64, height: f64) {
+    let fonts = muse_engrave::fonts::fonts();
+    let w = (width - 40.0).clamp(200.0, 680.0);
+    let x0 = (width - w) / 2.0;
+    let y0 = TAB_BAR + 36.0;
+    let input_h = 38.0;
+    let row_h = 26.0;
+    let room = ((height - y0 - input_h - 60.0) / row_h).max(0.0) as usize;
+    let rows = p.items.len().min(PALETTE_ROWS).min(room);
+    let h = input_h
+        + if rows > 0 {
+            rows as f64 * row_h + 10.0
+        } else {
+            0.0
+        };
+    // Shadow, frame, input.
+    scene.fill(
+        Fill::NonZero,
+        Affine::IDENTITY,
+        Color::from_rgba8(0, 0, 0, 70),
+        None,
+        &RoundedRect::new(x0 - 2.0, y0 + 2.0, x0 + w + 2.0, y0 + h + 6.0, 12.0),
+    );
+    let frame = RoundedRect::new(x0, y0, x0 + w, y0 + h, 10.0);
+    scene.fill(Fill::NonZero, Affine::IDENTITY, CHROME, None, &frame);
+    scene.stroke(&Stroke::new(1.0), Affine::IDENTITY, ACCENT, None, &frame);
+    let line = format!(":{}", p.input);
+    let ty = y0 + 25.0;
+    text(
+        scene,
+        &line,
+        x0 + 14.0,
+        ty,
+        16.0,
+        Align::Left,
+        Color::WHITE,
+        false,
+    );
+    let cx = x0 + 14.0 + fonts.text_width(FontKind::Text, &line, 16.0) + 1.0;
+    fill(scene, Rect::new(cx, ty - 15.0, cx + 2.0, ty + 4.0), ACCENT);
+    if rows == 0 {
+        return;
+    }
+    fill(
+        scene,
+        Rect::new(x0 + 8.0, y0 + input_h - 1.0, x0 + w - 8.0, y0 + input_h),
+        Color::from_rgba8(70, 72, 80, 255),
+    );
+    // Scroll so the selected candidate is visible.
+    let first = match p.selected {
+        Some(sel) if sel >= rows => sel + 1 - rows,
+        _ => 0,
+    };
+    for (k, item) in p.items.iter().enumerate().skip(first).take(rows) {
+        let ry = y0 + input_h + 5.0 + (k - first) as f64 * row_h;
+        let selected = p.selected == Some(k);
+        if selected {
+            scene.fill(
+                Fill::NonZero,
+                Affine::IDENTITY,
+                Color::from_rgba8(250, 190, 40, 60),
+                None,
+                &RoundedRect::new(x0 + 6.0, ry, x0 + w - 6.0, ry + row_h - 2.0, 6.0),
+            );
+        }
+        let base = ry + row_h / 2.0 + 4.5;
+        let color = if selected { ACCENT } else { CHROME_TEXT };
+        text(
+            scene,
+            &item.text,
+            x0 + 16.0,
+            base,
+            14.0,
+            Align::Left,
+            color,
+            selected,
+        );
+        if let Some(d) = item.description {
+            text(
+                scene,
+                d,
+                x0 + w - 16.0,
+                base,
+                13.0,
+                Align::Right,
+                DIM,
+                false,
+            );
+        }
+    }
+    if p.items.len() > 1 {
+        let more = match p.selected {
+            Some(i) => format!("{} / {}", i + 1, p.items.len()),
+            None => format!("{} matches", p.items.len()),
+        };
+        text(
+            scene,
+            &more,
+            x0 + w - 12.0,
+            y0 + 24.0,
+            11.0,
+            Align::Right,
+            DIM,
+            false,
+        );
+    }
+}
+
 /// The command line while typing a command, otherwise the last message.
 fn draw_command_line(scene: &mut Scene, app: &App, width: f64, height: f64) {
     // Command line / message.
     let cy = height - 8.0;
     match app.mode {
-        Mode::Command => {
-            let line = format!(":{}", app.cmdline);
-            text(
-                scene,
-                &line,
-                10.0,
-                cy,
-                14.0,
-                Align::Left,
-                Color::WHITE,
-                false,
-            );
-            let cx =
-                10.0 + muse_engrave::fonts::fonts().text_width(FontKind::Text, &line, 14.0) + 1.0;
-            fill(scene, Rect::new(cx, cy - 13.0, cx + 2.0, cy + 3.0), ACCENT);
-        }
+        // Typed in the command palette.
+        Mode::Command => {}
         Mode::Normal | Mode::Insert | Mode::Visual | Mode::Play => {
             if let Some(m) = &app.message {
                 let c = if m.error {
@@ -761,75 +863,6 @@ fn draw_status(
 ) {
     let y0 = height - STATUS - CMDLINE;
     fill(scene, Rect::new(0.0, y0, width, height), CHROME);
-    if let Some((items, selected)) = app.wildmenu() {
-        // Completion candidates replace the status line while completing.
-        let fonts = muse_engrave::fonts::fonts();
-        let widths: Vec<f64> = items
-            .iter()
-            .map(|s| fonts.text_width(FontKind::Text, s, 13.0) + 18.0)
-            .collect();
-        let mut first = 0;
-        if let Some(sel) = selected {
-            while widths[first..=sel].iter().sum::<f64>() > width - 40.0 && first < sel {
-                first += 1;
-            }
-        }
-        let mut x = 10.0;
-        for (i, item) in items.iter().enumerate().skip(first) {
-            if x + widths[i] > width - 10.0 {
-                text(
-                    scene,
-                    "…",
-                    x,
-                    y0 + 17.5,
-                    13.0,
-                    Align::Left,
-                    CHROME_TEXT,
-                    false,
-                );
-                break;
-            }
-            if Some(i) == selected {
-                scene.fill(
-                    Fill::NonZero,
-                    Affine::IDENTITY,
-                    ACCENT,
-                    None,
-                    &RoundedRect::new(
-                        x - 4.0,
-                        y0 + 4.0,
-                        x + widths[i] - 14.0,
-                        y0 + STATUS - 4.0,
-                        4.0,
-                    ),
-                );
-                text(
-                    scene,
-                    item,
-                    x + 1.0,
-                    y0 + 17.5,
-                    13.0,
-                    Align::Left,
-                    CHROME,
-                    true,
-                );
-            } else {
-                text(
-                    scene,
-                    item,
-                    x + 1.0,
-                    y0 + 17.5,
-                    13.0,
-                    Align::Left,
-                    CHROME_TEXT,
-                    false,
-                );
-            }
-            x += widths[i];
-        }
-        draw_command_line(scene, app, width, height);
-        return;
-    }
     let (label, color) = match app.mode {
         Mode::Normal => (" NORMAL ", Color::from_rgba8(90, 150, 230, 255)),
         Mode::Command => (" COMMAND ", Color::from_rgba8(100, 190, 120, 255)),

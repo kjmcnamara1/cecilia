@@ -461,18 +461,164 @@ mod key_tests {
         assert_eq!(app.cmdline, "layout ");
         keys(&mut app, "<Tab>");
         assert_eq!(app.cmdline, "layout horizontal");
-        let (items, sel) = app.wildmenu().unwrap();
-        assert_eq!((items.len(), sel), (3, Some(0)));
-        keys(&mut app, "<Tab><Tab><S-Tab>");
+        let p = app.palette().unwrap();
+        assert_eq!((p.items.len(), p.selected), (3, Some(0)));
+        keys(&mut app, "<Tab><Down><Up>");
         assert_eq!(app.cmdline, "layout page");
         // Typing ends the completion.
         keys(&mut app, "x");
-        assert!(app.wildmenu().is_none());
+        assert!(app.palette().unwrap().selected.is_none());
         assert_eq!(app.cmdline, "layout pagex");
         // Nothing longer in common: the first Tab picks the first candidate.
         keys(&mut app, "<C-u>sync-<Tab>");
         assert_eq!(app.cmdline, "sync-clear");
         keys(&mut app, "<Tab>");
         assert_eq!(app.cmdline, "sync-detect");
+    }
+}
+
+/// One-line description of a command, shown in the command palette.
+pub fn describe(command: &str) -> Option<&'static str> {
+    Some(match command {
+        "append" => "Insert mode after the cursor beat",
+        "audio" => "Attach an audio file to the score (off detaches)",
+        "bar" | "goto-bar" => "Go to bar number",
+        "bar-delete" => "Delete the cursor bar",
+        "bar-end" => "Cursor to the last beat of the bar",
+        "bar-insert-after" => "Insert an empty bar after the cursor",
+        "bar-insert-before" => "Insert an empty bar before the cursor",
+        "bar-next" => "Next bar",
+        "bar-prev" => "Previous bar",
+        "bar-start" => "Cursor to the first beat of the bar",
+        "beat-new" => "New beat after the cursor",
+        "beat-next" => "Next beat",
+        "beat-prev" => "Previous beat",
+        "capo" => "Set the capo fret",
+        "change" => "Change operator (delete, then insert)",
+        "chant-to-modern" => "Turn the chant track into a staff track",
+        "chant-view" => "Square notation / modern view of chant",
+        "clef" => "Chant clef (c1–c4, f1–f4, cb3)",
+        "close" | "close-pane" => "Close the pane",
+        "command-mode" => "Open the command line",
+        "completion-ignore-case" => "Toggle case-insensitive completion",
+        "count-in" => "Toggle the count-in before playing",
+        "delete" => "Delete operator",
+        "delete-note" => "Delete the note under the cursor",
+        "dot" => "Toggle a dot on the beat",
+        "duration" => "Set the note value (1, 2, 4 … 64)",
+        "duration-longer" => "Double the beat's length",
+        "duration-shorter" => "Halve the beat's length",
+        "earlier" | "undo-older" => "Go to the older undo state (across branches)",
+        "enew" | "new" => "New empty score",
+        "focus-down" => "Focus the pane below",
+        "focus-left" => "Focus the pane to the left",
+        "focus-right" => "Focus the pane to the right",
+        "focus-up" => "Focus the pane above",
+        "follow-toggle" => "Toggle following playback",
+        "gabc" => "Show or replace the chant syllable as GABC",
+        "goto-first" => "Go to the first bar",
+        "goto-last" => "Go to the last bar",
+        "help" => "Show all key bindings",
+        "insert" => "Insert mode at the cursor",
+        "insert-next" => "Insert after the cursor beat",
+        "interpretation" => "Chant rhythm: equalist or solesmes",
+        "key" => "Key signature from the cursor bar",
+        "later" | "undo-newer" => "Go to the newer undo state (across branches)",
+        "layout" => "Score layout of this pane",
+        "loop" => "Loop bars a–b",
+        "loop-toggle" => "Loop the selection or cursor bar",
+        "lyrics" => "Lyrics from the cursor on",
+        "lyrics-clear" => "Remove a verse of lyrics",
+        "metronome" => "Toggle the metronome",
+        "mix" => "Mix: both, audio or midi",
+        "modern-to-chant" => "Open the track's melody as chant",
+        "mute" => "Toggle muting a track",
+        "nop" => "Do nothing",
+        "normal" => "Back to Normal mode",
+        "note" => "Set the cursor note's pitch (e.g. C#4)",
+        "note-next" => "Next note",
+        "note-prev" => "Previous note",
+        "octave-down" => "Note down an octave",
+        "octave-up" => "Note up an octave",
+        "open" => "Open a file",
+        "page-down" => "Scroll forward a page of bars",
+        "page-up" => "Scroll back a page of bars",
+        "pause" => "Pause playback",
+        "pitch" => "Shift the recording's pitch (semitones)",
+        "pitch-down" => "Note down a semitone",
+        "pitch-up" => "Note up a semitone",
+        "play" => "Play from the cursor",
+        "play-macro" => "Replay a recorded macro",
+        "play-toggle" => "Play / pause",
+        "put" => "Paste after the cursor",
+        "put-before" => "Paste before the cursor",
+        "q" | "quit" => "Close the pane (quit with the last one)",
+        "q!" | "quit!" => "Close the pane, discarding changes",
+        "qa" | "quitall" => "Quit muse",
+        "qa!" | "quitall!" => "Quit muse, discarding changes",
+        "record-macro" => "Record a macro into a register",
+        "redo" => "Redo",
+        "refinger" => "Re-finger the track to minimise hand movement",
+        "register" => "Use a register for the next yank/put",
+        "repeat" => "Repeat the last change",
+        "repeat-end" => "Toggle a repeat end (times played)",
+        "repeat-start" => "Toggle a repeat start",
+        "rest" => "Make the beat a rest",
+        "section" => "Set or clear the bar's section name",
+        "solo" => "Toggle soloing a track",
+        "source" => "Reload the configuration",
+        "speed" => "Playback speed in percent",
+        "speed-down" => "Slower playback",
+        "speed-up" => "Faster playback",
+        "split" => "Split the pane horizontally",
+        "stop" => "Stop playback",
+        "string-down" => "Cursor to the next lower string",
+        "string-up" => "Cursor to the next higher string",
+        "sync" => "Start or stop tapping sync points",
+        "sync-clear" => "Remove all audio sync points",
+        "sync-detect" => "Sync the audio by beat detection",
+        "sync-tap" => "Sync point at the playing bar",
+        "tab-next" => "Next tab",
+        "tab-prev" => "Previous tab",
+        "tabclose" => "Close the tab",
+        "tabedit" | "tabnew" => "Open a file in a new tab",
+        "tempo" => "Tempo from the cursor bar",
+        "text" => "Text above the beat",
+        "time" => "Time signature from the cursor bar",
+        "toggle" => "Toggle a technique on the note",
+        "track" => "Go to track number",
+        "track-add" => "Add a track (guitar, bass, drums, piano, voice)",
+        "track-delete" => "Delete the track",
+        "track-next" => "Next track",
+        "track-prev" => "Previous track",
+        "trainer" => "Speed trainer: start, target, step",
+        "transpose" => "Transpose the track (semitones)",
+        "tuning" => "Retune the track, keeping pitches",
+        "tuplet" => "Make the beat a tuplet",
+        "undo" => "Undo",
+        "visual" => "Visual mode (beats)",
+        "visual-bar" => "Visual mode (bars)",
+        "voice" => "Edit voice 1–4",
+        "volume" => "Level of midi, audio or metronome",
+        "vsplit" => "Split the pane vertically",
+        "w" | "write" => "Save (or save as / export by extension)",
+        "waveform" => "Toggle this pane's waveform strip",
+        "waveform-global" => "Toggle the window waveform bar",
+        "wq" | "write-quit" => "Save and close the pane",
+        "yank" => "Yank operator",
+        "zoom-in" => "Zoom in",
+        "zoom-out" => "Zoom out",
+        "zoom-reset" => "Reset zoom",
+        _ => return None,
+    })
+}
+
+#[cfg(test)]
+mod describe_tests {
+    #[test]
+    fn every_command_has_a_description() {
+        for name in super::COMMANDS {
+            assert!(super::describe(name).is_some(), "{name}");
+        }
     }
 }

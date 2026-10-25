@@ -116,12 +116,14 @@ tom, `m` mid tom, `f` floor tom (`r` is still a rest, `g`/`a` ghost and accent).
 
 ## Command mode (selected)
 
-`<Tab>` completes the word being typed: command names, then arguments — file names for `:open`,
-`:w`, `:tabnew` and `:audio` (folders first, only files muse can open or write), and the values of
+`:` opens the **command palette**, a box near the top of the window (in the terminal UI too).
+As you type, the matches for the word being typed are listed below it: command names with a short
+description on the right, then each command's arguments — file names for `:open`, `:w`,
+`:tabnew` and `:audio` (folders first, only files muse can open or write) and the values of
 `:layout`, `:mix`, `:volume`, `:track-add`, `:tuning`, `:toggle`, `:duration`, `:clef`,
-`:interpretation`. A unique match is filled in; otherwise the common part, then further `<Tab>`
-/ `<S-Tab>` cycle through the candidates, which are listed above the command line. `<Up>`/`<Down>`
-recall history.
+`:interpretation`. `<Tab>` fills in a unique match (or the common part), and `<Tab>`/`<S-Tab>`
+or `<Down>`/`<Up>` move through the list, putting the selected match on the line. `<Enter>`
+runs the line, `<Esc>` closes the palette, `<C-p>`/`<C-n>` recall earlier commands.
 
 Matching ignores letter case unless `ui.completion_ignore_case = false` in `config.toml`.
 `:completion-ignore-case [on|off]` changes it on the fly (without an argument it toggles); bind
