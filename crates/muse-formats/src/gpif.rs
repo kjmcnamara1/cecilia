@@ -107,6 +107,8 @@ struct TrackInfo {
     tuning: Vec<u8>,
     /// GP7 drum kits: output MIDI note per instrument articulation index.
     articulations: Vec<u8>,
+    /// Notation sounds an octave below where it is written (`<Transpose><Octave>-1`).
+    octave_down: bool,
     diagrams: HashMap<String, Chord>,
 }
 
@@ -187,6 +189,7 @@ pub fn read_gpif(xml: &str) -> Result<Score> {
             infos.push(TrackInfo {
                 tuning: info.tuning.clone(),
                 articulations: info.articulations.clone(),
+                octave_down: info.octave_down,
                 diagrams: info.diagrams.clone(),
             });
         }
@@ -202,10 +205,12 @@ pub fn read_gpif(xml: &str) -> Result<Score> {
         let bar_ids = ids(text(mb_node, "Bars"));
         for (ti, track) in score.tracks.iter_mut().enumerate() {
             let node = bar_ids.get(ti).and_then(|id| bars.get(id));
-            if track.bars.is_empty() && track.kind == TrackKind::Pitched {
+            if track.bars.is_empty() && track.kind != TrackKind::Drums {
+                // Kept for now; reduced to an override of the default once notes are read.
+                let down = infos[ti].octave_down;
                 track.clef = match node.and_then(|b| text(*b, "Clef")) {
-                    Some("F4") => Some(StaffClef::Bass),
-                    Some("G2") => Some(StaffClef::Treble),
+                    Some("F4") => Some(StaffClef::new(true, down)),
+                    Some("G2") => Some(StaffClef::new(false, down)),
                     _ => None,
                 };
             }
@@ -220,6 +225,14 @@ pub fn read_gpif(xml: &str) -> Result<Score> {
         return Err(err("score has no bars"));
     }
 
+    // Keep a track's clef only where it differs from the one muse would choose anyway.
+    for t in &mut score.tracks {
+        if let Some(c) = t.clef.take() {
+            if t.staff_clef() != c {
+                t.clef = Some(c);
+            }
+        }
+    }
     score.anacrusis = path(root, &["MasterTrack", "Anacrusis"]).is_some();
     read_automations(root, &mut score);
     Ok(score)
@@ -382,12 +395,22 @@ fn read_track(t: Node) -> (Track, TrackInfo) {
             diagrams.insert(id.to_string(), chord);
         }
     }
+    let fretted = track.kind == TrackKind::Fretted;
     (
         track,
         TrackInfo {
             tuning,
             articulations,
             diagrams,
+            // GP7 states the notation octave; GP6 writes fretted instruments an octave up.
+            octave_down: match (
+                num::<i32>(path(t, &["Transpose", "Octave"]).and_then(|n| n.text())),
+                num::<i32>(path(t, &["PartSounding", "TranspositionPitch"]).and_then(|n| n.text())),
+            ) {
+                (Some(o), _) => o < 0,
+                (None, Some(p)) => p <= -12,
+                (None, None) => fretted,
+            },
         },
     )
 }

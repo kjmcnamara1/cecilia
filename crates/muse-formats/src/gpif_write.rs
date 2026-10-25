@@ -458,7 +458,11 @@ fn write_track_gp6(
         _ => instrument.to_string(),
     };
     let _ = writeln!(x, "<Instrument ref=\"{instrument}\" />");
-    let transposition = if t.kind == TrackKind::Fretted { -12 } else { 0 };
+    let transposition = if t.kind != TrackKind::Drums && t.staff_clef().octave_down() {
+        -12
+    } else {
+        0
+    };
     let _ = writeln!(
         x,
         "<PartSounding><NominalKey>{}</NominalKey><TranspositionPitch>{transposition}</TranspositionPitch></PartSounding>",
@@ -564,7 +568,11 @@ fn write_track(
         x.push_str("<Element><Name>Pitched</Name><Type>pitched</Type><SoundbankName></SoundbankName><Articulations><Articulation><Name></Name><StaffLine>0</StaffLine><Noteheads>noteheadBlack noteheadHalf noteheadWhole</Noteheads><TechniquePlacement>outside</TechniquePlacement><TechniqueSymbol></TechniqueSymbol><InputMidiNumbers></InputMidiNumbers><OutputMidiNumber>0</OutputMidiNumber></Articulation></Articulations></Element>\n");
     }
     x.push_str("</Elements>\n</InstrumentSet>\n");
-    let octave = if t.kind == TrackKind::Fretted { -1 } else { 0 };
+    let octave = if t.kind != TrackKind::Drums && t.staff_clef().octave_down() {
+        -1
+    } else {
+        0
+    };
     let _ = writeln!(
         x,
         "<Transpose><Chromatic>0</Chromatic><Octave>{octave}</Octave></Transpose>"
@@ -796,8 +804,7 @@ fn write_master_bar(x: &mut String, mb: &MasterBar, bar_ids: &[usize]) {
 fn clef(t: &Track) -> &'static str {
     match t.kind {
         TrackKind::Drums => "Neutral",
-        TrackKind::Fretted if instrument_type(t).0 == "electricBass" => "F4",
-        TrackKind::Pitched | TrackKind::Chant if t.staff_clef() == StaffClef::Bass => "F4",
+        _ if t.staff_clef().is_bass() => "F4",
         _ => "G2",
     }
 }

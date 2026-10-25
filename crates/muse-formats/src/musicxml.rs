@@ -368,18 +368,22 @@ fn fit_voice(voice: &Voice, ts: TimeSignature) -> Vec<(Option<usize>, Beat)> {
 fn clef_xml(t: &Track) -> String {
     match t.kind {
         TrackKind::Drums => "<clef><sign>percussion</sign></clef>".into(),
-        TrackKind::Fretted => {
-            let low = t.strings.iter().copied().min().unwrap_or(40);
-            if low < 36 {
-                "<clef><sign>F</sign><line>4</line><clef-octave-change>-1</clef-octave-change></clef>".into()
-            } else {
-                "<clef><sign>G</sign><line>2</line><clef-octave-change>-1</clef-octave-change></clef>".into()
-            }
+        _ => {
+            let c = t.staff_clef();
+            format!(
+                "<clef>{}{}</clef>",
+                if c.is_bass() {
+                    "<sign>F</sign><line>4</line>"
+                } else {
+                    "<sign>G</sign><line>2</line>"
+                },
+                if c.octave_down() {
+                    "<clef-octave-change>-1</clef-octave-change>"
+                } else {
+                    ""
+                }
+            )
         }
-        _ => match t.staff_clef() {
-            StaffClef::Bass => "<clef><sign>F</sign><line>4</line></clef>".into(),
-            StaffClef::Treble => "<clef><sign>G</sign><line>2</line></clef>".into(),
-        },
     }
 }
 
@@ -1103,9 +1107,10 @@ fn read_part(score: &mut Score, part: Node, index: usize, info: PartInfo) {
                     }
                     for c in children(el, "clef") {
                         let staff = num(c.attribute("number")).unwrap_or(1);
+                        let down = num::<i32>(text(c, "clef-octave-change")) == Some(-1);
                         let clef = match text(c, "sign") {
-                            Some("G") => Some(StaffClef::Treble),
-                            Some("F") => Some(StaffClef::Bass),
+                            Some("G") => Some(StaffClef::new(false, down)),
+                            Some("F") => Some(StaffClef::new(true, down)),
                             _ => None,
                         };
                         if let Some(clef) = clef {
@@ -1408,10 +1413,10 @@ fn read_part(score: &mut Score, part: Node, index: usize, info: PartInfo) {
             fret_count: 24,
             capo,
             extra_staff: si > 0,
-            clef: if kind == TrackKind::Pitched {
-                clefs.get(&staff).copied()
-            } else {
+            clef: if kind == TrackKind::Drums {
                 None
+            } else {
+                clefs.get(&staff).copied()
             },
             midi: MidiSettings {
                 program: info.program,
@@ -1437,6 +1442,12 @@ fn read_part(score: &mut Score, part: Node, index: usize, info: PartInfo) {
                 });
             }
             track.bars.push(bar);
+        }
+        // Keep the clef only where it differs from the one muse would choose anyway.
+        if let Some(c) = track.clef.take() {
+            if track.staff_clef() != c {
+                track.clef = Some(c);
+            }
         }
         score.tracks.push(track);
     }

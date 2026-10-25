@@ -123,13 +123,11 @@ impl Clef {
     fn for_track(t: &Track) -> Clef {
         match t.kind {
             TrackKind::Drums => Clef::Percussion,
-            TrackKind::Fretted if t.strings.iter().copied().min().unwrap_or(40) < 36 => {
-                Clef::Bass8vb
-            }
-            TrackKind::Fretted => Clef::Treble8vb,
             _ => match t.staff_clef() {
                 StaffClef::Bass => Clef::Bass,
                 StaffClef::Treble => Clef::Treble,
+                StaffClef::Bass8vb => Clef::Bass8vb,
+                StaffClef::Treble8vb => Clef::Treble8vb,
             },
         }
     }

@@ -187,6 +187,30 @@ pub enum TrackKind {
 pub enum StaffClef {
     Treble,
     Bass,
+    /// Treble clef sounding an octave lower than written (guitar notation).
+    Treble8vb,
+    /// Bass clef sounding an octave lower than written (bass guitar notation).
+    Bass8vb,
+}
+
+impl StaffClef {
+    pub fn is_bass(self) -> bool {
+        matches!(self, StaffClef::Bass | StaffClef::Bass8vb)
+    }
+
+    /// Whether the music sounds an octave below where it is written.
+    pub fn octave_down(self) -> bool {
+        matches!(self, StaffClef::Treble8vb | StaffClef::Bass8vb)
+    }
+
+    pub fn new(bass: bool, octave_down: bool) -> Self {
+        match (bass, octave_down) {
+            (false, false) => StaffClef::Treble,
+            (true, false) => StaffClef::Bass,
+            (false, true) => StaffClef::Treble8vb,
+            (true, true) => StaffClef::Bass8vb,
+        }
+    }
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
@@ -232,7 +256,8 @@ pub struct Track {
     /// grand staff). Parts are engraved together and saved as one multi-staff instrument.
     #[serde(default, skip_serializing_if = "std::ops::Not::not")]
     pub extra_staff: bool,
-    /// Clef of a non-fretted, non-drum staff.
+    /// Clef of the standard staff when the source file sets one that differs from the default
+    /// ([`Track::staff_clef`]).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub clef: Option<StaffClef>,
     /// Chant notation (chant tracks only).
@@ -251,10 +276,17 @@ impl Track {
         (open + self.capo as u32 + note.fret as u32).min(127) as u8
     }
 
-    /// Clef of a non-fretted staff: the one from the source file, else bass for low parts.
+    /// Clef of the standard staff: the one from the source file, else for fretted instruments
+    /// the octave-down treble clef, or bass clef when the highest string is low (bass
+    /// guitars); for other parts treble or bass by how low their notes are.
     pub fn staff_clef(&self) -> StaffClef {
         if let Some(c) = self.clef {
             return c;
+        }
+        if self.kind == TrackKind::Fretted {
+            // A 7-string guitar's low B is lower than a bass's top string is high.
+            let top = self.strings.iter().copied().max().unwrap_or(64);
+            return StaffClef::new(top < 52, true);
         }
         let pitches: Vec<u32> = self
             .bars
