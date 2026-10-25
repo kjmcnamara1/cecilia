@@ -1183,7 +1183,7 @@ mod tests {
         assert_eq!(a.mode, Mode::Normal);
         keys(&mut a, "u");
         assert_eq!(frets(&a, 0), Vec::<Option<u8>>::new());
-        keys(&mut a, "<C-r>");
+        keys(&mut a, "U");
         assert_eq!(frets(&a, 0), vec![Some(3), Some(12), Some(5)]);
     }
 

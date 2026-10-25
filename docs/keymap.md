@@ -60,7 +60,7 @@ Items marked _(M1)_ are implemented in the first milestone; the rest are the pla
 | `c{motion}` / `cc` | change (delete, then insert) |
 | `"{reg}` | use register for the next yank/delete/put |
 | `.` | repeat the last change (including an insert session) |
-| `u` / `<C-r>` / `g-` / `g+` | undo / redo / older / newer state across undo branches |
+| `u` / `U` / `g-` / `g+` | undo / redo / older / newer state across undo branches |
 | `q{reg}` … `q` / `[count]@{reg}` / `@@` | record / play / replay a macro |
 | `v` / `V` | visual beats / visual bars (then `d`, `y`, `c`, `x`) |
 | `o` / `O` | new bar after / before |

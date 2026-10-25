@@ -154,7 +154,7 @@ const DEFAULT_NORMAL: &[(&str, &str)] = &[
     ("p", "put"),
     ("P", "put-before"),
     ("u", "undo"),
-    ("<C-r>", "redo"),
+    ("U", "redo"),
     ("g-", "undo-older"),
     ("g+", "undo-newer"),
     (".", "repeat"),
