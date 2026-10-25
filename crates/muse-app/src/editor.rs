@@ -113,6 +113,7 @@ impl App {
         }
         match self.mode {
             Mode::Command => self.handle_command_key(key),
+            Mode::Picker => self.handle_picker_key(key),
             Mode::Normal => self.normal_key(key),
             Mode::Insert => self.insert_key(key),
             Mode::Visual => self.visual_key(key),

@@ -982,7 +982,11 @@ fn draw_palette(scene: &mut Scene, p: &muse_app::Palette, width: f64, height: f6
     let frame = RoundedRect::new(x0, y0, x0 + w, y0 + h, 10.0);
     scene.fill(Fill::NonZero, Affine::IDENTITY, CHROME, None, &frame);
     scene.stroke(&Stroke::new(1.0), Affine::IDENTITY, ACCENT, None, &frame);
-    let line = format!(":{}", p.input);
+    let line = if p.prompt == ":" {
+        format!(":{}", p.input)
+    } else {
+        format!("{} {}", p.prompt, p.input)
+    };
     let ty = y0 + 25.0;
     text(
         scene,
@@ -1056,7 +1060,7 @@ fn draw_palette(scene: &mut Scene, p: &muse_app::Palette, width: f64, height: f6
                 selected,
             );
         }
-        if let Some(d) = item.description {
+        if let Some(d) = &item.description {
             text(
                 scene,
                 d,
@@ -1093,7 +1097,7 @@ fn draw_command_line(scene: &mut Scene, app: &App, width: f64, height: f64) {
     let cy = height - 8.0;
     match app.mode {
         // Typed in the command palette.
-        Mode::Command => {}
+        Mode::Command | Mode::Picker => {}
         Mode::Normal | Mode::Insert | Mode::Visual | Mode::Play => {
             if let Some(m) = &app.message {
                 let c = if m.error {
@@ -1135,6 +1139,7 @@ fn draw_status(
         Mode::Visual => (" VISUAL ", Color::from_rgba8(190, 120, 220, 255)),
         Mode::Play if app.paused => (" PAUSED ", Color::from_rgba8(170, 60, 55, 255)),
         Mode::Play => (" PLAY ", Color::from_rgba8(225, 60, 50, 255)),
+        Mode::Picker => (" PICK ", Color::from_rgba8(80, 190, 200, 255)),
     };
     let w = muse_engrave::fonts::fonts().text_width(FontKind::Bold, label, 13.0) + 8.0;
     scene.fill(

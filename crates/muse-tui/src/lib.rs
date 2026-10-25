@@ -299,11 +299,15 @@ fn draw_palette(f: &mut Frame, p: &muse_app::Palette, screen: Rect) {
     let block = Block::bordered()
         .border_type(BorderType::Rounded)
         .border_style(Style::default().fg(Color::Yellow))
-        .title(" Command ")
+        .title(format!(" {} ", p.title))
         .title_bottom(Line::from(more).right_aligned());
     let inner = block.inner(area);
     f.render_widget(block, area);
-    let input = format!(":{}", p.input);
+    let input = if p.prompt == ":" {
+        format!(":{}", p.input)
+    } else {
+        format!("{} {}", p.prompt, p.input)
+    };
     f.render_widget(Paragraph::new(input.clone()), Rect { height: 1, ..inner });
     f.set_cursor_position((inner.x + input.chars().count() as u16, inner.y));
     if rows == 0 {
@@ -337,7 +341,7 @@ fn draw_palette(f: &mut Frame, p: &muse_app::Palette, screen: Rect) {
         let width = row.width as usize;
         let name: String = item.text.chars().take(width.saturating_sub(1)).collect();
         let mut line = format!(" {name}");
-        if let Some(d) = item.description {
+        if let Some(d) = &item.description {
             let room = width.saturating_sub(line.chars().count() + 3);
             let d: String = d.chars().take(room).collect();
             let pad = width.saturating_sub(line.chars().count() + d.chars().count() + 1);
@@ -362,7 +366,7 @@ fn draw_palette(f: &mut Frame, p: &muse_app::Palette, screen: Rect) {
                 f.buffer_mut().set_style(Rect { x, width: 1, ..row }, hl);
             }
         }
-        if let Some(d) = item.description.filter(|_| !selected) {
+        if let Some(d) = item.description.as_deref().filter(|_| !selected) {
             // Dim the description part.
             let len = d.chars().take(width).count() as u16;
             let x = row.x + row.width.saturating_sub(len + 1);
@@ -533,6 +537,7 @@ fn draw_status(f: &mut Frame, app: &App, play: Option<(usize, Location, f64, f64
             " COMMAND ",
             Style::default().fg(Color::Black).bg(Color::Green),
         ),
+        Mode::Picker => (" PICK ", Style::default().fg(Color::Black).bg(Color::Cyan)),
         Mode::Play if app.paused => (
             " PAUSED ",
             Style::default()
@@ -609,7 +614,7 @@ fn draw_status(f: &mut Frame, app: &App, play: Option<(usize, Location, f64, f64
 fn draw_cmdline(f: &mut Frame, app: &App, area: Rect) {
     match app.mode {
         // Typed in the command palette.
-        Mode::Command => {}
+        Mode::Command | Mode::Picker => {}
         Mode::Normal | Mode::Insert | Mode::Visual | Mode::Play => {
             if let Some(m) = &app.message {
                 let style = if m.error {

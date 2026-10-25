@@ -18,6 +18,8 @@ pub enum Mode {
     Visual,
     /// While a song plays (or is paused): playback, navigation and view keys only.
     Play,
+    /// Choosing a buffer, view or workspace from a filtered list.
+    Picker,
 }
 
 /// Normal-mode commands that also work in Play mode (nothing that edits the score).
@@ -59,6 +61,8 @@ const PLAY_COMMANDS: &[&str] = &[
     "view-prev",
     "buffer-next",
     "buffer-prev",
+    "pick-buffer",
+    "pick-view",
     "track-next",
     "track-prev",
     "vsplit",
@@ -244,6 +248,9 @@ const DEFAULT_NORMAL: &[(&str, &str)] = &[
     ("L", "buffer-next"),
     ("H", "buffer-prev"),
     ("<leader>x", "buffer-close"),
+    ("<leader>b", "pick-buffer"),
+    ("<leader>V", "pick-view"),
+    ("<leader>W", "pick-workspace"),
     (":", "command-mode"),
     ("ZQ", "quit!"),
     ("ZZ", "wq"),

@@ -123,6 +123,8 @@ pub enum Command {
     WorkspaceOpen(String, bool),
     /// Stop saving the session to the active workspace.
     WorkspaceClose,
+    /// Open a picker: buffers, views or workspaces.
+    Pick(crate::picker::PickerKind),
     /// Show the cursor syllable as GABC, or replace it (`Glo(fg)`, or just notes `fgh`).
     Gabc(Option<String>),
     /// Chant rhythm: "equalist" or "solesmes" (None shows it).
@@ -484,6 +486,13 @@ impl Command {
                 name.ends_with('!'),
             ),
             "workspace-close" => WorkspaceClose,
+            "pick-buffer" => Pick(crate::picker::PickerKind::Buffer),
+            "pick-view" => Pick(crate::picker::PickerKind::View),
+            "pick-workspace" => Pick(crate::picker::PickerKind::Workspace),
+            "pick" => Pick(
+                arg.and_then(crate::picker::PickerKind::parse)
+                    .ok_or("pick: expected buffer, view or workspace")?,
+            ),
             "gabc" => Gabc(arg.map(String::from)),
             "interpretation" => Interpretation(arg.map(String::from)),
             "clef" => ChantClef(arg.ok_or("clef: expected c1–c4, f1–f4 or cb3")?.to_string()),

@@ -38,6 +38,10 @@ pub struct Cursor {
 /// What the command palette shows (see [`App::palette`]).
 #[derive(Debug, Clone, PartialEq)]
 pub struct Palette {
+    /// Shown before the input: ":" for commands, "buffer ›" etc. for pickers.
+    pub prompt: String,
+    /// Title of the box.
+    pub title: String,
     pub input: String,
     pub items: Vec<PaletteItem>,
     pub selected: Option<usize>,
@@ -46,8 +50,8 @@ pub struct Palette {
 #[derive(Debug, Clone, PartialEq)]
 pub struct PaletteItem {
     pub text: String,
-    /// Short description, for command names.
-    pub description: Option<&'static str>,
+    /// Short description (of a command, or a picker entry).
+    pub description: Option<String>,
     /// Character positions that matched the typed text (highlighted).
     pub matched: Vec<usize>,
 }
@@ -182,6 +186,8 @@ pub struct App {
     pub cmdline: String,
     history: Vec<String>,
     history_pos: Option<usize>,
+    /// The open picker (Picker mode).
+    pub(crate) picker: Option<crate::picker::Picker>,
     /// Command-line completion in progress: candidates, where they start and which is shown.
     completion: Option<(crate::complete::Completions, Option<usize>)>,
     pub message: Option<Message>,
@@ -263,6 +269,7 @@ impl App {
             history: Vec::new(),
             history_pos: None,
             completion: None,
+            picker: None,
             message: None,
             show_help: false,
             playing: false,
@@ -817,6 +824,9 @@ impl App {
     /// being typed (updated as you type; Tab cycles through them) and which one is selected.
     pub fn palette(&self) -> Option<Palette> {
         use crate::complete::{complete, describe};
+        if self.mode == Mode::Picker {
+            return self.picker_palette();
+        }
         if self.mode != Mode::Command {
             return None;
         }
@@ -836,12 +846,18 @@ impl App {
             .into_iter()
             .zip(c.positions)
             .map(|(text, matched)| PaletteItem {
-                description: if c.commands { describe(&text) } else { None },
+                description: if c.commands {
+                    describe(&text).map(String::from)
+                } else {
+                    None
+                },
                 text,
                 matched,
             })
             .collect();
         Some(Palette {
+            prompt: ":".into(),
+            title: "Command".into(),
             input: self.cmdline.clone(),
             items,
             selected,
@@ -953,6 +969,7 @@ impl App {
                 }
                 self.effects.push(Effect::Pause);
             }
+            Pick(kind) => self.open_picker(kind),
             CompletionFuzzy(on) => {
                 self.completion_fuzzy = on.unwrap_or(!self.completion_fuzzy);
                 self.completion = None;

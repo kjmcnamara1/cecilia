@@ -56,6 +56,9 @@ unless forced (`:bdelete!`).
 
 | keys                | command                         |        |
 | ------------------- | ------------------------------- | ------ |
+| `<leader>b`         | buffer picker                   |        |
+| `<leader>V`         | view picker                     |        |
+| `<leader>W`         | workspace picker                |        |
 | `L` / `H`           | next / previous buffer tab      |        |
 | `<leader>x`         | close the buffer's tab          |        |
 | `gt` / `gT`         | next / previous view            |        |
@@ -63,9 +66,17 @@ unless forced (`:bdelete!`).
 | `<C-w>h/j/k/l`      | focus pane left/down/up/right   | _(M1)_ |
 | `<C-w>q`            | close pane (the last one closes the view) | _(M1)_ |
 
+**Pickers** open in the command palette's box and list the view's buffers (with their folder,
+● when modified), the views (with their files) or the saved workspaces (with their view and file
+counts). Typing filters the list with the same matching as completion (fuzzy, case-insensitive
+by default) and highlights what matched; the top match is selected — `<Up>`/`<Down>` (or
+`<Tab>`/`<S-Tab>`, `<C-p>`/`<C-n>`) move, `<Enter>` switches, `<Esc>` cancels. The buffer and
+view pickers also work while a song plays.
+
 | command | |
 | --- | --- |
 | `:open {file}` | open a file in the focused pane, adding it to the view's tabs |
+| `:pick-buffer` / `:pick-view` / `:pick-workspace` (`:pick buffer\|view\|workspace`) | open a picker |
 | `:bnext` / `:bprev` / `:buffer N` | next / previous / Nth buffer tab |
 | `:bdelete [N]` / `:bdelete! [N]` | close the focused (or Nth) buffer tab / discarding unsaved changes |
 | `:view-new [file]` | new view: a copy of the current view's tabs, just the current buffer, or empty (`tabline.new_view`) |

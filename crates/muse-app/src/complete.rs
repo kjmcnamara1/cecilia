@@ -80,6 +80,10 @@ pub const COMMANDS: &[&str] = &[
     "page-down",
     "page-up",
     "pause",
+    "pick",
+    "pick-buffer",
+    "pick-view",
+    "pick-workspace",
     "pitch",
     "pitch-down",
     "pitch-up",
@@ -183,6 +187,7 @@ fn values(command: &str) -> Option<&'static [&'static str]> {
         ],
         "track-add" => &["bass", "drums", "guitar", "piano", "voice"],
         "volume" => &["audio", "metronome", "midi"],
+        "pick" => &["buffer", "view", "workspace"],
         "completion-ignore-case" | "completion-fuzzy" | "waveform-global" => {
             &["off", "on", "toggle"]
         }
@@ -312,7 +317,7 @@ impl Matcher {
     }
 
     /// The candidates that match, best first (prefix matches in their given order).
-    fn rank(
+    pub fn rank(
         &self,
         items: impl IntoIterator<Item = String>,
         typed: &str,
@@ -696,6 +701,10 @@ pub fn describe(command: &str) -> Option<&'static str> {
         "page-down" => "Scroll forward a page of bars",
         "page-up" => "Scroll back a page of bars",
         "pause" => "Pause playback",
+        "pick" => "Open a picker: buffer, view or workspace",
+        "pick-buffer" => "Pick a buffer of this view to show",
+        "pick-view" => "Pick a view to switch to",
+        "pick-workspace" => "Pick a saved workspace to open",
         "pitch" => "Shift the recording's pitch (semitones)",
         "pitch-down" => "Note down a semitone",
         "pitch-up" => "Note up a semitone",
