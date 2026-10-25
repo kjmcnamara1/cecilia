@@ -152,6 +152,14 @@ fn main() -> Result<()> {
                         app.handle_key(k);
                     }
                 }
+                // No audio in a screenshot, but show a started song as playing.
+                if app
+                    .take_effects()
+                    .iter()
+                    .any(|e| matches!(e, muse_app::Effect::Play { .. }))
+                {
+                    app.set_playing(true);
+                }
                 let f = cli.scale_factor.max(0.1);
                 let (w, h) = ((1400.0 * f).round() as u32, (900.0 * f).round() as u32);
                 let hover = cli.hover.as_deref().and_then(|h| {

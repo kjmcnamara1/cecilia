@@ -31,10 +31,6 @@ speed = 1.0              # playback speed multiplier
 # "<leader>p" = "play-toggle"
 # "gb" = ["goto-first", "play"]
 
-[keymap.play]
-# Play mode (while a song plays): playback, navigation and view keys only.
-# "p" = "play-toggle"
-
 [keymap.command]
 # "<C-p>" = "normal"
 # "<C-g>" = "completion-ignore-case"   # toggle case-insensitive completion while typing

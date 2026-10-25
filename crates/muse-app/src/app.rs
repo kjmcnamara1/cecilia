@@ -93,6 +93,10 @@ pub struct BufferTab {
     pub modified: bool,
     /// Shown in the focused pane.
     pub active: bool,
+    /// This file is the one playing (only one plays at a time)…
+    pub playing: bool,
+    /// …or is paused.
+    pub paused: bool,
 }
 
 /// File type of a buffer, for its bufferline icon.
@@ -209,6 +213,8 @@ pub struct App {
     play_start: Option<(PaneId, Cursor)>,
     /// Playback is paused (Play mode stays on until stopped).
     pub paused: bool,
+    /// Where the cursor was when playback paused: resuming carries on only if it's still there.
+    paused_at: Option<(PaneId, usize, Cursor)>,
     pub follow: bool,
     /// When the cursor last moved the play position: playhead updates from just before the
     /// player caught up are ignored, so the cursor doesn't bounce back.
@@ -291,6 +297,7 @@ impl App {
             playing_buffer: None,
             play_start: None,
             paused: false,
+            paused_at: None,
             follow,
             seeked: None,
             completion_ignore_case,
@@ -341,6 +348,8 @@ impl App {
                     kind: file_kind(buf.path.as_deref()),
                     modified: buf.modified,
                     active: b == current,
+                    playing: self.playing_buffer == Some(b) && self.playing && !self.paused,
+                    paused: self.playing_buffer == Some(b) && self.paused,
                 })
             })
             .collect()
@@ -746,12 +755,7 @@ impl App {
     }
 
     fn leave_command_mode(&mut self) {
-        // Back to Play mode while a song is playing or paused.
-        self.mode = if self.playing || self.paused {
-            Mode::Play
-        } else {
-            Mode::Normal
-        };
+        self.mode = Mode::Normal;
         self.cmdline.clear();
         self.history_pos = None;
         self.completion = None;
@@ -945,13 +949,18 @@ impl App {
                 self.move_cursor(|s, c| set_bar(s, c, c.bar.saturating_sub(n)))
             }
             PlayToggle => {
-                if self.playing {
+                let here = (self.focused(), self.pane().buffer, self.pane().cursor);
+                if self.playing && self.playing_buffer == Some(here.1) {
                     self.run(Pause)
-                } else if self.paused && self.mode == Mode::Play {
-                    // Carry on from where it was paused.
+                } else if self.playing {
+                    // Another file is playing: it stops, and this one starts.
+                    self.run(Play)
+                } else if self.paused && self.paused_at == Some(here) {
+                    // The cursor is still where playback paused: carry on exactly from there.
                     self.paused = false;
                     self.effects.push(Effect::Resume);
                 } else {
+                    // Playing always starts at the edit cursor.
                     self.run(Play)
                 }
             }
@@ -966,8 +975,7 @@ impl App {
                 self.play_start = Some((self.focused(), pane.cursor));
                 self.playing_buffer = Some(pane.buffer);
                 self.paused = false;
-                self.ed.visual_anchor = None;
-                self.mode = Mode::Play;
+                self.paused_at = None;
                 self.effects.push(Effect::Play {
                     buffer: pane.buffer,
                     bar: pane.cursor.bar,
@@ -975,19 +983,23 @@ impl App {
                 });
             }
             Pause => {
-                if self.mode == Mode::Play {
+                if self.playing || self.paused {
                     self.paused = true;
+                    self.paused_at = Some((self.focused(), self.pane().buffer, self.pane().cursor));
                 }
                 self.effects.push(Effect::Pause);
             }
             Stop => {
                 self.paused = false;
-                if self.mode == Mode::Play {
-                    self.mode = Mode::Normal;
-                }
+                self.paused_at = None;
+                let follow = self.follow;
                 if let Some((pane_id, cursor)) = self.play_start.take() {
                     if let Some(p) = self.panes.get_mut(&pane_id) {
-                        p.cursor = cursor;
+                        // A cursor that followed the playhead goes back with it; one moved
+                        // independently stays where it is.
+                        if follow {
+                            p.cursor = cursor;
+                        }
                         let tick = cursor_tick(&self.buffers[p.buffer].score, &cursor);
                         self.effects.push(Effect::Stop {
                             buffer: p.buffer,
@@ -1290,11 +1302,10 @@ impl App {
 
     // ---- playback feedback ----
 
-    /// Records whether the player is running (called by the frontend). When a song ends by
-    /// itself, Play mode ends with it.
+    /// Records whether the player is running (called by the frontend).
     pub fn set_playing(&mut self, playing: bool) {
-        if self.playing && !playing && !self.paused && self.mode == Mode::Play {
-            self.mode = Mode::Normal;
+        if self.playing && !playing && !self.paused {
+            // The song ended by itself.
             self.play_start = None;
         }
         self.playing = playing;
@@ -1303,14 +1314,17 @@ impl App {
     /// While following playback, keeps the focused pane's cursor on the playing beat (the
     /// frontend calls this each frame while playing). With following off the cursor stays put,
     /// so turning it off mid-playback leaves the cursor where the music was at that moment.
-    /// In Play mode with follow on, a cursor moved by hand takes the play position with it.
+    /// While playing (or paused) with follow on, a cursor moved by hand takes the play position
+    /// with it.
     pub(crate) fn seek_to_cursor(&mut self, before: (PaneId, usize, Cursor)) {
         let pane = self.pane();
         let now = (self.focused(), pane.buffer, pane.cursor);
-        if self.mode != Mode::Play
+        if !(self.playing || self.paused)
             || !self.follow
             || now == before
             || self.playing_buffer != Some(now.1)
+            // Play and Stop already put the playhead at the cursor.
+            || self.effects.iter().any(|e| matches!(e, Effect::Play { .. } | Effect::Stop { .. }))
         {
             return;
         }
@@ -1677,37 +1691,74 @@ mod tests {
     }
 
     #[test]
-    fn play_mode_is_separate_from_normal() {
+    fn playing_keeps_the_editing_modes() {
         let mut app = App::new(Config::default(), None);
         app.run(Command::New);
         keys(&mut app, "i3<Space>5<Esc>0");
         keys(&mut app, "<Space><Space>");
-        assert_eq!(app.mode, Mode::Play);
         app.set_playing(true);
-        // Editing keys do nothing while playing; navigation still works.
-        let before = app.buffer().score.clone();
-        keys(&mut app, "xdd");
-        assert!(app.buffer().score == before);
-        keys(&mut app, "l");
+        assert_eq!(app.mode, Mode::Normal);
+        // With following off, the cursor moves and edits on its own while the music plays.
+        keys(&mut app, "<Space>f");
+        app.take_effects();
+        keys(&mut app, "lx");
         assert_eq!(app.pane().cursor.beat, 1);
-        // Pausing stays in Play mode; resuming continues.
+        assert!(app.buffer().modified);
+        keys(&mut app, "v");
+        assert_eq!(app.mode, Mode::Visual);
+        keys(&mut app, "<Esc>");
+        assert!(
+            !app.take_effects()
+                .iter()
+                .any(|e| matches!(e, Effect::Seek { .. } | Effect::Play { .. }))
+        );
+        // Pausing and resuming with the cursor where it paused carries on…
         keys(&mut app, "<Space><Space>");
         app.set_playing(false);
-        assert!(app.paused && app.mode == Mode::Play);
+        assert!(app.paused);
         app.take_effects();
         keys(&mut app, "<Space><Space>");
         assert_eq!(app.take_effects(), vec![Effect::Resume]);
         app.set_playing(true);
-        // The command line returns to Play mode.
-        keys(&mut app, ":<Esc>");
-        assert_eq!(app.mode, Mode::Play);
-        // Esc stops and returns to Normal.
-        keys(&mut app, "<Esc>");
-        assert_eq!(app.mode, Mode::Normal);
-        // A song that ends by itself ends Play mode too.
+        // …but once it has moved, playing starts at the cursor.
         keys(&mut app, "<Space><Space>");
-        app.set_playing(true);
         app.set_playing(false);
+        keys(&mut app, "0");
+        app.take_effects();
+        keys(&mut app, "<Space><Space>");
+        assert_eq!(
+            app.take_effects(),
+            vec![Effect::Play {
+                buffer: 1,
+                bar: 0,
+                tick: 0
+            }]
+        );
+        // The playing file's tab says so.
+        app.set_playing(true);
+        let tab = |app: &App, b: usize| {
+            app.bufferline()
+                .into_iter()
+                .find(|t| t.buffer == b)
+                .unwrap()
+        };
+        assert!(tab(&app, 1).playing);
+        // Only one file plays: starting another stops this one.
+        app.run(Command::New);
+        app.take_effects();
+        keys(&mut app, "<Space><Space>");
+        assert_eq!(
+            app.take_effects(),
+            vec![Effect::Play {
+                buffer: 2,
+                bar: 0,
+                tick: 0
+            }]
+        );
+        assert!(tab(&app, 2).playing && !tab(&app, 1).playing);
+        // A song that ends by itself just stops.
+        app.set_playing(false);
+        assert!(!tab(&app, 2).playing && !tab(&app, 2).paused);
         assert_eq!(app.mode, Mode::Normal);
     }
 
@@ -1729,7 +1780,7 @@ mod tests {
     }
 
     #[test]
-    fn moving_the_cursor_in_play_mode_moves_the_play_position() {
+    fn moving_the_cursor_while_playing_moves_the_play_position() {
         let mut app = test_app();
         keys(&mut app, "<Space><Space>");
         app.take_effects();

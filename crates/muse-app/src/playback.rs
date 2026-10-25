@@ -281,10 +281,18 @@ impl Playback {
                 }
             }
             Effect::ScoreChanged { buffer } => {
-                // The player keeps the old sequence until the next play reloads it.
                 self.sequences.remove(&buffer);
                 if self.loaded == Some(buffer) {
-                    self.loaded = None;
+                    if app.playing || app.paused {
+                        // Edits made while playing are heard at once: the player swaps in the
+                        // new sequence and keeps its position.
+                        let seq = self.sequence(app, buffer);
+                        if let Some(p) = &self.player {
+                            p.load(seq);
+                        }
+                    } else {
+                        self.loaded = None;
+                    }
                 }
             }
             Effect::AudioChanged { buffer } => {

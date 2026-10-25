@@ -54,6 +54,9 @@ pub struct Views {
     scroll: HashMap<PaneId, (f64, f64)>,
     geometry: Vec<Geometry>,
     last_cursor: HashMap<PaneId, (usize, usize, usize)>,
+    /// The drawn cursor per pane (page, top, x, width) and when: while following playback it
+    /// glides after the playhead instead of jumping from beat to beat.
+    glide: HashMap<PaneId, (usize, f64, f64, f64, std::time::Instant)>,
     /// Mouse position (logical), for hover effects on the tabline.
     pub hover: (f64, f64),
     /// Clickable areas of the tabline drawn last frame.
@@ -70,6 +73,9 @@ enum TablineHit {
     /// Switch to view n.
     View(usize),
 }
+
+/// How fast the cursor glides after the playhead (per second: it covers 1 − e^(−rate·t)).
+const GLIDE_RATE: f64 = 16.0;
 
 fn rgb(c: muse_engrave::display::Color) -> Color {
     Color::from_rgba8(c.r, c.g, c.b, c.a)
@@ -260,7 +266,9 @@ fn draw_tabs(scene: &mut Scene, app: &App, views: &mut Views, width: f64) {
             FontKind::Text
         };
         let name_w = fonts.text_width(font, &name, UI_FONT);
-        let w = 10.0 + 14.0 + 7.0 + name_w + 10.0 + 16.0 + 6.0;
+        // Room for the play indicator after the name, on the file playing audio.
+        let play_w = if tab.playing || tab.paused { 14.0 } else { 0.0 };
+        let w = 10.0 + 14.0 + 7.0 + name_w + play_w + 10.0 + 16.0 + 6.0;
         let r = Rect::new(x, 4.0, x + w, TAB_BAR);
         let over = hovering && r.contains((hx, hy));
         let bg = if tab.active {
@@ -297,6 +305,25 @@ fn draw_tabs(scene: &mut Scene, app: &App, views: &mut Views, width: f64) {
             fg,
             tab.active,
         );
+        if play_w > 0.0 {
+            let px = r.x0 + 31.0 + name_w + 6.0;
+            let red = Color::from_rgba8(235, 70, 60, 255);
+            if tab.playing {
+                let mut p = BezPath::new();
+                p.move_to((px, cy - 4.5));
+                p.line_to((px + 8.0, cy));
+                p.line_to((px, cy + 4.5));
+                p.close_path();
+                scene.fill(Fill::NonZero, Affine::IDENTITY, red, None, &p);
+            } else {
+                fill(scene, Rect::new(px, cy - 4.5, px + 2.8, cy + 4.5), red);
+                fill(
+                    scene,
+                    Rect::new(px + 5.2, cy - 4.5, px + 8.0, cy + 4.5),
+                    red,
+                );
+            }
+        }
         // Close button on hover; otherwise a dot for unsaved changes.
         let bx = r.x1 - 6.0 - 8.0;
         let close = Rect::new(bx - 8.0, cy - 8.0, bx + 8.0, cy + 8.0);
@@ -707,8 +734,22 @@ fn draw_pane(
     }
     // Cursor.
     if let Some(pos) = cached.layout.beats.get(&cursor_ref) {
+        // Following playback, it slides forward along a system towards its beat (an easing that
+        // settles well within a beat); moves back or to another system jump.
+        let now = std::time::Instant::now();
+        let gliding = app.playing && app.follow && playhead.is_some();
+        let (x, w) = match views.glide.get(&id) {
+            Some(&(page, top, gx, gw, t))
+                if gliding && page == pos.page && top == pos.top && pos.x >= gx - 0.5 =>
+            {
+                let k = 1.0 - (-(now - t).as_secs_f64() * GLIDE_RATE).exp();
+                (gx + (pos.x - gx) * k, gw + (pos.width - gw) * k)
+            }
+            _ => (pos.x, pos.width),
+        };
+        views.glide.insert(id, (pos.page, pos.top, x, w, now));
         let alpha = if focused { 60 } else { 30 };
-        let r = Rect::new(pos.x, pos.top, pos.x + pos.width, pos.bottom);
+        let r = Rect::new(x, pos.top, x + w, pos.bottom);
         scene.fill(
             Fill::NonZero,
             to_screen(pos.page),
@@ -717,7 +758,7 @@ fn draw_pane(
             &r,
         );
         if let Some(&y) = pos.strings.get(pane.cursor.string) {
-            let r = RoundedRect::new(pos.x, y - 4.5, pos.x + pos.width.min(16.0), y + 4.5, 2.0);
+            let r = RoundedRect::new(x, y - 4.5, x + w.min(16.0), y + 4.5, 2.0);
             scene.stroke(
                 &Stroke::new(1.2 / scale),
                 to_screen(pos.page),
@@ -1098,7 +1139,7 @@ fn draw_command_line(scene: &mut Scene, app: &App, width: f64, height: f64) {
     match app.mode {
         // Typed in the command palette.
         Mode::Command | Mode::Picker => {}
-        Mode::Normal | Mode::Insert | Mode::Visual | Mode::Play => {
+        Mode::Normal | Mode::Insert | Mode::Visual => {
             if let Some(m) = &app.message {
                 let c = if m.error {
                     Color::from_rgba8(255, 110, 100, 255)
@@ -1137,8 +1178,6 @@ fn draw_status(
         Mode::Command => (" COMMAND ", Color::from_rgba8(100, 190, 120, 255)),
         Mode::Insert => (" INSERT ", Color::from_rgba8(240, 180, 60, 255)),
         Mode::Visual => (" VISUAL ", Color::from_rgba8(190, 120, 220, 255)),
-        Mode::Play if app.paused => (" PAUSED ", Color::from_rgba8(170, 60, 55, 255)),
-        Mode::Play => (" PLAY ", Color::from_rgba8(225, 60, 50, 255)),
         Mode::Picker => (" PICK ", Color::from_rgba8(80, 190, 200, 255)),
     };
     let w = muse_engrave::fonts::fonts().text_width(FontKind::Bold, label, 13.0) + 8.0;
@@ -1274,12 +1313,7 @@ fn panel(scene: &mut Scene, r: Rect, title: &str) {
 }
 
 fn draw_which_key(scene: &mut Scene, app: &App, main: Rect) {
-    let mode = if app.mode == Mode::Play {
-        Mode::Play
-    } else {
-        Mode::Normal
-    };
-    let items = app.config.keymap(mode).continuations(&app.pending);
+    let items = app.config.keymap(Mode::Normal).continuations(&app.pending);
     if items.is_empty() {
         return;
     }

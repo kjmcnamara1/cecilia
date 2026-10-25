@@ -67,11 +67,7 @@ fn tilde(path: &std::path::Path) -> String {
 impl App {
     /// Opens a picker in the command palette's box.
     pub fn open_picker(&mut self, kind: PickerKind) {
-        let back = if self.mode == Mode::Play {
-            Mode::Play
-        } else {
-            Mode::Normal
-        };
+        let back = Mode::Normal;
         self.picker = Some(Picker {
             kind,
             query: String::new(),
@@ -237,11 +233,7 @@ impl App {
 
     fn close_picker(&mut self) -> Option<Picker> {
         let p = self.picker.take()?;
-        self.mode = if p.back == Mode::Play && (self.playing || self.paused) {
-            Mode::Play
-        } else {
-            Mode::Normal
-        };
+        self.mode = p.back;
         Some(p)
     }
 

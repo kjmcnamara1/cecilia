@@ -461,11 +461,23 @@ fn draw_tabline(f: &mut Frame, app: &App, area: Rect, ui: &mut Ui) {
         let name =
             muse_app::truncate_middle(&tab.name, t.max_width, t.prefix_width, t.suffix_width);
         let icon = file_icon(tab.kind, icons);
-        let head = if icon.is_empty() {
+        let mut head = if icon.is_empty() {
             format!(" {name} ")
         } else {
             format!(" {icon} {name} ")
         };
+        // The file playing audio.
+        let play_mark = if tab.playing {
+            Some("▶")
+        } else if tab.paused {
+            Some("⏸")
+        } else {
+            None
+        };
+        if let Some(m) = play_mark {
+            head.push_str(m);
+            head.push(' ');
+        }
         let w = width(&head) + 2;
         if x + w > right {
             break;
@@ -508,6 +520,16 @@ fn draw_tabline(f: &mut Frame, app: &App, area: Rect, ui: &mut Ui) {
             f.buffer_mut()
                 .set_style(close, Style::default().fg(Color::Yellow));
         }
+        if play_mark.is_some() {
+            let cell = Rect {
+                x: x + width(&head) - 2,
+                y: area.y,
+                width: 1,
+                height: 1,
+            };
+            f.buffer_mut()
+                .set_style(cell, Style::default().fg(Color::Rgb(235, 70, 60)));
+        }
         ui.tabline.push((r, TablineHit::Buffer(n)));
         ui.tabline.push((close, TablineHit::Close(n)));
         x += w + 1;
@@ -538,18 +560,6 @@ fn draw_status(f: &mut Frame, app: &App, play: Option<(usize, Location, f64, f64
             Style::default().fg(Color::Black).bg(Color::Green),
         ),
         Mode::Picker => (" PICK ", Style::default().fg(Color::Black).bg(Color::Cyan)),
-        Mode::Play if app.paused => (
-            " PAUSED ",
-            Style::default()
-                .fg(Color::White)
-                .bg(Color::Rgb(150, 30, 30)),
-        ),
-        Mode::Play => (
-            " PLAY ",
-            Style::default()
-                .fg(Color::White)
-                .bg(Color::Rgb(200, 30, 30)),
-        ),
     };
     let pane = app.pane();
     let score = &app.buffer().score;
@@ -615,7 +625,7 @@ fn draw_cmdline(f: &mut Frame, app: &App, area: Rect) {
     match app.mode {
         // Typed in the command palette.
         Mode::Command | Mode::Picker => {}
-        Mode::Normal | Mode::Insert | Mode::Visual | Mode::Play => {
+        Mode::Normal | Mode::Insert | Mode::Visual => {
             if let Some(m) = &app.message {
                 let style = if m.error {
                     Style::default().fg(Color::Red)
@@ -648,12 +658,7 @@ fn command_name(cmd: &muse_app::Command) -> String {
 }
 
 fn draw_which_key(f: &mut Frame, app: &App, main: Rect) {
-    let mode = if app.mode == Mode::Play {
-        Mode::Play
-    } else {
-        Mode::Normal
-    };
-    let items = app.config.keymap(mode).continuations(&app.pending);
+    let items = app.config.keymap(Mode::Normal).continuations(&app.pending);
     if items.is_empty() {
         return;
     }
@@ -923,5 +928,11 @@ mod render_tests {
         assert!(screen.contains("12"), "{screen}");
         assert!(screen.contains("NORMAL"), "{screen}");
         assert!(screen.contains("bar 1/6"), "{screen}");
+        // The tab of the file playing audio is marked.
+        assert!(!screen.contains("▶"), "{screen}");
+        app.playing_buffer = Some(0);
+        app.playing = true;
+        let screen = render(&mut app, 80, 20);
+        assert!(screen.contains("t.gp5 ▶"), "{screen}");
     }
 }

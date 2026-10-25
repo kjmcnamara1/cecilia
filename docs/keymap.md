@@ -118,22 +118,18 @@ view pickers also work while a song plays.
 | `<leader>?` | which-key / help |        |
 | `ZZ`        | write and quit   |        |
 
-## Play mode
+## Playing
 
-Starting playback (`<leader><leader>`) enters **Play** mode (status `PLAY`, `PAUSED` while
-paused). It has its own keymap, `[keymap.play]`: by default the Normal-mode bindings of
-playback, navigation, pane/tab, view and `:` commands, but no editing keys, so stray keys can't
-change the score while it plays.
+Playing is not a mode: Normal, Visual, Insert and the command line all keep working while a
+song plays, and edits are heard at once. One file plays at a time; its tab in the bufferline
+shows ▶ (⏸ when paused).
 
 | keys | command |
 | --- | --- |
-| `<leader><leader>` | pause / resume (resume carries on from where it paused) |
-| `<Esc>` / `<leader>s` | stop: back to where playback started, and to Normal mode |
-| `h j k l w b { }` … | move the cursor. With following on, the cursor moves with the playhead and the playhead with the cursor: `}` jumps playback to the next bar at once (also while paused). Following off, the cursor moves on its own |
-| `<leader>f` `<leader>l` `<leader>m` `<leader>-` `<leader>=` `<leader>a` `<leader>t` | follow, loop, metronome, speed, mix, sync tap |
-| `:` | command line; returns to Play mode |
-
-The mode ends by itself when the song finishes.
+| `<leader><leader>` | play from the edit cursor / pause. Resuming carries on from where it paused if the cursor is still there; otherwise play starts at the cursor. In another file, it stops the playing file and plays this one |
+| `<leader>s` | stop: the playhead goes back to where playback started (and the cursor too, when following) |
+| `<leader>f` | follow playback. **On**: the edit cursor glides along with the red playhead, and moving the cursor by hand (`}`, `{`, `hjkl`, marks…) jumps the playhead to it. **Off**: the playhead plays on by itself while the cursor moves and edits independently |
+| `<leader>l` `<leader>m` `<leader>-` `<leader>=` `<leader>a` `<leader>t` | loop, metronome, speed, mix, sync tap |
 
 ## Insert mode (M4, done)
 

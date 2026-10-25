@@ -117,18 +117,15 @@ impl App {
                 k.push(key);
             }
         }
+        let before = (self.focused(), self.pane().buffer, self.pane().cursor);
         match self.mode {
             Mode::Command => self.handle_command_key(key),
             Mode::Picker => self.handle_picker_key(key),
             Mode::Normal => self.normal_key(key),
             Mode::Insert => self.insert_key(key),
             Mode::Visual => self.visual_key(key),
-            Mode::Play => {
-                let before = (self.focused(), self.pane().buffer, self.pane().cursor);
-                self.play_key(key);
-                self.seek_to_cursor(before);
-            }
         }
+        self.seek_to_cursor(before);
         if in_insert && self.mode != Mode::Insert {
             self.ed.group = None;
             if let Some(k) = self.ed.change_keys.take() {
@@ -232,46 +229,6 @@ impl App {
     }
 
     /// Play mode: counts and the Play keymap (playback, navigation and view; no editing).
-    fn play_key(&mut self, key: Key) {
-        // A mark letter after `m`, `'` or `` ` ``.
-        if let Some(a) = self.ed.awaiting.take() {
-            if let Some(c) = key.as_char() {
-                if matches!(a, Awaiting::Mark | Awaiting::Jump { .. }) {
-                    self.awaited(a, c);
-                }
-            }
-            return;
-        }
-        if self.pending.is_empty() {
-            if let Some(d) = key.as_char().and_then(|c| c.to_digit(10)) {
-                if d != 0 || self.count.is_some() {
-                    self.count = Some(
-                        self.count
-                            .unwrap_or(0)
-                            .saturating_mul(10)
-                            .saturating_add(d as usize),
-                    );
-                    return;
-                }
-            }
-        }
-        self.pending.push(key);
-        let cmds = match self.config.keymap(Mode::Play).lookup(&self.pending) {
-            Lookup::Exact(cmds) => cmds.to_vec(),
-            Lookup::Prefix => return,
-            Lookup::None => {
-                self.pending.clear();
-                self.count = None;
-                return;
-            }
-        };
-        self.pending.clear();
-        let count = self.count.take();
-        for cmd in cmds {
-            self.run_counted(cmd, count);
-        }
-    }
-
     fn awaited(&mut self, a: Awaiting, c: char) {
         match a {
             Awaiting::Mark => self.set_mark(c),
