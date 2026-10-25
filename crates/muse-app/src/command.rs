@@ -196,6 +196,8 @@ pub enum Command {
     /// Close a bufferline tab (number, or the focused pane's buffer); true discards changes.
     BufferClose(Option<usize>, bool),
     Edit(PathBuf),
+    /// Choose files to open in the system file picker.
+    OpenDialog,
     /// Write the buffer, to its own file or (exporting) to another path.
     Write(Option<PathBuf>),
     WriteQuit,
@@ -289,7 +291,11 @@ impl Command {
             "buffer-close!" | "bdelete!" | "bd!" => {
                 BufferClose(arg.and_then(|a| a.parse().ok()), true)
             }
-            "open" => Edit(path()?),
+            "open" => match arg {
+                Some(_) => Edit(path()?),
+                None => OpenDialog,
+            },
+            "open-dialog" => OpenDialog,
             "write" | "w" => Write(arg.map(expand_tilde)),
             "wq" | "x" | "write-quit" => WriteQuit,
             "quit" | "q" => Quit { force: false },

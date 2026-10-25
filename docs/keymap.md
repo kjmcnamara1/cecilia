@@ -77,6 +77,7 @@ view pickers also work while a song plays.
 | command | |
 | --- | --- |
 | `:open {file}` | open a file in the focused pane, adding it to the view's tabs |
+| `:open` (`:open-dialog`) | choose one or more files in the system file picker; they open as tabs and the first is shown |
 | `:pick-buffer` / `:pick-view` / `:pick-workspace` (`:pick buffer\|view\|workspace\|mark\|macro`) | open a picker |
 | `:marks` / `:macros` (`:registers`) | pick a mark to jump to / a macro to run |
 | `:mark x` (`:k x`) / `:delmarks xyz` / `:delmarks!` | set a mark / delete marks / delete this file's lowercase marks |

@@ -146,7 +146,9 @@ impl Gui {
 
     fn after_input(&mut self) {
         for effect in self.app.take_effects() {
-            self.playback.apply(&mut self.app, effect);
+            if let Some(effect) = muse_app::dialog::apply(&mut self.app, effect) {
+                self.playback.apply(&mut self.app, effect);
+            }
         }
         if let Some(gpu) = &self.gpu {
             gpu.window.request_redraw();

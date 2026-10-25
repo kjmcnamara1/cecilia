@@ -310,6 +310,8 @@ impl Playback {
                 self.ensure_audio(app, buffer);
             }
             Effect::PlaybackSettings => self.push_settings(app),
+            // Handled by the frontend (see `dialog::apply`).
+            Effect::OpenDialog { .. } => {}
             Effect::SyncTap => self.sync_tap(app),
             Effect::SyncDetect => self.sync_detect(app),
         }

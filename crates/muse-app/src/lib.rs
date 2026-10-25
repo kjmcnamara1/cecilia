@@ -7,6 +7,7 @@ mod chant;
 pub mod command;
 pub mod complete;
 pub mod config;
+pub mod dialog;
 pub mod edit;
 mod editor;
 pub mod history;

@@ -174,6 +174,10 @@ pub enum Effect {
     AudioChanged {
         buffer: usize,
     },
+    /// Show the system file picker (starting in `dir`) and open the files chosen.
+    OpenDialog {
+        dir: Option<PathBuf>,
+    },
     /// Mixer, loop, metronome, speed or pitch settings changed.
     PlaybackSettings,
     /// Record a sync point for the next bar at the current audio position.
@@ -1114,6 +1118,15 @@ impl App {
                 Ok(b) => self.show_buffer(b),
                 Err(e) => self.error(e),
             },
+            OpenDialog => {
+                let dir = self
+                    .buffer()
+                    .path
+                    .as_deref()
+                    .and_then(Path::parent)
+                    .map(Path::to_path_buf);
+                self.effects.push(Effect::OpenDialog { dir });
+            }
             Write(path) => self.write(path),
             WriteQuit => {
                 if self.buffer().modified {

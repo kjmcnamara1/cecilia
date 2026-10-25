@@ -119,7 +119,9 @@ fn event_loop(terminal: &mut DefaultTerminal, app: &mut App) -> Result<()> {
             }
         }
         for effect in app.take_effects() {
-            playback.apply(app, effect);
+            if let Some(effect) = muse_app::dialog::apply(app, effect) {
+                playback.apply(app, effect);
+            }
         }
         if last_config_check.elapsed() > Duration::from_secs(1) {
             last_config_check = Instant::now();
