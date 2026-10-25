@@ -727,7 +727,7 @@ fn draw_command_line(scene: &mut Scene, app: &App, width: f64, height: f64) {
                 10.0 + muse_engrave::fonts::fonts().text_width(FontKind::Text, &line, 14.0) + 1.0;
             fill(scene, Rect::new(cx, cy - 13.0, cx + 2.0, cy + 3.0), ACCENT);
         }
-        Mode::Normal | Mode::Insert | Mode::Visual => {
+        Mode::Normal | Mode::Insert | Mode::Visual | Mode::Play => {
             if let Some(m) = &app.message {
                 let c = if m.error {
                     Color::from_rgba8(255, 110, 100, 255)
@@ -835,6 +835,8 @@ fn draw_status(
         Mode::Command => (" COMMAND ", Color::from_rgba8(100, 190, 120, 255)),
         Mode::Insert => (" INSERT ", Color::from_rgba8(240, 180, 60, 255)),
         Mode::Visual => (" VISUAL ", Color::from_rgba8(190, 120, 220, 255)),
+        Mode::Play if app.paused => (" PAUSED ", Color::from_rgba8(170, 60, 55, 255)),
+        Mode::Play => (" PLAY ", Color::from_rgba8(225, 60, 50, 255)),
     };
     let w = muse_engrave::fonts::fonts().text_width(FontKind::Bold, label, 13.0) + 8.0;
     scene.fill(
@@ -966,7 +968,12 @@ fn panel(scene: &mut Scene, r: Rect, title: &str) {
 }
 
 fn draw_which_key(scene: &mut Scene, app: &App, main: Rect) {
-    let items = app.config.keymap(Mode::Normal).continuations(&app.pending);
+    let mode = if app.mode == Mode::Play {
+        Mode::Play
+    } else {
+        Mode::Normal
+    };
+    let items = app.config.keymap(mode).continuations(&app.pending);
     if items.is_empty() {
         return;
     }

@@ -16,7 +16,55 @@ pub enum Mode {
     Insert,
     /// Selecting beats (or whole bars).
     Visual,
+    /// While a song plays (or is paused): playback, navigation and view keys only.
+    Play,
 }
+
+/// Normal-mode commands that also work in Play mode (nothing that edits the score).
+const PLAY_COMMANDS: &[&str] = &[
+    "bar-end",
+    "bar-next",
+    "bar-prev",
+    "bar-start",
+    "beat-next",
+    "beat-prev",
+    "close-pane",
+    "command-mode",
+    "count-in",
+    "focus-down",
+    "focus-left",
+    "focus-right",
+    "focus-up",
+    "follow-toggle",
+    "goto-first",
+    "goto-last",
+    "help",
+    "layout",
+    "loop-toggle",
+    "metronome",
+    "mix",
+    "note-next",
+    "note-prev",
+    "page-down",
+    "page-up",
+    "play-toggle",
+    "speed-down",
+    "speed-up",
+    "split",
+    "stop",
+    "string-down",
+    "string-up",
+    "sync-tap",
+    "tab-next",
+    "tab-prev",
+    "track-next",
+    "track-prev",
+    "vsplit",
+    "waveform",
+    "zoom-in",
+    "zoom-out",
+    "zoom-reset",
+];
 
 #[derive(Debug, Clone, Default, Deserialize)]
 #[serde(default, deny_unknown_fields)]
@@ -104,6 +152,7 @@ pub struct KeymapConfig {
     pub command: HashMap<String, Binding>,
     pub insert: HashMap<String, Binding>,
     pub visual: HashMap<String, Binding>,
+    pub play: HashMap<String, Binding>,
 }
 
 const DEFAULT_NORMAL: &[(&str, &str)] = &[
@@ -361,6 +410,25 @@ impl Config {
             "keymap.command",
             &mut errors,
         );
+        // Play mode: the Normal bindings of non-editing commands, and Esc to stop.
+        let mut play = Keymap::default();
+        for (keys, cmd) in DEFAULT_NORMAL.iter().chain(&[("<Esc>", "stop")]) {
+            if PLAY_COMMANDS.contains(cmd) {
+                let keys = parse_keys(keys, &leader).expect("valid default key");
+                play.bindings.insert(
+                    keys,
+                    vec![Command::parse(cmd).expect("valid default command")],
+                );
+            }
+        }
+        apply_user(
+            &mut play,
+            &file.keymap.play,
+            &leader,
+            "keymap.play",
+            &mut errors,
+        );
+        keymaps.insert(Mode::Play, play);
         keymaps.insert(Mode::Normal, normal);
         keymaps.insert(Mode::Command, command);
         (

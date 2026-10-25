@@ -69,6 +69,8 @@ pub enum Effect {
         tick: u32,
     },
     Pause,
+    /// Continue paused playback from where it stopped.
+    Resume,
     /// Pause and rewind to where playback started.
     Stop {
         buffer: usize,
@@ -118,6 +120,8 @@ pub struct App {
     /// Buffer being played, set when playback starts.
     pub playing_buffer: Option<usize>,
     play_start: Option<(PaneId, Cursor)>,
+    /// Playback is paused (Play mode stays on until stopped).
+    pub paused: bool,
     pub follow: bool,
     /// Command-line completion ignores case (`ui.completion_ignore_case`).
     pub completion_ignore_case: bool,
@@ -190,6 +194,7 @@ impl App {
             playing: false,
             playing_buffer: None,
             play_start: None,
+            paused: false,
             follow,
             completion_ignore_case,
             global_waveform,
@@ -416,7 +421,12 @@ impl App {
     }
 
     fn leave_command_mode(&mut self) {
-        self.mode = Mode::Normal;
+        // Back to Play mode while a song is playing or paused.
+        self.mode = if self.playing || self.paused {
+            Mode::Play
+        } else {
+            Mode::Normal
+        };
         self.cmdline.clear();
         self.history_pos = None;
         self.completion = None;
@@ -539,6 +549,10 @@ impl App {
             PlayToggle => {
                 if self.playing {
                     self.run(Pause)
+                } else if self.paused && self.mode == Mode::Play {
+                    // Carry on from where it was paused.
+                    self.paused = false;
+                    self.effects.push(Effect::Resume);
                 } else {
                     self.run(Play)
                 }
@@ -553,14 +567,26 @@ impl App {
                 let tick = cursor_tick(score, &pane.cursor);
                 self.play_start = Some((self.focused(), pane.cursor));
                 self.playing_buffer = Some(pane.buffer);
+                self.paused = false;
+                self.ed.visual_anchor = None;
+                self.mode = Mode::Play;
                 self.effects.push(Effect::Play {
                     buffer: pane.buffer,
                     bar: pane.cursor.bar,
                     tick,
                 });
             }
-            Pause => self.effects.push(Effect::Pause),
+            Pause => {
+                if self.mode == Mode::Play {
+                    self.paused = true;
+                }
+                self.effects.push(Effect::Pause);
+            }
             Stop => {
+                self.paused = false;
+                if self.mode == Mode::Play {
+                    self.mode = Mode::Normal;
+                }
                 if let Some((pane_id, cursor)) = self.play_start.take() {
                     if let Some(p) = self.panes.get_mut(&pane_id) {
                         p.cursor = cursor;
@@ -804,6 +830,16 @@ impl App {
     }
 
     // ---- playback feedback ----
+
+    /// Records whether the player is running (called by the frontend). When a song ends by
+    /// itself, Play mode ends with it.
+    pub fn set_playing(&mut self, playing: bool) {
+        if self.playing && !playing && !self.paused && self.mode == Mode::Play {
+            self.mode = Mode::Normal;
+            self.play_start = None;
+        }
+        self.playing = playing;
+    }
 
     /// While following playback, keeps the focused pane's cursor on the playing beat (the
     /// frontend calls this each frame while playing). With following off the cursor stays put,
@@ -1049,6 +1085,41 @@ mod tests {
         assert!(!app.global_waveform);
         let (config, _) = Config::parse("[ui]\nglobal_waveform = true\n").unwrap();
         assert!(App::new(config, None).global_waveform);
+    }
+
+    #[test]
+    fn play_mode_is_separate_from_normal() {
+        let mut app = App::new(Config::default(), None);
+        app.run(Command::New);
+        keys(&mut app, "i3<Space>5<Esc>0");
+        keys(&mut app, "<Space><Space>");
+        assert_eq!(app.mode, Mode::Play);
+        app.set_playing(true);
+        // Editing keys do nothing while playing; navigation still works.
+        let before = app.buffer().score.clone();
+        keys(&mut app, "xdd");
+        assert!(app.buffer().score == before);
+        keys(&mut app, "l");
+        assert_eq!(app.pane().cursor.beat, 1);
+        // Pausing stays in Play mode; resuming continues.
+        keys(&mut app, "<Space><Space>");
+        app.set_playing(false);
+        assert!(app.paused && app.mode == Mode::Play);
+        app.take_effects();
+        keys(&mut app, "<Space><Space>");
+        assert_eq!(app.take_effects(), vec![Effect::Resume]);
+        app.set_playing(true);
+        // The command line returns to Play mode.
+        keys(&mut app, ":<Esc>");
+        assert_eq!(app.mode, Mode::Play);
+        // Esc stops and returns to Normal.
+        keys(&mut app, "<Esc>");
+        assert_eq!(app.mode, Mode::Normal);
+        // A song that ends by itself ends Play mode too.
+        keys(&mut app, "<Space><Space>");
+        app.set_playing(true);
+        app.set_playing(false);
+        assert_eq!(app.mode, Mode::Normal);
     }
 
     #[test]

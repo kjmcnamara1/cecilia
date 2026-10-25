@@ -323,6 +323,18 @@ fn draw_status(f: &mut Frame, app: &App, play: Option<(usize, Location, f64, f64
             " COMMAND ",
             Style::default().fg(Color::Black).bg(Color::Green),
         ),
+        Mode::Play if app.paused => (
+            " PAUSED ",
+            Style::default()
+                .fg(Color::White)
+                .bg(Color::Rgb(150, 30, 30)),
+        ),
+        Mode::Play => (
+            " PLAY ",
+            Style::default()
+                .fg(Color::White)
+                .bg(Color::Rgb(200, 30, 30)),
+        ),
     };
     let pane = app.pane();
     let score = &app.buffer().score;
@@ -387,7 +399,7 @@ fn draw_cmdline(f: &mut Frame, app: &App, area: Rect) {
             f.render_widget(Paragraph::new(format!(":{}", app.cmdline)), area);
             f.set_cursor_position((area.x + 1 + app.cmdline.chars().count() as u16, area.y));
         }
-        Mode::Normal | Mode::Insert | Mode::Visual => {
+        Mode::Normal | Mode::Insert | Mode::Visual | Mode::Play => {
             if let Some(m) = &app.message {
                 let style = if m.error {
                     Style::default().fg(Color::Red)
@@ -420,7 +432,12 @@ fn command_name(cmd: &muse_app::Command) -> String {
 }
 
 fn draw_which_key(f: &mut Frame, app: &App, main: Rect) {
-    let items = app.config.keymap(Mode::Normal).continuations(&app.pending);
+    let mode = if app.mode == Mode::Play {
+        Mode::Play
+    } else {
+        Mode::Normal
+    };
+    let items = app.config.keymap(mode).continuations(&app.pending);
     if items.is_empty() {
         return;
     }

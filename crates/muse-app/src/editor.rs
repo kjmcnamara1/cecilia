@@ -116,6 +116,7 @@ impl App {
             Mode::Normal => self.normal_key(key),
             Mode::Insert => self.insert_key(key),
             Mode::Visual => self.visual_key(key),
+            Mode::Play => self.play_key(key),
         }
         if in_insert && self.mode != Mode::Insert {
             self.ed.group = None;
@@ -216,6 +217,38 @@ impl App {
             } else {
                 self.ed.last_change = keys;
             }
+        }
+    }
+
+    /// Play mode: counts and the Play keymap (playback, navigation and view; no editing).
+    fn play_key(&mut self, key: Key) {
+        if self.pending.is_empty() {
+            if let Some(d) = key.as_char().and_then(|c| c.to_digit(10)) {
+                if d != 0 || self.count.is_some() {
+                    self.count = Some(
+                        self.count
+                            .unwrap_or(0)
+                            .saturating_mul(10)
+                            .saturating_add(d as usize),
+                    );
+                    return;
+                }
+            }
+        }
+        self.pending.push(key);
+        let cmds = match self.config.keymap(Mode::Play).lookup(&self.pending) {
+            Lookup::Exact(cmds) => cmds.to_vec(),
+            Lookup::Prefix => return,
+            Lookup::None => {
+                self.pending.clear();
+                self.count = None;
+                return;
+            }
+        };
+        self.pending.clear();
+        let count = self.count.take();
+        for cmd in cmds {
+            self.run_counted(cmd, count);
         }
     }
 

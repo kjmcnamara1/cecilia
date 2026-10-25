@@ -240,6 +240,25 @@ impl Playback {
                     app.playing = false;
                 }
             }
+            Effect::Resume => {
+                match (&self.player, app.playing_buffer) {
+                    (Some(p), Some(b)) if self.loaded == Some(b) => p.play(false),
+                    _ => {
+                        // Nothing loaded to resume: start from the cursor.
+                        let pane = app.pane().clone();
+                        let tick =
+                            crate::cursor_tick(&app.buffers[pane.buffer].score, &pane.cursor);
+                        self.apply(
+                            app,
+                            Effect::Play {
+                                buffer: pane.buffer,
+                                bar: pane.cursor.bar,
+                                tick,
+                            },
+                        );
+                    }
+                }
+            }
             Effect::Pause => {
                 if let Some(p) = &self.player {
                     p.pause();
@@ -381,7 +400,7 @@ impl Playback {
     /// Updates `app.playing` from the player and picks up loaded audio.
     pub fn sync(&mut self, app: &mut App) {
         if let Some(p) = &self.player {
-            app.playing = p.is_playing();
+            app.set_playing(p.is_playing());
         }
         self.poll_audio(app);
     }

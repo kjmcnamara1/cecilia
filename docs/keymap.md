@@ -79,6 +79,23 @@ Items marked _(M1)_ are implemented in the first milestone; the rest are the pla
 | `<leader>?` | which-key / help |        |
 | `ZZ`        | write and quit   |        |
 
+## Play mode
+
+Starting playback (`<leader><leader>`) enters **Play** mode (status `PLAY`, `PAUSED` while
+paused). It has its own keymap, `[keymap.play]`: by default the Normal-mode bindings of
+playback, navigation, pane/tab, view and `:` commands, but no editing keys, so stray keys can't
+change the score while it plays.
+
+| keys | command |
+| --- | --- |
+| `<leader><leader>` | pause / resume (resume carries on from where it paused) |
+| `<Esc>` / `<leader>s` | stop: back to where playback started, and to Normal mode |
+| `h j k l w b { }` … | move the cursor (with following on, it is moved along with the playhead) |
+| `<leader>f` `<leader>l` `<leader>m` `<leader>-` `<leader>=` `<leader>a` `<leader>t` | follow, loop, metronome, speed, mix, sync tap |
+| `:` | command line; returns to Play mode |
+
+The mode ends by itself when the song finishes.
+
 ## Insert mode (M4, done)
 
 | keys | command |
