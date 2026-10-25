@@ -211,7 +211,7 @@ fn draw_tabs(scene: &mut Scene, app: &App, views: &mut Views, width: f64) {
     let hovering = (0.0..TAB_BAR).contains(&hy);
 
     // Views, right-aligned.
-    let labels = app.view_labels();
+    let labels = app.tabline_views();
     let mut right = width - 6.0;
     let mut chips = Vec::new();
     for (i, label) in labels.iter().enumerate().rev() {

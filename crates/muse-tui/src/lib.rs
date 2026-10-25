@@ -425,7 +425,7 @@ fn draw_tabline(f: &mut Frame, app: &App, area: Rect, ui: &mut Ui) {
     let width = |s: &str| s.chars().count() as u16;
 
     // Views, right-aligned.
-    let labels = app.view_labels();
+    let labels = app.tabline_views();
     let mut right = area.x + area.width;
     for (i, label) in labels.iter().enumerate().rev() {
         let text = format!(" {label} ");
@@ -859,6 +859,21 @@ mod render_tests {
         assert!(top.contains("\u{f025} A very long so…t fit.muse"), "{top}");
         assert!(top.contains("\u{f001} short.gp5"), "{top}");
         assert!(top.trim_end().ends_with("1   2"), "{top}");
+        // A lone view isn't shown, unless tabline.hide_single_view is off.
+        let top_line = |app: &mut App| {
+            let mut terminal = Terminal::new(TestBackend::new(100, 12)).unwrap();
+            terminal
+                .draw(|f| draw(f, app, None, &mut Ui::default()))
+                .unwrap();
+            let buf = terminal.backend().buffer().clone();
+            (0..100)
+                .map(|x| buf[(x, 0)].symbol().to_string())
+                .collect::<String>()
+        };
+        app.run(muse_app::Command::ViewClose(false));
+        assert!(top_line(&mut app).trim_end().ends_with("short.gp5"));
+        app.config.file.tabline.hide_single_view = false;
+        assert!(top_line(&mut app).trim_end().ends_with(" 1"));
         // Clicking a tab's × closes it (only this view had it… but view 1 still does).
         let close = ui
             .tabline

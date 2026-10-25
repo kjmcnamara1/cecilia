@@ -355,6 +355,15 @@ impl App {
             .collect()
     }
 
+    /// The view labels the tabline shows: none for a lone view with `tabline.hide_single_view`.
+    pub fn tabline_views(&self) -> Vec<String> {
+        if self.views.len() == 1 && self.config.file.tabline.hide_single_view {
+            Vec::new()
+        } else {
+            self.view_labels()
+        }
+    }
+
     /// Labels of the views, for the right of the tabline: the name, or the number.
     pub fn view_labels(&self) -> Vec<String> {
         self.views

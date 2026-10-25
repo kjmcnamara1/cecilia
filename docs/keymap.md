@@ -42,7 +42,7 @@ Items marked _(M1)_ are implemented in the first milestone; the rest are the pla
 
 The model, as in Neovim with bufferline.nvim: a **pane** shows one **buffer** (an open file);
 a **view** is a layout of panes with its own set of loaded buffers, shown as tabs on the left of
-the tabline; the views are listed on the right of the tabline; a **workspace** saves the views.
+the tabline; the views are listed on the right of the tabline (only once there are two or more, unless `tabline.hide_single_view = false`); a **workspace** saves the views.
 A file open in several views is one shared buffer (edits and undo show in all of them).
 
 Each buffer tab shows a file-type icon, the name (shortened in the middle when longer than

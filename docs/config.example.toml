@@ -14,6 +14,7 @@ global_waveform = false  # waveform bar across the window bottom for the focused
 [tabline]
 new_view = "copy"        # a new view starts with: "copy" (this view's buffers), "current", "empty"
 icons = "nerd"           # terminal file-type icons: "nerd" (Nerd Font), "unicode" or "none"
+hide_single_view = true  # no view indicator on the right while there is only one view
 
 [tabline.truncation]
 max_width = 28           # longer file names are shortened in the middle…

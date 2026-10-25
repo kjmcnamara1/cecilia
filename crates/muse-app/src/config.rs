@@ -39,6 +39,8 @@ pub struct TablineConfig {
     pub new_view: String,
     /// File-type icons in the terminal UI: "nerd" (Nerd Font glyphs), "unicode" or "none".
     pub icons: String,
+    /// Hide the views on the right of the tabline while there is only one.
+    pub hide_single_view: bool,
     pub truncation: TruncationConfig,
 }
 
@@ -47,6 +49,7 @@ impl Default for TablineConfig {
         Self {
             new_view: "copy".into(),
             icons: "nerd".into(),
+            hide_single_view: true,
             truncation: TruncationConfig::default(),
         }
     }
