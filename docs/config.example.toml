@@ -11,6 +11,7 @@ completion_ignore_case = true   # Tab completion on the command line ignores let
 completion_fuzzy = true         # …and matches the typed letters in order anywhere ("sd" → sync-detect)
 global_waveform = false  # waveform bar across the window bottom for the focused file
 tracks_panel = false     # the tracks panel (mixer and bar overview) at the window bottom
+tracks_peek = 1.0        # seconds the hidden tracks panel shows when the track changes (0: never)
 
 [tabline]
 new_view = "copy"        # a new view starts with: "copy" (this view's buffers), "current", "empty"

@@ -241,6 +241,8 @@ pub struct App {
     pub global_waveform: bool,
     /// The tracks panel is shown (`ui.tracks_panel`).
     pub tracks_panel: bool,
+    /// Until when the hidden tracks panel shows after the track changed (`ui.tracks_peek`).
+    tracks_peek_until: Option<std::time::Instant>,
     /// Tracks the tracks panel shows at once (`:tracks-resize`, or drag its top edge).
     pub tracks_rows: usize,
     /// Height of the GUI's waveform strips and bar in logical pixels (`:waveform-resize`).
@@ -329,6 +331,7 @@ impl App {
             global_waveform,
             tracks_panel,
             tracks_rows: DEFAULT_TRACKS_ROWS,
+            tracks_peek_until: None,
             waveform_height: DEFAULT_WAVEFORM_HEIGHT,
             viewport: Rect {
                 x: 0,
@@ -434,6 +437,34 @@ impl App {
             return Vec::new();
         }
         self.view().root.dividers(self.viewport)
+    }
+
+    /// Whether the tracks panel is on screen: shown, or peeking after a change of track.
+    pub fn tracks_shown(&self) -> bool {
+        self.tracks_panel || self.tracks_peeking()
+    }
+
+    /// The hidden tracks panel is showing for a moment after the track changed.
+    pub fn tracks_peeking(&self) -> bool {
+        self.tracks_peek_until
+            .is_some_and(|t| std::time::Instant::now() < t)
+    }
+
+    /// After a key: if it changed the focused pane's track (same file), the hidden tracks
+    /// panel shows for `ui.tracks_peek` seconds.
+    pub(crate) fn peek_tracks(&mut self, before: (PaneId, usize, Cursor)) {
+        let pane = self.pane();
+        let secs = self.config.file.ui.tracks_peek;
+        if self.tracks_panel
+            || secs <= 0.0
+            || !secs.is_finite()
+            || (self.focused(), pane.buffer) != (before.0, before.1)
+            || pane.cursor.track == before.2.track
+        {
+            return;
+        }
+        self.tracks_peek_until =
+            Some(std::time::Instant::now() + std::time::Duration::from_secs_f64(secs.min(3600.0)));
     }
 
     /// The pane maximized in the active view, while it has the focus.

@@ -455,6 +455,18 @@ mod tests {
         keys(&mut app, "<Esc>");
         assert_eq!(app.mode, Mode::Normal);
         keys(&mut app, "<Space>T");
-        assert!(!app.tracks_panel);
+        assert!(!app.tracks_panel && !app.tracks_shown());
+        // Hidden, it shows for a moment when a key changes the track…
+        keys(&mut app, "l");
+        assert!(!app.tracks_shown());
+        keys(&mut app, "K");
+        assert!(app.tracks_peeking() && app.tracks_shown() && !app.tracks_panel);
+        // …unless ui.tracks_peek is 0.
+        let (config, _) = Config::parse("[ui]\ntracks_peek = 0\n").unwrap();
+        let mut app = App::new(config, None);
+        app.run(Command::New);
+        app.run(Command::TrackAdd("guitar".into()));
+        keys(&mut app, "K");
+        assert!(!app.tracks_shown());
     }
 }

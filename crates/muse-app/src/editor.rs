@@ -127,6 +127,7 @@ impl App {
             Mode::Tracks => self.tracks_key(key),
         }
         self.seek_to_cursor(before);
+        self.peek_tracks(before);
         if in_insert && self.mode != Mode::Insert {
             self.ed.group = None;
             if let Some(k) = self.ed.change_keys.take() {

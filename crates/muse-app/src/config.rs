@@ -107,6 +107,8 @@ pub struct UiConfig {
     pub global_waveform: bool,
     /// The tracks panel (tracks with mixer and a bar overview) at the bottom of the window.
     pub tracks_panel: bool,
+    /// Seconds the hidden tracks panel shows after a key or command changes the track (0: off).
+    pub tracks_peek: f64,
     /// GUI score layout: "page", "vertical" or "horizontal".
     pub layout: String,
     /// GUI zoom factor.
@@ -122,6 +124,7 @@ impl Default for UiConfig {
             completion_fuzzy: true,
             global_waveform: false,
             tracks_panel: false,
+            tracks_peek: 1.0,
             layout: "vertical".into(),
             zoom: 1.0,
         }

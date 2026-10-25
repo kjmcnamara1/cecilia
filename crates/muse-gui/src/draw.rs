@@ -560,7 +560,7 @@ pub fn build(
     let global_wave = app.global_waveform && height > 300.0;
     let wave_h = app.waveform_height as f64;
     let bottom = height - STATUS - CMDLINE - if global_wave { wave_h + 4.0 } else { 0.0 };
-    let tracks_h = if app.tracks_panel && height > 300.0 {
+    let tracks_h = if app.tracks_shown() && height > 300.0 {
         tracks_panel_height(app)
     } else {
         0.0

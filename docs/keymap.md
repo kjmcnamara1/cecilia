@@ -136,7 +136,8 @@ view pickers also work while a song plays.
 ## Tracks panel
 
 `<leader>T` shows or hides the tracks panel at the bottom of the window (`ui.tracks_panel` sets
-the default; workspaces remember it). Each track of the focused file has a row: its number, a
+the default; workspaces remember it). While hidden, it shows for a second whenever a key or
+command changes the track (`ui.tracks_peek` sets the seconds; 0 turns that off). Each track of the focused file has a row: its number, a
 volume slider, **S**olo and **M**ute, its name and instrument, then a block per bar — coloured
 where the bar has notes, faded when the track isn't heard. The edit cursor is a black dot on
 its bar's block and the red playhead runs across all tracks. Click a block to move the cursor there, click S or

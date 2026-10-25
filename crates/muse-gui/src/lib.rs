@@ -42,6 +42,8 @@ struct Gui {
     mouse: (f64, f64),
     /// The pointer shape shown (resize arrows over draggable edges).
     pointer: draw::Pointer,
+    /// The tracks panel was peeking when last drawn (redraw once it hides).
+    tracks_peek_drawn: bool,
     last_config_check: Instant,
     error: Option<anyhow::Error>,
 }
@@ -69,6 +71,7 @@ pub fn run(app: App) -> Result<()> {
         mods: ModifiersState::empty(),
         mouse: (0.0, 0.0),
         pointer: draw::Pointer::Default,
+        tracks_peek_drawn: false,
         last_config_check: Instant::now(),
         error: None,
     };
@@ -339,6 +342,15 @@ impl ApplicationHandler for Gui {
             }
             event_loop.set_control_flow(ControlFlow::WaitUntil(
                 Instant::now() + Duration::from_millis(16),
+            ));
+        } else if self.app.tracks_peeking() || self.tracks_peek_drawn {
+            // The tracks panel peeking after a change of track: redraw until it hides again.
+            self.tracks_peek_drawn = self.app.tracks_peeking();
+            if let Some(gpu) = &self.gpu {
+                gpu.window.request_redraw();
+            }
+            event_loop.set_control_flow(ControlFlow::WaitUntil(
+                Instant::now() + Duration::from_millis(50),
             ));
         } else {
             event_loop.set_control_flow(ControlFlow::WaitUntil(

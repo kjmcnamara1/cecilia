@@ -296,7 +296,7 @@ fn convert_key(k: KeyEvent) -> Option<Key> {
 
 fn draw(f: &mut Frame, app: &mut App, play: Option<(usize, Location, f64, f64)>, ui: &mut Ui) {
     ui.hits.clear();
-    let tracks_h = if app.tracks_panel {
+    let tracks_h = if app.tracks_shown() {
         1 + app
             .buffer()
             .score
