@@ -187,8 +187,8 @@ fn draw_tabs(scene: &mut Scene, app: &App, width: f64) {
     }
 }
 
-fn mode_tag(app: &App) -> &'static str {
-    match app.score_layout.as_str() {
+fn mode_tag(pane: &muse_app::Pane) -> &'static str {
+    match pane.layout.as_str() {
         "page" => "page",
         "horizontal" => "horizontal",
         _ => "vertical",
@@ -271,7 +271,7 @@ fn draw_pane(
     }
 
     // Layout for this pane's width, mode and track (cached).
-    let mode_name = mode_tag(app);
+    let mode_name = mode_tag(&pane);
     // Pages fit the pane's width; zoom is relative to that.
     let scale = if mode_name == "page" {
         app.zoom * (content.width() - 24.0).max(100.0) / 595.0
@@ -882,7 +882,11 @@ fn draw_status(
     if app.buffer().modified {
         right.push_str("   [+]");
     }
-    right.push_str(&format!("   {}  {:.0}%", mode_tag(app), app.zoom * 100.0));
+    right.push_str(&format!(
+        "   {}  {:.0}%",
+        mode_tag(app.pane()),
+        app.zoom * 100.0
+    ));
     text(
         scene,
         &right,
@@ -1064,7 +1068,10 @@ impl Views {
         let Some((g, _, _)) = self.locate(x, y) else {
             return;
         };
-        let horizontal = app.score_layout == "horizontal";
+        let horizontal = app
+            .panes
+            .get(&g.pane)
+            .is_some_and(|p| p.layout == "horizontal");
         let entry = self.scroll.entry(g.pane).or_insert((0.0, 0.0));
         if horizontal {
             entry.0 = (entry.0 + dy / g.scale).max(0.0);

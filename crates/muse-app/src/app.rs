@@ -41,6 +41,8 @@ pub struct Pane {
     pub cursor: Cursor,
     /// First visible row, maintained by the frontend.
     pub scroll: usize,
+    /// GUI score layout of this pane: "page", "vertical" or "horizontal".
+    pub layout: String,
 }
 
 #[derive(Debug, Clone)]
@@ -123,7 +125,8 @@ pub struct App {
     pub page_bars: usize,
     pub(crate) effects: Vec<Effect>,
     pub quit: bool,
-    /// GUI score layout ("page", "vertical", "horizontal") and zoom.
+    /// Layout for panes opened without another to copy from (`ui.layout`); each pane keeps
+    /// its own (`Pane::layout`).
     pub score_layout: String,
     /// Chant tracks show square notation (false: their modern transcription).
     pub chant_view: bool,
@@ -146,6 +149,7 @@ impl App {
                 buffer: 0,
                 cursor: Cursor::default(),
                 scroll: 0,
+                layout: score_layout.clone(),
             },
         );
         Self {
@@ -646,15 +650,18 @@ impl App {
             }
             Help => self.show_help = !self.show_help,
             Layout(name) => {
-                self.score_layout = name.unwrap_or_else(|| {
-                    match self.score_layout.as_str() {
+                // Only the focused pane changes.
+                let pane = self.pane_mut();
+                pane.layout = name.unwrap_or_else(|| {
+                    match pane.layout.as_str() {
                         "vertical" => "page",
                         "page" => "horizontal",
                         _ => "vertical",
                     }
                     .to_string()
                 });
-                self.info(format!("layout: {}", self.score_layout));
+                let msg = format!("layout: {}", pane.layout);
+                self.info(msg);
             }
             ZoomIn => self.zoom = (self.zoom * 1.15).min(6.0),
             ZoomOut => self.zoom = (self.zoom / 1.15).max(0.2),
@@ -730,15 +737,21 @@ impl App {
         clamp_cursor(score, &mut pane.cursor);
     }
 
+    /// A new pane on `buffer`, with the focused pane's layout.
     fn new_pane(&mut self, buffer: usize) -> PaneId {
         let id = self.next_pane;
         self.next_pane += 1;
+        let layout = self
+            .panes
+            .get(&self.focused())
+            .map_or_else(|| self.score_layout.clone(), |p| p.layout.clone());
         self.panes.insert(
             id,
             Pane {
                 buffer,
                 cursor: Cursor::default(),
                 scroll: 0,
+                layout,
             },
         );
         id
@@ -1008,6 +1021,23 @@ mod tests {
         app.run(Command::Write(Some(dir.join("out.unknown"))));
         assert!(app.message.as_ref().unwrap().error);
         std::fs::remove_dir_all(&dir).unwrap();
+    }
+
+    #[test]
+    fn layout_belongs_to_the_focused_pane() {
+        let mut app = App::new(Config::default(), None);
+        let first = app.focused();
+        assert_eq!(app.pane().layout, "vertical");
+        // A split starts with the layout of the pane it came from.
+        app.run(Command::Layout(Some("page".into())));
+        app.run(Command::Split);
+        let second = app.focused();
+        assert_ne!(first, second);
+        assert_eq!(app.pane().layout, "page");
+        // Changing it changes only the focused pane.
+        app.run(Command::Layout(None));
+        assert_eq!(app.panes[&second].layout, "horizontal");
+        assert_eq!(app.panes[&first].layout, "page");
     }
 
     #[test]
