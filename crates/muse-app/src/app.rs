@@ -779,6 +779,28 @@ impl App {
             self.quit = true;
         }
     }
+
+    // ---- playback feedback ----
+
+    /// While following playback, keeps the focused pane's cursor on the playing beat (the
+    /// frontend calls this each frame while playing). With following off the cursor stays put,
+    /// so turning it off mid-playback leaves the cursor where the music was at that moment.
+    pub fn follow_playback(&mut self, buffer: usize, bar: usize, tick: u32) {
+        if !self.follow {
+            return;
+        }
+        let score = &self.buffers[buffer].score;
+        let focused = self.focused();
+        if let Some(p) = self.panes.get_mut(&focused).filter(|p| p.buffer == buffer) {
+            if p.cursor.bar != bar
+                || cursor_tick(score, &p.cursor) > tick
+                || beat_end(score, &p.cursor) <= tick
+            {
+                p.cursor.bar = bar;
+                p.cursor.beat = beat_at_tick(score, p.cursor.track, bar, tick);
+            }
+        }
+    }
 }
 
 fn mtime(path: &Path) -> Option<SystemTime> {
@@ -800,6 +822,10 @@ pub fn beats<'a>(score: &'a Score, c: &Cursor) -> &'a [Beat] {
 /// Tick within the bar at which the cursor's beat starts.
 pub fn cursor_tick(score: &Score, c: &Cursor) -> u32 {
     beats(score, c).iter().take(c.beat).map(Beat::ticks).sum()
+}
+
+fn beat_end(score: &Score, c: &Cursor) -> u32 {
+    cursor_tick(score, c) + beats(score, c).get(c.beat).map_or(0, |b| b.ticks().max(1))
 }
 
 /// Index of the beat sounding at `tick` in a bar.
@@ -996,8 +1022,16 @@ mod tests {
                 tick: 1920
             }]
         );
-        // Playback leaves the editing cursor alone (the playhead is drawn separately).
+        // Following playback moves the cursor with the playhead…
         app.playing = true;
+        app.follow_playback(0, 3, 1000);
+        assert_eq!((app.pane().cursor.bar, app.pane().cursor.beat), (3, 1));
+        // …until following is turned off: then it stays where it was.
+        keys(&mut app, "<Space>f");
+        assert!(!app.follow);
+        app.follow_playback(0, 5, 0);
+        assert_eq!((app.pane().cursor.bar, app.pane().cursor.beat), (3, 1));
+        keys(&mut app, "<Space>f");
         keys(&mut app, "<Space>s");
         assert_eq!(
             app.take_effects(),

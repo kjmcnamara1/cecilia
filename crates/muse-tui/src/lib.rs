@@ -39,6 +39,11 @@ fn event_loop(terminal: &mut DefaultTerminal, app: &mut App) -> Result<()> {
     while !app.quit {
         playback.sync(app);
         let play_loc = playback.location(app);
+        if app.playing {
+            if let Some((buffer, loc, _, _)) = play_loc {
+                app.follow_playback(buffer, loc.bar, loc.tick);
+            }
+        }
         terminal.draw(|f| draw(f, app, play_loc, &mut hits))?;
 
         let timeout = if app.playing {

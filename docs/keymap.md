@@ -26,7 +26,7 @@ Items marked _(M1)_ are implemented in the first milestone; the rest are the pla
 | ------------------------- | ------------------------- | ------ |
 | `<leader><leader>`        | play / pause from cursor  | _(M1)_ |
 | `<leader>s`               | stop                      | _(M1)_ |
-| `<leader>f`               | toggle following the playhead: while playing, a red bar marks the position and the view scrolls with it; the editing cursor stays where `hjkl` put it | _(M1)_ |
+| `<leader>f`               | toggle following playback. A red bar always marks the playhead; while following, the editing cursor and the view move with it. Turned off (even mid-playback), the cursor stays where it is and is moved only by `hjkl` | _(M1)_ |
 | `<leader>l`               | loop the selected bars (or the cursor bar) / loop off | _(M5)_ |
 | `<leader>c`               | toggle count-in           | _(M5)_ |
 | `<leader>m`               | toggle metronome          | _(M5)_ |
