@@ -312,9 +312,8 @@ fn draw_palette(f: &mut Frame, p: &muse_app::Palette, screen: Rect) {
             line.push(' ');
         }
         f.render_widget(Paragraph::new(line).style(style), row);
-        if !selected && item.description.is_some() {
+        if let Some(d) = item.description.filter(|_| !selected) {
             // Dim the description part.
-            let d = item.description.unwrap();
             let len = d.chars().take(width).count() as u16;
             let x = row.x + row.width.saturating_sub(len + 1);
             f.buffer_mut().set_style(
