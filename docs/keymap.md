@@ -192,14 +192,16 @@ e.g. `"<C-g>" = "completion-ignore-case"`, `"<C-f>" = "completion-fuzzy"`.
 A workspace saves the views — each with its pane splits, name and bufferline of loaded files —
 and each pane's file, cursor, recent files, layout and waveform strip, plus zoom, follow, chant
 view, the window waveform bar, marks (of saved files) and recorded macros, to
-`~/.local/share/muse/workspaces/NAME.toml` (or a path). While one is active it is saved again
-whenever the session changes and when muse quits. Start with one using `muse --workspace NAME`.
+`~/.local/share/muse/workspaces/NAME.toml` (or a path). A workspace is always active, and is
+saved again whenever the session changes and when muse quits. Until you choose one, it is
+`default`. `muse` reopens the workspace used last; `muse --workspace NAME` starts with another
+(created from scratch if it doesn't exist yet), and files named on the command line open in it.
 
 | command | |
 | --- | --- |
 | `:workspace-save [name]` | save the session as a workspace and make it active (no name: the active one) |
 | `:workspace-open name` | replace the session with a saved workspace (`:workspace-open!` discards unsaved changes) |
-| `:workspace-close` | stop saving the session to the active workspace |
+| `:workspace-close` | save and leave the active workspace for `default` |
 
 ### Chant _(M6)_
 

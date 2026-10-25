@@ -40,7 +40,7 @@ full specification and roadmap, and [docs/keymap.md](docs/keymap.md) for key bin
 - A bufferline.nvim-style tabline: each view's open files as tabs (file-type icon, name
   shortened in the middle, hover close button) and the views on the right
 - Workspaces: `:workspace-save NAME` / `:workspace-open NAME` / `muse --workspace NAME` keep the
-  views, their pane splits and open files, saved automatically while active
+  views, their pane splits and open files, saved automatically; `muse` reopens the last one (or `default`)
 - TOML configuration with custom keybinds, reloaded automatically when the file changes
 
 ## Usage

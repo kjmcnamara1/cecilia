@@ -203,7 +203,8 @@ untouched original (which may contain data muse does not model) is never rewritt
   open in several views is one shared buffer. Each pane remembers the buffers it showed, so
   closing a tab falls back to the pane's previous buffer.
 - **Workspace**: saved session (views with their panes and bufferlines, cursor positions) as
-  TOML. Done: `:workspace-save/open/close`, `--workspace`, autosaved while active.
+  TOML. Done: `:workspace-save/open/close`, `--workspace`; one is always active (`default` until
+  chosen), autosaved, and reopened by a plain `muse`.
 
 ### 8.2 Modes
 

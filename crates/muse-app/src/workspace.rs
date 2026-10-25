@@ -144,6 +144,21 @@ pub fn workspace_dir() -> Option<PathBuf> {
     directories::ProjectDirs::from("", "", "muse").map(|d| d.data_dir().join("workspaces"))
 }
 
+/// The workspace used when none was chosen.
+pub const DEFAULT_WORKSPACE: &str = "default";
+
+/// The file recording the last active workspace.
+fn last_workspace_marker() -> Option<PathBuf> {
+    directories::ProjectDirs::from("", "", "muse").map(|d| d.data_dir().join("last-workspace"))
+}
+
+/// The workspace active when muse last ran (as a path), if it still exists.
+pub fn last_workspace() -> Option<String> {
+    let text = std::fs::read_to_string(last_workspace_marker()?).ok()?;
+    let path = text.trim();
+    (!path.is_empty() && Path::new(path).exists()).then(|| path.to_string())
+}
+
 /// A workspace argument as a file: a path (with `/` or `.toml`) or a name in [`workspace_dir`].
 pub fn workspace_path(arg: &str) -> Option<PathBuf> {
     let arg = arg.trim();
@@ -310,7 +325,7 @@ impl App {
         };
         match self.write_workspace(&path) {
             Ok(()) => {
-                self.workspace_file = Some(path.clone());
+                self.set_workspace_file(path.clone());
                 self.info(format!("workspace saved: {}", workspace_label(&path)));
             }
             Err(e) => self.error(format!("workspace-save: {e}")),
@@ -325,6 +340,50 @@ impl App {
         std::fs::write(path, &text).map_err(|e| format!("{}: {e}", path.display()))?;
         self.workspace_saved = Some(text);
         Ok(())
+    }
+
+    /// Makes a workspace the active one: opens it if it was saved, otherwise starts it with the
+    /// current session.
+    pub fn use_workspace(&mut self, name: &str) {
+        match workspace_path(name) {
+            Some(path) if path.exists() => self.open_workspace(name, true),
+            Some(_) => self.save_workspace(Some(name)),
+            None => self.error(format!("workspace {name}: no data folder to keep it in")),
+        }
+    }
+
+    /// Leaves the active workspace (saving it) for the default one: its saved session, or an
+    /// empty one the first time.
+    pub fn close_workspace(&mut self) {
+        let default = workspace_path(DEFAULT_WORKSPACE);
+        if self.workspace_file.is_none() || self.workspace_file == default {
+            return self.error("this is the default workspace (open another with :workspace-open)");
+        }
+        if let Some(b) = self.buffers.iter().find(|b| b.modified) {
+            return self.error(format!(
+                "workspace-close: \"{}\" has unsaved changes (:w first)",
+                b.name
+            ));
+        }
+        match default {
+            Some(p) if p.exists() => self.open_workspace(DEFAULT_WORKSPACE, false),
+            _ => {
+                self.autosave_workspace();
+                let fresh = App::new(self.config.clone(), None).workspace();
+                self.restore(&fresh);
+                self.save_workspace(Some(DEFAULT_WORKSPACE));
+            }
+        }
+    }
+
+    fn set_workspace_file(&mut self, path: PathBuf) {
+        if self.remember_workspace {
+            if let Some(marker) = last_workspace_marker() {
+                let abs = std::path::absolute(&path).unwrap_or_else(|_| path.clone());
+                std::fs::write(marker, abs.display().to_string()).ok();
+            }
+        }
+        self.workspace_file = Some(path);
     }
 
     /// Saves the active workspace if the session changed since it was last saved.
@@ -365,7 +424,7 @@ impl App {
         // Save the workspace being left first.
         self.autosave_workspace();
         self.restore(&ws);
-        self.workspace_file = Some(path.clone());
+        self.set_workspace_file(path.clone());
         self.workspace_saved = toml::to_string_pretty(&self.workspace()).ok();
         let missing = ws.files.iter().filter(|f| !f.exists()).count();
         if missing > 0 {
@@ -612,6 +671,24 @@ mod tests {
         other.buffers[0].modified = true;
         other.run(Command::WorkspaceOpen(ws_file.display().to_string(), false));
         assert!(other.message.as_ref().unwrap().error);
+        std::fs::remove_dir_all(dir).ok();
+    }
+
+    #[test]
+    fn using_a_workspace_starts_it_or_opens_it() {
+        let dir = std::env::temp_dir().join(format!("muse-ws-use-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let ws = dir.join("gig.toml").display().to_string();
+        // Not saved yet: the current session becomes it.
+        let mut app = App::new(Config::default(), None);
+        app.run(Command::Split);
+        app.use_workspace(&ws);
+        assert_eq!(app.workspace_name().as_deref(), Some(ws.as_str()));
+        assert!(std::path::Path::new(&ws).exists());
+        // Saved: it is opened.
+        let mut other = App::new(Config::default(), None);
+        other.use_workspace(&ws);
+        assert_eq!(other.views[0].root.panes().len(), 2);
         std::fs::remove_dir_all(dir).ok();
     }
 

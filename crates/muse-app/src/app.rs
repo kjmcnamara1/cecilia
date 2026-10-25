@@ -245,6 +245,9 @@ pub struct App {
     pub workspace_file: Option<PathBuf>,
     /// The workspace as last written, to save only when something changed.
     pub(crate) workspace_saved: Option<String>,
+    /// Record the active workspace for the next start (`muse` without arguments reopens it).
+    /// Off in tests and screenshots.
+    pub remember_workspace: bool,
 }
 
 impl App {
@@ -319,6 +322,7 @@ impl App {
             pa: Default::default(),
             workspace_file: None,
             workspace_saved: None,
+            remember_workspace: false,
         }
     }
 
@@ -1062,13 +1066,7 @@ impl App {
             }
             WorkspaceSave(target) => self.save_workspace(target.as_deref()),
             WorkspaceOpen(name, force) => self.open_workspace(&name, force),
-            WorkspaceClose => match self.workspace_file.take() {
-                Some(_) => {
-                    self.workspace_saved = None;
-                    self.info("workspace closed (no longer saved automatically)");
-                }
-                None => self.error("no workspace is active"),
-            },
+            WorkspaceClose => self.close_workspace(),
             ViewNext => self.active_view = (self.active_view + 1) % self.views.len(),
             ViewPrev => {
                 self.active_view = (self.active_view + self.views.len() - 1) % self.views.len()

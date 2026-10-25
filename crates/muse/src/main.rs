@@ -23,7 +23,8 @@ struct Cli {
     /// 1400×900 logical pixels times this.
     #[arg(long, hide = true, default_value_t = 1.0)]
     scale_factor: f64,
-    /// Open a saved workspace (by name, or a path to its .toml file).
+    /// Workspace to use (by name, or a path to its .toml file); created if new. Default: the
+    /// workspace used last, or "default".
     #[arg(long, short = 'W')]
     workspace: Option<String>,
     /// Mouse position (logical "X,Y") for --screenshot, to show hover effects.
@@ -134,15 +135,24 @@ fn main() -> Result<()> {
             if !warnings.is_empty() {
                 app.error(warnings.join("; "));
             }
-            // Files open as buffer tabs of the first view; the first one is shown.
+            // There is always a workspace: the one asked for, else the last one used, else
+            // "default". (Screenshots only use one when asked.)
+            let interactive = cli.screenshot.is_none();
+            if interactive || cli.workspace.is_some() {
+                app.remember_workspace = interactive;
+                let ws = cli
+                    .workspace
+                    .clone()
+                    .or_else(muse_app::workspace::last_workspace)
+                    .unwrap_or_else(|| muse_app::workspace::DEFAULT_WORKSPACE.into());
+                app.use_workspace(&ws);
+            }
+            // Files given open as buffer tabs in it; the first one is shown.
             for f in &cli.files {
                 app.run(Command::Edit(f.clone()));
             }
-            if cli.files.len() > 1 {
-                app.run(Command::BufferGoto(1));
-            }
-            if let Some(ws) = &cli.workspace {
-                app.run(Command::WorkspaceOpen(ws.clone(), false));
+            if let Some(first) = cli.files.first().filter(|_| cli.files.len() > 1) {
+                app.run(Command::Edit(first.clone()));
             }
             if let Some(out) = &cli.screenshot {
                 if let Some(keys) = &cli.keys {
