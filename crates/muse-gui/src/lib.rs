@@ -12,6 +12,7 @@ use std::time::{Duration, Instant};
 use anyhow::{Context, Result, anyhow};
 use muse_app::App;
 use muse_app::playback::Playback;
+use vello::kurbo::Affine;
 use vello::util::{RenderContext, RenderSurface};
 use vello::{AaConfig, AaSupport, RenderParams, Renderer, RendererOptions, Scene, wgpu};
 use winit::application::ApplicationHandler;
@@ -35,6 +36,8 @@ struct Gui {
     views: Views,
     playback: Playback,
     scene: Scene,
+    /// The frame in logical units, before scaling to the window's pixels.
+    logical: Scene,
     mods: ModifiersState,
     mouse: (f64, f64),
     last_config_check: Instant,
@@ -60,6 +63,7 @@ pub fn run(app: App) -> Result<()> {
         views: Views::default(),
         playback: Playback::default(),
         scene: Scene::new(),
+        logical: Scene::new(),
         mods: ModifiersState::empty(),
         mouse: (0.0, 0.0),
         last_config_check: Instant::now(),
@@ -78,17 +82,23 @@ impl Gui {
             return Ok(());
         };
         let (width, height) = (gpu.surface.config.width, gpu.surface.config.height);
-        self.scene.reset();
+        // Lay out in logical units so the UI keeps its size on HiDPI and fractionally scaled
+        // monitors, then scale the frame to the surface's pixels.
+        let factor = gpu.window.scale_factor().max(0.1);
+        self.logical.reset();
         let play = self.playback.location(&self.app);
         draw::build(
-            &mut self.scene,
+            &mut self.logical,
             &mut self.app,
             &mut self.views,
             Some(&mut self.playback),
             play,
-            width as f64,
-            height as f64,
+            width as f64 / factor,
+            height as f64 / factor,
         );
+        self.scene.reset();
+        self.scene
+            .append(&self.logical, Some(Affine::scale(factor)));
         let dev = &self.cx.devices[gpu.surface.dev_id];
         gpu.renderer
             .render_to_texture(
@@ -125,6 +135,13 @@ impl Gui {
         dev.queue.submit([encoder.finish()]);
         frame.present();
         Ok(())
+    }
+
+    /// Physical pixels per logical unit of the window (1.5 on a 150% scaled monitor).
+    fn scale_factor(&self) -> f64 {
+        self.gpu
+            .as_ref()
+            .map_or(1.0, |g| g.window.scale_factor().max(0.1))
     }
 
     fn after_input(&mut self) {
@@ -186,6 +203,12 @@ impl ApplicationHandler for Gui {
                     gpu.window.request_redraw();
                 }
             }
+            WindowEvent::ScaleFactorChanged { .. } => {
+                // Moved to a monitor with another scale; the new size follows as `Resized`.
+                if let Some(gpu) = &self.gpu {
+                    gpu.window.request_redraw();
+                }
+            }
             WindowEvent::RedrawRequested => {
                 if let Err(e) = self.redraw() {
                     self.app.error(format!("{e:#}"));
@@ -198,7 +221,11 @@ impl ApplicationHandler for Gui {
                     self.after_input();
                 }
             }
-            WindowEvent::CursorMoved { position, .. } => self.mouse = (position.x, position.y),
+            WindowEvent::CursorMoved { position, .. } => {
+                // Logical coordinates, as the frame is laid out in.
+                let f = self.scale_factor();
+                self.mouse = (position.x / f, position.y / f);
+            }
             WindowEvent::MouseInput {
                 state: ElementState::Pressed,
                 button: MouseButton::Left,
@@ -210,7 +237,7 @@ impl ApplicationHandler for Gui {
             WindowEvent::MouseWheel { delta, .. } => {
                 let dy = match delta {
                     MouseScrollDelta::LineDelta(_, y) => y as f64 * 60.0,
-                    MouseScrollDelta::PixelDelta(p) => p.y,
+                    MouseScrollDelta::PixelDelta(p) => p.y / self.scale_factor(),
                 };
                 if self.mods.control_key() {
                     self.app.run(if dy > 0.0 {
@@ -253,8 +280,10 @@ impl ApplicationHandler for Gui {
     }
 }
 
-/// Renders one frame offscreen to a PNG (for tests and documentation).
-pub fn screenshot(mut app: App, width: u32, height: u32) -> Result<Vec<u8>> {
+/// Renders one frame offscreen to a PNG (for tests and documentation), `width` × `height`
+/// physical pixels at a display scale factor (1.5 = a 150% scaled monitor).
+pub fn screenshot(mut app: App, width: u32, height: u32, factor: f64) -> Result<Vec<u8>> {
+    let factor = factor.max(0.1);
     let mut cx = RenderContext::new();
     let dev_id = pollster::block_on(cx.device(None)).ok_or_else(|| anyhow!("no GPU adapter"))?;
     let dev = &cx.devices[dev_id];
@@ -274,15 +303,17 @@ pub fn screenshot(mut app: App, width: u32, height: u32) -> Result<Vec<u8>> {
         }
         std::thread::sleep(std::time::Duration::from_millis(50));
     }
+    let mut logical = Scene::new();
     draw::build(
-        &mut scene,
+        &mut logical,
         &mut app,
         &mut views,
         Some(&mut playback),
         None,
-        width as f64,
-        height as f64,
+        width as f64 / factor,
+        height as f64 / factor,
     );
+    scene.append(&logical, Some(Affine::scale(factor)));
     let texture = device.create_texture(&wgpu::TextureDescriptor {
         label: Some("screenshot"),
         size: wgpu::Extent3d {

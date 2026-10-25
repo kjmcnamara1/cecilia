@@ -19,6 +19,10 @@ struct Cli {
     /// Render one GUI frame to this PNG file and exit (keys from --keys are applied first).
     #[arg(long, hide = true)]
     screenshot: Option<PathBuf>,
+    /// Display scale factor for --screenshot (e.g. 1.5 for a 150% scaled monitor); the image is
+    /// 1400×900 logical pixels times this.
+    #[arg(long, hide = true, default_value_t = 1.0)]
+    scale_factor: f64,
     /// Keys to feed before a --screenshot, in key notation (e.g. "J4}<C-w>v").
     #[arg(long, hide = true)]
     keys: Option<String>,
@@ -142,7 +146,9 @@ fn main() -> Result<()> {
                         app.handle_key(k);
                     }
                 }
-                std::fs::write(out, muse_gui::screenshot(app, 1400, 900)?)?;
+                let f = cli.scale_factor.max(0.1);
+                let (w, h) = ((1400.0 * f).round() as u32, (900.0 * f).round() as u32);
+                std::fs::write(out, muse_gui::screenshot(app, w, h, f)?)?;
                 return Ok(());
             }
             let has_display = std::env::var_os("WAYLAND_DISPLAY").is_some()
