@@ -240,6 +240,15 @@ impl Playback {
                     app.playing = false;
                 }
             }
+            Effect::Seek { buffer, bar, tick } => {
+                if self.player.is_some() && self.loaded == Some(buffer) {
+                    let seq = self.sequence(app, buffer);
+                    let time = seq.time_of(Location { bar, tick }).unwrap_or(0.0);
+                    self.player.as_ref().unwrap().seek(time);
+                } else if app.playing {
+                    self.apply(app, Effect::Play { buffer, bar, tick });
+                }
+            }
             Effect::Resume => {
                 match (&self.player, app.playing_buffer) {
                     (Some(p), Some(b)) if self.loaded == Some(b) => p.play(false),

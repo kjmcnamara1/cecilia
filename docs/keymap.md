@@ -129,7 +129,7 @@ change the score while it plays.
 | --- | --- |
 | `<leader><leader>` | pause / resume (resume carries on from where it paused) |
 | `<Esc>` / `<leader>s` | stop: back to where playback started, and to Normal mode |
-| `h j k l w b { }` … | move the cursor (with following on, it is moved along with the playhead) |
+| `h j k l w b { }` … | move the cursor. With following on, the cursor moves with the playhead and the playhead with the cursor: `}` jumps playback to the next bar at once (also while paused). Following off, the cursor moves on its own |
 | `<leader>f` `<leader>l` `<leader>m` `<leader>-` `<leader>=` `<leader>a` `<leader>t` | follow, loop, metronome, speed, mix, sync tap |
 | `:` | command line; returns to Play mode |
 

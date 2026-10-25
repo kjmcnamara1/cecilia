@@ -146,6 +146,12 @@ pub enum Effect {
         tick: u32,
     },
     Pause,
+    /// Move the play position (playing or paused) without restarting playback.
+    Seek {
+        buffer: usize,
+        bar: usize,
+        tick: u32,
+    },
     /// Continue paused playback from where it stopped.
     Resume,
     /// Pause and rewind to where playback started.
@@ -204,6 +210,9 @@ pub struct App {
     /// Playback is paused (Play mode stays on until stopped).
     pub paused: bool,
     pub follow: bool,
+    /// When the cursor last moved the play position: playhead updates from just before the
+    /// player caught up are ignored, so the cursor doesn't bounce back.
+    seeked: Option<std::time::Instant>,
     /// Command-line completion ignores case (`ui.completion_ignore_case`).
     pub completion_ignore_case: bool,
     /// Command-line completion is fuzzy (`ui.completion_fuzzy`).
@@ -283,6 +292,7 @@ impl App {
             play_start: None,
             paused: false,
             follow,
+            seeked: None,
             completion_ignore_case,
             completion_fuzzy,
             global_waveform,
@@ -1293,9 +1303,35 @@ impl App {
     /// While following playback, keeps the focused pane's cursor on the playing beat (the
     /// frontend calls this each frame while playing). With following off the cursor stays put,
     /// so turning it off mid-playback leaves the cursor where the music was at that moment.
+    /// In Play mode with follow on, a cursor moved by hand takes the play position with it.
+    pub(crate) fn seek_to_cursor(&mut self, before: (PaneId, usize, Cursor)) {
+        let pane = self.pane();
+        let now = (self.focused(), pane.buffer, pane.cursor);
+        if self.mode != Mode::Play
+            || !self.follow
+            || now == before
+            || self.playing_buffer != Some(now.1)
+        {
+            return;
+        }
+        let tick = cursor_tick(&self.buffers[now.1].score, &now.2);
+        self.seeked = Some(std::time::Instant::now());
+        self.effects.push(Effect::Seek {
+            buffer: now.1,
+            bar: now.2.bar,
+            tick,
+        });
+    }
+
     pub fn follow_playback(&mut self, buffer: usize, bar: usize, tick: u32) {
         if !self.follow {
             return;
+        }
+        if let Some(t) = self.seeked {
+            if t.elapsed() < std::time::Duration::from_millis(100) {
+                return;
+            }
+            self.seeked = None;
         }
         let score = &self.buffers[buffer].score;
         let focused = self.focused();
@@ -1690,6 +1726,45 @@ mod tests {
         app.run(Command::Layout(None));
         assert_eq!(app.panes[&second].layout, "horizontal");
         assert_eq!(app.panes[&first].layout, "page");
+    }
+
+    #[test]
+    fn moving_the_cursor_in_play_mode_moves_the_play_position() {
+        let mut app = test_app();
+        keys(&mut app, "<Space><Space>");
+        app.take_effects();
+        app.set_playing(true);
+        assert!(app.follow);
+        // `}` jumps the playback to the next bar at once…
+        keys(&mut app, "}");
+        assert_eq!(
+            app.take_effects(),
+            vec![Effect::Seek {
+                buffer: 0,
+                bar: 1,
+                tick: 0
+            }]
+        );
+        // …and a playhead update from before the player caught up doesn't pull it back.
+        app.follow_playback(0, 0, 960);
+        assert_eq!(app.pane().cursor.bar, 1);
+        // Beat moves seek too.
+        keys(&mut app, "l");
+        assert_eq!(
+            app.take_effects(),
+            vec![Effect::Seek {
+                buffer: 0,
+                bar: 1,
+                tick: 960
+            }]
+        );
+        // A key that doesn't move the cursor doesn't seek.
+        keys(&mut app, "<Space>f");
+        assert!(app.take_effects().is_empty());
+        // Without following, the cursor moves on its own.
+        keys(&mut app, "}");
+        assert_eq!(app.pane().cursor.bar, 2);
+        assert!(app.take_effects().is_empty());
     }
 
     #[test]

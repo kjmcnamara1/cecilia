@@ -123,7 +123,11 @@ impl App {
             Mode::Normal => self.normal_key(key),
             Mode::Insert => self.insert_key(key),
             Mode::Visual => self.visual_key(key),
-            Mode::Play => self.play_key(key),
+            Mode::Play => {
+                let before = (self.focused(), self.pane().buffer, self.pane().cursor);
+                self.play_key(key);
+                self.seek_to_cursor(before);
+            }
         }
         if in_insert && self.mode != Mode::Insert {
             self.ed.group = None;
