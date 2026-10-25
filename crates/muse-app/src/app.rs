@@ -60,12 +60,66 @@ pub struct Pane {
     pub layout: String,
     /// GUI: show the audio waveform strip at the bottom of this pane.
     pub waveform: bool,
+    /// Buffers shown in this pane before, most recent first, with their cursors (switching
+    /// back restores the cursor; closing a buffer falls back to the most recent one).
+    pub recent: Vec<(usize, Cursor)>,
 }
 
+/// A layout of panes with its own set of loaded buffers (the bufferline's tabs).
 #[derive(Debug, Clone)]
-pub struct Tab {
+pub struct View {
     pub root: Node,
     pub focus: PaneId,
+    /// Buffers loaded in this view, in bufferline order.
+    pub buffers: Vec<usize>,
+    pub name: Option<String>,
+}
+
+/// One tab of the bufferline (see [`App::bufferline`]).
+#[derive(Debug, Clone, PartialEq)]
+pub struct BufferTab {
+    pub buffer: usize,
+    pub name: String,
+    /// File type, from the extension: "guitar-pro", "musicxml", "midi", "chant", "muse" or "new".
+    pub kind: &'static str,
+    pub modified: bool,
+    /// Shown in the focused pane.
+    pub active: bool,
+}
+
+/// File type of a buffer, for its bufferline icon.
+pub fn file_kind(path: Option<&Path>) -> &'static str {
+    let ext = path
+        .and_then(|p| p.extension())
+        .and_then(|e| e.to_str())
+        .map(str::to_ascii_lowercase)
+        .unwrap_or_default();
+    match ext.as_str() {
+        "gp3" | "gp4" | "gp5" | "gpx" | "gp" => "guitar-pro",
+        "musicxml" | "xml" | "mxl" => "musicxml",
+        "mid" | "midi" => "midi",
+        "gabc" => "chant",
+        "muse" => "muse",
+        "" => "new",
+        _ => "other",
+    }
+}
+
+/// A name shortened to `max` characters by dropping the middle: the first `prefix` and last
+/// `suffix` characters are kept around an ellipsis.
+pub fn truncate_middle(name: &str, max: usize, prefix: usize, suffix: usize) -> String {
+    let chars: Vec<char> = name.chars().collect();
+    if chars.len() <= max.max(1) {
+        return name.to_string();
+    }
+    // Keep within `max` even if the prefix and suffix settings add up to more.
+    let budget = max.saturating_sub(1);
+    let prefix = prefix.min(budget);
+    let suffix = suffix.min(budget - prefix);
+    let mut out: String = chars[..prefix].iter().collect();
+    out.push('…');
+    out.extend(&chars[chars.len() - suffix..]);
+    out
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -117,8 +171,8 @@ pub struct App {
     pub buffers: Vec<Buffer>,
     pub panes: HashMap<PaneId, Pane>,
     pub(crate) next_pane: PaneId,
-    pub tabs: Vec<Tab>,
-    pub active_tab: usize,
+    pub views: Vec<View>,
+    pub active_view: usize,
     pub mode: Mode,
     /// Keys typed so far of a multi-key binding.
     pub pending: Vec<Key>,
@@ -180,6 +234,7 @@ impl App {
                 scroll: 0,
                 layout: score_layout.clone(),
                 waveform: true,
+                recent: Vec::new(),
             },
         );
         Self {
@@ -189,11 +244,13 @@ impl App {
             buffers: vec![Buffer::empty()],
             panes,
             next_pane: 2,
-            tabs: vec![Tab {
+            views: vec![View {
                 root: Node::Leaf(1),
                 focus: 1,
+                buffers: vec![0],
+                name: None,
             }],
-            active_tab: 0,
+            active_view: 0,
             mode: Mode::Normal,
             pending: Vec::new(),
             count: None,
@@ -233,12 +290,40 @@ impl App {
         std::mem::take(&mut self.effects)
     }
 
-    pub fn tab(&self) -> &Tab {
-        &self.tabs[self.active_tab]
+    pub fn view(&self) -> &View {
+        &self.views[self.active_view]
     }
 
     pub fn focused(&self) -> PaneId {
-        self.tab().focus
+        self.view().focus
+    }
+
+    /// The active view's bufferline: its loaded buffers in order.
+    pub fn bufferline(&self) -> Vec<BufferTab> {
+        let current = self.pane().buffer;
+        self.view()
+            .buffers
+            .iter()
+            .filter_map(|&b| {
+                let buf = self.buffers.get(b)?;
+                Some(BufferTab {
+                    buffer: b,
+                    name: buf.name.clone(),
+                    kind: file_kind(buf.path.as_deref()),
+                    modified: buf.modified,
+                    active: b == current,
+                })
+            })
+            .collect()
+    }
+
+    /// Labels of the views, for the right of the tabline: the name, or the number.
+    pub fn view_labels(&self) -> Vec<String> {
+        self.views
+            .iter()
+            .enumerate()
+            .map(|(i, v)| v.name.clone().unwrap_or_else(|| (i + 1).to_string()))
+            .collect()
     }
 
     pub fn pane(&self) -> &Pane {
@@ -256,7 +341,7 @@ impl App {
 
     pub fn layout(&self) -> Vec<(PaneId, Rect)> {
         let mut out = Vec::new();
-        self.tab().root.layout(self.viewport, &mut out);
+        self.view().root.layout(self.viewport, &mut out);
         out
     }
 
@@ -309,11 +394,14 @@ impl App {
         Ok(self.buffers.len() - 1)
     }
 
-    fn show_buffer(&mut self, buffer: usize) {
-        let pane = self.pane_mut();
-        pane.buffer = buffer;
-        pane.cursor = Cursor::default();
-        pane.scroll = 0;
+    /// Shows a buffer in the focused pane, adding it to the view's bufferline if needed. The
+    /// pane remembers the buffer it showed (and its cursor) to come back to.
+    pub(crate) fn show_buffer(&mut self, buffer: usize) {
+        let view = &mut self.views[self.active_view];
+        if !view.buffers.contains(&buffer) {
+            view.buffers.push(buffer);
+        }
+        self.switch_pane_buffer(self.focused(), buffer);
         let b = &self.buffers[buffer];
         let s = &b.score;
         let msg = format!(
@@ -338,6 +426,189 @@ impl App {
                 )
             });
         self.info(msg + &hint.unwrap_or_default());
+    }
+
+    /// Points a pane at a buffer, restoring the cursor it last had there.
+    fn switch_pane_buffer(&mut self, pane_id: PaneId, buffer: usize) {
+        let Some(pane) = self.panes.get_mut(&pane_id) else {
+            return;
+        };
+        if pane.buffer == buffer {
+            return;
+        }
+        let previous = (pane.buffer, pane.cursor);
+        pane.recent.retain(|(b, _)| *b != previous.0);
+        pane.recent.insert(0, previous);
+        let cursor = match pane.recent.iter().position(|(b, _)| *b == buffer) {
+            Some(i) => pane.recent.remove(i).1,
+            None => Cursor::default(),
+        };
+        pane.buffer = buffer;
+        pane.cursor = cursor;
+        pane.scroll = 0;
+        let mut c = pane.cursor;
+        clamp_cursor(&self.buffers[buffer].score, &mut c);
+        self.panes.get_mut(&pane_id).unwrap().cursor = c;
+    }
+
+    /// Shows the buffer `steps` tabs along the bufferline (wrapping) in the focused pane.
+    fn cycle_buffer(&mut self, steps: isize) {
+        let list = &self.view().buffers;
+        if list.is_empty() {
+            return;
+        }
+        let n = list.len() as isize;
+        let at = list
+            .iter()
+            .position(|&b| b == self.pane().buffer)
+            .unwrap_or(0) as isize;
+        let next = list[(at + steps).rem_euclid(n) as usize];
+        self.show_buffer(next);
+    }
+
+    /// Closes a buffer's tab in the active view. Panes showing it switch to the most recent
+    /// other buffer they showed that is still in the view, or close if there is none. The
+    /// buffer is unloaded once no view has it; unsaved changes then stop the close unless
+    /// `force`.
+    pub fn close_buffer(&mut self, buffer: usize, force: bool) {
+        let in_other_views = self
+            .views
+            .iter()
+            .enumerate()
+            .any(|(i, v)| i != self.active_view && v.buffers.contains(&buffer));
+        let b = &self.buffers[buffer];
+        if !in_other_views && b.modified && !force {
+            return self.error(format!(
+                "\"{}\" has unsaved changes (:w, or :bdelete! to discard)",
+                b.name
+            ));
+        }
+        if self.playing_buffer == Some(buffer) && !in_other_views && (self.playing || self.paused) {
+            self.run(Command::Stop);
+        }
+        let name = self.buffers[buffer].name.clone();
+        let view = &mut self.views[self.active_view];
+        let pos = view.buffers.iter().position(|&b| b == buffer).unwrap_or(0);
+        view.buffers.retain(|&b| b != buffer);
+        let remaining = view.buffers.clone();
+        // The neighbouring tab, for a view's only pane with nothing else to go back to.
+        let neighbour = remaining
+            .get(pos.min(remaining.len().saturating_sub(1)))
+            .copied();
+        let only_pane = view.root.panes().len() == 1;
+        let mut to_close = Vec::new();
+        for id in view.root.panes() {
+            let Some(pane) = self.panes.get_mut(&id) else {
+                continue;
+            };
+            pane.recent
+                .retain(|(b, _)| *b != buffer && remaining.contains(b));
+            if pane.buffer == buffer {
+                match pane.recent.first().map(|(b, _)| *b) {
+                    Some(next) => {
+                        // Not via switch_pane_buffer: the closed buffer is not remembered.
+                        let (b, mut cursor) = pane.recent.remove(0);
+                        clamp_cursor(&self.buffers[next].score, &mut cursor);
+                        let pane = self.panes.get_mut(&id).unwrap();
+                        pane.buffer = b;
+                        pane.cursor = cursor;
+                        pane.scroll = 0;
+                    }
+                    None => match neighbour.filter(|_| only_pane) {
+                        Some(next) => {
+                            pane.buffer = next;
+                            pane.cursor = Cursor::default();
+                            pane.scroll = 0;
+                        }
+                        None => to_close.push(id),
+                    },
+                }
+            }
+        }
+        for id in to_close {
+            self.close_pane_id(id);
+            if self.quit {
+                return;
+            }
+        }
+        if !in_other_views {
+            // Unloaded: the slot stays (indices are shared) but holds nothing.
+            self.buffers[buffer] = Buffer {
+                name: "[closed]".into(),
+                ..Buffer::empty()
+            };
+        }
+        self.info(format!("closed \"{name}\""));
+    }
+
+    /// A new view as `tabline.new_view` says: a copy of the active view's bufferline, just the
+    /// current buffer, or an empty start.
+    fn new_view(&mut self) {
+        let current = self.pane().buffer;
+        let buffers = match self.config.file.tabline.new_view.as_str() {
+            "current" => vec![current],
+            "empty" => {
+                self.buffers.push(Buffer::empty());
+                vec![self.buffers.len() - 1]
+            }
+            _ => self.view().buffers.clone(),
+        };
+        let shown = if buffers.contains(&current) {
+            current
+        } else {
+            buffers[0]
+        };
+        let id = self.new_pane(shown);
+        self.views.insert(
+            self.active_view + 1,
+            View {
+                root: Node::Leaf(id),
+                focus: id,
+                buffers,
+                name: None,
+            },
+        );
+        self.active_view += 1;
+    }
+
+    /// Closes the active view. Buffers no other view has are unloaded; unsaved changes in
+    /// them stop it unless `force`.
+    fn close_view(&mut self, force: bool) {
+        if self.views.len() == 1 {
+            return self.error("cannot close the last view");
+        }
+        let view = &self.views[self.active_view];
+        let orphans: Vec<usize> = view
+            .buffers
+            .iter()
+            .copied()
+            .filter(|b| {
+                !self
+                    .views
+                    .iter()
+                    .enumerate()
+                    .any(|(i, v)| i != self.active_view && v.buffers.contains(b))
+            })
+            .collect();
+        if !force {
+            if let Some(b) = orphans.iter().find(|&&b| self.buffers[b].modified) {
+                return self.error(format!(
+                    "\"{}\" has unsaved changes (:w, or :view-close! to discard)",
+                    self.buffers[*b].name
+                ));
+            }
+        }
+        let view = self.views.remove(self.active_view);
+        for id in view.root.panes() {
+            self.panes.remove(&id);
+        }
+        for b in orphans {
+            self.buffers[b] = Buffer {
+                name: "[closed]".into(),
+                ..Buffer::empty()
+            };
+        }
+        self.active_view = self.active_view.min(self.views.len() - 1);
     }
 
     // ---- config ----
@@ -670,7 +941,7 @@ impl App {
             VSplit => self.split(Axis::SideBySide),
             Focus(dir) => {
                 if let Some(id) = neighbour(&self.layout(), self.focused(), dir) {
-                    self.tabs[self.active_tab].focus = id;
+                    self.views[self.active_view].focus = id;
                 }
             }
             ClosePane | Quit { .. } => self.close_pane(),
@@ -687,38 +958,49 @@ impl App {
                 }
                 None => self.error("no workspace is active"),
             },
-            TabNext => self.active_tab = (self.active_tab + 1) % self.tabs.len(),
-            TabPrev => self.active_tab = (self.active_tab + self.tabs.len() - 1) % self.tabs.len(),
-            TabNew(path) => {
-                let buffer = match path {
+            ViewNext => self.active_view = (self.active_view + 1) % self.views.len(),
+            ViewPrev => {
+                self.active_view = (self.active_view + self.views.len() - 1) % self.views.len()
+            }
+            ViewGoto(n) => match n.checked_sub(1).filter(|&i| i < self.views.len()) {
+                Some(i) => self.active_view = i,
+                None => self.error(format!("no view {n} ({} views)", self.views.len())),
+            },
+            ViewNew(path) => {
+                let file = match path {
                     Some(p) => match self.open(&p) {
-                        Ok(b) => b,
+                        Ok(b) => Some(b),
                         Err(e) => return self.error(e),
                     },
-                    None => self.pane().buffer,
+                    None => None,
                 };
-                let id = self.new_pane(buffer);
-                self.tabs.insert(
-                    self.active_tab + 1,
-                    Tab {
-                        root: Node::Leaf(id),
-                        focus: id,
-                    },
-                );
-                self.active_tab += 1;
-                self.show_buffer(buffer);
-            }
-            TabClose => {
-                if self.tabs.len() == 1 {
-                    self.error("cannot close the last tab");
-                } else {
-                    let tab = self.tabs.remove(self.active_tab);
-                    for id in tab.root.panes() {
-                        self.panes.remove(&id);
-                    }
-                    self.active_tab = self.active_tab.min(self.tabs.len() - 1);
+                self.new_view();
+                if let Some(b) = file {
+                    self.show_buffer(b);
                 }
             }
+            ViewRename(name) => {
+                self.views[self.active_view].name = name.filter(|n| !n.trim().is_empty());
+            }
+            BufferNext => self.cycle_buffer(1),
+            BufferPrev => self.cycle_buffer(-1),
+            BufferGoto(n) => match n.checked_sub(1).and_then(|i| self.view().buffers.get(i)) {
+                Some(&b) => self.show_buffer(b),
+                None => self.error(format!("no buffer tab {n}")),
+            },
+            BufferClose(n, force) => {
+                let target = match n {
+                    None => Some(self.pane().buffer),
+                    Some(n) => n
+                        .checked_sub(1)
+                        .and_then(|i| self.view().buffers.get(i).copied()),
+                };
+                match target {
+                    Some(b) => self.close_buffer(b, force),
+                    None => self.error("no such buffer tab"),
+                }
+            }
+            ViewClose(force) => self.close_view(force),
             Edit(path) => match self.open(&path) {
                 Ok(b) => self.show_buffer(b),
                 Err(e) => self.error(e),
@@ -847,6 +1129,7 @@ impl App {
                 scroll: 0,
                 layout,
                 waveform,
+                recent: Vec::new(),
             },
         );
         id
@@ -855,37 +1138,62 @@ impl App {
     fn split(&mut self, axis: Axis) {
         let current = self.pane().clone();
         let id = self.new_pane(current.buffer);
-        self.panes.get_mut(&id).unwrap().cursor = current.cursor;
+        let pane = self.panes.get_mut(&id).unwrap();
+        pane.cursor = current.cursor;
+        pane.recent = current.recent;
         let focus = self.focused();
-        let tab = &mut self.tabs[self.active_tab];
-        tab.root.split(focus, id, axis);
-        tab.focus = id;
+        let view = &mut self.views[self.active_view];
+        view.root.split(focus, id, axis);
+        view.focus = id;
     }
 
+    /// `:q` on the focused pane: closes it, its view with the last pane, muse with the last view.
     fn close_pane(&mut self) {
         let focus = self.focused();
-        let rects = self.layout();
-        let tab = &mut self.tabs[self.active_tab];
-        if tab.root.remove(focus) {
-            self.panes.remove(&focus);
-            let remaining = tab.root.panes();
-            // Focus the nearest remaining pane, as vim does.
-            tab.focus = [
-                crate::command::Direction::Left,
-                crate::command::Direction::Up,
-            ]
-            .into_iter()
-            .chain([
-                crate::command::Direction::Right,
-                crate::command::Direction::Down,
-            ])
-            .find_map(|d| neighbour(&rects, focus, d).filter(|id| remaining.contains(id)))
-            .unwrap_or(remaining[0]);
-        } else if self.tabs.len() > 1 {
-            self.run(Command::TabClose);
+        if self.view().root.panes().len() > 1 {
+            self.close_pane_id(focus);
+        } else if self.views.len() > 1 {
+            self.close_view(false);
         } else {
             self.autosave_workspace();
             self.quit = true;
+        }
+    }
+
+    /// Closes a pane of the active view (focus moves to its nearest neighbour). The last pane
+    /// closes the view; the last pane of the last view shows an empty score instead.
+    fn close_pane_id(&mut self, id: PaneId) {
+        let rects = self.layout();
+        if self.view().root.panes().len() <= 1 {
+            if self.views.len() > 1 {
+                self.close_view(true);
+            } else {
+                self.buffers.push(Buffer::empty());
+                let empty = self.buffers.len() - 1;
+                let view = &mut self.views[self.active_view];
+                view.buffers.push(empty);
+                let pane = self.panes.get_mut(&id).unwrap();
+                pane.buffer = empty;
+                pane.cursor = Cursor::default();
+                pane.recent.clear();
+            }
+            return;
+        }
+        let view = &mut self.views[self.active_view];
+        view.root.remove(id);
+        self.panes.remove(&id);
+        if view.focus == id {
+            let remaining = view.root.panes();
+            // Focus the nearest remaining pane, as vim does.
+            view.focus = [
+                crate::command::Direction::Left,
+                crate::command::Direction::Up,
+                crate::command::Direction::Right,
+                crate::command::Direction::Down,
+            ]
+            .into_iter()
+            .find_map(|d| neighbour(&rects, id, d).filter(|n| remaining.contains(n)))
+            .unwrap_or(remaining[0]);
         }
     }
 
@@ -1112,15 +1420,15 @@ mod tests {
         assert_eq!(app.pane().cursor.bar, 4);
         assert_eq!(app.mode, Mode::Normal);
         keys(&mut app, "<C-w>v");
-        assert_eq!(app.tab().root.panes().len(), 2);
+        assert_eq!(app.view().root.panes().len(), 2);
         let right = app.focused();
         keys(&mut app, "<C-w>h");
         assert_ne!(app.focused(), right);
         keys(&mut app, ":q<CR>");
-        assert_eq!(app.tab().root.panes(), vec![right]);
+        assert_eq!(app.view().root.panes(), vec![right]);
         assert!(!app.quit);
-        keys(&mut app, ":tabnew<CR>gt");
-        assert_eq!(app.active_tab, 0);
+        keys(&mut app, ":view-new<CR>gt");
+        assert_eq!(app.active_view, 0);
         keys(&mut app, ":bogus<CR>");
         assert!(app.message.as_ref().is_some_and(|m| m.error));
         keys(&mut app, ":qa<CR>");
@@ -1141,6 +1449,96 @@ mod tests {
         app.run(Command::Write(Some(dir.join("out.unknown"))));
         assert!(app.message.as_ref().unwrap().error);
         std::fs::remove_dir_all(&dir).unwrap();
+    }
+
+    /// Files `name` (empty scores) in a temp folder.
+    fn files(dir: &Path, names: &[&str]) -> Vec<PathBuf> {
+        std::fs::create_dir_all(dir).unwrap();
+        let mut app = App::new(Config::default(), None);
+        app.run(Command::New);
+        names
+            .iter()
+            .map(|n| {
+                let p = dir.join(n);
+                app.run(Command::Write(Some(p.clone())));
+                p
+            })
+            .collect()
+    }
+
+    #[test]
+    fn buffers_belong_to_views_and_close_back_to_recent() {
+        let dir = std::env::temp_dir().join(format!("muse-views-{}", std::process::id()));
+        let f = files(&dir, &["a.muse", "b.muse", "c.muse"]);
+        let mut app = App::new(Config::default(), None);
+        for p in &f {
+            app.run(Command::Edit(p.clone()));
+        }
+        // Three tabs; the pane shows c and remembers b then a.
+        let names = |app: &App| -> Vec<String> {
+            app.bufferline().iter().map(|t| t.name.clone()).collect()
+        };
+        assert_eq!(names(&app), ["a.muse", "b.muse", "c.muse"]);
+        assert!(app.bufferline()[2].active);
+        // Cursors are remembered per buffer in the pane.
+        app.run(Command::BufferGoto(1));
+        app.panes.get_mut(&app.focused()).unwrap().cursor.string = 3;
+        app.run(Command::BufferNext);
+        assert_eq!(app.buffer().name, "b.muse");
+        app.run(Command::BufferPrev);
+        assert_eq!(app.pane().cursor.string, 3);
+        // A new view copies the bufferline (tabline.new_view = "copy"), sharing the buffers.
+        app.run(Command::ViewNew(None));
+        assert_eq!(names(&app), ["a.muse", "b.muse", "c.muse"]);
+        assert_eq!(app.view_labels(), ["1", "2"]);
+        // Closing a tab here leaves it loaded for view 1.
+        app.run(Command::BufferClose(Some(3), false));
+        assert_eq!(names(&app), ["a.muse", "b.muse"]);
+        app.run(Command::ViewPrev);
+        assert_eq!(names(&app), ["a.muse", "b.muse", "c.muse"]);
+        // Closing the shown buffer: the pane goes back to the one it showed before.
+        app.run(Command::BufferGoto(2));
+        app.run(Command::BufferGoto(3));
+        app.run(Command::BufferClose(None, false));
+        assert_eq!(app.buffer().name, "b.muse");
+        // Unsaved changes stop a close that would unload the buffer.
+        let b = app.pane().buffer;
+        app.buffers[b].modified = true;
+        app.run(Command::ViewNext);
+        app.run(Command::BufferClose(Some(2), false));
+        app.run(Command::ViewPrev);
+        app.run(Command::BufferClose(None, false));
+        assert!(app.message.as_ref().unwrap().error);
+        assert_eq!(app.buffer().name, "b.muse");
+        app.run(Command::BufferClose(None, true));
+        assert_eq!(app.buffer().name, "a.muse");
+        // A split pane goes back to what it showed before…
+        app.run(Command::VSplit);
+        app.run(Command::Edit(f[2].clone()));
+        app.run(Command::BufferClose(None, false));
+        assert_eq!(app.view().root.panes().len(), 2);
+        assert_eq!(app.buffer().name, "a.muse");
+        // …and closes when it has nothing to go back to.
+        app.run(Command::Edit(f[2].clone()));
+        let id = app.focused();
+        app.panes.get_mut(&id).unwrap().recent.clear();
+        app.run(Command::BufferClose(None, false));
+        assert_eq!(app.view().root.panes().len(), 1);
+        assert!(!app.panes.contains_key(&id));
+        std::fs::remove_dir_all(dir).ok();
+    }
+
+    #[test]
+    fn long_names_lose_their_middle() {
+        assert_eq!(truncate_middle("short.gp5", 28, 14, 10), "short.gp5");
+        assert_eq!(
+            truncate_middle("A very long song title that does not fit.muse", 28, 14, 10),
+            "A very long so…t fit.muse"
+        );
+        // Prefix and suffix are cut to fit the maximum.
+        assert_eq!(truncate_middle("abcdefghij", 5, 4, 4), "abcd…");
+        assert_eq!(file_kind(Some(Path::new("x.GP5"))), "guitar-pro");
+        assert_eq!(file_kind(None), "new");
     }
 
     #[test]

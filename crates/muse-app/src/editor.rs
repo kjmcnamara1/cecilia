@@ -1091,9 +1091,7 @@ impl App {
             version: 0,
         });
         let b = self.buffers.len() - 1;
-        let p = self.panes.get_mut(&self.focused()).unwrap();
-        p.buffer = b;
-        p.cursor = Cursor::default();
+        self.show_buffer(b);
         self.info("new score: i to insert, :w name.gp to save");
     }
 }

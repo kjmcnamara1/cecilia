@@ -162,10 +162,21 @@ pub enum Command {
     VSplit,
     Focus(Direction),
     ClosePane,
-    TabNext,
-    TabPrev,
-    TabNew(Option<PathBuf>),
-    TabClose,
+    ViewNext,
+    ViewPrev,
+    /// Go to view number (1-based).
+    ViewGoto(usize),
+    /// A new view (`tabline.new_view` says what it starts with), optionally opening a file.
+    ViewNew(Option<PathBuf>),
+    /// Close the active view (true: discard unsaved changes of buffers only it had).
+    ViewClose(bool),
+    ViewRename(Option<String>),
+    BufferNext,
+    BufferPrev,
+    /// Show the buffer of bufferline tab number (1-based).
+    BufferGoto(usize),
+    /// Close a bufferline tab (number, or the focused pane's buffer); true discards changes.
+    BufferClose(Option<usize>, bool),
     Edit(PathBuf),
     /// Write the buffer, to its own file or (exporting) to another path.
     Write(Option<PathBuf>),
@@ -244,10 +255,22 @@ impl Command {
             "focus-up" => Focus(Direction::Up),
             "focus-right" => Focus(Direction::Right),
             "close-pane" | "close" | "clo" => ClosePane,
-            "tab-next" | "tabnext" | "tabn" => TabNext,
-            "tab-prev" | "tabprevious" | "tabp" => TabPrev,
-            "tabnew" | "tabe" | "tabedit" => TabNew(arg.map(expand_tilde)),
-            "tabclose" | "tabc" => TabClose,
+            "view-next" => ViewNext,
+            "view-prev" => ViewPrev,
+            "view" => ViewGoto(number("view number")?),
+            "view-new" => ViewNew(arg.map(expand_tilde)),
+            "view-close" => ViewClose(false),
+            "view-close!" => ViewClose(true),
+            "view-rename" => ViewRename(arg.map(String::from)),
+            "buffer-next" | "bnext" | "bn" => BufferNext,
+            "buffer-prev" | "bprevious" | "bprev" | "bp" => BufferPrev,
+            "buffer" | "b" => BufferGoto(number("buffer tab number")?),
+            "buffer-close" | "bdelete" | "bd" => {
+                BufferClose(arg.and_then(|a| a.parse().ok()), false)
+            }
+            "buffer-close!" | "bdelete!" | "bd!" => {
+                BufferClose(arg.and_then(|a| a.parse().ok()), true)
+            }
             "open" => Edit(path()?),
             "write" | "w" => Write(arg.map(expand_tilde)),
             "wq" | "x" | "write-quit" => WriteQuit,
@@ -478,8 +501,10 @@ impl Command {
                 | TrackPrev
                 | PageDown
                 | PageUp
-                | TabNext
-                | TabPrev
+                | ViewNext
+                | ViewPrev
+                | BufferNext
+                | BufferPrev
                 | PitchUp
                 | PitchDown
                 | DurationLonger
@@ -540,7 +565,11 @@ mod tests {
             Command::parse("open song.gp5"),
             Ok(Command::Edit("song.gp5".into()))
         );
-        assert_eq!(Command::parse("tabnew"), Ok(Command::TabNew(None)));
+        assert_eq!(Command::parse("view-new"), Ok(Command::ViewNew(None)));
+        assert_eq!(
+            Command::parse("bd! 2"),
+            Ok(Command::BufferClose(Some(2), true))
+        );
         assert_eq!(
             Command::parse("w out.gp"),
             Ok(Command::Write(Some("out.gp".into())))

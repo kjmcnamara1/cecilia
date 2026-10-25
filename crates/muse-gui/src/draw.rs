@@ -11,7 +11,7 @@ use muse_engrave::display::{Align, BeatRef, FontKind};
 use muse_engrave::output::{Paint, outlines};
 use muse_engrave::{Layout, Options};
 use vello::Scene;
-use vello::kurbo::{Affine, BezPath, Rect, RoundedRect, Stroke};
+use vello::kurbo::{Affine, BezPath, Circle, Rect, RoundedRect, Stroke};
 use vello::peniko::{Color, Fill, Mix};
 
 pub const BACKGROUND: Color = Color::from_rgba8(232, 233, 236, 255);
@@ -54,6 +54,21 @@ pub struct Views {
     scroll: HashMap<PaneId, (f64, f64)>,
     geometry: Vec<Geometry>,
     last_cursor: HashMap<PaneId, (usize, usize, usize)>,
+    /// Mouse position (logical), for hover effects on the tabline.
+    pub hover: (f64, f64),
+    /// Clickable areas of the tabline drawn last frame.
+    tabline: Vec<(Rect, TablineHit)>,
+}
+
+/// What a click on the tabline does.
+#[derive(Debug, Clone, Copy, PartialEq)]
+enum TablineHit {
+    /// Show the buffer of bufferline tab n (0-based).
+    Buffer(usize),
+    /// Close bufferline tab n.
+    Close(usize),
+    /// Switch to view n.
+    View(usize),
 }
 
 fn rgb(c: muse_engrave::display::Color) -> Color {
@@ -121,7 +136,7 @@ pub fn build(
         w: main.width() as u16,
         h: main.height() as u16,
     };
-    draw_tabs(scene, app, width);
+    draw_tabs(scene, app, views, width);
     views.geometry.clear();
     let focused = app.focused();
     let layout = app.layout();
@@ -180,19 +195,31 @@ pub fn build(
     views.cache.retain(|id, _| app.panes.contains_key(id));
 }
 
-fn draw_tabs(scene: &mut Scene, app: &App, width: f64) {
+/// The tabline, as in bufferline.nvim: the active view's buffers as tabs on the left (file-type
+/// icon, name shortened in the middle, × on hover or ● when modified), the views on the right.
+fn draw_tabs(scene: &mut Scene, app: &App, views: &mut Views, width: f64) {
+    let fonts = muse_engrave::fonts::fonts();
     fill(scene, Rect::new(0.0, 0.0, width, TAB_BAR), CHROME);
-    let mut x = 8.0;
-    for (i, tab) in app.tabs.iter().enumerate() {
-        let name = app
-            .panes
-            .get(&tab.focus)
-            .map_or("?", |p| app.buffers[p.buffer].name.as_str());
-        let label = format!("{}  {}", i + 1, name);
-        let w = muse_engrave::fonts::fonts().text_width(FontKind::Text, &label, UI_FONT) + 24.0;
-        let active = i == app.active_tab;
+    views.tabline.clear();
+    let (hx, hy) = views.hover;
+    let hovering = (0.0..TAB_BAR).contains(&hy);
+
+    // Views, right-aligned.
+    let labels = app.view_labels();
+    let mut right = width - 6.0;
+    let mut chips = Vec::new();
+    for (i, label) in labels.iter().enumerate().rev() {
+        let w = fonts.text_width(FontKind::Bold, label, 12.0) + 16.0;
+        let r = Rect::new(right - w, 6.0, right, TAB_BAR - 6.0);
+        chips.push((i, label, r));
+        right -= w + 4.0;
+    }
+    for (i, label, r) in chips {
+        let active = i == app.active_view;
         let bg = if active {
-            BACKGROUND
+            ACCENT
+        } else if hovering && r.contains((hx, hy)) {
+            Color::from_rgba8(80, 84, 95, 255)
         } else {
             Color::from_rgba8(60, 63, 72, 255)
         };
@@ -201,19 +228,234 @@ fn draw_tabs(scene: &mut Scene, app: &App, width: f64) {
             Affine::IDENTITY,
             bg,
             None,
-            &RoundedRect::new(x, 5.0, x + w, TAB_BAR + 4.0, 6.0),
+            &r.to_rounded_rect(5.0),
         );
+        let color = if active { CHROME } else { CHROME_TEXT };
         text(
             scene,
-            &label,
-            x + 12.0,
-            21.0,
+            label,
+            r.center().x,
+            r.y1 - 5.0,
+            12.0,
+            Align::Center,
+            color,
+            true,
+        );
+        views.tabline.push((r, TablineHit::View(i)));
+    }
+    let views_x = right - 6.0;
+
+    // Buffer tabs, clipped before the views.
+    let t = &app.config.file.tabline.truncation;
+    let clip = Rect::new(0.0, 0.0, views_x.max(0.0), TAB_BAR);
+    scene.push_layer(Mix::Clip, 1.0, Affine::IDENTITY, &clip);
+    let mut x = 6.0;
+    for (n, tab) in app.bufferline().into_iter().enumerate() {
+        let name =
+            muse_app::truncate_middle(&tab.name, t.max_width, t.prefix_width, t.suffix_width);
+        // The active tab's name is bold, and wider.
+        let font = if tab.active {
+            FontKind::Bold
+        } else {
+            FontKind::Text
+        };
+        let name_w = fonts.text_width(font, &name, UI_FONT);
+        let w = 10.0 + 14.0 + 7.0 + name_w + 10.0 + 16.0 + 6.0;
+        let r = Rect::new(x, 4.0, x + w, TAB_BAR);
+        let over = hovering && r.contains((hx, hy));
+        let bg = if tab.active {
+            BACKGROUND
+        } else if over {
+            Color::from_rgba8(72, 75, 86, 255)
+        } else {
+            Color::from_rgba8(52, 55, 63, 255)
+        };
+        scene.fill(
+            Fill::NonZero,
+            Affine::IDENTITY,
+            bg,
+            None,
+            &RoundedRect::new(r.x0, r.y0, r.x1, r.y1 + 6.0, 6.0),
+        );
+        if tab.active {
+            fill(
+                scene,
+                Rect::new(r.x0 + 4.0, r.y0, r.x1 - 4.0, r.y0 + 2.0),
+                ACCENT,
+            );
+        }
+        let cy = (r.y0 + r.y1) / 2.0 + 1.0;
+        draw_file_icon(scene, tab.kind, r.x0 + 10.0, cy);
+        let fg = if tab.active { CHROME } else { CHROME_TEXT };
+        text(
+            scene,
+            &name,
+            r.x0 + 31.0,
+            cy + 5.0,
             UI_FONT,
             Align::Left,
-            if active { CHROME } else { CHROME_TEXT },
-            active,
+            fg,
+            tab.active,
         );
-        x += w + 4.0;
+        // Close button on hover; otherwise a dot for unsaved changes.
+        let bx = r.x1 - 6.0 - 8.0;
+        let close = Rect::new(bx - 8.0, cy - 8.0, bx + 8.0, cy + 8.0);
+        if over {
+            if close.contains((hx, hy)) {
+                let c = Color::from_rgba8(220, 70, 60, if tab.active { 70 } else { 120 });
+                scene.fill(
+                    Fill::NonZero,
+                    Affine::IDENTITY,
+                    c,
+                    None,
+                    &Circle::new(close.center(), 8.0),
+                );
+            }
+            let mut p = BezPath::new();
+            p.move_to((bx - 3.5, cy - 3.5));
+            p.line_to((bx + 3.5, cy + 3.5));
+            p.move_to((bx + 3.5, cy - 3.5));
+            p.line_to((bx - 3.5, cy + 3.5));
+            scene.stroke(&Stroke::new(1.6), Affine::IDENTITY, fg, None, &p);
+        } else if tab.modified {
+            scene.fill(
+                Fill::NonZero,
+                Affine::IDENTITY,
+                ACCENT,
+                None,
+                &Circle::new((bx, cy), 3.5),
+            );
+        }
+        views.tabline.push((r, TablineHit::Buffer(n)));
+        views.tabline.push((close, TablineHit::Close(n)));
+        x += w + 3.0;
+    }
+    scene.pop_layer();
+}
+
+/// A small file-type icon centred vertically at `cy`, starting at `x` (14 px wide).
+fn draw_file_icon(scene: &mut Scene, kind: &str, x: f64, cy: f64) {
+    let color = match kind {
+        "guitar-pro" => Color::from_rgba8(240, 140, 50, 255),
+        "musicxml" => Color::from_rgba8(80, 150, 230, 255),
+        "midi" => Color::from_rgba8(90, 190, 110, 255),
+        "chant" => Color::from_rgba8(180, 110, 210, 255),
+        "muse" => Color::from_rgba8(60, 190, 190, 255),
+        _ => Color::from_rgba8(150, 152, 160, 255),
+    };
+    fn f(s: &mut Scene, color: Color, shape: &impl vello::kurbo::Shape) {
+        s.fill(Fill::NonZero, Affine::IDENTITY, color, None, shape);
+    }
+    match kind {
+        // A guitar pick.
+        "guitar-pro" | "muse" => {
+            let mut p = BezPath::new();
+            p.move_to((x + 7.0, cy + 7.0));
+            p.curve_to(
+                (x + 1.0, cy + 2.0),
+                (x - 1.0, cy - 6.0),
+                (x + 7.0, cy - 6.5),
+            );
+            p.curve_to(
+                (x + 15.0, cy - 6.0),
+                (x + 13.0, cy + 2.0),
+                (x + 7.0, cy + 7.0),
+            );
+            p.close_path();
+            f(scene, color, &p);
+            if kind == "muse" {
+                scene.fill(
+                    Fill::NonZero,
+                    Affine::IDENTITY,
+                    CHROME,
+                    None,
+                    &Circle::new((x + 7.0, cy - 1.5), 2.2),
+                );
+            }
+        }
+        // An eighth note.
+        "musicxml" => {
+            f(
+                scene,
+                color,
+                &vello::kurbo::Ellipse::new((x + 5.0, cy + 4.0), (3.6, 2.6), -0.4),
+            );
+            f(
+                scene,
+                color,
+                &Rect::new(x + 7.6, cy - 7.0, x + 8.9, cy + 4.0),
+            );
+            let mut flag = BezPath::new();
+            flag.move_to((x + 8.9, cy - 7.0));
+            flag.curve_to(
+                (x + 10.0, cy - 3.0),
+                (x + 14.0, cy - 2.5),
+                (x + 12.0, cy + 1.5),
+            );
+            flag.curve_to(
+                (x + 12.5, cy - 1.5),
+                (x + 10.5, cy - 3.0),
+                (x + 8.9, cy - 3.5),
+            );
+            flag.close_path();
+            f(scene, color, &flag);
+        }
+        // Piano keys.
+        "midi" => {
+            f(
+                scene,
+                color,
+                &RoundedRect::new(x, cy - 6.0, x + 14.0, cy + 6.0, 1.5),
+            );
+            for k in [3.5, 7.0, 10.5] {
+                scene.fill(
+                    Fill::NonZero,
+                    Affine::IDENTITY,
+                    CHROME,
+                    None,
+                    &Rect::new(x + k - 0.4, cy - 6.0, x + k + 0.4, cy + 6.0),
+                );
+            }
+            for k in [3.5, 10.5] {
+                scene.fill(
+                    Fill::NonZero,
+                    Affine::IDENTITY,
+                    CHROME,
+                    None,
+                    &Rect::new(x + k - 1.5, cy - 6.0, x + k + 1.5, cy + 0.5),
+                );
+            }
+        }
+        // Chant: a punctum and a virga on a staff line.
+        "chant" => {
+            f(scene, color, &Rect::new(x, cy + 2.0, x + 14.0, cy + 2.8));
+            f(
+                scene,
+                color,
+                &Rect::new(x + 1.0, cy - 1.0, x + 5.5, cy + 3.0),
+            );
+            f(
+                scene,
+                color,
+                &Rect::new(x + 8.0, cy - 6.0, x + 12.5, cy - 2.0),
+            );
+            f(
+                scene,
+                color,
+                &Rect::new(x + 11.6, cy - 6.0, x + 12.5, cy + 6.0),
+            );
+        }
+        // A page.
+        _ => {
+            let mut p = BezPath::new();
+            p.move_to((x + 2.0, cy - 7.0));
+            p.line_to((x + 9.0, cy - 7.0));
+            p.line_to((x + 12.5, cy - 3.5));
+            p.line_to((x + 12.5, cy + 7.0));
+            p.line_to((x + 2.0, cy + 7.0));
+            p.close_path();
+            scene.stroke(&Stroke::new(1.4), Affine::IDENTITY, color, None, &p);
+        }
     }
 }
 
@@ -1096,11 +1338,36 @@ impl Views {
         ))
     }
 
+    /// Middle-click: closes the buffer tab under the mouse.
+    pub fn middle_click(&mut self, app: &mut App, x: f64, y: f64) {
+        let hit = self
+            .tabline
+            .iter()
+            .find(|(r, _)| r.contains((x, y)))
+            .map(|(_, h)| *h);
+        if let Some(TablineHit::Buffer(n) | TablineHit::Close(n)) = hit {
+            app.run(muse_app::Command::BufferClose(Some(n + 1), false));
+        }
+    }
+
+    /// Whether a window position is over the tabline (hovering there needs redraws).
+    pub fn over_tabline(&self, y: f64) -> bool {
+        y < TAB_BAR
+    }
+
     pub fn click(&mut self, app: &mut App, x: f64, y: f64) {
+        if let Some(&(_, hit)) = self.tabline.iter().rev().find(|(r, _)| r.contains((x, y))) {
+            app.run(match hit {
+                TablineHit::Buffer(n) => muse_app::Command::BufferGoto(n + 1),
+                TablineHit::Close(n) => muse_app::Command::BufferClose(Some(n + 1), false),
+                TablineHit::View(n) => muse_app::Command::ViewGoto(n + 1),
+            });
+            return;
+        }
         let Some((g, px, py)) = self.locate(x, y) else {
             return;
         };
-        app.tabs[app.active_tab].focus = g.pane;
+        app.views[app.active_view].focus = g.pane;
         let Some(cached) = self.cache.get(&g.pane) else {
             return;
         };

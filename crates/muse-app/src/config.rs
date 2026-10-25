@@ -55,8 +55,10 @@ const PLAY_COMMANDS: &[&str] = &[
     "string-down",
     "string-up",
     "sync-tap",
-    "tab-next",
-    "tab-prev",
+    "view-next",
+    "view-prev",
+    "buffer-next",
+    "buffer-prev",
     "track-next",
     "track-prev",
     "vsplit",
@@ -71,8 +73,51 @@ const PLAY_COMMANDS: &[&str] = &[
 pub struct ConfigFile {
     pub general: GeneralConfig,
     pub ui: UiConfig,
+    pub tabline: TablineConfig,
     pub audio: AudioConfig,
     pub keymap: KeymapConfig,
+}
+
+/// The tabline: the active view's buffers as tabs on the left, the views on the right.
+#[derive(Debug, Clone, Deserialize)]
+#[serde(default, deny_unknown_fields)]
+pub struct TablineConfig {
+    /// What a new view starts with: "copy" (the current view's buffers), "current" (the
+    /// current buffer only) or "empty".
+    pub new_view: String,
+    /// File-type icons in the terminal UI: "nerd" (Nerd Font glyphs), "unicode" or "none".
+    pub icons: String,
+    pub truncation: TruncationConfig,
+}
+
+impl Default for TablineConfig {
+    fn default() -> Self {
+        Self {
+            new_view: "copy".into(),
+            icons: "nerd".into(),
+            truncation: TruncationConfig::default(),
+        }
+    }
+}
+
+/// Long file names in tabs keep their first `prefix_width` and last `suffix_width`
+/// characters around an ellipsis, to at most `max_width` characters.
+#[derive(Debug, Clone, Deserialize)]
+#[serde(default, deny_unknown_fields)]
+pub struct TruncationConfig {
+    pub max_width: usize,
+    pub prefix_width: usize,
+    pub suffix_width: usize,
+}
+
+impl Default for TruncationConfig {
+    fn default() -> Self {
+        Self {
+            max_width: 28,
+            prefix_width: 14,
+            suffix_width: 10,
+        }
+    }
 }
 
 #[derive(Debug, Clone, Deserialize)]
@@ -191,8 +236,11 @@ const DEFAULT_NORMAL: &[(&str, &str)] = &[
     ("<C-w>l", "focus-right"),
     ("<C-w>q", "close-pane"),
     ("<C-w>c", "close-pane"),
-    ("gt", "tab-next"),
-    ("gT", "tab-prev"),
+    ("gt", "view-next"),
+    ("gT", "view-prev"),
+    ("L", "buffer-next"),
+    ("H", "buffer-prev"),
+    ("<leader>x", "buffer-close"),
     (":", "command-mode"),
     ("ZQ", "quit!"),
     ("ZZ", "wq"),

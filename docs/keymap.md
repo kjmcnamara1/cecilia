@@ -34,20 +34,44 @@ Items marked _(M1)_ are implemented in the first milestone; the rest are the pla
 | `<leader>a`               | cycle mix: audio + MIDI / audio only / MIDI only | _(M5)_ |
 | `<leader>t`               | sync tap: place the next bar at the current audio time | _(M5)_ |
 | `<leader>w`               | show / hide the waveform strip of the focused pane (GUI) | _(M5)_ |
-| `<leader>v`               | cycle the focused pane's score layout (vertical / page / horizontal); new splits and tabs copy it | _(M3)_ |
+| `<leader>v`               | cycle the focused pane's score layout (vertical / page / horizontal); new splits and views copy it | _(M3)_ |
 | `<C-=>` / `<C-->` / `<C-0>` | zoom in / out / reset (GUI; also Ctrl+wheel) | _(M3)_ |
 
-### Panes, tabs, buffers
+### Buffers, panes, views
+
+The model, as in Neovim with bufferline.nvim: a **pane** shows one **buffer** (an open file);
+a **view** is a layout of panes with its own set of loaded buffers, shown as tabs on the left of
+the tabline; the views are listed on the right of the tabline; a **workspace** saves the views.
+A file open in several views is one shared buffer (edits and undo show in all of them).
+
+Each buffer tab shows a file-type icon, the name (shortened in the middle when longer than
+`tabline.truncation.max_width`, keeping the first `prefix_width` and last `suffix_width`
+characters), and on mouse hover an `×` to close it (`●` marks unsaved changes). Click a tab to
+show it in the focused pane, click `×` or middle-click to close it, click a view to switch.
+
+Closing a buffer's tab removes it from the view; panes showing it go back to the most recent
+other buffer they showed (the view's only pane falls back to the neighbouring tab) and close if
+there is none. The buffer is unloaded once no view has it; unsaved changes then stop the close
+unless forced (`:bdelete!`).
 
 | keys                | command                         |        |
 | ------------------- | ------------------------------- | ------ |
+| `L` / `H`           | next / previous buffer tab      |        |
+| `<leader>x`         | close the buffer's tab          |        |
+| `gt` / `gT`         | next / previous view            |        |
 | `<C-w>s` / `<C-w>v` | split horizontally / vertically | _(M1)_ |
 | `<C-w>h/j/k/l`      | focus pane left/down/up/right   | _(M1)_ |
-| `<C-w>q`            | close pane                      | _(M1)_ |
-| `<C-w>=`            | equalise pane sizes             |        |
-| `gt` / `gT`         | next / previous tab             | _(M1)_ |
-| `<leader>b`         | buffer list                     |        |
-| `<leader>e`         | file tree                       |        |
+| `<C-w>q`            | close pane (the last one closes the view) | _(M1)_ |
+
+| command | |
+| --- | --- |
+| `:open {file}` | open a file in the focused pane, adding it to the view's tabs |
+| `:bnext` / `:bprev` / `:buffer N` | next / previous / Nth buffer tab |
+| `:bdelete [N]` / `:bdelete! [N]` | close the focused (or Nth) buffer tab / discarding unsaved changes |
+| `:view-new [file]` | new view: a copy of the current view's tabs, just the current buffer, or empty (`tabline.new_view`) |
+| `:view-close` / `:view-close!` | close the view (buffers only it had are unloaded) |
+| `:view N` / `:view-next` / `:view-prev` | switch views |
+| `:view-rename [name]` | name the view in the tabline (no name: its number) |
 
 ### Editing (M4, done)
 
@@ -119,7 +143,7 @@ tom, `m` mid tom, `f` floor tom (`r` is still a rest, `g`/`a` ghost and accent).
 `:` opens the **command palette**, a box near the top of the window (in the terminal UI too).
 As you type, the matches for the word being typed are listed below it: command names with a short
 description on the right, then each command's arguments — file names for `:open`, `:w`,
-`:tabnew` and `:audio` (folders first, only files muse can open or write) and the values of
+`:view-new` and `:audio` (folders first, only files muse can open or write) and the values of
 `:layout`, `:mix`, `:volume`, `:track-add`, `:tuning`, `:toggle`, `:duration`, `:clef`,
 `:interpretation`. `<Tab>` fills in a unique match (or the common part), and `<Tab>`/`<S-Tab>`
 or `<Down>`/`<Up>` move through the list, putting the selected match on the line. `<Enter>`
@@ -132,7 +156,6 @@ it under `[keymap.command]` to flip it while typing, e.g. `"<C-g>" = "completion
 | command                                          |                                |
 | ------------------------------------------------ | ------------------------------ |
 | `:open {file}` / `:w [file]` / `:q` / `:wq` / `:q!` | _(M2)_ `:w file.ext` exports by extension |
-| `:tabnew [file]` / `:tabclose`                   | _(M1)_                         |
 | `:split` / `:vsplit`                             | _(M1)_                         |
 | `:track {n}`                                     | _(M1)_                         |
 | `:bar {n}` / `:{n}`                              | _(M1)_                         |
@@ -150,8 +173,9 @@ it under `[keymap.command]` to flip it while typing, e.g. `"<C-g>" = "completion
 
 ### Workspaces
 
-A workspace saves the open files, tabs, pane splits and each pane's file, cursor, layout and
-waveform strip, plus zoom, follow, chant view and the window waveform bar, to
+A workspace saves the views — each with its pane splits, name and bufferline of loaded files —
+and each pane's file, cursor, recent files, layout and waveform strip, plus zoom, follow, chant
+view and the window waveform bar, to
 `~/.local/share/muse/workspaces/NAME.toml` (or a path). While one is active it is saved again
 whenever the session changes and when muse quits. Start with one using `muse --workspace NAME`.
 

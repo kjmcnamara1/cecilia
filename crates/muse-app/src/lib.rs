@@ -17,8 +17,8 @@ pub mod playback;
 pub mod workspace;
 
 pub use app::{
-    App, Buffer, Cursor, Effect, Message, Palette, PaletteItem, Pane, Tab, beat_at_tick, beats,
-    cursor_tick,
+    App, Buffer, BufferTab, Cursor, Effect, Message, Palette, PaletteItem, Pane, View,
+    beat_at_tick, beats, cursor_tick, file_kind, truncate_middle,
 };
 pub use command::Command;
 pub use config::{Config, Mode};

@@ -185,9 +185,7 @@ impl App {
                             version: 0,
                         });
                         let b = self.buffers.len() - 1;
-                        let p = self.pane_mut();
-                        p.buffer = b;
-                        p.cursor = Default::default();
+                        self.show_buffer(b);
                         self.info(format!(
                             "chant (lossy): transposed {:+} semitones, {} notes rounded, {} chords reduced; :w name.gabc to save",
                             r.transpose, r.rounded, r.chords

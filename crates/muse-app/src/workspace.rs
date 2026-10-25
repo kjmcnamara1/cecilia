@@ -1,12 +1,14 @@
-//! Workspaces: the open files, tabs, pane splits and per-pane views saved to a TOML file, so a
-//! session can be reopened as it was. The active workspace is saved again whenever it changes.
+//! Workspaces: a session's views — each with its pane splits and its bufferline of loaded
+//! files — and each pane's file, cursor, recent files and view settings, saved to a TOML file so
+//! the session can be reopened as it was. The active workspace is saved again whenever it
+//! changes.
 
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 
 use serde::{Deserialize, Serialize};
 
-use crate::app::{App, Buffer, Cursor, Pane, Tab};
+use crate::app::{App, Buffer, Cursor, Pane, View};
 use crate::layout::{Axis, Node, PaneId};
 
 /// The saved form of a session.
@@ -15,8 +17,11 @@ pub struct Workspace {
     pub version: u32,
     /// Open files, by absolute path.
     pub files: Vec<PathBuf>,
-    pub active_tab: usize,
-    pub tabs: Vec<TabState>,
+    #[serde(alias = "active_tab")]
+    pub active_view: usize,
+    /// (Version 1 called views "tabs".)
+    #[serde(alias = "tabs")]
+    pub views: Vec<ViewState>,
     pub panes: Vec<PaneState>,
     pub zoom: f64,
     pub follow: bool,
@@ -25,9 +30,14 @@ pub struct Workspace {
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
-pub struct TabState {
+pub struct ViewState {
     pub focus: PaneId,
     pub split: Split,
+    /// The bufferline, as indices into `files` (absent in version 1: the files shown).
+    #[serde(default)]
+    pub buffers: Vec<usize>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub name: Option<String>,
 }
 
 /// A pane split tree: a pane, or panes stacked / side by side.
@@ -55,6 +65,19 @@ pub struct PaneState {
     pub voice: usize,
     pub layout: String,
     pub waveform: bool,
+    /// Files shown in the pane before, most recent first, with their cursors.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub recent: Vec<RecentState>,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct RecentState {
+    pub file: usize,
+    pub track: usize,
+    pub bar: usize,
+    pub beat: usize,
+    pub string: usize,
+    pub voice: usize,
 }
 
 fn split_of(node: &Node) -> Split {
@@ -139,16 +162,42 @@ pub fn workspace_names() -> Vec<String> {
     names
 }
 
+fn cursor_of(r: &RecentState) -> Cursor {
+    Cursor {
+        track: r.track,
+        bar: r.bar,
+        beat: r.beat,
+        string: r.string,
+        voice: r.voice,
+    }
+}
+
 impl App {
     /// The session as a workspace.
     pub fn workspace(&self) -> Workspace {
+        // Files in the order they appear: views' bufferlines first, then anything else shown.
         let mut files = Vec::new();
-        let mut file_of = HashMap::new();
-        for (i, b) in self.buffers.iter().enumerate() {
-            if let Some(p) = &b.path {
-                file_of.insert(i, files.len());
-                files.push(p.clone());
-            }
+        let mut file_of: HashMap<usize, usize> = HashMap::new();
+        let mut add = |b: usize, files: &mut Vec<PathBuf>, app: &App| -> Option<usize> {
+            let path = app.buffers.get(b)?.path.clone()?;
+            Some(*file_of.entry(b).or_insert_with(|| {
+                files.push(path);
+                files.len() - 1
+            }))
+        };
+        let mut views = Vec::new();
+        for v in &self.views {
+            let buffers = v
+                .buffers
+                .iter()
+                .filter_map(|&b| add(b, &mut files, self))
+                .collect();
+            views.push(ViewState {
+                focus: v.focus,
+                split: split_of(&v.root),
+                buffers,
+                name: v.name.clone(),
+            });
         }
         let mut ids: Vec<&PaneId> = self.panes.keys().collect();
         ids.sort();
@@ -158,7 +207,7 @@ impl App {
                 let p = &self.panes[id];
                 PaneState {
                     id: *id,
-                    file: file_of.get(&p.buffer).copied(),
+                    file: add(p.buffer, &mut files, self),
                     track: p.cursor.track,
                     bar: p.cursor.bar,
                     beat: p.cursor.beat,
@@ -166,21 +215,28 @@ impl App {
                     voice: p.cursor.voice,
                     layout: p.layout.clone(),
                     waveform: p.waveform,
+                    recent: p
+                        .recent
+                        .iter()
+                        .filter_map(|(b, c)| {
+                            Some(RecentState {
+                                file: add(*b, &mut files, self)?,
+                                track: c.track,
+                                bar: c.bar,
+                                beat: c.beat,
+                                string: c.string,
+                                voice: c.voice,
+                            })
+                        })
+                        .collect(),
                 }
             })
             .collect();
         Workspace {
-            version: 1,
+            version: 2,
             files,
-            active_tab: self.active_tab,
-            tabs: self
-                .tabs
-                .iter()
-                .map(|t| TabState {
-                    focus: t.focus,
-                    split: split_of(&t.root),
-                })
-                .collect(),
+            active_view: self.active_view,
+            views,
             panes,
             zoom: self.zoom,
             follow: self.follow,
@@ -272,7 +328,7 @@ impl App {
     fn restore(&mut self, ws: &Workspace) {
         self.buffers = vec![Buffer::empty()];
         self.panes.clear();
-        self.tabs.clear();
+        self.views.clear();
         // Open the files; the first replaces the empty buffer.
         let mut buffer_of = HashMap::new();
         for (i, f) in ws.files.iter().enumerate() {
@@ -302,6 +358,11 @@ impl App {
                 voice: p.voice,
             };
             crate::app::clamp_cursor(&self.buffers[buffer].score, &mut cursor);
+            let recent = p
+                .recent
+                .iter()
+                .filter_map(|r| Some((*buffer_of.get(&r.file)?, cursor_of(r))))
+                .collect();
             self.panes.insert(
                 p.id,
                 Pane {
@@ -310,24 +371,43 @@ impl App {
                     scroll: 0,
                     layout: p.layout.clone(),
                     waveform: p.waveform,
+                    recent,
                 },
             );
         }
-        for t in &ws.tabs {
-            if let Some(root) = node_of(&t.split, &self.panes) {
-                let ids = root.panes();
-                let focus = if ids.contains(&t.focus) {
-                    t.focus
-                } else {
-                    ids[0]
-                };
-                self.tabs.push(Tab { root, focus });
+        for v in &ws.views {
+            let Some(root) = node_of(&v.split, &self.panes) else {
+                continue;
+            };
+            let ids = root.panes();
+            let focus = if ids.contains(&v.focus) {
+                v.focus
+            } else {
+                ids[0]
+            };
+            let mut buffers: Vec<usize> = v
+                .buffers
+                .iter()
+                .filter_map(|f| buffer_of.get(f).copied())
+                .collect();
+            // Every buffer a pane shows is on the view's bufferline (version 1 had no list).
+            for id in &ids {
+                let b = self.panes[id].buffer;
+                if !buffers.contains(&b) {
+                    buffers.push(b);
+                }
             }
+            self.views.push(View {
+                root,
+                focus,
+                buffers,
+                name: v.name.clone(),
+            });
         }
-        // Panes in no tab are dropped; with nothing left, one pane on the first buffer.
-        let shown: Vec<PaneId> = self.tabs.iter().flat_map(|t| t.root.panes()).collect();
+        // Panes in no view are dropped; with nothing left, one pane on the first buffer.
+        let shown: Vec<PaneId> = self.views.iter().flat_map(|v| v.root.panes()).collect();
         self.panes.retain(|id, _| shown.contains(id));
-        if self.tabs.is_empty() {
+        if self.views.is_empty() {
             let layout = self.score_layout.clone();
             self.panes.insert(
                 1,
@@ -337,15 +417,18 @@ impl App {
                     scroll: 0,
                     layout,
                     waveform: true,
+                    recent: Vec::new(),
                 },
             );
-            self.tabs.push(Tab {
+            self.views.push(View {
                 root: Node::Leaf(1),
                 focus: 1,
+                buffers: vec![0],
+                name: None,
             });
         }
         self.next_pane = self.panes.keys().max().copied().unwrap_or(0) + 1;
-        self.active_tab = ws.active_tab.min(self.tabs.len() - 1);
+        self.active_view = ws.active_view.min(self.views.len() - 1);
         self.zoom = ws.zoom;
         self.follow = ws.follow;
         self.chant_view = ws.chant_view;
@@ -380,12 +463,13 @@ mod tests {
     fn a_session_round_trips_through_a_workspace() {
         let dir = std::env::temp_dir().join(format!("muse-ws-{}", std::process::id()));
         std::fs::create_dir_all(&dir).unwrap();
-        // Two small scores to open.
+        // Three small scores to open.
         let mut app = App::new(Config::default(), None);
         app.run(Command::New);
-        let (a, b) = (dir.join("a.muse"), dir.join("b.muse"));
-        app.run(Command::Write(Some(a.clone())));
-        app.run(Command::Write(Some(b.clone())));
+        let (a, b, c) = (dir.join("a.muse"), dir.join("b.muse"), dir.join("c.muse"));
+        for f in [&a, &b, &c] {
+            app.run(Command::Write(Some(f.clone())));
+        }
         let mut app = App::new(Config::default(), None);
         app.run(Command::Edit(a.clone()));
         app.run(Command::BarNext);
@@ -393,27 +477,65 @@ mod tests {
         app.run(Command::VSplit);
         app.run(Command::Edit(b.clone()));
         app.run(Command::Waveform);
-        app.run(Command::TabNew(Some(a.clone())));
+        app.run(Command::ViewNew(Some(c.clone())));
+        app.run(Command::ViewRename(Some("practice".into())));
         app.zoom = 1.3;
         let ws_file = dir.join("session.toml");
         app.run(Command::WorkspaceSave(Some(ws_file.display().to_string())));
         let saved = app.workspace();
+        assert_eq!(saved.views[0].buffers, [0, 1]);
+        assert_eq!(saved.views[1].buffers, [0, 1, 2]);
 
         let mut other = App::new(Config::default(), None);
         other.run(Command::WorkspaceOpen(ws_file.display().to_string(), false));
         assert_eq!(other.workspace(), saved);
-        assert_eq!(other.tabs.len(), 2);
+        assert_eq!(other.views.len(), 2);
+        assert_eq!(other.view_labels(), ["1", "practice"]);
         assert_eq!(other.workspace_file.as_deref(), Some(ws_file.as_path()));
         // Changes are saved automatically.
-        other.run(Command::TabPrev);
+        other.run(Command::ViewPrev);
         other.autosave_workspace();
         let reread: Workspace =
             toml::from_str(&std::fs::read_to_string(&ws_file).unwrap()).unwrap();
-        assert_eq!(reread.active_tab, 0);
+        assert_eq!(reread.active_view, 0);
         // Unsaved changes stop an open unless forced.
         other.buffers[0].modified = true;
         other.run(Command::WorkspaceOpen(ws_file.display().to_string(), false));
         assert!(other.message.as_ref().unwrap().error);
         std::fs::remove_dir_all(dir).ok();
+    }
+
+    #[test]
+    fn version_one_workspaces_still_open() {
+        let text = r#"
+version = 1
+files = []
+active_tab = 0
+zoom = 1.0
+follow = true
+chant_view = true
+global_waveform = false
+
+[[tabs]]
+focus = 1
+
+[tabs.split]
+pane = 1
+
+[[panes]]
+id = 1
+track = 0
+bar = 0
+beat = 0
+string = 0
+voice = 0
+layout = "vertical"
+waveform = true
+"#;
+        let ws: Workspace = toml::from_str(text).unwrap();
+        let mut app = App::new(Config::default(), None);
+        app.restore(&ws);
+        assert_eq!(app.views.len(), 1);
+        assert_eq!(app.view().buffers.len(), 1);
     }
 }

@@ -27,7 +27,7 @@ full specification and roadmap, and [docs/keymap.md](docs/keymap.md) for key bin
   playback cursor; everything keyboard-driven with the same keymaps as the terminal UI
 - PDF, SVG and PNG export of engraved notation
 - Terminal UI: tablature view, vim-style navigation with counts, `:` commands, split panes
-  (`<C-w>s` / `<C-w>v`), tabs (`:tabnew`, `gt`), which-key hints, mouse clicks and scrolling
+  (`<C-w>s` / `<C-w>v`), a bufferline of open files per view (`H`/`L`, `:view-new`, `gt`), which-key hints, mouse clicks and scrolling
 - MIDI playback with a moving cursor, repeats and tempo changes, through a SoundFont or a built-in
   plucked-string synth
 - Editing in both UIs: vim-style Insert/Visual modes and operators, an undo tree, macros, the
@@ -37,8 +37,10 @@ full specification and roadmap, and [docs/keymap.md](docs/keymap.md) for key bin
   any speed or pitch, with A–B loops, a speed trainer, metronome and count-in; a waveform strip
   shows the recording, sync points and loop in the GUI
 - WAV/FLAC export of the MIDI rendering mixed with the recording
+- A bufferline.nvim-style tabline: each view's open files as tabs (file-type icon, name
+  shortened in the middle, hover close button) and the views on the right
 - Workspaces: `:workspace-save NAME` / `:workspace-open NAME` / `muse --workspace NAME` keep the
-  open files, tabs, pane splits and views, saved automatically while active
+  views, their pane splits and open files, saved automatically while active
 - TOML configuration with custom keybinds, reloaded automatically when the file changes
 
 ## Usage

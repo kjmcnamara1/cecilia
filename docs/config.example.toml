@@ -10,6 +10,15 @@ follow_playback = true   # the cursor and view move with the playhead (red bar) 
 completion_ignore_case = true   # Tab completion on the command line ignores letter case
 global_waveform = false  # waveform bar across the window bottom for the focused file
 
+[tabline]
+new_view = "copy"        # a new view starts with: "copy" (this view's buffers), "current", "empty"
+icons = "nerd"           # terminal file-type icons: "nerd" (Nerd Font), "unicode" or "none"
+
+[tabline.truncation]
+max_width = 28           # longer file names are shortened in the middle…
+prefix_width = 14        # …keeping this many characters at the start
+suffix_width = 10        # …and this many at the end
+
 [audio]
 # soundfont = "~/soundfonts/GeneralUser-GS.sf2"
 speed = 1.0              # playback speed multiplier

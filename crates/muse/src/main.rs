@@ -26,6 +26,9 @@ struct Cli {
     /// Open a saved workspace (by name, or a path to its .toml file).
     #[arg(long, short = 'W')]
     workspace: Option<String>,
+    /// Mouse position (logical "X,Y") for --screenshot, to show hover effects.
+    #[arg(long, hide = true)]
+    hover: Option<String>,
     /// Keys to feed before a --screenshot, in key notation (e.g. "J4}<C-w>v").
     #[arg(long, hide = true)]
     keys: Option<String>,
@@ -131,15 +134,12 @@ fn main() -> Result<()> {
             if !warnings.is_empty() {
                 app.error(warnings.join("; "));
             }
-            for (i, f) in cli.files.iter().enumerate() {
-                app.run(if i == 0 {
-                    Command::Edit(f.clone())
-                } else {
-                    Command::TabNew(Some(f.clone()))
-                });
+            // Files open as buffer tabs of the first view; the first one is shown.
+            for f in &cli.files {
+                app.run(Command::Edit(f.clone()));
             }
             if cli.files.len() > 1 {
-                app.run(Command::TabNext);
+                app.run(Command::BufferGoto(1));
             }
             if let Some(ws) = &cli.workspace {
                 app.run(Command::WorkspaceOpen(ws.clone(), false));
@@ -154,7 +154,11 @@ fn main() -> Result<()> {
                 }
                 let f = cli.scale_factor.max(0.1);
                 let (w, h) = ((1400.0 * f).round() as u32, (900.0 * f).round() as u32);
-                std::fs::write(out, muse_gui::screenshot(app, w, h, f)?)?;
+                let hover = cli.hover.as_deref().and_then(|h| {
+                    let (x, y) = h.split_once(',')?;
+                    Some((x.trim().parse().ok()?, y.trim().parse().ok()?))
+                });
+                std::fs::write(out, muse_gui::screenshot(app, w, h, f, hover)?)?;
                 return Ok(());
             }
             let has_display = std::env::var_os("WAYLAND_DISPLAY").is_some()

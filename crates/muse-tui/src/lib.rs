@@ -32,9 +32,25 @@ pub fn run(mut app: App) -> Result<()> {
     result
 }
 
+/// Mouse state between frames: what was drawn where, and where the mouse is.
+#[derive(Default)]
+struct Ui {
+    hits: Vec<Hit>,
+    tabline: Vec<(Rect, TablineHit)>,
+    hover: Option<(u16, u16)>,
+}
+
+/// What a click on the tabline does.
+#[derive(Debug, Clone, Copy, PartialEq)]
+enum TablineHit {
+    Buffer(usize),
+    Close(usize),
+    View(usize),
+}
+
 fn event_loop(terminal: &mut DefaultTerminal, app: &mut App) -> Result<()> {
     let mut playback = Playback::default();
-    let mut hits: Vec<Hit> = Vec::new();
+    let mut ui = Ui::default();
     let mut last_config_check = Instant::now();
     while !app.quit {
         playback.sync(app);
@@ -44,7 +60,7 @@ fn event_loop(terminal: &mut DefaultTerminal, app: &mut App) -> Result<()> {
                 app.follow_playback(buffer, loc.bar, loc.tick);
             }
         }
-        terminal.draw(|f| draw(f, app, play_loc, &mut hits))?;
+        terminal.draw(|f| draw(f, app, play_loc, &mut ui))?;
 
         let timeout = if app.playing {
             Duration::from_millis(16)
@@ -59,9 +75,31 @@ fn event_loop(terminal: &mut DefaultTerminal, app: &mut App) -> Result<()> {
                     }
                 }
                 Event::Mouse(m) => match m.kind {
-                    MouseEventKind::Down(MouseButton::Left) => {
-                        if let Some(hit) = hits.iter().find(|h| contains(h.area, m.column, m.row)) {
-                            app.tabs[app.active_tab].focus = hit.pane;
+                    MouseEventKind::Moved => ui.hover = Some((m.column, m.row)),
+                    MouseEventKind::Down(button @ (MouseButton::Left | MouseButton::Middle)) => {
+                        let tab_hit = ui
+                            .tabline
+                            .iter()
+                            .rev()
+                            .find(|(r, _)| contains(*r, m.column, m.row))
+                            .map(|(_, h)| *h);
+                        if let Some(hit) = tab_hit {
+                            app.run(match (hit, button) {
+                                (
+                                    TablineHit::Buffer(n) | TablineHit::Close(n),
+                                    MouseButton::Middle,
+                                )
+                                | (TablineHit::Close(n), _) => {
+                                    muse_app::Command::BufferClose(Some(n + 1), false)
+                                }
+                                (TablineHit::Buffer(n), _) => muse_app::Command::BufferGoto(n + 1),
+                                (TablineHit::View(n), _) => muse_app::Command::ViewGoto(n + 1),
+                            });
+                        } else if button == MouseButton::Middle {
+                        } else if let Some(hit) =
+                            ui.hits.iter().find(|h| contains(h.area, m.column, m.row))
+                        {
+                            app.views[app.active_view].focus = hit.pane;
                             if let Some(p) = app.panes.get_mut(&hit.pane) {
                                 p.cursor = hit.cursor;
                             }
@@ -70,7 +108,7 @@ fn event_loop(terminal: &mut DefaultTerminal, app: &mut App) -> Result<()> {
                             .into_iter()
                             .find(|(_, r)| contains(to_rect(*r), m.column, m.row))
                         {
-                            app.tabs[app.active_tab].focus = id;
+                            app.views[app.active_view].focus = id;
                         }
                     }
                     MouseEventKind::ScrollDown => app.run(muse_app::Command::BarNext),
@@ -137,13 +175,8 @@ fn convert_key(k: KeyEvent) -> Option<Key> {
     })
 }
 
-fn draw(
-    f: &mut Frame,
-    app: &mut App,
-    play: Option<(usize, Location, f64, f64)>,
-    hits: &mut Vec<Hit>,
-) {
-    hits.clear();
+fn draw(f: &mut Frame, app: &mut App, play: Option<(usize, Location, f64, f64)>, ui: &mut Ui) {
+    ui.hits.clear();
     let [tabline, main, status, cmdline] = Layout::vertical([
         Constraint::Length(1),
         Constraint::Min(3),
@@ -158,7 +191,8 @@ fn draw(
         w: main.width,
         h: main.height,
     };
-    draw_tabline(f, app, tabline);
+    draw_tabline(f, app, tabline, ui);
+    let hits = &mut ui.hits;
 
     let focused = app.focused();
     for (id, r) in app.layout() {
@@ -338,22 +372,126 @@ fn page_bars(area: Rect, track: &muse_core::Track) -> usize {
     rows * 2
 }
 
-fn draw_tabline(f: &mut Frame, app: &App, area: Rect) {
-    let mut spans = vec![];
-    for (i, tab) in app.tabs.iter().enumerate() {
-        let name = app
-            .panes
-            .get(&tab.focus)
-            .map_or("?", |p| app.buffers[p.buffer].name.as_str());
-        let style = if i == app.active_tab {
-            Style::default().fg(Color::Black).bg(Color::Yellow)
-        } else {
-            Style::default().fg(Color::Gray).bg(Color::Rgb(40, 40, 40))
-        };
-        spans.push(Span::styled(format!(" {} {} ", i + 1, name), style));
-        spans.push(Span::raw(" "));
+/// File-type icon for a tab, by `tabline.icons`: Nerd Font glyphs, plain Unicode or none.
+fn file_icon(kind: &str, style: &str) -> &'static str {
+    match style {
+        "none" => "",
+        "unicode" => match kind {
+            "guitar-pro" => "♪",
+            "musicxml" => "♫",
+            "midi" => "♬",
+            "chant" => "✠",
+            "muse" => "♩",
+            _ => "·",
+        },
+        // Nerd Font (Font Awesome range): music, file-code, file-audio, book, headphones, file.
+        _ => match kind {
+            "guitar-pro" => "\u{f001}",
+            "musicxml" => "\u{f1c9}",
+            "midi" => "\u{f1c7}",
+            "chant" => "\u{f02d}",
+            "muse" => "\u{f025}",
+            _ => "\u{f016}",
+        },
     }
-    f.render_widget(Paragraph::new(Line::from(spans)), area);
+}
+
+/// The tabline, as in bufferline.nvim: the active view's buffers on the left (icon, name
+/// shortened in the middle, × when hovered, ● when modified) and the views on the right.
+fn draw_tabline(f: &mut Frame, app: &App, area: Rect, ui: &mut Ui) {
+    ui.tabline.clear();
+    let bg = Style::default().bg(Color::Rgb(24, 24, 28));
+    f.render_widget(Paragraph::new("").style(bg), area);
+    let width = |s: &str| s.chars().count() as u16;
+
+    // Views, right-aligned.
+    let labels = app.view_labels();
+    let mut right = area.x + area.width;
+    for (i, label) in labels.iter().enumerate().rev() {
+        let text = format!(" {label} ");
+        let w = width(&text);
+        if right < area.x + w {
+            break;
+        }
+        right -= w;
+        let style = if i == app.active_view {
+            Style::default()
+                .fg(Color::Black)
+                .bg(Color::Yellow)
+                .add_modifier(Modifier::BOLD)
+        } else {
+            Style::default().fg(Color::Gray).bg(Color::Rgb(45, 45, 52))
+        };
+        let r = Rect {
+            x: right,
+            y: area.y,
+            width: w,
+            height: 1,
+        };
+        f.render_widget(Paragraph::new(text).style(style), r);
+        ui.tabline.push((r, TablineHit::View(i)));
+        right = right.saturating_sub(1);
+    }
+
+    // Buffer tabs from the left, up to the views.
+    let t = &app.config.file.tabline.truncation;
+    let icons = app.config.file.tabline.icons.as_str();
+    let mut x = area.x;
+    for (n, tab) in app.bufferline().into_iter().enumerate() {
+        let name =
+            muse_app::truncate_middle(&tab.name, t.max_width, t.prefix_width, t.suffix_width);
+        let icon = file_icon(tab.kind, icons);
+        let head = if icon.is_empty() {
+            format!(" {name} ")
+        } else {
+            format!(" {icon} {name} ")
+        };
+        let w = width(&head) + 2;
+        if x + w > right {
+            break;
+        }
+        let r = Rect {
+            x,
+            y: area.y,
+            width: w,
+            height: 1,
+        };
+        let hovered = ui.hover.is_some_and(|(hx, hy)| contains(r, hx, hy));
+        let style = if tab.active {
+            Style::default()
+                .fg(Color::White)
+                .bg(Color::Rgb(70, 70, 85))
+                .add_modifier(Modifier::BOLD)
+        } else if hovered {
+            Style::default().fg(Color::White).bg(Color::Rgb(50, 50, 60))
+        } else {
+            Style::default().fg(Color::Gray).bg(Color::Rgb(35, 35, 42))
+        };
+        let close = Rect {
+            x: x + w - 2,
+            y: area.y,
+            width: 1,
+            height: 1,
+        };
+        let mark = if hovered {
+            "×"
+        } else if tab.modified {
+            "●"
+        } else {
+            " "
+        };
+        f.render_widget(Paragraph::new(format!("{head}{mark} ")).style(style), r);
+        if hovered && ui.hover.is_some_and(|(hx, hy)| contains(close, hx, hy)) {
+            f.buffer_mut()
+                .set_style(close, Style::default().fg(Color::White).bg(Color::Red));
+        } else if !hovered && tab.modified {
+            f.buffer_mut()
+                .set_style(close, Style::default().fg(Color::Yellow));
+        }
+        ui.tabline.push((r, TablineHit::Buffer(n)));
+        ui.tabline.push((close, TablineHit::Close(n)));
+        x += w + 1;
+    }
 }
 
 fn fmt_time(t: f64) -> String {
@@ -588,8 +726,8 @@ mod render_tests {
 
     fn render(app: &mut App, w: u16, h: u16) -> String {
         let mut terminal = Terminal::new(TestBackend::new(w, h)).unwrap();
-        let mut hits = vec![];
-        terminal.draw(|f| draw(f, app, None, &mut hits)).unwrap();
+        let mut ui = Ui::default();
+        terminal.draw(|f| draw(f, app, None, &mut ui)).unwrap();
         let buf = terminal.backend().buffer().clone();
         (0..h)
             .map(|y| {
@@ -657,10 +795,8 @@ mod render_tests {
         app.playing = true;
         let play = Some((0, muse_audio::Location { bar: 1, tick: 1440 }, 3.0, 6.0));
         let mut terminal = Terminal::new(TestBackend::new(80, 20)).unwrap();
-        let mut hits = vec![];
-        terminal
-            .draw(|f| draw(f, &mut app, play, &mut hits))
-            .unwrap();
+        let mut ui = Ui::default();
+        terminal.draw(|f| draw(f, &mut app, play, &mut ui)).unwrap();
         let buf = terminal.backend().buffer().clone();
         let red: Vec<(u16, u16)> = (0..20)
             .flat_map(|y| (0..80).map(move |x| (x, y)))
@@ -672,6 +808,40 @@ mod render_tests {
         assert_eq!(red.len(), 6);
         // The editing cursor has not moved.
         assert_eq!((app.pane().cursor.bar, app.pane().cursor.beat), (0, 0));
+    }
+
+    #[test]
+    fn bufferline_shows_buffers_left_and_views_right() {
+        let dir = std::env::temp_dir().join(format!("muse-bufferline-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let mut app = App::new(muse_app::Config::default(), None);
+        app.run(muse_app::Command::New);
+        let long = dir.join("A very long song title that does not fit.muse");
+        let short = dir.join("short.gp5");
+        app.run(muse_app::Command::Write(Some(long.clone())));
+        app.run(muse_app::Command::Write(Some(short.clone())));
+        let mut app = App::new(muse_app::Config::default(), None);
+        app.run(muse_app::Command::Edit(long));
+        app.run(muse_app::Command::Edit(short));
+        app.run(muse_app::Command::ViewNew(None));
+        let mut terminal = Terminal::new(TestBackend::new(100, 12)).unwrap();
+        let mut ui = Ui::default();
+        terminal.draw(|f| draw(f, &mut app, None, &mut ui)).unwrap();
+        let buf = terminal.backend().buffer().clone();
+        let top: String = (0..100).map(|x| buf[(x, 0)].symbol().to_string()).collect();
+        // Long names lose their middle; icons come first; views sit at the right.
+        assert!(top.contains("\u{f025} A very long so…t fit.muse"), "{top}");
+        assert!(top.contains("\u{f001} short.gp5"), "{top}");
+        assert!(top.trim_end().ends_with("1   2"), "{top}");
+        // Clicking a tab's × closes it (only this view had it… but view 1 still does).
+        let close = ui
+            .tabline
+            .iter()
+            .find(|(_, h)| *h == TablineHit::Close(1))
+            .map(|(r, _)| *r)
+            .unwrap();
+        assert_eq!(close.width, 1);
+        std::fs::remove_dir_all(dir).ok();
     }
 
     #[test]

@@ -224,7 +224,21 @@ impl ApplicationHandler for Gui {
             WindowEvent::CursorMoved { position, .. } => {
                 // Logical coordinates, as the frame is laid out in.
                 let f = self.scale_factor();
+                let was_over = self.views.over_tabline(self.mouse.1);
                 self.mouse = (position.x / f, position.y / f);
+                self.views.hover = self.mouse;
+                // Hover effects on the tabline (close buttons) need a redraw.
+                if was_over || self.views.over_tabline(self.mouse.1) {
+                    if let Some(gpu) = &self.gpu {
+                        gpu.window.request_redraw();
+                    }
+                }
+            }
+            WindowEvent::CursorLeft { .. } => {
+                self.views.hover = (-1.0, -1.0);
+                if let Some(gpu) = &self.gpu {
+                    gpu.window.request_redraw();
+                }
             }
             WindowEvent::MouseInput {
                 state: ElementState::Pressed,
@@ -232,6 +246,16 @@ impl ApplicationHandler for Gui {
                 ..
             } => {
                 self.views.click(&mut self.app, self.mouse.0, self.mouse.1);
+                self.after_input();
+            }
+            WindowEvent::MouseInput {
+                state: ElementState::Pressed,
+                button: MouseButton::Middle,
+                ..
+            } => {
+                // Middle-click closes a buffer tab, as in bufferline.nvim.
+                self.views
+                    .middle_click(&mut self.app, self.mouse.0, self.mouse.1);
                 self.after_input();
             }
             WindowEvent::MouseWheel { delta, .. } => {
@@ -285,7 +309,13 @@ impl ApplicationHandler for Gui {
 
 /// Renders one frame offscreen to a PNG (for tests and documentation), `width` × `height`
 /// physical pixels at a display scale factor (1.5 = a 150% scaled monitor).
-pub fn screenshot(mut app: App, width: u32, height: u32, factor: f64) -> Result<Vec<u8>> {
+pub fn screenshot(
+    mut app: App,
+    width: u32,
+    height: u32,
+    factor: f64,
+    hover: Option<(f64, f64)>,
+) -> Result<Vec<u8>> {
     let factor = factor.max(0.1);
     let mut cx = RenderContext::new();
     let dev_id = pollster::block_on(cx.device(None)).ok_or_else(|| anyhow!("no GPU adapter"))?;
@@ -295,6 +325,7 @@ pub fn screenshot(mut app: App, width: u32, height: u32, factor: f64) -> Result<
         Renderer::new(device, renderer_options()).map_err(|e| anyhow!("renderer: {e}"))?;
     let mut scene = Scene::new();
     let mut views = Views::default();
+    views.hover = hover.unwrap_or((-1.0, -1.0));
     // Load the focused buffer's audio so the waveform shows.
     let mut playback = Playback::default();
     let buffer = app.pane().buffer;
