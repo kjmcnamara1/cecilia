@@ -46,8 +46,10 @@ impl Default for GeneralConfig {
 pub struct UiConfig {
     /// TUI: characters per sixteenth note in the tab view.
     pub tab_width: u8,
-    /// Follow the playback position with the cursor.
+    /// Scroll to keep the playhead in view while playing.
     pub follow_playback: bool,
+    /// Command-line Tab completion ignores letter case.
+    pub completion_ignore_case: bool,
     /// GUI score layout: "page", "vertical" or "horizontal".
     pub layout: String,
     /// GUI zoom factor.
@@ -59,6 +61,7 @@ impl Default for UiConfig {
         Self {
             tab_width: 2,
             follow_playback: true,
+            completion_ignore_case: true,
             layout: "vertical".into(),
             zoom: 1.0,
         }

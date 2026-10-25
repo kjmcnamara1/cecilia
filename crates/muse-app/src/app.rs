@@ -115,6 +115,8 @@ pub struct App {
     pub playing_buffer: Option<usize>,
     play_start: Option<(PaneId, Cursor)>,
     pub follow: bool,
+    /// Command-line completion ignores case (`ui.completion_ignore_case`).
+    pub completion_ignore_case: bool,
     /// Screen area for panes, set by the frontend.
     pub viewport: Rect,
     /// Bars moved by page-down/up, set by the frontend.
@@ -134,6 +136,7 @@ pub struct App {
 impl App {
     pub fn new(config: Config, config_path: Option<PathBuf>) -> Self {
         let follow = config.file.ui.follow_playback;
+        let completion_ignore_case = config.file.ui.completion_ignore_case;
         let (score_layout, zoom) = (config.file.ui.layout.clone(), config.file.ui.zoom);
         let config_mtime = config_path.as_deref().and_then(mtime);
         let mut panes = HashMap::new();
@@ -177,6 +180,7 @@ impl App {
             playing_buffer: None,
             play_start: None,
             follow,
+            completion_ignore_case,
             viewport: Rect {
                 x: 0,
                 y: 0,
@@ -328,6 +332,7 @@ impl App {
             Ok((config, errors)) => {
                 self.config = config;
                 self.follow = self.config.file.ui.follow_playback;
+                self.completion_ignore_case = self.config.file.ui.completion_ignore_case;
                 self.effects.push(Effect::ConfigReloaded);
                 if errors.is_empty() {
                     self.info(format!("config reloaded: {}", path.display()));
@@ -430,7 +435,12 @@ impl App {
             .as_deref()
             .and_then(Path::parent)
             .map(Path::to_path_buf);
-        let c = complete(&self.cmdline, &cwd, score_dir.as_deref());
+        let c = complete(
+            &self.cmdline,
+            &cwd,
+            score_dir.as_deref(),
+            self.completion_ignore_case,
+        );
         let typed = self.cmdline[c.start..].to_string();
         match c.items.len() {
             0 => self.error(format!("no completions for '{typed}'")),
@@ -442,8 +452,8 @@ impl App {
                 }
             }
             _ => {
-                let prefix = common_prefix(&c.items);
-                if prefix.len() > typed.len() {
+                let prefix = common_prefix(&c.items, self.completion_ignore_case);
+                if prefix.chars().count() > typed.chars().count() {
                     self.cmdline.truncate(c.start);
                     self.cmdline.push_str(&prefix);
                     self.completion = Some((c, None));
@@ -551,6 +561,16 @@ impl App {
                     }
                 }
                 self.effects.push(Effect::Pause);
+            }
+            CompletionIgnoreCase(on) => {
+                self.completion_ignore_case = on.unwrap_or(!self.completion_ignore_case);
+                // Candidates found under the old setting no longer apply.
+                self.completion = None;
+                self.info(if self.completion_ignore_case {
+                    "completion ignores case"
+                } else {
+                    "completion matches case"
+                });
             }
             FollowToggle => {
                 self.follow = !self.follow;

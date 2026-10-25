@@ -106,6 +106,10 @@ tom, `m` mid tom, `f` floor tom (`r` is still a rest, `g`/`a` ghost and accent).
 / `<S-Tab>` cycle through the candidates, which are listed above the command line. `<Up>`/`<Down>`
 recall history.
 
+Matching ignores letter case unless `ui.completion_ignore_case = false` in `config.toml`.
+`:completion-ignore-case [on|off]` changes it on the fly (without an argument it toggles); bind
+it under `[keymap.command]` to flip it while typing, e.g. `"<C-g>" = "completion-ignore-case"`.
+
 | command                                          |                                |
 | ------------------------------------------------ | ------------------------------ |
 | `:e {file}` / `:w [file]` / `:q` / `:wq` / `:q!` | _(M2)_ `:w file.ext` exports by extension |

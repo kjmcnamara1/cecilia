@@ -110,6 +110,8 @@ pub enum Command {
     Lyrics(usize, String),
     /// Remove a verse of lyrics from the cursor track (all verses without a number).
     LyricsClear(Option<usize>),
+    /// Whether command-line completion ignores case: on, off, or toggle (None).
+    CompletionIgnoreCase(Option<bool>),
     /// Show the cursor syllable as GABC, or replace it (`Glo(fg)`, or just notes `fgh`).
     Gabc(Option<String>),
     /// Chant rhythm: "equalist" or "solesmes" (None shows it).
@@ -411,6 +413,16 @@ impl Command {
                 .transpose()?
                 .map(|n| n.saturating_sub(1)),
             ),
+            "completion-ignore-case" => CompletionIgnoreCase(match arg {
+                None | Some("toggle") => None,
+                Some("on" | "true" | "yes") => Some(true),
+                Some("off" | "false" | "no") => Some(false),
+                Some(other) => {
+                    return Err(format!(
+                        "completion-ignore-case: expected on, off or toggle, not '{other}'"
+                    ));
+                }
+            }),
             "gabc" => Gabc(arg.map(String::from)),
             "interpretation" => Interpretation(arg.map(String::from)),
             "clef" => ChantClef(arg.ok_or("clef: expected c1–c4, f1–f4 or cb3")?.to_string()),

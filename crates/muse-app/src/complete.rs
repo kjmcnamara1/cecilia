@@ -41,6 +41,7 @@ pub const COMMANDS: &[&str] = &[
     "focus-left",
     "focus-right",
     "focus-up",
+    "completion-ignore-case",
     "follow-toggle",
     "gabc",
     "goto-bar",
@@ -168,6 +169,7 @@ fn values(command: &str) -> Option<&'static [&'static str]> {
         ],
         "track-add" => &["bass", "drums", "guitar", "piano", "voice"],
         "volume" => &["audio", "metronome", "midi"],
+        "completion-ignore-case" => &["off", "on", "toggle"],
         "duration" => &["1", "2", "4", "8", "16", "32", "64"],
         "tuning" => &[
             "7-string", "bass", "bass5", "d", "dadgad", "drop-d", "eb", "open-d", "open-e",
@@ -212,15 +214,29 @@ pub struct Completions {
     pub commands: bool,
 }
 
+/// Whether `candidate` starts with `typed`, optionally ignoring case.
+fn matches(candidate: &str, typed: &str, ignore_case: bool) -> bool {
+    if ignore_case {
+        candidate.to_lowercase().starts_with(&typed.to_lowercase())
+    } else {
+        candidate.starts_with(typed)
+    }
+}
+
 /// Candidates for the word being typed at the end of `line`. `score_dir` is the folder of the
 /// current score (for `:audio`).
-pub fn complete(line: &str, cwd: &Path, score_dir: Option<&Path>) -> Completions {
+pub fn complete(
+    line: &str,
+    cwd: &Path,
+    score_dir: Option<&Path>,
+    ignore_case: bool,
+) -> Completions {
     let lead = line.len() - line.trim_start_matches([':', ' ']).len();
     let body = &line[lead..];
     let Some(space) = body.find(char::is_whitespace) else {
         let mut items: Vec<String> = COMMANDS
             .iter()
-            .filter(|c| c.starts_with(body))
+            .filter(|c| matches(c, body, ignore_case))
             .map(|c| c.to_string())
             .collect();
         items.sort();
@@ -235,15 +251,18 @@ pub fn complete(line: &str, cwd: &Path, score_dir: Option<&Path>) -> Completions
     let arg_start = lead + space + (rest.len() - rest.trim_start().len());
     let arg = &line[arg_start..];
     let items = match command {
-        "e" | "edit" | "tabnew" | "tabe" | "tabedit" => paths(arg, cwd, Some(SCORE_EXTENSIONS)),
-        "w" | "write" => paths(arg, cwd, Some(WRITE_EXTENSIONS)),
+        "e" | "edit" | "tabnew" | "tabe" | "tabedit" => {
+            paths(arg, cwd, Some(SCORE_EXTENSIONS), ignore_case)
+        }
+        "w" | "write" => paths(arg, cwd, Some(WRITE_EXTENSIONS), ignore_case),
         "audio" => {
             let mut v = paths(
                 arg,
                 score_dir.unwrap_or(cwd),
                 Some(crate::playalong::AUDIO_EXTENSIONS),
+                ignore_case,
             );
-            if "off".starts_with(arg) {
+            if matches("off", arg, ignore_case) {
                 v.insert(0, "off".into());
             }
             v
@@ -260,7 +279,7 @@ pub fn complete(line: &str, cwd: &Path, score_dir: Option<&Path>) -> Completions
             let items = list
                 .unwrap_or_default()
                 .iter()
-                .filter(|v| v.starts_with(word))
+                .filter(|v| matches(v, word, ignore_case))
                 .map(|v| v.to_string())
                 .collect();
             return Completions {
@@ -278,7 +297,7 @@ pub fn complete(line: &str, cwd: &Path, score_dir: Option<&Path>) -> Completions
 }
 
 /// Files and folders matching a typed path (relative to `base`); folders end with `/`.
-fn paths(typed: &str, base: &Path, extensions: Option<&[&str]>) -> Vec<String> {
+fn paths(typed: &str, base: &Path, extensions: Option<&[&str]>, ignore_case: bool) -> Vec<String> {
     let (dir_part, prefix) = match typed.rfind('/') {
         Some(i) => (&typed[..=i], &typed[i + 1..]),
         None => ("", typed),
@@ -299,7 +318,9 @@ fn paths(typed: &str, base: &Path, extensions: Option<&[&str]>) -> Vec<String> {
         .flatten()
         .filter_map(|e| {
             let name = e.file_name().to_string_lossy().to_string();
-            if !name.starts_with(prefix) || (name.starts_with('.') && !prefix.starts_with('.')) {
+            if !matches(&name, prefix, ignore_case)
+                || (name.starts_with('.') && !prefix.starts_with('.'))
+            {
                 return None;
             }
             let is_dir = e.path().is_dir();
@@ -321,10 +342,18 @@ fn paths(typed: &str, base: &Path, extensions: Option<&[&str]>) -> Vec<String> {
     out
 }
 
-/// Longest common prefix of the candidates.
-pub fn common_prefix(items: &[String]) -> String {
+/// Longest common prefix of the candidates (compared without case when `ignore_case`), in the
+/// first candidate's spelling.
+pub fn common_prefix(items: &[String], ignore_case: bool) -> String {
     let Some(first) = items.first() else {
         return String::new();
+    };
+    let same = |a: char, b: char| {
+        if ignore_case {
+            a.to_lowercase().eq(b.to_lowercase())
+        } else {
+            a == b
+        }
     };
     let mut end = first.len();
     for item in &items[1..] {
@@ -332,7 +361,7 @@ pub fn common_prefix(items: &[String]) -> String {
             first
                 .char_indices()
                 .zip(item.chars())
-                .find(|((_, a), b)| a != b)
+                .find(|((_, a), b)| !same(*a, *b))
                 .map_or(end.min(item.len()), |((i, _), _)| i),
         );
     }
@@ -359,22 +388,36 @@ mod tests {
         for f in ["a.gp5", "b.txt", "songs/c.gabc"] {
             std::fs::write(dir.join(f), b"").unwrap();
         }
-        let c = complete(":sync-", &dir, None);
+        let c = complete(":sync-", &dir, None, false);
         assert_eq!(c.items, ["sync-clear", "sync-detect", "sync-tap"]);
         assert_eq!((c.start, c.commands), (1, true));
-        let c = complete(":layout p", &dir, None);
+        let c = complete(":layout p", &dir, None, false);
         assert_eq!(
             (c.start, c.items.as_slice()),
             (8, &["page".to_string()][..])
         );
-        let c = complete(":e ", &dir, None);
+        let c = complete(":e ", &dir, None, false);
         assert_eq!(c.items, ["songs/", "a.gp5"]);
-        assert_eq!(complete(":e songs/", &dir, None).items, ["songs/c.gabc"]);
-        assert_eq!(complete(":w a", &dir, None).items, ["a.gp5"]);
         assert_eq!(
-            common_prefix(&["sync-clear".into(), "sync-detect".into()]),
+            complete(":e songs/", &dir, None, false).items,
+            ["songs/c.gabc"]
+        );
+        assert_eq!(complete(":w a", &dir, None, false).items, ["a.gp5"]);
+        assert_eq!(
+            common_prefix(&["sync-clear".into(), "sync-detect".into()], false),
             "sync-"
         );
+        // Ignoring case.
+        std::fs::write(dir.join("Hymn.gabc"), b"").unwrap();
+        assert!(complete(":e h", &dir, None, false).items.is_empty());
+        assert_eq!(complete(":e h", &dir, None, true).items, ["Hymn.gabc"]);
+        assert_eq!(complete(":LAY", &dir, None, true).items, ["layout"]);
+        assert_eq!(complete(":layout PA", &dir, None, true).items, ["page"]);
+        assert_eq!(
+            common_prefix(&["Song1".into(), "song2".into()], true),
+            "Song"
+        );
+        assert_eq!(common_prefix(&["Song1".into(), "song2".into()], false), "");
         std::fs::remove_dir_all(dir).ok();
     }
 }
@@ -388,6 +431,27 @@ mod key_tests {
         for k in parse_keys(s, &[Key::char(' ')]).unwrap() {
             app.handle_key(k);
         }
+    }
+
+    #[test]
+    fn case_setting_from_config_and_a_command_mode_binding() {
+        let (config, errors) = Config::parse(
+            "[ui]\ncompletion_ignore_case = false\n[keymap.command]\n\"<C-g>\" = \"completion-ignore-case\"\n",
+        )
+        .unwrap();
+        assert!(errors.is_empty(), "{errors:?}");
+        let mut app = App::new(config, None);
+        assert!(!app.completion_ignore_case);
+        keys(&mut app, ":LAY<Tab>");
+        assert_eq!(app.cmdline, "LAY");
+        // Toggling stays on the command line and the next Tab uses the new setting.
+        keys(&mut app, "<C-g>");
+        assert!(app.completion_ignore_case);
+        assert_eq!(app.cmdline, "LAY");
+        keys(&mut app, "<Tab>");
+        assert_eq!(app.cmdline, "layout ");
+        app.run(crate::Command::CompletionIgnoreCase(Some(false)));
+        assert!(!app.completion_ignore_case);
     }
 
     #[test]
