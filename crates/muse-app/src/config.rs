@@ -198,6 +198,7 @@ const DEFAULT_NORMAL: &[(&str, &str)] = &[
     ("<leader>s", "stop"),
     ("<leader>f", "follow-toggle"),
     ("<C-o>", "open"),
+    ("<C-q>", "quitall"),
     ("<C-w>s", "split"),
     ("<C-w>+", "resize +5"),
     ("<C-w>-", "resize -5"),
@@ -351,6 +352,7 @@ const DEFAULT_TRACKS: &[(&str, &str)] = &[
     ("<leader>f", "follow-toggle"),
     ("<leader>T", "tracks"),
     ("<leader>?", "pick-keymap"),
+    ("<C-q>", "quitall"),
     (":", "command-mode"),
 ];
 

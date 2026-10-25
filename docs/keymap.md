@@ -132,6 +132,7 @@ view pickers also work while a song plays.
 | `<F1>`      | help             |        |
 | `<leader>?` | find a key binding (keymaps picker) |        |
 | `ZZ`        | write and quit   |        |
+| `<C-q>`     | quit muse (`:quitall`) | |
 
 ## Tracks panel
 

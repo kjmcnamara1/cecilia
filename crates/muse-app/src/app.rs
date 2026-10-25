@@ -1910,6 +1910,13 @@ mod tests {
     }
 
     #[test]
+    fn ctrl_q_quits() {
+        let mut app = App::new(Config::default(), None);
+        keys(&mut app, "<C-q>");
+        assert!(app.quit);
+    }
+
+    #[test]
     fn maximize_shows_the_focused_pane_alone() {
         let mut app = App::new(Config::default(), None);
         app.viewport = Rect {
