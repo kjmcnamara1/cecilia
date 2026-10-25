@@ -355,6 +355,14 @@ impl ApplicationHandler for Gui {
             event_loop.set_control_flow(ControlFlow::WaitUntil(
                 Instant::now() + Duration::from_millis(16),
             ));
+        } else if self.views.tooltip_pending() {
+            // A toolbar tooltip waits to show.
+            if let Some(gpu) = &self.gpu {
+                gpu.window.request_redraw();
+            }
+            event_loop.set_control_flow(ControlFlow::WaitUntil(
+                Instant::now() + Duration::from_millis(100),
+            ));
         } else if self.app.tracks_peeking() || self.tracks_peek_drawn {
             // The tracks panel peeking after a change of track: redraw until it hides again.
             self.tracks_peek_drawn = self.app.tracks_peeking();
@@ -408,6 +416,22 @@ pub fn screenshot(
         std::thread::sleep(std::time::Duration::from_millis(50));
     }
     let mut logical = Scene::new();
+    // Hovering a toolbar button: draw once and wait, so its tooltip shows.
+    if hover.is_some() {
+        let mut first = Scene::new();
+        draw::build(
+            &mut first,
+            &mut app,
+            &mut views,
+            Some(&mut playback),
+            None,
+            width as f64 / factor,
+            height as f64 / factor,
+        );
+        if views.tooltip_pending() {
+            std::thread::sleep(std::time::Duration::from_millis(550));
+        }
+    }
     draw::build(
         &mut logical,
         &mut app,

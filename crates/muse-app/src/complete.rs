@@ -96,6 +96,7 @@ pub const COMMANDS: &[&str] = &[
     "pick-keymap",
     "keymaps",
     "tracks",
+    "toolbar",
     "resize",
     "vertical-resize",
     "resize-equal",
@@ -215,7 +216,7 @@ fn values(command: &str) -> Option<&'static [&'static str]> {
         "track-add" => &["bass", "drums", "guitar", "piano", "voice"],
         "volume" => &["audio", "metronome", "midi"],
         "pick" => &["buffer", "keymap", "macro", "mark", "view", "workspace"],
-        "tracks" => &["off", "on"],
+        "tracks" | "toolbar" => &["off", "on"],
         "track-color" => &["off"],
         "completion-ignore-case" | "completion-fuzzy" | "waveform-global" => {
             &["off", "on", "toggle"]
@@ -744,6 +745,7 @@ pub fn describe(command: &str) -> Option<&'static str> {
         "pick" => "Open a picker: buffer, view, workspace, mark, macro or keymap",
         "pick-keymap" | "keymaps" => "Find a key binding by keys, command or description",
         "tracks" => "Show or hide the tracks panel",
+        "toolbar" => "Show or hide the toolbar",
         "resize" | "res" => "Pane height in percent of its split: N, +N or -N",
         "vertical-resize" | "vresize" => "Pane width in percent of its split: N, +N or -N",
         "resize-equal" => "Make all panes of the view the same size",

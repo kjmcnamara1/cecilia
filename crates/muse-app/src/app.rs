@@ -199,6 +199,8 @@ pub struct App {
     pub config: Config,
     pub config_path: Option<PathBuf>,
     config_mtime: Option<SystemTime>,
+    /// When the theme file (`[theme] file`) last changed: edits to it apply live too.
+    theme_mtime: Option<SystemTime>,
     pub buffers: Vec<Buffer>,
     pub panes: HashMap<PaneId, Pane>,
     pub(crate) next_pane: PaneId,
@@ -241,6 +243,8 @@ pub struct App {
     pub global_waveform: bool,
     /// The tracks panel is shown (`ui.tracks_panel`).
     pub tracks_panel: bool,
+    /// The toolbar is shown (`ui.toolbar`, `:toolbar`).
+    pub toolbar: bool,
     /// Until when the hidden tracks panel shows after the track changed (`ui.tracks_peek`).
     tracks_peek_until: Option<std::time::Instant>,
     /// Tracks the tracks panel shows at once (`:tracks-resize`, or drag its top edge).
@@ -278,8 +282,16 @@ impl App {
         let completion_fuzzy = config.file.ui.completion_fuzzy;
         let global_waveform = config.file.ui.global_waveform;
         let tracks_panel = config.file.ui.tracks_panel;
+        let toolbar = config.file.ui.toolbar;
         let (score_layout, zoom) = (config.file.ui.layout.clone(), config.file.ui.zoom);
         let config_mtime = config_path.as_deref().and_then(mtime);
+        let theme_mtime = config
+            .file
+            .theme
+            .file
+            .as_deref()
+            .map(crate::theme::theme_path)
+            .and_then(|p| mtime(&p));
         let mut panes = HashMap::new();
         panes.insert(
             1,
@@ -297,6 +309,7 @@ impl App {
             config,
             config_path,
             config_mtime,
+            theme_mtime,
             buffers: vec![Buffer::empty()],
             panes,
             next_pane: 2,
@@ -330,6 +343,7 @@ impl App {
             completion_fuzzy,
             global_waveform,
             tracks_panel,
+            toolbar,
             tracks_rows: DEFAULT_TRACKS_ROWS,
             tracks_peek_until: None,
             waveform_height: DEFAULT_WAVEFORM_HEIGHT,
@@ -758,8 +772,17 @@ impl App {
             return;
         };
         let m = mtime(&path);
-        if m != self.config_mtime {
+        let theme = self
+            .config
+            .file
+            .theme
+            .file
+            .as_deref()
+            .map(crate::theme::theme_path)
+            .and_then(|p| mtime(&p));
+        if m != self.config_mtime || theme != self.theme_mtime {
             self.config_mtime = m;
+            self.theme_mtime = theme;
             self.reload_config();
         }
     }
@@ -1161,6 +1184,7 @@ impl App {
                 }
             }
             ResizeEqual => self.views[self.active_view].root.equalize(),
+            Toolbar(on) => self.toolbar = on.unwrap_or(!self.toolbar),
             Maximize => {
                 let on = self.maximized().is_none();
                 let v = &mut self.views[self.active_view];

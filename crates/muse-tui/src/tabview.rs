@@ -1,10 +1,11 @@
 //! Text tablature rendering for one pane.
 
+use crate::rc;
 use muse_app::{App, Cursor};
 use muse_core::{Beat, DurationValue, Note, Score, Track, TrackKind};
 use ratatui::buffer::Buffer;
 use ratatui::layout::Rect;
-use ratatui::style::{Color, Modifier, Style};
+use ratatui::style::{Modifier, Style};
 use ratatui::widgets::Widget;
 
 /// A clickable region mapped to a score position.
@@ -197,16 +198,12 @@ pub struct TabView<'a> {
 
 impl Widget for TabView<'_> {
     fn render(self, area: Rect, buf: &mut Buffer) {
+        let th = &self.app.config.theme;
         let pane = &self.app.panes[&self.pane];
         let score = &self.app.buffers[pane.buffer].score;
         let Some(track) = score.tracks.get(pane.cursor.track) else {
             let msg = "No score loaded — open one with :open <file>";
-            buf.set_string(
-                area.x + 1,
-                area.y,
-                msg,
-                Style::default().fg(Color::DarkGray),
-            );
+            buf.set_string(area.x + 1, area.y, msg, Style::default().fg(rc(th.dim)));
             return;
         };
         let scale = self.app.config.file.ui.tab_width.clamp(1, 8) as u16;
@@ -228,17 +225,16 @@ impl Widget for TabView<'_> {
         }
         *self.scroll = scroll;
 
-        let dim = Style::default().fg(Color::DarkGray);
-        let line_style = Style::default().fg(Color::Gray);
+        let dim = Style::default().fg(rc(th.dim));
+        let line_style = Style::default().fg(rc(th.chrome_text.mix(th.dim, 0.6)));
+        let on = |bg| Style::default().fg(rc(th.text_on(bg))).bg(rc(bg));
         let cursor_style = if self.focused {
-            Style::default().fg(Color::Black).bg(Color::Yellow)
+            on(th.cursor)
         } else {
-            Style::default().fg(Color::Black).bg(Color::DarkGray)
+            on(th.dim)
         };
-        let column_style = Style::default().bg(Color::Rgb(40, 40, 50));
-        let playhead_style = Style::default()
-            .bg(Color::Rgb(200, 30, 30))
-            .fg(Color::White);
+        let column_style = Style::default().bg(rc(th.tab));
+        let playhead_style = on(th.playhead);
 
         for (row, system) in systems.iter().enumerate().skip(scroll).take(visible) {
             let y0 = area.y + ((row - scroll) as u16) * sh;
@@ -277,7 +273,7 @@ impl Widget for TabView<'_> {
                     header.push_str(&format!(" [{}]", m.title));
                 }
                 let header: String = header.chars().take(bl.width as usize).collect();
-                buf.set_string(bx, y0, header, Style::default().fg(Color::Cyan));
+                buf.set_string(bx, y0, header, Style::default().fg(rc(th.marker)));
                 // Staff lines and bar lines.
                 for s in 0..rows as u16 {
                     let y = y0 + 1 + s;
@@ -343,7 +339,10 @@ impl Widget for TabView<'_> {
                             },
                         });
                         if selected {
-                            buf.set_style(cell, Style::default().bg(Color::Rgb(80, 40, 100)));
+                            buf.set_style(
+                                cell,
+                                Style::default().bg(rc(th.selection.mix(th.chrome, 0.5))),
+                            );
                         } else if is_cursor_beat {
                             buf.set_style(cell, column_style);
                         }
@@ -353,7 +352,7 @@ impl Widget for TabView<'_> {
                             let style = if n.ghost || n.tie {
                                 dim
                             } else {
-                                Style::default().fg(Color::White)
+                                Style::default().fg(rc(th.chrome_text))
                             };
                             buf.set_string(
                                 bx_beat,
@@ -391,7 +390,7 @@ impl Widget for TabView<'_> {
                                 bx_beat,
                                 y0 + 1 + rows as u16 + li as u16,
                                 t,
-                                Style::default().fg(Color::Green),
+                                Style::default().fg(rc(th.lyrics)),
                             );
                         }
                     }
@@ -403,7 +402,7 @@ impl Widget for TabView<'_> {
                                 bx_beat,
                                 y0 + sh - 1,
                                 t,
-                                Style::default().fg(Color::Magenta),
+                                Style::default().fg(rc(th.marker)),
                             );
                         }
                     }
@@ -430,7 +429,7 @@ impl Widget for TabView<'_> {
                         end_x.saturating_sub(3),
                         y0,
                         format!("x{n}"),
-                        Style::default().fg(Color::Cyan),
+                        Style::default().fg(rc(th.marker)),
                     );
                 }
             }

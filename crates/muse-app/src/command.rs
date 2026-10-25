@@ -138,6 +138,8 @@ pub enum Command {
     Solo(Option<usize>),
     /// Show or hide the tracks panel (no argument: toggle).
     Tracks(Option<bool>),
+    /// Show or hide the toolbar (no argument: toggle).
+    Toolbar(Option<bool>),
     /// Focus the tracks panel, or give the focus back to the score.
     TracksFocus,
     /// Volume of the cursor's track.
@@ -619,6 +621,12 @@ impl Command {
                 Some(a) => return Err(format!("tracks: '{a}' is not on or off")),
             }),
             "tracks-focus" => TracksFocus,
+            "toolbar" => Toolbar(match arg {
+                None => None,
+                Some("on") => Some(true),
+                Some("off") => Some(false),
+                Some(a) => return Err(format!("toolbar: '{a}' is not on or off")),
+            }),
             "track-volume" => TrackVolume(
                 arg.and_then(crate::tracks::VolumeChange::parse)
                     .ok_or("track-volume: give a percentage (80, +10 or -10)")?,

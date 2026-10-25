@@ -18,6 +18,7 @@ pub mod picker;
 pub mod playalong;
 pub mod playback;
 pub mod theme;
+pub mod toolbar;
 pub mod tracks;
 pub mod workspace;
 

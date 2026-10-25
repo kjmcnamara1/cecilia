@@ -11,6 +11,7 @@ completion_ignore_case = true   # Tab completion on the command line ignores let
 completion_fuzzy = true         # …and matches the typed letters in order anywhere ("sd" → sync-detect)
 global_waveform = false  # waveform bar across the window bottom for the focused file
 tracks_panel = false     # the tracks panel (mixer and bar overview) at the window bottom
+toolbar = true           # the toolbar of common commands below the tabline (:toolbar, <leader>B)
 tracks_peek = 1.0        # seconds the hidden tracks panel shows when the track changes (0: never)
 
 [tabline]
@@ -24,22 +25,45 @@ prefix_width = 14        # …keeping this many characters at the start
 suffix_width = 10        # …and this many at the end
 
 [theme]
-preset = "dark"          # "dark" or "light"; any colour below overrides it ("#rrggbb" or "#rrggbbaa")
-# paper = "#e8e9ec"        # behind the score
-# chrome = "#282a30"       # tabline, status line
+# A built-in theme: "dark", "light", "nord", "gruvbox", "solarized-dark" or "solarized-light".
+preset = "dark"
+# A theme file with the same keys as this section (absolute, ~/…, or relative to this folder);
+# keys here override it. Edits to it apply while muse runs.
+# file = "themes/mine.toml"
+# Any colour overrides the preset: "#rrggbb" or "#rrggbbaa". Defaults of the dark theme:
+# paper = "#e8e9ec"           # around the engraved pages
+# page = "#ffffff"            # the pages
+# ink = "#000000"             # the notation (greys are blended between page and ink)
+# chrome = "#282a30"          # tabline, status line
 # chrome_text = "#e1e1e6"
-# dim = "#9698a0"          # secondary text
-# accent = "#fabe28"       # active tab, focus; tracks without a colour get a spectrum from it
+# dim = "#9698a0"             # secondary text
+# accent = "#fabe28"          # active tab, focus; tracks without a colour get a spectrum from it
 # cursor = "#fabe28"
 # cursor_outline = "#e68c00"
 # playhead = "#e12828"
 # selection = "#965adc"
-# tab = "#34373f"
+# tab = "#34373f"             # buffer tabs
 # tab_hover = "#484b56"
-# panel = "#1e2025"        # tracks panel, waveform bar
-# empty_bar = "#373a42"    # bars without notes in the tracks panel
-# mode_normal = "#5a96e6"  # also mode_insert, mode_visual, mode_command, mode_picker, mode_tracks
+# toolbar = "#2e3037"
+# button_hover = "#484b56"
+# panel = "#1e2025"           # tracks panel, waveform bar
+# empty_bar = "#373a42"       # bars without notes in the tracks panel
+# popover = "#24262c"         # command palette, pickers, tooltips
+# error = "#ff6e64"
+# lyrics = "#6ec882"          # terminal score view
+# marker = "#5abed2"          # terminal score view: headings, beat text
+# waveform = "#6eaae6"
+# loop_region = "#3cbe6e32"
+# sync_point = "#fabe28"
+# mode_normal = "#5a96e6"     # also mode_insert, mode_visual, mode_command, mode_picker, mode_tracks
+# icon_guitar_pro = "#f08c32" # also icon_musicxml, icon_midi, icon_chant, icon_muse
 # track_colors = ["#e05050", "#e0a030", "#50b060", "#4090e0"]   # instead of the spectrum
+
+[toolbar]
+# The toolbar's buttons: commands as typed after ":", "|" between groups (ui.toolbar shows it).
+# items = ["new", "open", "write", "|", "undo", "redo", "|", "play-toggle", "stop",
+#          "follow-toggle", "loop-toggle", "metronome", "count-in", "|", "tracks", "split",
+#          "vsplit", "|", "command-mode", "pick-keymap"]
 
 [audio]
 # soundfont = "~/soundfonts/GeneralUser-GS.sf2"

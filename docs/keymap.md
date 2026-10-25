@@ -134,6 +134,24 @@ view pickers also work while a song plays.
 | `ZZ`        | write and quit   |        |
 | `<C-q>`     | quit muse (`:quitall`; not while files have unsaved changes) | |
 
+## Toolbar
+
+Below the tabline, a toolbar has buttons for common commands: new, open, save, undo, redo,
+play/pause, stop, follow, loop, metronome, count-in, tracks panel, splits, the command line and
+the keymaps picker. Toggles light up while on; buttons with nothing to do are dimmed. Resting
+the mouse on a button shows what it does and its key (in the terminal, on the command line).
+`<leader>B` or `:toolbar [on|off]` shows or hides it (`ui.toolbar` sets the default; workspaces
+remember it), and `[toolbar] items` in config.toml chooses the buttons: any command line, with
+`"|"` between groups. The terminal draws its icons in the `tabline.icons` style (`none`: words).
+
+## Themes
+
+`[theme]` in config.toml picks a built-in theme (`preset`: dark, light, nord, gruvbox,
+solarized-dark, solarized-light), an optional theme file of your own (`file`), and any colour by
+name: the window chrome, toolbar, tabs, panels, palette, cursor, playhead, waveforms, mode
+labels, file icons, the track palette, and the score's page and ink — set a dark `page` and a
+light `ink` for light notation on dark paper. `docs/config.example.toml` lists every name.
+
 ## Tracks panel
 
 `<leader>T` shows or hides the tracks panel at the bottom of the window (`ui.tracks_panel` sets

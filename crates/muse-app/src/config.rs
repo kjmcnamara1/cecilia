@@ -30,7 +30,26 @@ pub struct ConfigFile {
     pub tabline: TablineConfig,
     pub audio: AudioConfig,
     pub theme: crate::theme::ThemeConfig,
+    pub toolbar: ToolbarConfig,
     pub keymap: KeymapConfig,
+}
+
+/// The toolbar's buttons: command lines in order, `"|"` between groups.
+#[derive(Debug, Clone, Deserialize)]
+#[serde(default, deny_unknown_fields)]
+pub struct ToolbarConfig {
+    pub items: Vec<String>,
+}
+
+impl Default for ToolbarConfig {
+    fn default() -> Self {
+        Self {
+            items: crate::toolbar::DEFAULT_ITEMS
+                .iter()
+                .map(|s| s.to_string())
+                .collect(),
+        }
+    }
 }
 
 /// The tabline: the active view's buffers as tabs on the left, the views on the right.
@@ -109,6 +128,8 @@ pub struct UiConfig {
     pub tracks_panel: bool,
     /// Seconds the hidden tracks panel shows after a key or command changes the track (0: off).
     pub tracks_peek: f64,
+    /// The toolbar of common commands below the tabline.
+    pub toolbar: bool,
     /// GUI score layout: "page", "vertical" or "horizontal".
     pub layout: String,
     /// GUI zoom factor.
@@ -125,6 +146,7 @@ impl Default for UiConfig {
             global_waveform: false,
             tracks_panel: false,
             tracks_peek: 1.0,
+            toolbar: true,
             layout: "vertical".into(),
             zoom: 1.0,
         }
@@ -209,6 +231,7 @@ const DEFAULT_NORMAL: &[(&str, &str)] = &[
     ("<C-w>z", "maximize"),
     ("<C-w>t", "tracks-focus"),
     ("<leader>T", "tracks"),
+    ("<leader>B", "toolbar"),
     ("<leader>?", "pick-keymap"),
     ("<C-w>v", "vsplit"),
     ("<C-w>h", "focus-left"),
@@ -506,6 +529,13 @@ impl Config {
         keymaps.insert(Mode::Command, command);
         let (theme, theme_errors) = crate::theme::Theme::from_config(&file.theme);
         errors.extend(theme_errors);
+        for item in &file.toolbar.items {
+            if item.trim() != "|" {
+                if let Err(e) = Command::parse(item) {
+                    errors.push(format!("toolbar.items: {e}"));
+                }
+            }
+        }
         (
             Self {
                 file,

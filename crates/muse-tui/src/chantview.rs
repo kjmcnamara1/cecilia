@@ -1,13 +1,14 @@
 //! Chant in the terminal: a text staff (one row per staff position, lines drawn with `─`),
 //! neumes as block characters and the syllables underneath.
 
+use crate::rc;
 use muse_app::{App, Cursor};
 use muse_core::chant::{
     Chant, ChantClef, ClefKind, Division, Liquescence, NeumeItem, Shape, transcribe,
 };
 use ratatui::buffer::Buffer;
 use ratatui::layout::Rect;
-use ratatui::style::{Color, Modifier, Style};
+use ratatui::style::{Modifier, Style};
 use ratatui::widgets::Widget;
 
 use crate::tabview::Hit;
@@ -152,6 +153,7 @@ pub struct ChantView<'a> {
 
 impl Widget for ChantView<'_> {
     fn render(self, area: Rect, buf: &mut Buffer) {
+        let th = &self.app.config.theme;
         let pane = &self.app.panes[&self.pane];
         let score = &self.app.buffers[pane.buffer].score;
         let Some(chant) = score
@@ -213,17 +215,18 @@ impl Widget for ChantView<'_> {
         }
         *self.scroll = scroll;
 
-        let dim = Style::default().fg(Color::DarkGray);
+        let dim = Style::default().fg(rc(th.dim));
         let ink = Style::default()
-            .fg(Color::White)
+            .fg(rc(th.chrome_text))
             .add_modifier(Modifier::BOLD);
+        let on = |bg| Style::default().fg(rc(th.text_on(bg))).bg(rc(bg));
         let cursor_style = if self.focused {
-            Style::default().fg(Color::Black).bg(Color::Yellow)
+            on(th.cursor)
         } else {
-            Style::default().fg(Color::Black).bg(Color::DarkGray)
+            on(th.dim)
         };
-        let column_style = Style::default().bg(Color::Rgb(40, 40, 50));
-        let play_style = Style::default().bg(Color::Rgb(200, 30, 30));
+        let column_style = Style::default().bg(rc(th.tab));
+        let play_style = Style::default().bg(rc(th.playhead));
         let mut clef = chant.initial_clef();
         for (li, line) in lines.iter().enumerate() {
             let visible_line = li >= scroll && li < scroll + visible;
@@ -240,14 +243,14 @@ impl Widget for ChantView<'_> {
                     area.x,
                     row(clef.position()),
                     letter,
-                    Style::default().fg(Color::Cyan),
+                    Style::default().fg(rc(th.marker)),
                 );
                 if clef.flat {
                     buf.set_string(
                         area.x + 1,
                         row(clef.position() - 1),
                         "♭",
-                        Style::default().fg(Color::Cyan),
+                        Style::default().fg(rc(th.marker)),
                     );
                 }
                 let x0 = area.x + 3;
@@ -325,7 +328,7 @@ impl Widget for ChantView<'_> {
                                         x,
                                         row(p),
                                         glyph,
-                                        Style::default().fg(Color::Gray),
+                                        Style::default().fg(rc(th.chrome_text.mix(th.dim, 0.5))),
                                     );
                                 }
                             }
@@ -335,7 +338,7 @@ impl Widget for ChantView<'_> {
                                     x,
                                     row(cl.position()),
                                     letter,
-                                    Style::default().fg(Color::Cyan),
+                                    Style::default().fg(rc(th.marker)),
                                 );
                             }
                         }
@@ -348,10 +351,10 @@ impl Widget for ChantView<'_> {
                     let text: String = text.chars().take(room).collect();
                     let style = if chant.syllables[s.index].italic() {
                         Style::default()
-                            .fg(Color::Gray)
+                            .fg(rc(th.chrome_text.mix(th.dim, 0.5)))
                             .add_modifier(Modifier::ITALIC)
                     } else {
-                        Style::default().fg(Color::Gray)
+                        Style::default().fg(rc(th.chrome_text.mix(th.dim, 0.5)))
                     };
                     buf.set_string(base, y0 + (TOP - BOTTOM + 1) as u16, text, style);
                 }

@@ -158,6 +158,10 @@ impl History {
         self.current != 0
     }
 
+    pub fn can_redo(&self) -> bool {
+        !self.nodes[self.current].children.is_empty()
+    }
+
     /// Undoes the current change; returns the cursor to restore.
     pub fn undo(&mut self, score: &mut Score) -> Option<Cursor> {
         let node = &self.nodes[self.current];

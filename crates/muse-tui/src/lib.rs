@@ -35,6 +35,10 @@ pub fn run(mut app: App) -> Result<()> {
 /// Mouse state between frames: what was drawn where, and where the mouse is.
 #[derive(Default)]
 struct Ui {
+    /// The toolbar's buttons (area, index into `App::toolbar_items`), and the hovered one's
+    /// tooltip.
+    toolbar: Vec<(Rect, usize)>,
+    tooltip: Option<String>,
     /// Clickable areas of the tracks panel, and its first row and bar shown.
     tracks: Vec<(Rect, TracksHit)>,
     tracks_scroll: (usize, usize),
@@ -181,6 +185,20 @@ fn event_loop(terminal: &mut DefaultTerminal, app: &mut App) -> Result<()> {
                             (first_bar as i64 + bars).max(0) as usize,
                         );
                     }
+                    MouseEventKind::Down(MouseButton::Left)
+                        if ui
+                            .toolbar
+                            .iter()
+                            .any(|(r, _)| contains(*r, m.column, m.row)) =>
+                    {
+                        let i = ui
+                            .toolbar
+                            .iter()
+                            .find(|(r, _)| contains(*r, m.column, m.row))
+                            .map(|(_, i)| *i)
+                            .unwrap();
+                        app.run_toolbar(i);
+                    }
                     MouseEventKind::Down(button @ (MouseButton::Left | MouseButton::Middle)) => {
                         let tab_hit = ui
                             .tabline
@@ -237,7 +255,7 @@ fn event_loop(terminal: &mut DefaultTerminal, app: &mut App) -> Result<()> {
 }
 
 /// A theme colour for the terminal.
-fn rc(c: muse_app::theme::Rgba) -> Color {
+pub(crate) fn rc(c: muse_app::theme::Rgba) -> Color {
     Color::Rgb(c.r, c.g, c.b)
 }
 
@@ -306,8 +324,9 @@ fn draw(f: &mut Frame, app: &mut App, play: Option<(usize, Location, f64, f64)>,
     } else {
         0
     };
-    let [tabline, main, tracks, status, cmdline] = Layout::vertical([
+    let [tabline, toolbar, main, tracks, status, cmdline] = Layout::vertical([
         Constraint::Length(1),
+        Constraint::Length(u16::from(app.toolbar)),
         Constraint::Min(3),
         Constraint::Length(tracks_h),
         Constraint::Length(1),
@@ -326,6 +345,11 @@ fn draw(f: &mut Frame, app: &mut App, play: Option<(usize, Location, f64, f64)>,
         h: main.height,
     };
     draw_tabline(f, app, tabline, ui);
+    ui.toolbar.clear();
+    ui.tooltip = None;
+    if app.toolbar {
+        draw_toolbar(f, app, toolbar, ui);
+    }
     let hits = &mut ui.hits;
 
     let focused = app.focused();
@@ -399,6 +423,18 @@ fn draw(f: &mut Frame, app: &mut App, play: Option<(usize, Location, f64, f64)>,
 
     draw_status(f, app, play, status);
     draw_cmdline(f, app, cmdline);
+    // The hovered toolbar button's tooltip, on the command line.
+    if let Some(tip) = ui.tooltip.clone() {
+        let t = &app.config.theme;
+        f.render_widget(
+            Paragraph::new(format!(" {tip}")).style(
+                Style::default()
+                    .fg(rc(t.text_on(t.popover)))
+                    .bg(rc(t.popover)),
+            ),
+            cmdline,
+        );
+    }
     if !app.pending.is_empty() {
         draw_which_key(f, app, main);
     }
@@ -547,6 +583,88 @@ fn file_icon(kind: &str, style: &str) -> &'static str {
             "muse" => "\u{f025}",
             _ => "\u{f016}",
         },
+    }
+}
+
+/// A toolbar button's symbol in the `tabline.icons` style (`none`: a short word).
+fn tool_icon(b: &muse_app::toolbar::ToolButton, style: &str) -> String {
+    let name = b.name.as_str();
+    let playing = b.active && matches!(name, "play-toggle" | "play");
+    let (nerd, unicode, word) = match name {
+        _ if playing => ("\u{f04c}", "⏸", "pause"),
+        "new" => ("\u{f0fe}", "✚", "new"),
+        "open" | "open-dialog" | "e" | "edit" => ("\u{f07c}", "▤", "open"),
+        "write" | "w" | "wall" | "wa" => ("\u{f0c7}", "▣", "save"),
+        "undo" | "u" => ("\u{f0e2}", "↶", "undo"),
+        "redo" => ("\u{f01e}", "↷", "redo"),
+        "play-toggle" | "play" => ("\u{f04b}", "▶", "play"),
+        "stop" => ("\u{f04d}", "■", "stop"),
+        "follow-toggle" => ("\u{f05b}", "◎", "follow"),
+        "loop-toggle" => ("\u{f079}", "↻", "loop"),
+        "metronome" => ("\u{f017}", "♩", "click"),
+        "count-in" => ("12", "12", "count"),
+        "tracks" | "tracks-focus" => ("\u{f0c9}", "≡", "tracks"),
+        "split" | "sp" => ("\u{f2d0}", "⊟", "split"),
+        "vsplit" | "vs" => ("\u{f0db}", "◫", "vsplit"),
+        "maximize" | "max" => ("\u{f065}", "⤢", "max"),
+        "command-mode" => ("\u{f120}", ":", ":"),
+        "pick-keymap" | "keymaps" => ("\u{f11c}", "⌨", "keys"),
+        other => ("", "", other),
+    };
+    match style {
+        "none" => word.to_string(),
+        "unicode" if !unicode.is_empty() => unicode.to_string(),
+        "nerd" if !nerd.is_empty() => nerd.to_string(),
+        _ => word.to_string(),
+    }
+}
+
+/// The toolbar: a button per configured command, `│` between groups.
+fn draw_toolbar(f: &mut Frame, app: &App, area: Rect, ui: &mut Ui) {
+    let t = &app.config.theme;
+    let base = Style::default().bg(rc(t.toolbar)).fg(rc(t.chrome_text));
+    f.render_widget(Paragraph::new("").style(base), area);
+    let style = app.config.file.tabline.icons.as_str();
+    let buf = f.buffer_mut();
+    let mut x = area.x + 1;
+    for (i, item) in app.toolbar_items().into_iter().enumerate() {
+        let b = match item {
+            muse_app::toolbar::ToolItem::Separator => {
+                if x + 1 < area.x + area.width {
+                    buf.set_string(x, area.y, "│", base.fg(rc(t.dim)));
+                }
+                x += 2;
+                continue;
+            }
+            muse_app::toolbar::ToolItem::Button(b) => b,
+        };
+        let label = format!(" {} ", tool_icon(&b, style));
+        let w = label.chars().count() as u16;
+        if x + w > area.x + area.width {
+            break;
+        }
+        let r = Rect {
+            x,
+            y: area.y,
+            width: w,
+            height: 1,
+        };
+        let hovered = ui.hover.is_some_and(|(hx, hy)| contains(r, hx, hy));
+        let st = if !b.enabled {
+            base.fg(rc(t.dim))
+        } else if b.active {
+            on(app, t.accent)
+        } else if hovered {
+            on(app, t.button_hover)
+        } else {
+            base
+        };
+        buf.set_string(x, area.y, &label, st);
+        if hovered {
+            ui.tooltip = Some(b.tooltip.clone());
+        }
+        ui.toolbar.push((r, i));
+        x += w + 1;
     }
 }
 
@@ -1131,6 +1249,43 @@ mod render_tests {
     use ratatui::Terminal;
     use ratatui::backend::TestBackend;
 
+    #[test]
+    fn the_toolbar_shows_its_buttons_and_runs_them() {
+        let (config, _) = muse_app::Config::parse("[tabline]\nicons = \"none\"\n").unwrap();
+        let mut app = App::new(config, None);
+        app.run(muse_app::Command::New);
+        let mut terminal = Terminal::new(TestBackend::new(120, 20)).unwrap();
+        let mut ui = Ui::default();
+        terminal.draw(|f| draw(f, &mut app, None, &mut ui)).unwrap();
+        let buf = terminal.backend().buffer().clone();
+        let row: String = (0..120).map(|x| buf[(x, 1)].symbol().to_string()).collect();
+        assert!(
+            row.contains(" new ") && row.contains(" save ") && row.contains(" tracks "),
+            "{row}"
+        );
+        // Hovering shows the tooltip; clicking runs the command.
+        let (r, i) = *ui
+            .toolbar
+            .iter()
+            .find(|(r, _)| {
+                (r.x..r.x + r.width)
+                    .map(|x| buf[(x, 1)].symbol())
+                    .collect::<String>()
+                    == " tracks "
+            })
+            .unwrap();
+        ui.hover = Some((r.x, r.y));
+        terminal.draw(|f| draw(f, &mut app, None, &mut ui)).unwrap();
+        assert!(ui.tooltip.as_deref().unwrap().contains("tracks panel"));
+        app.run_toolbar(i);
+        assert!(app.tracks_panel);
+        // Hidden with :toolbar.
+        app.run(muse_app::Command::Toolbar(Some(false)));
+        let screen = render(&mut app, 120, 20);
+        let second = screen.lines().nth(1).unwrap();
+        assert!(!second.contains(" save "), "{screen}");
+    }
+
     fn render(app: &mut App, w: u16, h: u16) -> String {
         let mut terminal = Terminal::new(TestBackend::new(w, h)).unwrap();
         let mut ui = Ui::default();
@@ -1207,7 +1362,7 @@ mod render_tests {
         let buf = terminal.backend().buffer().clone();
         let red: Vec<(u16, u16)> = (0..20)
             .flat_map(|y| (0..80).map(move |x| (x, y)))
-            .filter(|&(x, y)| buf[(x, y)].bg == ratatui::style::Color::Rgb(200, 30, 30))
+            .filter(|&(x, y)| buf[(x, y)].bg == rc(app.config.theme.playhead))
             .collect();
         // One column, the six string rows, in bar 2 halfway through its second beat.
         let cols: std::collections::BTreeSet<u16> = red.iter().map(|p| p.0).collect();

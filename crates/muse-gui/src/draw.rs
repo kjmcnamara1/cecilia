@@ -12,7 +12,7 @@ use muse_engrave::display::{Align, BeatRef, FontKind};
 use muse_engrave::output::{Paint, outlines};
 use muse_engrave::{Layout, Options};
 use vello::Scene;
-use vello::kurbo::{Affine, BezPath, Circle, Rect, RoundedRect, Stroke};
+use vello::kurbo::{Affine, BezPath, Circle, Rect, RoundedRect, Shape, Stroke};
 use vello::peniko::{Color, Fill, Mix};
 
 thread_local! {
@@ -52,22 +52,28 @@ fn text_on(bg: Color) -> Color {
     tc(|t| t.text_on(Rgba::rgb(c.r, c.g, c.b)))
 }
 
+fn popover() -> Color {
+    tc(|t| t.popover)
+}
+
 fn dim() -> Color {
     tc(|t| t.dim)
 }
 
 const TAB_BAR: f64 = 30.0;
+const TOOLBAR: f64 = 34.0;
+/// How long the mouse rests on a toolbar button before its tooltip shows.
+const TOOLTIP_DELAY: std::time::Duration = std::time::Duration::from_millis(500);
 const STATUS: f64 = 26.0;
 const CMDLINE: f64 = 26.0;
 const TITLE: f64 = 24.0;
 const UI_FONT: f64 = 14.0;
-/// Height of the waveform strip.
 /// Pixels per point at zoom 1.
 const BASE_SCALE: f64 = 1.6;
 
 struct Cached {
-    /// (buffer, track, layout mode, width bucket, score version)
-    key: (usize, usize, String, i64, u64, bool),
+    /// (buffer, track, layout mode, width bucket, score version, chant view, page + ink colours)
+    key: (usize, usize, String, i64, u64, bool, [u8; 8]),
     layout: Layout,
     scenes: Vec<Scene>,
     /// Y offset (points) of each page in the pane's scroll space.
@@ -96,6 +102,14 @@ pub struct Views {
     pub hover: (f64, f64),
     /// Clickable areas of the tabline drawn last frame.
     tabline: Vec<(Rect, TablineHit)>,
+    /// The toolbar's buttons drawn last frame (area, index into `App::toolbar_items`).
+    toolbar: Vec<(Rect, usize)>,
+    /// The button under the mouse and since when (its tooltip shows after a moment).
+    toolbar_hover: Option<(usize, std::time::Instant)>,
+    /// The tooltip to draw this frame (the button's area and text).
+    tooltip: Option<(Rect, String)>,
+    /// Where the tabline and toolbar end.
+    chrome_bottom: f64,
     /// Clickable areas of the tracks panel drawn last frame.
     tracks: Vec<(Rect, TracksHit)>,
     /// The tracks panel's first visible row and horizontal scroll of its bar grid.
@@ -470,7 +484,7 @@ fn draw_tracks(
                 scene.fill(
                     Fill::NonZero,
                     Affine::IDENTITY,
-                    Color::BLACK,
+                    tc(|t| t.ink),
                     None,
                     &Circle::new(block.center(), 3.0),
                 );
@@ -499,26 +513,44 @@ fn draw_tracks(
 /// How fast the cursor glides after the playhead (per second: it covers 1 − e^(−rate·t)).
 const GLIDE_RATE: f64 = 16.0;
 
-fn rgb(c: muse_engrave::display::Color) -> Color {
-    Color::from_rgba8(c.r, c.g, c.b, c.a)
+/// An engraving colour in the theme: black and greys become shades between the page and the
+/// ink (so notation reads on dark pages too); other colours stay as engraved.
+fn rgb(c: muse_engrave::display::Color, page: Rgba, ink: Rgba) -> Color {
+    if c.r == c.g && c.g == c.b {
+        let darkness = 1.0 - c.r as f32 / 255.0;
+        let m = page.mix(ink, darkness);
+        Color::from_rgba8(m.r, m.g, m.b, c.a)
+    } else {
+        Color::from_rgba8(c.r, c.g, c.b, c.a)
+    }
 }
 
-fn page_scene(page: &muse_engrave::display::Page) -> Scene {
+fn page_scene(page: &muse_engrave::display::Page, paper: Rgba, ink: Rgba) -> Scene {
     let mut s = Scene::new();
     s.fill(
         Fill::NonZero,
         Affine::IDENTITY,
-        Color::WHITE,
+        col(paper),
         None,
         &Rect::new(0.0, 0.0, page.width, page.height),
     );
     for item in &page.items {
         for (path, paint) in outlines(item) {
             match paint {
-                Paint::Fill(c) => s.fill(Fill::NonZero, Affine::IDENTITY, rgb(c), None, &path),
-                Paint::Stroke(c, w) => {
-                    s.stroke(&Stroke::new(w), Affine::IDENTITY, rgb(c), None, &path)
-                }
+                Paint::Fill(c) => s.fill(
+                    Fill::NonZero,
+                    Affine::IDENTITY,
+                    rgb(c, paper, ink),
+                    None,
+                    &path,
+                ),
+                Paint::Stroke(c, w) => s.stroke(
+                    &Stroke::new(w),
+                    Affine::IDENTITY,
+                    rgb(c, paper, ink),
+                    None,
+                    &path,
+                ),
             }
         }
     }
@@ -565,7 +597,9 @@ pub fn build(
     } else {
         0.0
     };
-    let main = Rect::new(0.0, TAB_BAR, width, bottom - tracks_h);
+    let top = TAB_BAR + if app.toolbar { TOOLBAR } else { 0.0 };
+    views.chrome_bottom = top;
+    let main = Rect::new(0.0, top, width, bottom - tracks_h);
     views.tracks.clear();
     views.edges.clear();
     views.wave_rects.clear();
@@ -586,6 +620,10 @@ pub fn build(
         h: main.height() as u16,
     };
     draw_tabs(scene, app, views, width);
+    views.toolbar.clear();
+    if app.toolbar {
+        draw_toolbar(scene, app, views, width);
+    }
     views.geometry.clear();
     let focused = app.focused();
     let layout = app.layout();
@@ -642,6 +680,9 @@ pub fn build(
     }
     if app.show_help {
         draw_help(scene, app, main);
+    }
+    if let Some((r, tip)) = views.tooltip.take() {
+        draw_tooltip(scene, r, &tip, width);
     }
     if let Some(p) = app.palette() {
         draw_palette(scene, &p, width, height);
@@ -786,7 +827,7 @@ fn draw_tabs(scene: &mut Scene, app: &App, views: &mut Views, width: f64) {
         let close = Rect::new(bx - 8.0, cy - 8.0, bx + 8.0, cy + 8.0);
         if over {
             if close.contains((hx, hy)) {
-                let c = Color::from_rgba8(220, 70, 60, if tab.active { 70 } else { 120 });
+                let c = tc(|t| t.error.with_alpha(if tab.active { 70 } else { 120 }));
                 scene.fill(
                     Fill::NonZero,
                     Affine::IDENTITY,
@@ -817,16 +858,336 @@ fn draw_tabs(scene: &mut Scene, app: &App, views: &mut Views, width: f64) {
     scene.pop_layer();
 }
 
+/// The toolbar: a button per configured command, separators between groups, and the
+/// tooltip of the button the mouse rests on.
+fn draw_toolbar(scene: &mut Scene, app: &App, views: &mut Views, width: f64) {
+    let y0 = TAB_BAR;
+    fill(
+        scene,
+        Rect::new(0.0, y0, width, y0 + TOOLBAR),
+        tc(|t| t.toolbar),
+    );
+    fill(
+        scene,
+        Rect::new(0.0, y0 + TOOLBAR - 1.0, width, y0 + TOOLBAR),
+        tc(|t| t.tab),
+    );
+    let (hx, hy) = views.hover;
+    let mut x = 8.0;
+    let mut hovered = None;
+    let mut tooltip = None;
+    for (i, item) in app.toolbar_items().into_iter().enumerate() {
+        let b = match item {
+            muse_app::toolbar::ToolItem::Separator => {
+                fill(
+                    scene,
+                    Rect::new(x + 3.0, y0 + 9.0, x + 4.0, y0 + TOOLBAR - 9.0),
+                    tc(|t| t.dim.with_alpha(120)),
+                );
+                x += 8.0;
+                continue;
+            }
+            muse_app::toolbar::ToolItem::Button(b) => b,
+        };
+        let r = Rect::new(x, y0 + 4.0, x + 30.0, y0 + TOOLBAR - 4.0);
+        x += 32.0;
+        if r.x1 > width - 4.0 {
+            break;
+        }
+        let over = r.contains((hx, hy));
+        if b.active || (over && b.enabled) {
+            let bg = if b.active {
+                tc(|t| t.accent.with_alpha(if over { 90 } else { 60 }))
+            } else {
+                tc(|t| t.button_hover)
+            };
+            scene.fill(
+                Fill::NonZero,
+                Affine::IDENTITY,
+                bg,
+                None,
+                &r.to_rounded_rect(5.0),
+            );
+        }
+        let color = if !b.enabled {
+            tc(|t| t.dim.with_alpha(110))
+        } else if b.active {
+            tc(|t| t.text_on(t.accent.mix(t.toolbar, 0.6)))
+        } else {
+            chrome_text()
+        };
+        draw_tool_icon(scene, &b, r.center(), color);
+        if over {
+            hovered = Some(i);
+            tooltip = Some((r, b.tooltip.clone()));
+        }
+        views.toolbar.push((r, i));
+    }
+    // The tooltip of the button the mouse rests on, after a moment.
+    match (hovered, views.toolbar_hover) {
+        (Some(i), Some((j, _))) if i == j => {}
+        (Some(i), _) => views.toolbar_hover = Some((i, std::time::Instant::now())),
+        (None, _) => views.toolbar_hover = None,
+    }
+    views.tooltip = match (tooltip, views.toolbar_hover) {
+        (Some(t), Some((_, since))) if since.elapsed() >= TOOLTIP_DELAY => Some(t),
+        _ => None,
+    };
+}
+
+/// The tooltip of the toolbar button the mouse rests on (drawn over everything).
+fn draw_tooltip(scene: &mut Scene, r: Rect, tip: &str, width: f64) {
+    let w = muse_engrave::fonts::fonts().text_width(FontKind::Text, tip, 12.5) + 16.0;
+    let x = r.x0.min(width - w - 4.0).max(4.0);
+    let tr = Rect::new(x, r.y1 + 6.0, x + w, r.y1 + 30.0);
+    scene.fill(
+        Fill::NonZero,
+        Affine::IDENTITY,
+        popover(),
+        None,
+        &tr.to_rounded_rect(5.0),
+    );
+    scene.stroke(
+        &Stroke::new(1.0),
+        Affine::IDENTITY,
+        dim(),
+        None,
+        &tr.to_rounded_rect(5.0),
+    );
+    text(
+        scene,
+        tip,
+        tr.x0 + 8.0,
+        tr.y1 - 8.0,
+        12.5,
+        Align::Left,
+        text_on(popover()),
+        false,
+    );
+}
+
+/// A toolbar button's icon, drawn in a 16 px box centred at `c`.
+fn draw_tool_icon(
+    scene: &mut Scene,
+    b: &muse_app::toolbar::ToolButton,
+    c: vello::kurbo::Point,
+    color: Color,
+) {
+    let (x, y) = (c.x - 8.0, c.y - 8.0);
+    let stroke = Stroke::new(1.6)
+        .with_caps(vello::kurbo::Cap::Round)
+        .with_join(vello::kurbo::Join::Round);
+    let line = |scene: &mut Scene, path: &BezPath| {
+        scene.stroke(&stroke, Affine::IDENTITY, color, None, path);
+    };
+    let solid = |scene: &mut Scene, shape: &dyn Fn() -> BezPath| {
+        scene.fill(Fill::NonZero, Affine::IDENTITY, color, None, &shape());
+    };
+    let path = |points: &[(f64, f64)], close: bool| {
+        let mut p = BezPath::new();
+        for (k, &(px, py)) in points.iter().enumerate() {
+            if k == 0 {
+                p.move_to((x + px, y + py));
+            } else {
+                p.line_to((x + px, y + py));
+            }
+        }
+        if close {
+            p.close_path();
+        }
+        p
+    };
+    let rect = |x0: f64, y0: f64, x1: f64, y1: f64, r: f64| {
+        RoundedRect::new(x + x0, y + y0, x + x1, y + y1, r).to_path(0.1)
+    };
+    match b.name.as_str() {
+        "new" => {
+            line(
+                scene,
+                &path(
+                    &[
+                        (3.0, 1.0),
+                        (10.0, 1.0),
+                        (13.0, 4.0),
+                        (13.0, 15.0),
+                        (3.0, 15.0),
+                    ],
+                    true,
+                ),
+            );
+            line(scene, &path(&[(8.0, 6.0), (8.0, 12.0)], false));
+            line(scene, &path(&[(5.0, 9.0), (11.0, 9.0)], false));
+        }
+        "open" | "e" | "edit" | "open-dialog" => {
+            line(
+                scene,
+                &path(
+                    &[
+                        (1.0, 3.0),
+                        (6.0, 3.0),
+                        (7.5, 5.0),
+                        (15.0, 5.0),
+                        (15.0, 14.0),
+                        (1.0, 14.0),
+                    ],
+                    true,
+                ),
+            );
+            line(scene, &path(&[(1.0, 8.0), (15.0, 8.0)], false));
+        }
+        "write" | "w" | "wall" | "wa" => {
+            line(scene, &rect(1.5, 1.5, 14.5, 14.5, 2.0));
+            line(
+                scene,
+                &path(&[(4.5, 1.5), (4.5, 5.5), (11.0, 5.5), (11.0, 1.5)], false),
+            );
+            line(scene, &rect(4.5, 9.5, 11.5, 14.5, 0.5));
+        }
+        "undo" | "u" | "redo" => {
+            let flip = b.name == "redo";
+            let fx = |px: f64| if flip { 16.0 - px } else { px };
+            let mut p = BezPath::new();
+            p.move_to((x + fx(3.0), y + 6.0));
+            p.line_to((x + fx(10.0), y + 6.0));
+            p.curve_to(
+                (x + fx(15.5), y + 6.0),
+                (x + fx(15.5), y + 14.0),
+                (x + fx(10.0), y + 14.0),
+            );
+            p.line_to((x + fx(6.0), y + 14.0));
+            line(scene, &p);
+            line(
+                scene,
+                &path(&[(fx(6.5), 2.5), (fx(3.0), 6.0), (fx(6.5), 9.5)], false),
+            );
+        }
+        "play-toggle" | "play" if b.active => {
+            solid(scene, &|| rect(3.0, 2.0, 6.5, 14.0, 1.0));
+            solid(scene, &|| rect(9.5, 2.0, 13.0, 14.0, 1.0));
+        }
+        "play-toggle" | "play" => solid(scene, &|| {
+            path(&[(4.0, 2.0), (14.0, 8.0), (4.0, 14.0)], true)
+        }),
+        "pause" => {
+            solid(scene, &|| rect(3.0, 2.0, 6.5, 14.0, 1.0));
+            solid(scene, &|| rect(9.5, 2.0, 13.0, 14.0, 1.0));
+        }
+        "stop" => solid(scene, &|| rect(3.0, 3.0, 13.0, 13.0, 1.5)),
+        "follow-toggle" => {
+            line(scene, &Circle::new((x + 8.0, y + 8.0), 5.0).to_path(0.1));
+            for (a, b2) in [
+                ((8.0, 0.5), (8.0, 4.0)),
+                ((8.0, 12.0), (8.0, 15.5)),
+                ((0.5, 8.0), (4.0, 8.0)),
+                ((12.0, 8.0), (15.5, 8.0)),
+            ] {
+                line(scene, &path(&[a, b2], false));
+            }
+            solid(scene, &|| Circle::new((x + 8.0, y + 8.0), 1.6).to_path(0.1));
+        }
+        "loop-toggle" => {
+            let mut p = BezPath::new();
+            p.move_to((x + 3.0, y + 10.0));
+            p.line_to((x + 3.0, y + 7.0));
+            p.curve_to((x + 3.0, y + 4.5), (x + 4.5, y + 4.0), (x + 7.0, y + 4.0));
+            p.line_to((x + 13.0, y + 4.0));
+            p.move_to((x + 13.0, y + 6.0));
+            p.line_to((x + 13.0, y + 9.0));
+            p.curve_to(
+                (x + 13.0, y + 11.5),
+                (x + 11.5, y + 12.0),
+                (x + 9.0, y + 12.0),
+            );
+            p.line_to((x + 3.0, y + 12.0));
+            line(scene, &p);
+            line(
+                scene,
+                &path(&[(11.0, 2.0), (13.0, 4.0), (11.0, 6.0)], false),
+            );
+            line(
+                scene,
+                &path(&[(5.0, 10.0), (3.0, 12.0), (5.0, 14.0)], false),
+            );
+        }
+        "metronome" => {
+            line(
+                scene,
+                &path(&[(5.5, 1.5), (10.5, 1.5), (14.0, 14.5), (2.0, 14.5)], true),
+            );
+            line(scene, &path(&[(8.0, 11.0), (12.5, 3.5)], false));
+            line(scene, &path(&[(4.0, 11.0), (12.0, 11.0)], false));
+        }
+        "count-in" => text(
+            scene,
+            "1 2",
+            c.x,
+            c.y + 4.5,
+            12.0,
+            Align::Center,
+            color,
+            true,
+        ),
+        "tracks" | "tracks-focus" => {
+            for (k, len) in [(0.0, 14.0), (1.0, 9.0), (2.0, 12.0)] {
+                solid(scene, &|| {
+                    rect(1.0, 2.5 + k * 4.5, 1.0 + len, 4.5 + k * 4.5, 1.0)
+                });
+            }
+        }
+        "split" | "sp" => {
+            line(scene, &rect(1.5, 1.5, 14.5, 14.5, 2.0));
+            line(scene, &path(&[(1.5, 8.0), (14.5, 8.0)], false));
+        }
+        "vsplit" | "vs" => {
+            line(scene, &rect(1.5, 1.5, 14.5, 14.5, 2.0));
+            line(scene, &path(&[(8.0, 1.5), (8.0, 14.5)], false));
+        }
+        "maximize" | "max" => {
+            line(scene, &rect(1.5, 1.5, 14.5, 14.5, 2.0));
+            line(scene, &path(&[(5.0, 11.0), (11.0, 5.0)], false));
+            line(scene, &path(&[(7.0, 5.0), (11.0, 5.0), (11.0, 9.0)], false));
+        }
+        "command-mode" => {
+            line(scene, &rect(1.0, 2.5, 15.0, 13.5, 2.0));
+            solid(scene, &|| Circle::new((x + 5.0, y + 6.0), 1.2).to_path(0.1));
+            solid(scene, &|| {
+                Circle::new((x + 5.0, y + 10.0), 1.2).to_path(0.1)
+            });
+            line(scene, &path(&[(8.0, 10.0), (12.0, 10.0)], false));
+        }
+        "pick-keymap" | "keymaps" | "help" => {
+            line(scene, &rect(0.5, 3.5, 15.5, 12.5, 2.0));
+            for k in 0..4 {
+                solid(scene, &|| {
+                    rect(2.5 + k as f64 * 3.3, 5.5, 4.3 + k as f64 * 3.3, 7.3, 0.4)
+                });
+            }
+            line(scene, &path(&[(5.0, 10.0), (11.0, 10.0)], false));
+        }
+        "toolbar" | "layout" | "waveform" | "waveform-global" => {
+            line(scene, &rect(1.5, 2.5, 14.5, 13.5, 2.0));
+            line(scene, &path(&[(1.5, 6.0), (14.5, 6.0)], false));
+        }
+        // Anything else: its name, shortened.
+        name => {
+            let label: String = name.chars().take(3).collect();
+            text(
+                scene,
+                &label,
+                c.x,
+                c.y + 4.0,
+                11.0,
+                Align::Center,
+                color,
+                true,
+            );
+        }
+    }
+}
+
 /// A small file-type icon centred vertically at `cy`, starting at `x` (14 px wide).
 fn draw_file_icon(scene: &mut Scene, kind: &str, x: f64, cy: f64) {
-    let color = match kind {
-        "guitar-pro" => Color::from_rgba8(240, 140, 50, 255),
-        "musicxml" => Color::from_rgba8(80, 150, 230, 255),
-        "midi" => Color::from_rgba8(90, 190, 110, 255),
-        "chant" => Color::from_rgba8(180, 110, 210, 255),
-        "muse" => Color::from_rgba8(60, 190, 190, 255),
-        _ => Color::from_rgba8(150, 152, 160, 255),
-    };
+    let color = tc(|t| t.file_icon(kind));
     fn f(s: &mut Scene, color: Color, shape: &impl vello::kurbo::Shape) {
         s.fill(Fill::NonZero, Affine::IDENTITY, color, None, shape);
     }
@@ -969,14 +1330,14 @@ fn draw_pane(
     scene.fill(
         Fill::NonZero,
         Affine::IDENTITY,
-        Color::WHITE,
+        tc(|t| t.page),
         None,
         &RoundedRect::from_rect(rect, 6.0),
     );
     let border = if focused && app.mode != Mode::Tracks {
         accent()
     } else {
-        Color::from_rgba8(190, 192, 198, 255)
+        tc(|t| t.page.mix(t.ink, 0.25))
     };
     scene.stroke(
         &Stroke::new(if focused { 2.0 } else { 1.0 }),
@@ -1047,6 +1408,11 @@ fn draw_pane(
         },
         buffer.version,
         app.chant_view,
+        // Pages are recoloured when the theme's page or ink change.
+        {
+            let (p, i) = (app.config.theme.page, app.config.theme.ink);
+            [p.r, p.g, p.b, p.a, i.r, i.g, i.b, i.a]
+        },
     );
     if views.cache.get(&id).is_none_or(|c| c.key != key) {
         let mode = match mode_name {
@@ -1067,7 +1433,12 @@ fn draw_pane(
             ..Options::default()
         };
         let layout = muse_engrave::engrave(score, pane.cursor.track, &options);
-        let scenes = layout.pages.iter().map(page_scene).collect();
+        let (page, ink) = (app.config.theme.page, app.config.theme.ink);
+        let scenes = layout
+            .pages
+            .iter()
+            .map(|p| page_scene(p, page, ink))
+            .collect();
         let gap = if mode_name == "page" { 24.0 } else { 0.0 };
         let mut offsets = Vec::new();
         let mut y = 0.0;
@@ -1304,7 +1675,7 @@ fn draw_waveform(
     let x_of = |t: f64| r.x0 + (t - t0) / span * r.width();
     let mid = r.center().y;
     let amp = r.height() * 0.45;
-    let wave = Color::from_rgba8(110, 170, 230, 255);
+    let wave = tc(|t| t.waveform);
     let mut x = r.x0;
     while x < r.x1 {
         let t = t0 + (x - r.x0) / r.width() * span;
@@ -1338,7 +1709,7 @@ fn draw_waveform(
                 scene.fill(
                     Fill::NonZero,
                     Affine::IDENTITY,
-                    Color::from_rgba8(60, 190, 110, 50),
+                    tc(|t| t.loop_region),
                     None,
                     &rr,
                 );
@@ -1353,7 +1724,11 @@ fn draw_waveform(
             let t = p.frame as f64 / muse_audio::SYNC_RATE - pad;
             let x = x_of(t);
             if x >= r.x0 && x <= r.x1 {
-                fill(scene, Rect::new(x, r.y0, x + 1.5, r.y1), accent());
+                fill(
+                    scene,
+                    Rect::new(x, r.y0, x + 1.5, r.y1),
+                    tc(|t| t.sync_point),
+                );
                 text(
                     scene,
                     &format!("{}", p.bar + 1),
@@ -1371,7 +1746,7 @@ fn draw_waveform(
     fill(
         scene,
         Rect::new(px - 1.0, r.y0, px + 1.0, r.y1),
-        Color::from_rgba8(240, 80, 70, 255),
+        tc(|t| t.playhead),
     );
     let f = |t: f64| format!("{}:{:04.1}", (t.max(0.0) / 60.0) as u64, t.max(0.0) % 60.0);
     text(
@@ -1493,7 +1868,7 @@ fn draw_palette(scene: &mut Scene, p: &muse_app::Palette, width: f64, height: f6
         &RoundedRect::new(x0 - 2.0, y0 + 2.0, x0 + w + 2.0, y0 + h + 6.0, 12.0),
     );
     let frame = RoundedRect::new(x0, y0, x0 + w, y0 + h, 10.0);
-    scene.fill(Fill::NonZero, Affine::IDENTITY, chrome(), None, &frame);
+    scene.fill(Fill::NonZero, Affine::IDENTITY, popover(), None, &frame);
     scene.stroke(&Stroke::new(1.0), Affine::IDENTITY, accent(), None, &frame);
     let line = if p.prompt == ":" {
         format!(":{}", p.input)
@@ -1508,7 +1883,7 @@ fn draw_palette(scene: &mut Scene, p: &muse_app::Palette, width: f64, height: f6
         ty,
         16.0,
         Align::Left,
-        Color::WHITE,
+        text_on(popover()),
         false,
     );
     let cx = x0 + 14.0 + fonts.text_width(FontKind::Text, &line, 16.0) + 1.0;
@@ -1523,7 +1898,7 @@ fn draw_palette(scene: &mut Scene, p: &muse_app::Palette, width: f64, height: f6
     fill(
         scene,
         Rect::new(x0 + 8.0, y0 + input_h - 1.0, x0 + w - 8.0, y0 + input_h),
-        Color::from_rgba8(70, 72, 80, 255),
+        dim(),
     );
     // Scroll so the selected candidate is visible.
     let first = match p.selected {
@@ -1560,7 +1935,11 @@ fn draw_palette(scene: &mut Scene, p: &muse_app::Palette, width: f64, height: f6
         } else {
             FontKind::Text
         };
-        let hl = if selected { Color::WHITE } else { accent() };
+        let hl = if selected {
+            text_on(popover())
+        } else {
+            accent()
+        };
         let chars: Vec<char> = item.text.chars().collect();
         for &i in &item.matched {
             let Some(c) = chars.get(i) else { continue };
@@ -1618,7 +1997,7 @@ fn draw_command_line(scene: &mut Scene, app: &App, width: f64, height: f64) {
         Mode::Normal | Mode::Insert | Mode::Visual | Mode::Tracks => {
             if let Some(m) = &app.message {
                 let c = if m.error {
-                    Color::from_rgba8(255, 110, 100, 255)
+                    tc(|t| t.error)
                 } else {
                     chrome_text()
                 };
@@ -1890,8 +2269,17 @@ impl Views {
     }
 
     /// Whether a window position is over the tabline (hovering there needs redraws).
+    /// Whether a window position is over the tabline or toolbar (hovering there needs
+    /// redraws).
     pub fn over_tabline(&self, y: f64) -> bool {
-        y < TAB_BAR
+        y < self.chrome_bottom.max(TAB_BAR)
+    }
+
+    /// A toolbar tooltip is waiting to show: redraw until it does.
+    pub fn tooltip_pending(&self) -> bool {
+        self.toolbar_hover.is_some_and(|(_, t)| {
+            t.elapsed() < TOOLTIP_DELAY + std::time::Duration::from_millis(50)
+        })
     }
 
     /// Mouse down over the tracks panel: select, solo, mute, or start dragging a volume.
@@ -2026,6 +2414,10 @@ impl Views {
     }
 
     pub fn click(&mut self, app: &mut App, x: f64, y: f64) {
+        if let Some(&(_, i)) = self.toolbar.iter().find(|(r, _)| r.contains((x, y))) {
+            app.run_toolbar(i);
+            return;
+        }
         if self.click_tracks(app, x, y) {
             return;
         }

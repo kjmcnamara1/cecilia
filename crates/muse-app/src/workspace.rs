@@ -29,6 +29,8 @@ pub struct Workspace {
     pub global_waveform: bool,
     #[serde(default)]
     pub tracks_panel: bool,
+    #[serde(default = "default_true")]
+    pub toolbar: bool,
     /// Tracks the tracks panel shows at once.
     #[serde(default = "default_tracks_rows")]
     pub tracks_rows: usize,
@@ -174,6 +176,10 @@ fn node_of(split: &Split, panes: &HashMap<PaneId, Pane>) -> Option<Node> {
             weights,
         }),
     }
+}
+
+fn default_true() -> bool {
+    true
 }
 
 fn default_tracks_rows() -> usize {
@@ -356,6 +362,7 @@ impl App {
             chant_view: self.chant_view,
             global_waveform: self.global_waveform,
             tracks_panel: self.tracks_panel,
+            toolbar: self.toolbar,
             tracks_rows: self.tracks_rows,
             waveform_height: self.waveform_height,
         }
@@ -636,6 +643,7 @@ impl App {
         self.chant_view = ws.chant_view;
         self.global_waveform = ws.global_waveform;
         self.tracks_panel = ws.tracks_panel;
+        self.toolbar = ws.toolbar;
         self.tracks_rows = ws.tracks_rows.clamp(1, crate::app::MAX_TRACKS_ROWS);
         self.waveform_height = ws.waveform_height.clamp(
             crate::app::MIN_WAVEFORM_HEIGHT,
