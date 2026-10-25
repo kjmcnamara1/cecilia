@@ -10,6 +10,7 @@ follow_playback = true   # the cursor and view move with the playhead (red bar) 
 completion_ignore_case = true   # Tab completion on the command line ignores letter case
 completion_fuzzy = true         # …and matches the typed letters in order anywhere ("sd" → sync-detect)
 global_waveform = false  # waveform bar across the window bottom for the focused file
+tracks_panel = false     # the tracks panel (mixer and bar overview) at the window bottom
 
 [tabline]
 new_view = "copy"        # a new view starts with: "copy" (this view's buffers), "current", "empty"
@@ -21,6 +22,24 @@ max_width = 28           # longer file names are shortened in the middle…
 prefix_width = 14        # …keeping this many characters at the start
 suffix_width = 10        # …and this many at the end
 
+[theme]
+preset = "dark"          # "dark" or "light"; any colour below overrides it ("#rrggbb" or "#rrggbbaa")
+# paper = "#e8e9ec"        # behind the score
+# chrome = "#282a30"       # tabline, status line
+# chrome_text = "#e1e1e6"
+# dim = "#9698a0"          # secondary text
+# accent = "#fabe28"       # active tab, focus; tracks without a colour get a spectrum from it
+# cursor = "#fabe28"
+# cursor_outline = "#e68c00"
+# playhead = "#e12828"
+# selection = "#965adc"
+# tab = "#34373f"
+# tab_hover = "#484b56"
+# panel = "#1e2025"        # tracks panel, waveform bar
+# empty_bar = "#373a42"    # bars without notes in the tracks panel
+# mode_normal = "#5a96e6"  # also mode_insert, mode_visual, mode_command, mode_picker, mode_tracks
+# track_colors = ["#e05050", "#e0a030", "#50b060", "#4090e0"]   # instead of the spectrum
+
 [audio]
 # soundfont = "~/soundfonts/GeneralUser-GS.sf2"
 speed = 1.0              # playback speed multiplier
@@ -31,6 +50,10 @@ speed = 1.0              # playback speed multiplier
 # "<C-n>" = "track-next"
 # "<leader>p" = "play-toggle"
 # "gb" = ["goto-first", "play"]
+
+[keymap.tracks]
+# Keys while the tracks panel has the focus (<C-w>t).
+# "x" = "mute"
 
 [keymap.command]
 # "<C-p>" = "normal"

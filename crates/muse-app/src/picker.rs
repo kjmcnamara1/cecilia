@@ -13,6 +13,8 @@ pub enum PickerKind {
     Workspace,
     Mark,
     Macro,
+    /// Every key binding of every mode, found by keys, command or description.
+    Keymap,
 }
 
 impl PickerKind {
@@ -23,6 +25,7 @@ impl PickerKind {
             "workspace" | "workspaces" => PickerKind::Workspace,
             "mark" | "marks" => PickerKind::Mark,
             "macro" | "macros" => PickerKind::Macro,
+            "keymap" | "keymaps" | "keys" => PickerKind::Keymap,
             _ => return None,
         })
     }
@@ -34,6 +37,7 @@ impl PickerKind {
             PickerKind::Workspace => "Workspaces",
             PickerKind::Mark => "Marks",
             PickerKind::Macro => "Macros",
+            PickerKind::Keymap => "Keymaps",
         }
     }
 }
@@ -53,6 +57,8 @@ struct Entry {
     label: String,
     description: String,
     action: Command,
+    /// The description is searched too (keymaps).
+    search_description: bool,
 }
 
 /// `~/…` for paths under the home folder.
@@ -101,6 +107,7 @@ impl App {
                         label: tab.name,
                         description,
                         action: Command::BufferGoto(i + 1),
+                        search_description: false,
                     }
                 })
                 .collect(),
@@ -130,6 +137,7 @@ impl App {
                         label,
                         description,
                         action: Command::ViewGoto(i + 1),
+                        search_description: false,
                     }
                 })
                 .collect(),
@@ -146,6 +154,7 @@ impl App {
                         m.cursor.string + 1
                     ),
                     action: Command::GotoMark(m.name),
+                    search_description: false,
                 })
                 .collect(),
             PickerKind::Macro => {
@@ -157,8 +166,49 @@ impl App {
                         label: format!("@{r}"),
                         description: crate::keys::format_keys(keys),
                         action: Command::RunMacro(*r),
+                        search_description: false,
                     })
                     .collect()
+            }
+            PickerKind::Keymap => {
+                let modes = [
+                    (Mode::Normal, ""),
+                    (Mode::Visual, "visual "),
+                    (Mode::Insert, "insert "),
+                    (Mode::Tracks, "tracks "),
+                    (Mode::Command, "command "),
+                ];
+                let mut out = Vec::new();
+                for (mode, prefix) in modes {
+                    let map = self.config.keymap(mode);
+                    let mut keys: Vec<_> = map.bindings.iter().collect();
+                    keys.sort_by_key(|(k, _)| crate::keys::format_keys(k));
+                    for (k, cmds) in keys {
+                        let names = map.names.get(k).cloned().unwrap_or_default();
+                        let what: Vec<String> = names
+                            .iter()
+                            .map(|n| {
+                                let head = n.split_whitespace().next().unwrap_or(n);
+                                match crate::complete::describe(head) {
+                                    Some(d) => format!("{n} — {d}"),
+                                    None => n.clone(),
+                                }
+                            })
+                            .collect();
+                        // Choosing a Normal-mode binding runs it.
+                        let action = match (mode, cmds.as_slice()) {
+                            (Mode::Normal, [c]) => c.clone(),
+                            _ => Command::Nop,
+                        };
+                        out.push(Entry {
+                            label: format!("{prefix}{}", crate::keys::format_keys(k)),
+                            description: what.join("; "),
+                            action,
+                            search_description: true,
+                        });
+                    }
+                }
+                out
             }
             PickerKind::Workspace => {
                 let active = self.workspace_name();
@@ -187,6 +237,7 @@ impl App {
                             action: Command::WorkspaceOpen(name.clone(), false),
                             label: name,
                             description,
+                            search_description: false,
                         }
                     })
                     .collect()
@@ -197,15 +248,25 @@ impl App {
     /// The picker's entries filtered by its query, best first.
     fn picker_matches(&self, p: &Picker) -> Vec<(Entry, Vec<usize>)> {
         let mut entries = self.picker_entries(p.kind);
-        let ranked = self
-            .matcher()
-            .rank(entries.iter().map(|e| e.label.clone()), &p.query);
-        // Match ranked labels back to entries (labels can repeat: take each once).
+        // What is searched: the label, and for keymaps the description after it.
+        let text = |e: &Entry| {
+            if e.search_description {
+                format!("{}  {}", e.label, e.description)
+            } else {
+                e.label.clone()
+            }
+        };
+        let ranked = self.matcher().rank(entries.iter().map(text), &p.query);
+        // Match ranked texts back to entries (texts can repeat: take each once). Highlights
+        // fall on the label only.
         ranked
             .into_iter()
-            .filter_map(|(label, pos)| {
-                let i = entries.iter().position(|e| e.label == label)?;
-                Some((entries.remove(i), pos))
+            .filter_map(|(t, pos)| {
+                let i = entries.iter().position(|e| text(e) == t)?;
+                let e = entries.remove(i);
+                let n = e.label.chars().count();
+                let pos = pos.into_iter().filter(|&p| p < n).collect();
+                Some((e, pos))
             })
             .collect()
     }
@@ -254,6 +315,9 @@ impl App {
                 let matches = self.picker_matches(&p);
                 self.close_picker();
                 match matches.into_iter().nth(p.selected) {
+                    Some((entry, _)) if entry.action == Command::Nop => {
+                        self.info(format!("{}: {}", entry.label, entry.description))
+                    }
                     Some((entry, _)) => self.run(entry.action),
                     None => self.error(format!(
                         "no {} matches '{}'",
@@ -343,6 +407,34 @@ mod tests {
         keys(&mut app, "<Space>bzzz<CR>");
         assert!(app.message.as_ref().unwrap().error);
         std::fs::remove_dir_all(dir).ok();
+    }
+
+    #[test]
+    fn the_keymap_picker_finds_bindings_by_keys_or_description() {
+        let mut app = App::new(Config::default(), None);
+        app.run(Command::New);
+        keys(&mut app, "<Space>?");
+        assert_eq!(app.palette().unwrap().title, "Keymaps");
+        // By description…
+        keys(&mut app, "file picker");
+        let p = app.palette().unwrap();
+        assert_eq!(p.items[0].text, "<C-o>");
+        // …or by keys; Enter runs a Normal-mode binding.
+        keys(&mut app, "<C-u>}");
+        let p = app.palette().unwrap();
+        assert_eq!(p.items[0].text, "}");
+        assert!(
+            p.items[0]
+                .description
+                .as_deref()
+                .unwrap()
+                .contains("bar-next")
+        );
+        keys(&mut app, "<CR>");
+        assert_eq!(app.pane().cursor.bar, 1);
+        // Other modes' bindings are listed with the mode.
+        keys(&mut app, "<Space>?tracks s");
+        assert_eq!(app.palette().unwrap().items[0].text, "tracks s");
     }
 
     #[test]

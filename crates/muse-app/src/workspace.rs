@@ -27,6 +27,8 @@ pub struct Workspace {
     pub follow: bool,
     pub chant_view: bool,
     pub global_waveform: bool,
+    #[serde(default)]
+    pub tracks_panel: bool,
     /// Marks: lowercase ones belong to their file, uppercase ones are global.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub marks: Vec<MarkState>,
@@ -310,6 +312,7 @@ impl App {
             follow: self.follow,
             chant_view: self.chant_view,
             global_waveform: self.global_waveform,
+            tracks_panel: self.tracks_panel,
         }
     }
 
@@ -585,6 +588,7 @@ impl App {
         self.follow = ws.follow;
         self.chant_view = ws.chant_view;
         self.global_waveform = ws.global_waveform;
+        self.tracks_panel = ws.tracks_panel;
     }
 }
 

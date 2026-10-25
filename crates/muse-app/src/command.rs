@@ -108,6 +108,15 @@ pub enum Command {
     Volume(String, u32),
     Mute(Option<usize>),
     Solo(Option<usize>),
+    /// Show or hide the tracks panel (no argument: toggle).
+    Tracks(Option<bool>),
+    /// Focus the tracks panel, or give the focus back to the score.
+    TracksFocus,
+    /// Volume of the cursor's track.
+    TrackVolume(crate::tracks::VolumeChange),
+    /// Colour of the cursor's track in the tracks panel: `#rrggbb`, `off`, or none for the
+    /// next colour of the theme's palette.
+    TrackColor(Option<String>),
     /// Lyrics from the cursor on (verse 1–5, default 1), in Guitar Pro syntax: spaces and
     /// hyphens separate syllables, one per note.
     Lyrics(usize, String),
@@ -530,6 +539,7 @@ impl Command {
             "marks" => Pick(crate::picker::PickerKind::Mark),
             "macros" | "registers" | "reg" => Pick(crate::picker::PickerKind::Macro),
             "pick-buffer" => Pick(crate::picker::PickerKind::Buffer),
+            "pick-keymap" | "keymaps" | "maps" => Pick(crate::picker::PickerKind::Keymap),
             "pick-view" => Pick(crate::picker::PickerKind::View),
             "pick-workspace" => Pick(crate::picker::PickerKind::Workspace),
             "pick" => Pick(
@@ -543,6 +553,20 @@ impl Command {
             "modern-to-chant" => ModernToChant,
             "chant-view" => ChantView,
             "mute" => Mute(arg.and_then(|a| a.parse().ok())),
+            "tracks" => Tracks(match arg {
+                None => None,
+                Some("on") => Some(true),
+                Some("off") => Some(false),
+                Some(a) => return Err(format!("tracks: '{a}' is not on or off")),
+            }),
+            "tracks-focus" => TracksFocus,
+            "track-volume" => TrackVolume(
+                arg.and_then(crate::tracks::VolumeChange::parse)
+                    .ok_or("track-volume: give a percentage (80, +10 or -10)")?,
+            ),
+            "track-volume-up" => TrackVolume(crate::tracks::VolumeChange::Up),
+            "track-volume-down" => TrackVolume(crate::tracks::VolumeChange::Down),
+            "track-color" | "track-colour" => TrackColor(arg.map(String::from)),
             "solo" => Solo(arg.and_then(|a| a.parse().ok())),
             _ => return Err(format!("unknown command: {name}")),
         })

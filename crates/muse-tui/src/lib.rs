@@ -35,6 +35,11 @@ pub fn run(mut app: App) -> Result<()> {
 /// Mouse state between frames: what was drawn where, and where the mouse is.
 #[derive(Default)]
 struct Ui {
+    /// Clickable areas of the tracks panel, and its first row and bar shown.
+    tracks: Vec<(Rect, TracksHit)>,
+    tracks_scroll: (usize, usize),
+    /// A volume being dragged (one undo step).
+    volume_drag: bool,
     hits: Vec<Hit>,
     tabline: Vec<(Rect, TablineHit)>,
     hover: Option<(u16, u16)>,
@@ -76,6 +81,17 @@ fn event_loop(terminal: &mut DefaultTerminal, app: &mut App) -> Result<()> {
                 }
                 Event::Mouse(m) => match m.kind {
                     MouseEventKind::Moved => ui.hover = Some((m.column, m.row)),
+                    MouseEventKind::Down(MouseButton::Left)
+                    | MouseEventKind::Drag(MouseButton::Left)
+                        if ui.volume_drag
+                            || ui.tracks.iter().any(|(r, _)| contains(*r, m.column, m.row)) =>
+                    {
+                        click_tracks(app, &mut ui, m.column, m.row, m.kind);
+                    }
+                    MouseEventKind::Up(MouseButton::Left) if ui.volume_drag => {
+                        ui.volume_drag = false;
+                        app.group_edits(false);
+                    }
                     MouseEventKind::Down(button @ (MouseButton::Left | MouseButton::Middle)) => {
                         let tab_hit = ui
                             .tabline
@@ -131,6 +147,18 @@ fn event_loop(terminal: &mut DefaultTerminal, app: &mut App) -> Result<()> {
     Ok(())
 }
 
+/// A theme colour for the terminal.
+fn rc(c: muse_app::theme::Rgba) -> Color {
+    Color::Rgb(c.r, c.g, c.b)
+}
+
+/// Text on a theme-coloured background.
+fn on(app: &App, bg: muse_app::theme::Rgba) -> Style {
+    Style::default()
+        .fg(rc(app.config.theme.text_on(bg)))
+        .bg(rc(bg))
+}
+
 fn contains(r: Rect, x: u16, y: u16) -> bool {
     x >= r.x && x < r.x + r.width && y >= r.y && y < r.y + r.height
 }
@@ -179,13 +207,23 @@ fn convert_key(k: KeyEvent) -> Option<Key> {
 
 fn draw(f: &mut Frame, app: &mut App, play: Option<(usize, Location, f64, f64)>, ui: &mut Ui) {
     ui.hits.clear();
-    let [tabline, main, status, cmdline] = Layout::vertical([
+    let tracks_h = if app.tracks_panel {
+        1 + app.buffer().score.tracks.len().clamp(1, TRACK_ROWS_MAX) as u16
+    } else {
+        0
+    };
+    let [tabline, main, tracks, status, cmdline] = Layout::vertical([
         Constraint::Length(1),
         Constraint::Min(3),
+        Constraint::Length(tracks_h),
         Constraint::Length(1),
         Constraint::Length(1),
     ])
     .areas(f.area());
+    ui.tracks.clear();
+    if tracks_h > 0 {
+        draw_tracks(f, app, tracks, play, ui);
+    }
 
     app.viewport = muse_app::layout::Rect {
         x: main.x,
@@ -216,10 +254,10 @@ fn draw(f: &mut Frame, app: &mut App, play: Option<(usize, Location, f64, f64)>,
             ),
             None => format!(" {} ", buffer.name),
         };
-        let border_style = if id == focused {
-            Style::default().fg(Color::Yellow)
+        let border_style = if id == focused && app.mode != Mode::Tracks {
+            Style::default().fg(rc(app.config.theme.accent))
         } else {
-            Style::default().fg(Color::DarkGray)
+            Style::default().fg(rc(app.config.theme.dim))
         };
         let block = Block::bordered()
             .border_type(BorderType::Rounded)
@@ -274,13 +312,13 @@ fn draw(f: &mut Frame, app: &mut App, play: Option<(usize, Location, f64, f64)>,
         draw_help(f, app, main);
     }
     if let Some(p) = app.palette() {
-        draw_palette(f, &p, f.area());
+        draw_palette(f, app, &p, f.area());
     }
 }
 
 /// The command palette: a rounded box near the top centre with the typed command and the
 /// completions of the word being typed below it (descriptions right-aligned for commands).
-fn draw_palette(f: &mut Frame, p: &muse_app::Palette, screen: Rect) {
+fn draw_palette(f: &mut Frame, app: &App, p: &muse_app::Palette, screen: Rect) {
     const ROWS: usize = 12;
     let w = screen.width.saturating_sub(4).clamp(20, 76);
     let room = screen.height.saturating_sub(8) as usize;
@@ -300,7 +338,7 @@ fn draw_palette(f: &mut Frame, p: &muse_app::Palette, screen: Rect) {
     };
     let block = Block::bordered()
         .border_type(BorderType::Rounded)
-        .border_style(Style::default().fg(Color::Yellow))
+        .border_style(Style::default().fg(rc(app.config.theme.accent)))
         .title(format!(" {} ", p.title))
         .title_bottom(Line::from(more).right_aligned());
     let inner = block.inner(area);
@@ -336,7 +374,7 @@ fn draw_palette(f: &mut Frame, p: &muse_app::Palette, screen: Rect) {
         };
         let selected = p.selected == Some(k);
         let style = if selected {
-            Style::default().fg(Color::Black).bg(Color::Yellow)
+            on(app, app.config.theme.accent)
         } else {
             Style::default()
         };
@@ -422,7 +460,7 @@ fn file_icon(kind: &str, style: &str) -> &'static str {
 /// shortened in the middle, × when hovered, ● when modified) and the views on the right.
 fn draw_tabline(f: &mut Frame, app: &App, area: Rect, ui: &mut Ui) {
     ui.tabline.clear();
-    let bg = Style::default().bg(Color::Rgb(24, 24, 28));
+    let bg = Style::default().bg(rc(app.config.theme.chrome));
     f.render_widget(Paragraph::new("").style(bg), area);
     let width = |s: &str| s.chars().count() as u16;
 
@@ -437,12 +475,9 @@ fn draw_tabline(f: &mut Frame, app: &App, area: Rect, ui: &mut Ui) {
         }
         right -= w;
         let style = if i == app.active_view {
-            Style::default()
-                .fg(Color::Black)
-                .bg(Color::Yellow)
-                .add_modifier(Modifier::BOLD)
+            on(app, app.config.theme.accent).add_modifier(Modifier::BOLD)
         } else {
-            Style::default().fg(Color::Gray).bg(Color::Rgb(45, 45, 52))
+            on(app, app.config.theme.tab)
         };
         let r = Rect {
             x: right,
@@ -491,15 +526,13 @@ fn draw_tabline(f: &mut Frame, app: &App, area: Rect, ui: &mut Ui) {
             height: 1,
         };
         let hovered = ui.hover.is_some_and(|(hx, hy)| contains(r, hx, hy));
+        let theme = &app.config.theme;
         let style = if tab.active {
-            Style::default()
-                .fg(Color::White)
-                .bg(Color::Rgb(70, 70, 85))
-                .add_modifier(Modifier::BOLD)
+            on(app, theme.tab_hover).add_modifier(Modifier::BOLD)
         } else if hovered {
-            Style::default().fg(Color::White).bg(Color::Rgb(50, 50, 60))
+            on(app, theme.tab_hover)
         } else {
-            Style::default().fg(Color::Gray).bg(Color::Rgb(35, 35, 42))
+            on(app, theme.tab)
         };
         let close = Rect {
             x: x + w - 2,
@@ -530,11 +563,258 @@ fn draw_tabline(f: &mut Frame, app: &App, area: Rect, ui: &mut Ui) {
                 height: 1,
             };
             f.buffer_mut()
-                .set_style(cell, Style::default().fg(Color::Rgb(235, 70, 60)));
+                .set_style(cell, Style::default().fg(rc(app.config.theme.playhead)));
         }
         ui.tabline.push((r, TablineHit::Buffer(n)));
         ui.tabline.push((close, TablineHit::Close(n)));
         x += w + 1;
+    }
+}
+
+/// Rows the tracks panel shows at most (it scrolls to the cursor's track).
+const TRACK_ROWS_MAX: usize = 8;
+/// Width of the tracks panel's columns before the bar grid.
+const TRACK_INFO_W: u16 = 48;
+
+/// What a click on the tracks panel does.
+#[derive(Debug, Clone, Copy, PartialEq)]
+enum TracksHit {
+    /// A volume slider (track, first column, width).
+    Volume(usize, u16, u16),
+    Solo(usize),
+    Mute(usize),
+    Row(usize),
+    Bar(usize, usize),
+}
+
+fn click_tracks(app: &mut App, ui: &mut Ui, x: u16, y: u16, kind: MouseEventKind) {
+    // While dragging a volume, its slider follows the mouse anywhere along the row.
+    let hit = ui
+        .tracks
+        .iter()
+        .find(|(r, h)| {
+            if ui.volume_drag {
+                matches!(h, TracksHit::Volume(..)) && y >= r.y && y < r.y + r.height
+            } else {
+                contains(*r, x, y)
+            }
+        })
+        .map(|(_, h)| *h);
+    let drag = matches!(kind, MouseEventKind::Drag(_));
+    match hit {
+        Some(TracksHit::Volume(t, x0, w)) => {
+            if !ui.volume_drag {
+                app.select_track_bar(t, None);
+                app.group_edits(true);
+                ui.volume_drag = true;
+            }
+            let frac = (x.saturating_sub(x0) as f64 / (w.max(2) - 1) as f64).clamp(0.0, 1.0);
+            app.set_track_volume(t, (frac * 127.0).round() as u8);
+        }
+        _ if drag => {}
+        Some(TracksHit::Solo(t)) => app.run(muse_app::Command::Solo(Some(t + 1))),
+        Some(TracksHit::Mute(t)) => app.run(muse_app::Command::Mute(Some(t + 1))),
+        Some(TracksHit::Row(t)) => app.select_track_bar(t, None),
+        Some(TracksHit::Bar(t, b)) => app.select_track_bar(t, Some(b)),
+        None => {}
+    }
+}
+
+/// The tracks panel: per track its number, volume, solo, mute, name and instrument, then a
+/// cell per bar (coloured where it has notes) with the edit cursor and the playhead.
+fn draw_tracks(
+    f: &mut Frame,
+    app: &App,
+    area: Rect,
+    play: Option<(usize, Location, f64, f64)>,
+    ui: &mut Ui,
+) {
+    let t = app.config.theme.clone();
+    let focused = app.mode == Mode::Tracks;
+    let base = Style::default().bg(rc(t.panel)).fg(rc(t.chrome_text));
+    f.render_widget(Paragraph::new("").style(base), area);
+    let rows = app.track_rows();
+    let buffer = app.pane().buffer;
+    let cursor = app.pane().cursor;
+    let visible = rows.len().clamp(1, TRACK_ROWS_MAX);
+    let (mut first, mut first_bar) = ui.tracks_scroll;
+    if cursor.track < first {
+        first = cursor.track;
+    } else if cursor.track >= first + visible {
+        first = cursor.track + 1 - visible;
+    }
+    first = first.min(rows.len().saturating_sub(visible));
+    let gx = area.x + TRACK_INFO_W;
+    let gw = area.width.saturating_sub(TRACK_INFO_W + 1) as usize;
+    let playing = play.filter(|p| p.0 == buffer && (app.playing || app.paused));
+    let follow_bar = match playing {
+        Some((_, loc, ..)) if app.follow && app.playing => loc.bar,
+        _ => cursor.bar,
+    };
+    if follow_bar < first_bar {
+        first_bar = follow_bar.saturating_sub(4);
+    } else if gw > 0 && follow_bar >= first_bar + gw {
+        first_bar = follow_bar + 1 + 4.min(gw / 2) - gw;
+    }
+    ui.tracks_scroll = (first, first_bar);
+    let buf = f.buffer_mut();
+    let dim = Style::default().fg(rc(t.dim)).bg(rc(t.panel));
+    // Header (accent when focused), with bar numbers every 4 bars.
+    let head = if focused {
+        on(app, t.mode_tracks)
+    } else {
+        Style::default().fg(rc(t.dim)).bg(rc(t.tab))
+    };
+    buf.set_style(Rect { height: 1, ..area }, head);
+    buf.set_string(
+        area.x,
+        area.y,
+        format!(
+            "{:<width$}",
+            "  # volume S M track          instrument",
+            width = TRACK_INFO_W as usize
+        ),
+        head,
+    );
+    let bars = rows.first().map_or(0, |r| r.bars.len());
+    let mut b = first_bar - first_bar % 4;
+    while b < (first_bar + gw).min(bars) {
+        if b >= first_bar {
+            let label = (b + 1).to_string();
+            if b - first_bar + label.len() <= gw {
+                buf.set_string(gx + (b - first_bar) as u16, area.y, label, head);
+            }
+        }
+        b += 4;
+    }
+    let play_bar = playing.map(|(_, loc, ..)| loc.bar);
+    for (k, row) in rows.iter().enumerate().skip(first).take(visible) {
+        let y = area.y + 1 + (k - first) as u16;
+        if y >= area.y + area.height {
+            break;
+        }
+        let selected = row.index == cursor.track;
+        let row_style = if selected {
+            Style::default().bg(rc(t.tab)).fg(rc(t.chrome_text))
+        } else {
+            base
+        };
+        let fg = if row.audible {
+            row_style
+        } else {
+            row_style.fg(rc(t.dim))
+        };
+        buf.set_style(
+            Rect {
+                x: area.x,
+                y,
+                width: area.width,
+                height: 1,
+            },
+            row_style,
+        );
+        buf.set_string(area.x, y, "▌", row_style.fg(rc(row.color)));
+        buf.set_string(area.x + 1, y, format!("{:>2}", row.index + 1), fg);
+        // Volume: 6 cells.
+        let filled = ((row.volume as f64 / 127.0) * 6.0).round() as usize;
+        for i in 0..6u16 {
+            let (ch, st) = if (i as usize) < filled {
+                ("━", row_style.fg(rc(row.color)))
+            } else {
+                ("─", row_style.fg(rc(t.dim)))
+            };
+            buf.set_string(area.x + 4 + i, y, ch, st);
+        }
+        ui.tracks.push((
+            Rect {
+                x: area.x + 4,
+                y,
+                width: 6,
+                height: 1,
+            },
+            TracksHit::Volume(row.index, area.x + 4, 6),
+        ));
+        for (x, on_, label, color, hit) in [
+            (
+                11u16,
+                row.solo,
+                "S",
+                t.mode_insert,
+                TracksHit::Solo(row.index),
+            ),
+            (13, row.mute, "M", t.playhead, TracksHit::Mute(row.index)),
+        ] {
+            let st = if on_ {
+                on(app, color)
+            } else {
+                row_style.fg(rc(t.dim))
+            };
+            buf.set_string(area.x + x, y, label, st);
+            ui.tracks.push((
+                Rect {
+                    x: area.x + x,
+                    y,
+                    width: 1,
+                    height: 1,
+                },
+                hit,
+            ));
+        }
+        let name: String = row.name.chars().take(14).collect();
+        let st = if selected {
+            fg.add_modifier(Modifier::BOLD)
+        } else {
+            fg
+        };
+        buf.set_string(area.x + 15, y, format!("{name:<14}"), st);
+        let instr: String = row.instrument.chars().take(16).collect();
+        buf.set_string(area.x + 30, y, instr, row_style.fg(rc(t.dim)));
+        ui.tracks.push((
+            Rect {
+                x: area.x,
+                y,
+                width: TRACK_INFO_W,
+                height: 1,
+            },
+            TracksHit::Row(row.index),
+        ));
+        buf.set_string(gx - 1, y, "│", dim.bg(row_style.bg.unwrap_or(rc(t.panel))));
+        for c in 0..gw.min(bars.saturating_sub(first_bar)) {
+            let bar = first_bar + c;
+            let x = gx + c as u16;
+            let notes = row.bars.get(bar).copied().unwrap_or(false);
+            let mut st = row_style;
+            let ch = if notes {
+                st = st.fg(rc(if row.audible {
+                    row.color
+                } else {
+                    row.color.mix(t.panel, 0.6)
+                }));
+                "■"
+            } else {
+                st = st.fg(rc(t.empty_bar));
+                "·"
+            };
+            if bar == cursor.bar {
+                st = st.bg(rc(t.accent.mix(t.panel, 0.7)));
+                if selected {
+                    st = on(app, t.accent);
+                }
+            }
+            if play_bar == Some(bar) {
+                st = st.bg(rc(t.playhead));
+            }
+            buf.set_string(x, y, ch, st);
+            ui.tracks.push((
+                Rect {
+                    x,
+                    y,
+                    width: 1,
+                    height: 1,
+                },
+                TracksHit::Bar(row.index, bar),
+            ));
+        }
     }
 }
 
@@ -544,25 +824,16 @@ fn fmt_time(t: f64) -> String {
 }
 
 fn draw_status(f: &mut Frame, app: &App, play: Option<(usize, Location, f64, f64)>, area: Rect) {
-    let (mode, mode_style) = match app.mode {
-        Mode::Normal => (
-            " NORMAL ",
-            Style::default().fg(Color::Black).bg(Color::Blue),
-        ),
-        Mode::Insert => (
-            " INSERT ",
-            Style::default().fg(Color::Black).bg(Color::Yellow),
-        ),
-        Mode::Visual => (
-            " VISUAL ",
-            Style::default().fg(Color::Black).bg(Color::Magenta),
-        ),
-        Mode::Command => (
-            " COMMAND ",
-            Style::default().fg(Color::Black).bg(Color::Green),
-        ),
-        Mode::Picker => (" PICK ", Style::default().fg(Color::Black).bg(Color::Cyan)),
+    let t = &app.config.theme;
+    let (mode, color) = match app.mode {
+        Mode::Normal => (" NORMAL ", t.mode_normal),
+        Mode::Insert => (" INSERT ", t.mode_insert),
+        Mode::Visual => (" VISUAL ", t.mode_visual),
+        Mode::Command => (" COMMAND ", t.mode_command),
+        Mode::Picker => (" PICK ", t.mode_picker),
+        Mode::Tracks => (" TRACKS ", t.mode_tracks),
     };
+    let mode_style = on(app, color);
     let pane = app.pane();
     let score = &app.buffer().score;
     let mut right = String::new();
@@ -611,14 +882,19 @@ fn draw_status(f: &mut Frame, app: &App, play: Option<(usize, Location, f64, f64
     let line = Line::from(vec![
         Span::styled(mode, mode_style.add_modifier(Modifier::BOLD)),
         Span::raw(" "),
-        Span::styled(score.meta.title.clone(), Style::default().fg(Color::White)),
+        Span::styled(
+            score.meta.title.clone(),
+            Style::default().fg(rc(app.config.theme.chrome_text)),
+        ),
         Span::raw(if score.meta.artist.is_empty() {
             String::new()
         } else {
             format!(" — {}", score.meta.artist)
         }),
     ]);
-    let bg = Style::default().bg(Color::Rgb(30, 30, 30));
+    let bg = Style::default()
+        .bg(rc(app.config.theme.chrome))
+        .fg(rc(app.config.theme.chrome_text));
     f.render_widget(Paragraph::new(line).style(bg), area);
     f.render_widget(Paragraph::new(right + " ").right_aligned().style(bg), area);
 }
@@ -627,7 +903,7 @@ fn draw_cmdline(f: &mut Frame, app: &App, area: Rect) {
     match app.mode {
         // Typed in the command palette.
         Mode::Command | Mode::Picker => {}
-        Mode::Normal | Mode::Insert | Mode::Visual => {
+        Mode::Normal | Mode::Insert | Mode::Visual | Mode::Tracks => {
             if let Some(m) = &app.message {
                 let style = if m.error {
                     Style::default().fg(Color::Red)
@@ -951,5 +1227,12 @@ mod render_tests {
         app.playing = true;
         let screen = render(&mut app, 80, 20);
         assert!(screen.contains("t.gp5 ▶"), "{screen}");
+        // The tracks panel: a row per track with its name, instrument and bars.
+        app.run(muse_app::Command::TracksFocus);
+        let screen = render(&mut app, 100, 20);
+        assert!(screen.contains("volume S M track"), "{screen}");
+        assert!(screen.contains("Lead"), "{screen}");
+        assert!(screen.contains("TRACKS"), "{screen}");
+        assert!(screen.contains('■') || screen.contains('·'), "{screen}");
     }
 }

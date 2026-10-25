@@ -17,6 +17,8 @@ pub mod marks;
 pub mod picker;
 pub mod playalong;
 pub mod playback;
+pub mod theme;
+pub mod tracks;
 pub mod workspace;
 
 pub use app::{

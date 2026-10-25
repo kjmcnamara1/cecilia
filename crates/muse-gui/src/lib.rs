@@ -107,7 +107,7 @@ impl Gui {
                 &self.scene,
                 &gpu.surface.target_view,
                 &RenderParams {
-                    base_color: draw::BACKGROUND,
+                    base_color: draw::background(),
                     width,
                     height,
                     antialiasing_method: AaConfig::Area,
@@ -229,6 +229,9 @@ impl ApplicationHandler for Gui {
                 let was_over = self.views.over_tabline(self.mouse.1);
                 self.mouse = (position.x / f, position.y / f);
                 self.views.hover = self.mouse;
+                if self.views.drag_to(&mut self.app, self.mouse.0) {
+                    self.after_input();
+                }
                 // Hover effects on the tabline (close buttons) need a redraw.
                 if was_over || self.views.over_tabline(self.mouse.1) {
                     if let Some(gpu) = &self.gpu {
@@ -248,6 +251,14 @@ impl ApplicationHandler for Gui {
                 ..
             } => {
                 self.views.click(&mut self.app, self.mouse.0, self.mouse.1);
+                self.after_input();
+            }
+            WindowEvent::MouseInput {
+                state: ElementState::Released,
+                button: MouseButton::Left,
+                ..
+            } => {
+                self.views.release(&mut self.app);
                 self.after_input();
             }
             WindowEvent::MouseInput {
@@ -372,7 +383,7 @@ pub fn screenshot(
             &scene,
             &view,
             &RenderParams {
-                base_color: draw::BACKGROUND,
+                base_color: draw::background(),
                 width,
                 height,
                 antialiasing_method: AaConfig::Area,

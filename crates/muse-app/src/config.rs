@@ -18,6 +18,8 @@ pub enum Mode {
     Visual,
     /// Choosing a buffer, view or workspace from a filtered list.
     Picker,
+    /// The tracks panel has the focus: keys select tracks and bars, mute, solo, volume.
+    Tracks,
 }
 
 #[derive(Debug, Clone, Default, Deserialize)]
@@ -27,6 +29,7 @@ pub struct ConfigFile {
     pub ui: UiConfig,
     pub tabline: TablineConfig,
     pub audio: AudioConfig,
+    pub theme: crate::theme::ThemeConfig,
     pub keymap: KeymapConfig,
 }
 
@@ -102,6 +105,8 @@ pub struct UiConfig {
     pub completion_fuzzy: bool,
     /// GUI: a waveform bar across the whole window above the status line.
     pub global_waveform: bool,
+    /// The tracks panel (tracks with mixer and a bar overview) at the bottom of the window.
+    pub tracks_panel: bool,
     /// GUI score layout: "page", "vertical" or "horizontal".
     pub layout: String,
     /// GUI zoom factor.
@@ -116,6 +121,7 @@ impl Default for UiConfig {
             completion_ignore_case: true,
             completion_fuzzy: true,
             global_waveform: false,
+            tracks_panel: false,
             layout: "vertical".into(),
             zoom: 1.0,
         }
@@ -155,6 +161,7 @@ pub struct KeymapConfig {
     pub command: HashMap<String, Binding>,
     pub insert: HashMap<String, Binding>,
     pub visual: HashMap<String, Binding>,
+    pub tracks: HashMap<String, Binding>,
     /// No longer used (Play mode was removed); kept so old configs still load, with a warning.
     pub play: HashMap<String, Binding>,
 }
@@ -187,7 +194,11 @@ const DEFAULT_NORMAL: &[(&str, &str)] = &[
     ("<leader><leader>", "play-toggle"),
     ("<leader>s", "stop"),
     ("<leader>f", "follow-toggle"),
+    ("<C-o>", "open"),
     ("<C-w>s", "split"),
+    ("<C-w>t", "tracks-focus"),
+    ("<leader>T", "tracks"),
+    ("<leader>?", "pick-keymap"),
     ("<C-w>v", "vsplit"),
     ("<C-w>h", "focus-left"),
     ("<C-w>j", "focus-down"),
@@ -301,6 +312,36 @@ const DEFAULT_INSERT: &[(&str, &str)] = &[
     ("<C-x>", "pitch-down"),
 ];
 
+/// The tracks panel, while it has the focus.
+const DEFAULT_TRACKS: &[(&str, &str)] = &[
+    ("j", "track-next"),
+    ("<Down>", "track-next"),
+    ("k", "track-prev"),
+    ("<Up>", "track-prev"),
+    ("l", "bar-next"),
+    ("<Right>", "bar-next"),
+    ("h", "bar-prev"),
+    ("<Left>", "bar-prev"),
+    ("gg", "goto-first"),
+    ("G", "goto-last"),
+    ("s", "solo"),
+    ("m", "mute"),
+    ("+", "track-volume-up"),
+    ("=", "track-volume-up"),
+    ("-", "track-volume-down"),
+    ("c", "track-color"),
+    ("<CR>", "tracks-focus"),
+    ("<Esc>", "tracks-focus"),
+    ("q", "tracks-focus"),
+    ("<C-w>k", "tracks-focus"),
+    ("<leader><leader>", "play-toggle"),
+    ("<leader>s", "stop"),
+    ("<leader>f", "follow-toggle"),
+    ("<leader>T", "tracks"),
+    ("<leader>?", "pick-keymap"),
+    (":", "command-mode"),
+];
+
 const DEFAULT_VISUAL: &[(&str, &str)] = &[
     ("<Esc>", "normal"),
     ("d", "delete"),
@@ -315,6 +356,16 @@ const DEFAULT_VISUAL: &[(&str, &str)] = &[
 #[derive(Debug, Clone, Default)]
 pub struct Keymap {
     pub bindings: HashMap<Vec<Key>, Vec<Command>>,
+    /// The commands of each binding as written (for listing keymaps).
+    pub names: HashMap<Vec<Key>, Vec<String>>,
+}
+
+impl Keymap {
+    fn bind_default(&mut self, keys: Vec<Key>, cmd: &str) {
+        let parsed = Command::parse(cmd).expect("valid default command");
+        self.names.insert(keys.clone(), vec![cmd.to_string()]);
+        self.bindings.insert(keys, vec![parsed]);
+    }
 }
 
 pub enum Lookup<'a> {
@@ -356,6 +407,8 @@ pub struct Config {
     pub file: ConfigFile,
     pub keymaps: HashMap<Mode, Keymap>,
     pub leader: Vec<Key>,
+    /// Interface colours (`[theme]`).
+    pub theme: crate::theme::Theme,
 }
 
 impl Default for Config {
@@ -376,10 +429,7 @@ impl Config {
         let mut normal = Keymap::default();
         for (keys, cmd) in DEFAULT_NORMAL {
             let keys = parse_keys(keys, &leader).expect("valid default key");
-            normal.bindings.insert(
-                keys,
-                vec![Command::parse(cmd).expect("valid default command")],
-            );
+            normal.bind_default(keys, cmd);
         }
         apply_user(
             &mut normal,
@@ -393,10 +443,7 @@ impl Config {
         for (map, defaults) in [(&mut insert, DEFAULT_INSERT), (&mut visual, DEFAULT_VISUAL)] {
             for (keys, cmd) in defaults {
                 let keys = parse_keys(keys, &leader).expect("valid default key");
-                map.bindings.insert(
-                    keys,
-                    vec![Command::parse(cmd).expect("valid default command")],
-                );
+                map.bind_default(keys, cmd);
             }
         }
         apply_user(
@@ -413,6 +460,19 @@ impl Config {
             "keymap.visual",
             &mut errors,
         );
+        let mut tracks = Keymap::default();
+        for (keys, cmd) in DEFAULT_TRACKS {
+            let keys = parse_keys(keys, &leader).expect("valid default key");
+            tracks.bind_default(keys, cmd);
+        }
+        apply_user(
+            &mut tracks,
+            &file.keymap.tracks,
+            &leader,
+            "keymap.tracks",
+            &mut errors,
+        );
+        keymaps.insert(Mode::Tracks, tracks);
         keymaps.insert(Mode::Insert, insert);
         keymaps.insert(Mode::Visual, visual);
         let mut command = Keymap::default();
@@ -430,11 +490,14 @@ impl Config {
         }
         keymaps.insert(Mode::Normal, normal);
         keymaps.insert(Mode::Command, command);
+        let (theme, theme_errors) = crate::theme::Theme::from_config(&file.theme);
+        errors.extend(theme_errors);
         (
             Self {
                 file,
                 keymaps,
                 leader,
+                theme,
             },
             errors,
         )
@@ -483,8 +546,10 @@ fn apply_user(
         match cmds {
             Ok(cmds) if cmds.iter().all(|c| *c == Command::Nop) => {
                 map.bindings.remove(&keys);
+                map.names.remove(&keys);
             }
             Ok(cmds) => {
+                map.names.insert(keys.clone(), names);
                 map.bindings.insert(keys, cmds);
             }
             Err(e) => errors.push(format!("{section}: {e}")),
@@ -562,6 +627,12 @@ mod tests {
     fn invalid_toml_is_an_error() {
         assert!(Config::parse("[general]\nleader = ").is_err());
         assert!(Config::parse("[nope]\n").is_err());
+    }
+
+    #[test]
+    fn the_example_config_loads_cleanly() {
+        let (_, errors) = Config::parse(include_str!("../../../docs/config.example.toml")).unwrap();
+        assert!(errors.is_empty(), "{errors:?}");
     }
 
     #[test]

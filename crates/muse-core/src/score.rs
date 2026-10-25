@@ -248,6 +248,10 @@ pub struct Track {
     pub capo: u8,
     pub midi: MidiSettings,
     pub color: Color,
+    /// Colour chosen in muse for the tracks panel (otherwise the theme gives one). Kept apart
+    /// from `color`, which files set to a default nobody chose.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub display_color: Option<Color>,
     pub mute: bool,
     pub solo: bool,
     /// One bar per master bar. On a chant track these hold the transcription of `chant`.

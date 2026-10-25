@@ -230,6 +230,8 @@ pub struct App {
     /// GUI: a waveform bar across the whole window above the status line, for the focused
     /// pane's file (`ui.global_waveform`).
     pub global_waveform: bool,
+    /// The tracks panel is shown (`ui.tracks_panel`).
+    pub tracks_panel: bool,
     /// Screen area for panes, set by the frontend.
     pub viewport: Rect,
     /// Bars moved by page-down/up, set by the frontend.
@@ -260,6 +262,7 @@ impl App {
         let completion_ignore_case = config.file.ui.completion_ignore_case;
         let completion_fuzzy = config.file.ui.completion_fuzzy;
         let global_waveform = config.file.ui.global_waveform;
+        let tracks_panel = config.file.ui.tracks_panel;
         let (score_layout, zoom) = (config.file.ui.layout.clone(), config.file.ui.zoom);
         let config_mtime = config_path.as_deref().and_then(mtime);
         let mut panes = HashMap::new();
@@ -310,6 +313,7 @@ impl App {
             completion_ignore_case,
             completion_fuzzy,
             global_waveform,
+            tracks_panel,
             viewport: Rect {
                 x: 0,
                 y: 0,
@@ -918,7 +922,11 @@ impl App {
     /// Executes a command.
     pub fn run(&mut self, cmd: Command) {
         use Command::*;
-        if self.run_edit(&cmd) || self.run_playalong(&cmd) || self.run_chant(&cmd) {
+        if self.run_edit(&cmd)
+            || self.run_playalong(&cmd)
+            || self.run_chant(&cmd)
+            || self.run_tracks(&cmd)
+        {
             return;
         }
         match cmd {

@@ -5,6 +5,7 @@ use std::collections::HashMap;
 
 use muse_app::layout::PaneId;
 use muse_app::playback::Playback;
+use muse_app::theme::Rgba;
 use muse_app::{App, Mode};
 use muse_audio::Location;
 use muse_engrave::display::{Align, BeatRef, FontKind};
@@ -14,11 +15,46 @@ use vello::Scene;
 use vello::kurbo::{Affine, BezPath, Circle, Rect, RoundedRect, Stroke};
 use vello::peniko::{Color, Fill, Mix};
 
-pub const BACKGROUND: Color = Color::from_rgba8(232, 233, 236, 255);
-const CHROME: Color = Color::from_rgba8(40, 42, 48, 255);
-const CHROME_TEXT: Color = Color::from_rgba8(225, 225, 230, 255);
-const ACCENT: Color = Color::from_rgba8(250, 190, 40, 255);
-const DIM: Color = Color::from_rgba8(150, 152, 160, 255);
+thread_local! {
+    /// The theme of the frame being built (set by [`build`]).
+    static THEME: std::cell::RefCell<muse_app::theme::Theme> = Default::default();
+}
+
+/// A colour of the current theme.
+fn tc(f: impl FnOnce(&muse_app::theme::Theme) -> Rgba) -> Color {
+    THEME.with(|t| col(f(&t.borrow())))
+}
+
+fn col(c: Rgba) -> Color {
+    Color::from_rgba8(c.r, c.g, c.b, c.a)
+}
+
+/// Behind the score (the theme's paper).
+pub fn background() -> Color {
+    tc(|t| t.paper)
+}
+
+fn chrome() -> Color {
+    tc(|t| t.chrome)
+}
+
+fn chrome_text() -> Color {
+    tc(|t| t.chrome_text)
+}
+
+fn accent() -> Color {
+    tc(|t| t.accent)
+}
+
+/// Dark or light text, whichever reads on `bg`.
+fn text_on(bg: Color) -> Color {
+    let c = bg.to_rgba8();
+    tc(|t| t.text_on(Rgba::rgb(c.r, c.g, c.b)))
+}
+
+fn dim() -> Color {
+    tc(|t| t.dim)
+}
 
 const TAB_BAR: f64 = 30.0;
 const STATUS: f64 = 26.0;
@@ -61,6 +97,25 @@ pub struct Views {
     pub hover: (f64, f64),
     /// Clickable areas of the tabline drawn last frame.
     tabline: Vec<(Rect, TablineHit)>,
+    /// Clickable areas of the tracks panel drawn last frame.
+    tracks: Vec<(Rect, TracksHit)>,
+    /// The tracks panel's first visible row and horizontal scroll of its bar grid.
+    tracks_scroll: (usize, f64),
+    /// A volume slider being dragged: (track, slider left, slider right).
+    volume_drag: Option<(usize, f64, f64)>,
+}
+
+/// What a click on the tracks panel does.
+#[derive(Debug, Clone, Copy, PartialEq)]
+enum TracksHit {
+    /// A track's volume slider (left and right ends).
+    Volume(usize, f64, f64),
+    Solo(usize),
+    Mute(usize),
+    /// A track's row outside the bar grid.
+    Row(usize),
+    /// A bar of a track.
+    Bar(usize, usize),
 }
 
 /// What a click on the tabline does.
@@ -72,6 +127,301 @@ enum TablineHit {
     Close(usize),
     /// Switch to view n.
     View(usize),
+}
+
+const TRACK_HEAD: f64 = 20.0;
+const TRACK_ROW: f64 = 20.0;
+/// Rows the tracks panel shows at most (it scrolls to the cursor's track).
+const TRACK_ROWS_MAX: usize = 8;
+const BLOCK_W: f64 = 14.0;
+const BLOCK_STEP: f64 = 16.0;
+/// Where the tracks panel's columns start: number, volume, solo, mute, name, instrument, bars.
+const COL_NUM: f64 = 10.0;
+const COL_VOL: (f64, f64) = (36.0, 100.0);
+const COL_SOLO: f64 = 110.0;
+const COL_MUTE: f64 = 130.0;
+const COL_NAME: f64 = 154.0;
+const COL_INSTR: f64 = 290.0;
+const COL_GRID: f64 = 430.0;
+
+fn tracks_panel_height(app: &App) -> f64 {
+    let n = app.buffer().score.tracks.len().clamp(1, TRACK_ROWS_MAX);
+    TRACK_HEAD + n as f64 * TRACK_ROW + 6.0
+}
+
+/// Shortens text to `max` characters with an ellipsis.
+fn clip_text(s: &str, max: usize) -> String {
+    if s.chars().count() <= max {
+        s.to_string()
+    } else {
+        let mut t: String = s.chars().take(max.saturating_sub(1)).collect();
+        t.push('…');
+        t
+    }
+}
+
+/// The tracks panel: a row per track (number, volume, solo, mute, name, instrument) and a
+/// block per bar, coloured where the bar has notes, with the edit cursor and the playhead.
+fn draw_tracks(
+    scene: &mut Scene,
+    app: &App,
+    views: &mut Views,
+    r: Rect,
+    play: Option<(usize, Location, f64, f64)>,
+) {
+    let theme = app.config.theme.clone();
+    fill(scene, r, col(theme.panel));
+    let focused = app.mode == Mode::Tracks;
+    if focused {
+        fill(
+            scene,
+            Rect::new(r.x0, r.y0, r.x1, r.y0 + 2.0),
+            col(theme.accent),
+        );
+    } else {
+        fill(
+            scene,
+            Rect::new(r.x0, r.y0, r.x1, r.y0 + 1.0),
+            col(theme.tab),
+        );
+    }
+    let rows = app.track_rows();
+    let buffer = app.pane().buffer;
+    let score = &app.buffers[buffer].score;
+    let cursor = app.pane().cursor;
+    let visible = rows.len().clamp(1, TRACK_ROWS_MAX);
+    // Scroll so the cursor's track and bar are in view.
+    let (mut first, mut hs) = views.tracks_scroll;
+    if cursor.track < first {
+        first = cursor.track;
+    } else if cursor.track >= first + visible {
+        first = cursor.track + 1 - visible;
+    }
+    first = first.min(rows.len().saturating_sub(visible));
+    let gx = r.x0 + COL_GRID;
+    let gw = (r.x1 - 8.0 - gx).max(BLOCK_STEP);
+    let playing_here = play.filter(|p| p.0 == buffer && (app.playing || app.paused));
+    let follow_bar = match playing_here {
+        Some((_, loc, ..)) if app.follow && app.playing => loc.bar,
+        _ => cursor.bar,
+    };
+    let bx = follow_bar as f64 * BLOCK_STEP;
+    if bx < hs {
+        hs = (bx - 4.0 * BLOCK_STEP).max(0.0);
+    } else if bx + BLOCK_W > hs + gw {
+        hs = bx + BLOCK_W - gw + 4.0 * BLOCK_STEP;
+    }
+    views.tracks_scroll = (first, hs);
+
+    // Header: column names and bar numbers.
+    let hy = r.y0 + 14.0;
+    let head = col(theme.dim);
+    for (x, label) in [
+        (COL_NUM, "#"),
+        (COL_VOL.0, "Volume"),
+        (COL_SOLO, "S"),
+        (COL_MUTE, "M"),
+        (COL_NAME, "Track"),
+        (COL_INSTR, "Instrument"),
+    ] {
+        text(scene, label, r.x0 + x, hy, 11.0, Align::Left, head, false);
+    }
+    let bars = score.master_bars.len();
+    let grid_clip = Rect::new(gx - 2.0, r.y0, gx + gw + 2.0, r.y1);
+    scene.push_layer(Mix::Clip, 1.0, Affine::IDENTITY, &grid_clip);
+    let first_bar = (hs / BLOCK_STEP) as usize;
+    let last_bar = (((hs + gw) / BLOCK_STEP) as usize + 1).min(bars);
+    for b in first_bar..last_bar {
+        if b % 4 == 0 {
+            let x = gx + b as f64 * BLOCK_STEP - hs;
+            text(
+                scene,
+                &(b + 1).to_string(),
+                x,
+                hy,
+                10.0,
+                Align::Left,
+                head,
+                false,
+            );
+        }
+    }
+    // The cursor's bar, down all rows.
+    let rows_y0 = r.y0 + TRACK_HEAD;
+    let rows_y1 = rows_y0 + visible as f64 * TRACK_ROW;
+    let cx = gx + cursor.bar as f64 * BLOCK_STEP - hs;
+    fill(
+        scene,
+        Rect::new(cx - 1.0, rows_y0, cx + BLOCK_W + 1.0, rows_y1),
+        col(theme.accent.with_alpha(40)),
+    );
+    scene.pop_layer();
+
+    let text_c = col(theme.chrome_text);
+    for (k, row) in rows.iter().enumerate().skip(first).take(visible) {
+        let y = rows_y0 + (k - first) as f64 * TRACK_ROW;
+        let cy = y + TRACK_ROW / 2.0;
+        let row_rect = Rect::new(r.x0, y, gx - 6.0, y + TRACK_ROW);
+        if row.index == cursor.track {
+            fill(
+                scene,
+                Rect::new(r.x0, y, r.x1, y + TRACK_ROW),
+                col(theme.tab.with_alpha(160)),
+            );
+            fill(
+                scene,
+                Rect::new(r.x0, y + 2.0, r.x0 + 3.0, y + TRACK_ROW - 2.0),
+                col(row.color),
+            );
+        }
+        let fg = if row.audible { text_c } else { head };
+        text(
+            scene,
+            &(row.index + 1).to_string(),
+            r.x0 + COL_NUM,
+            cy + 4.5,
+            12.0,
+            Align::Left,
+            fg,
+            false,
+        );
+        // Volume slider.
+        let (v0, v1) = (r.x0 + COL_VOL.0, r.x0 + COL_VOL.1);
+        let frac = row.volume as f64 / 127.0;
+        let groove = RoundedRect::new(v0, cy - 2.0, v1, cy + 2.0, 2.0);
+        scene.fill(
+            Fill::NonZero,
+            Affine::IDENTITY,
+            col(theme.empty_bar),
+            None,
+            &groove,
+        );
+        let level = RoundedRect::new(v0, cy - 2.0, v0 + (v1 - v0) * frac, cy + 2.0, 2.0);
+        scene.fill(
+            Fill::NonZero,
+            Affine::IDENTITY,
+            col(row.color),
+            None,
+            &level,
+        );
+        scene.fill(
+            Fill::NonZero,
+            Affine::IDENTITY,
+            text_c,
+            None,
+            &Circle::new((v0 + (v1 - v0) * frac, cy), 4.5),
+        );
+        // Solo and mute.
+        for (x, on, label, on_color, hit) in [
+            (
+                COL_SOLO,
+                row.solo,
+                "S",
+                theme.mode_insert,
+                TracksHit::Solo(row.index),
+            ),
+            (
+                COL_MUTE,
+                row.mute,
+                "M",
+                theme.playhead,
+                TracksHit::Mute(row.index),
+            ),
+        ] {
+            let b = Rect::new(r.x0 + x, cy - 7.0, r.x0 + x + 15.0, cy + 7.0);
+            let rr = b.to_rounded_rect(3.0);
+            if on {
+                scene.fill(Fill::NonZero, Affine::IDENTITY, col(on_color), None, &rr);
+            } else {
+                scene.stroke(&Stroke::new(1.0), Affine::IDENTITY, head, None, &rr);
+            }
+            let c = if on {
+                col(theme.text_on(on_color))
+            } else {
+                head
+            };
+            text(
+                scene,
+                label,
+                b.center().x,
+                cy + 4.0,
+                10.0,
+                Align::Center,
+                c,
+                true,
+            );
+            views.tracks.push((b, hit));
+        }
+        text(
+            scene,
+            &clip_text(&row.name, 18),
+            r.x0 + COL_NAME,
+            cy + 4.5,
+            12.0,
+            Align::Left,
+            fg,
+            row.index == cursor.track,
+        );
+        text(
+            scene,
+            &clip_text(&row.instrument, 18),
+            r.x0 + COL_INSTR,
+            cy + 4.5,
+            12.0,
+            Align::Left,
+            head,
+            false,
+        );
+        views.tracks.push((
+            Rect::new(v0 - 6.0, y, v1 + 6.0, y + TRACK_ROW),
+            TracksHit::Volume(row.index, v0, v1),
+        ));
+        views.tracks.push((row_rect, TracksHit::Row(row.index)));
+        // Bars.
+        scene.push_layer(Mix::Clip, 1.0, Affine::IDENTITY, &grid_clip);
+        for b in first_bar..last_bar {
+            let x = gx + b as f64 * BLOCK_STEP - hs;
+            let block = Rect::new(x, y + 3.0, x + BLOCK_W, y + TRACK_ROW - 3.0);
+            let c = if row.bars.get(b).copied().unwrap_or(false) {
+                row.color.with_alpha(if row.audible { 255 } else { 90 })
+            } else {
+                theme.empty_bar
+            };
+            scene.fill(
+                Fill::NonZero,
+                Affine::IDENTITY,
+                col(c),
+                None,
+                &block.to_rounded_rect(2.0),
+            );
+            if row.index == cursor.track && b == cursor.bar {
+                scene.stroke(
+                    &Stroke::new(2.0),
+                    Affine::IDENTITY,
+                    col(theme.accent),
+                    None,
+                    &block.inflate(1.0, 1.0).to_rounded_rect(3.0),
+                );
+            }
+            views
+                .tracks
+                .push((block.intersect(grid_clip), TracksHit::Bar(row.index, b)));
+        }
+        scene.pop_layer();
+    }
+    // The playhead, across all rows.
+    if let Some((_, loc, ..)) = playing_here {
+        let frac = loc.tick as f64 / muse_app::tracks::bar_ticks(score, loc.bar) as f64;
+        let x =
+            gx + (loc.bar as f64 + frac.clamp(0.0, 1.0) * BLOCK_W / BLOCK_STEP) * BLOCK_STEP - hs;
+        if x >= gx - 1.0 && x <= gx + gw + 1.0 {
+            fill(
+                scene,
+                Rect::new(x - 1.0, rows_y0 - 2.0, x + 1.0, rows_y1 + 2.0),
+                col(theme.playhead),
+            );
+        }
+    }
 }
 
 /// How fast the cursor glides after the playhead (per second: it covers 1 − e^(−rate·t)).
@@ -132,10 +482,27 @@ pub fn build(
     width: f64,
     height: f64,
 ) {
-    // The window-wide waveform bar sits between the panes and the status line.
+    THEME.with(|t| *t.borrow_mut() = app.config.theme.clone());
+    // The window-wide waveform bar sits between the panes and the status line, the tracks
+    // panel above it.
     let global_wave = app.global_waveform && height > 300.0;
     let bottom = height - STATUS - CMDLINE - if global_wave { WAVE + 4.0 } else { 0.0 };
-    let main = Rect::new(0.0, TAB_BAR, width, bottom);
+    let tracks_h = if app.tracks_panel && height > 300.0 {
+        tracks_panel_height(app)
+    } else {
+        0.0
+    };
+    let main = Rect::new(0.0, TAB_BAR, width, bottom - tracks_h);
+    views.tracks.clear();
+    if tracks_h > 0.0 {
+        draw_tracks(
+            scene,
+            app,
+            views,
+            Rect::new(0.0, bottom - tracks_h, width, bottom),
+            play,
+        );
+    }
     app.viewport = muse_app::layout::Rect {
         x: main.x0 as u16,
         y: main.y0 as u16,
@@ -173,7 +540,7 @@ pub fn build(
                 draw_waveform(scene, app, pb, buffer, r, play);
             }
             _ => {
-                fill(scene, r, Color::from_rgba8(28, 30, 36, 255));
+                fill(scene, r, tc(|t| t.panel));
                 let name = &app.buffers[buffer].name;
                 text(
                     scene,
@@ -182,7 +549,7 @@ pub fn build(
                     r.center().y + 5.0,
                     13.0,
                     Align::Left,
-                    DIM,
+                    dim(),
                     false,
                 );
             }
@@ -205,7 +572,7 @@ pub fn build(
 /// icon, name shortened in the middle, × on hover or ● when modified), the views on the right.
 fn draw_tabs(scene: &mut Scene, app: &App, views: &mut Views, width: f64) {
     let fonts = muse_engrave::fonts::fonts();
-    fill(scene, Rect::new(0.0, 0.0, width, TAB_BAR), CHROME);
+    fill(scene, Rect::new(0.0, 0.0, width, TAB_BAR), chrome());
     views.tabline.clear();
     let (hx, hy) = views.hover;
     let hovering = (0.0..TAB_BAR).contains(&hy);
@@ -223,11 +590,11 @@ fn draw_tabs(scene: &mut Scene, app: &App, views: &mut Views, width: f64) {
     for (i, label, r) in chips {
         let active = i == app.active_view;
         let bg = if active {
-            ACCENT
+            accent()
         } else if hovering && r.contains((hx, hy)) {
-            Color::from_rgba8(80, 84, 95, 255)
+            tc(|t| t.tab_hover)
         } else {
-            Color::from_rgba8(60, 63, 72, 255)
+            tc(|t| t.tab)
         };
         scene.fill(
             Fill::NonZero,
@@ -236,7 +603,11 @@ fn draw_tabs(scene: &mut Scene, app: &App, views: &mut Views, width: f64) {
             None,
             &r.to_rounded_rect(5.0),
         );
-        let color = if active { CHROME } else { CHROME_TEXT };
+        let color = if active {
+            text_on(accent())
+        } else {
+            chrome_text()
+        };
         text(
             scene,
             label,
@@ -272,11 +643,11 @@ fn draw_tabs(scene: &mut Scene, app: &App, views: &mut Views, width: f64) {
         let r = Rect::new(x, 4.0, x + w, TAB_BAR);
         let over = hovering && r.contains((hx, hy));
         let bg = if tab.active {
-            BACKGROUND
+            background()
         } else if over {
-            Color::from_rgba8(72, 75, 86, 255)
+            tc(|t| t.tab_hover)
         } else {
-            Color::from_rgba8(52, 55, 63, 255)
+            tc(|t| t.tab)
         };
         scene.fill(
             Fill::NonZero,
@@ -289,12 +660,16 @@ fn draw_tabs(scene: &mut Scene, app: &App, views: &mut Views, width: f64) {
             fill(
                 scene,
                 Rect::new(r.x0 + 4.0, r.y0, r.x1 - 4.0, r.y0 + 2.0),
-                ACCENT,
+                accent(),
             );
         }
         let cy = (r.y0 + r.y1) / 2.0 + 1.0;
         draw_file_icon(scene, tab.kind, r.x0 + 10.0, cy);
-        let fg = if tab.active { CHROME } else { CHROME_TEXT };
+        let fg = if tab.active {
+            text_on(background())
+        } else {
+            chrome_text()
+        };
         text(
             scene,
             &name,
@@ -307,7 +682,7 @@ fn draw_tabs(scene: &mut Scene, app: &App, views: &mut Views, width: f64) {
         );
         if play_w > 0.0 {
             let px = r.x0 + 31.0 + name_w + 6.0;
-            let red = Color::from_rgba8(235, 70, 60, 255);
+            let red = tc(|t| t.playhead);
             if tab.playing {
                 let mut p = BezPath::new();
                 p.move_to((px, cy - 4.5));
@@ -348,7 +723,7 @@ fn draw_tabs(scene: &mut Scene, app: &App, views: &mut Views, width: f64) {
             scene.fill(
                 Fill::NonZero,
                 Affine::IDENTITY,
-                ACCENT,
+                accent(),
                 None,
                 &Circle::new((bx, cy), 3.5),
             );
@@ -394,7 +769,7 @@ fn draw_file_icon(scene: &mut Scene, kind: &str, x: f64, cy: f64) {
                 scene.fill(
                     Fill::NonZero,
                     Affine::IDENTITY,
-                    CHROME,
+                    chrome(),
                     None,
                     &Circle::new((x + 7.0, cy - 1.5), 2.2),
                 );
@@ -438,7 +813,7 @@ fn draw_file_icon(scene: &mut Scene, kind: &str, x: f64, cy: f64) {
                 scene.fill(
                     Fill::NonZero,
                     Affine::IDENTITY,
-                    CHROME,
+                    chrome(),
                     None,
                     &Rect::new(x + k - 0.4, cy - 6.0, x + k + 0.4, cy + 6.0),
                 );
@@ -447,7 +822,7 @@ fn draw_file_icon(scene: &mut Scene, kind: &str, x: f64, cy: f64) {
                 scene.fill(
                     Fill::NonZero,
                     Affine::IDENTITY,
-                    CHROME,
+                    chrome(),
                     None,
                     &Rect::new(x + k - 1.5, cy - 6.0, x + k + 1.5, cy + 0.5),
                 );
@@ -516,8 +891,8 @@ fn draw_pane(
         None,
         &RoundedRect::from_rect(rect, 6.0),
     );
-    let border = if focused {
-        ACCENT
+    let border = if focused && app.mode != Mode::Tracks {
+        accent()
     } else {
         Color::from_rgba8(190, 192, 198, 255)
     };
@@ -545,7 +920,7 @@ fn draw_pane(
         rect.y0 + 17.0,
         13.0,
         Align::Left,
-        DIM,
+        dim(),
         false,
     );
     let mut content = Rect::new(rect.x0 + 2.0, rect.y0 + TITLE, rect.x1 - 2.0, rect.y1 - 2.0);
@@ -563,7 +938,7 @@ fn draw_pane(
             content.center().y,
             16.0,
             Align::Center,
-            DIM,
+            dim(),
             false,
         );
         return;
@@ -683,7 +1058,7 @@ fn draw_pane(
     scene.push_layer(Mix::Clip, 1.0, Affine::IDENTITY, &content);
     let page_mode = mode_name == "page";
     if page_mode {
-        fill(scene, content, BACKGROUND);
+        fill(scene, content, background());
     }
     let center = if page_mode {
         ((view_w - 595.0) / 2.0).max(0.0)
@@ -725,7 +1100,7 @@ fn draw_pane(
                 scene.fill(
                     Fill::NonZero,
                     to_screen(pos.page),
-                    Color::from_rgba8(150, 90, 220, 55),
+                    tc(|t| t.selection.with_alpha(55)),
                     None,
                     &rect,
                 );
@@ -753,7 +1128,7 @@ fn draw_pane(
         scene.fill(
             Fill::NonZero,
             to_screen(pos.page),
-            Color::from_rgba8(250, 190, 40, alpha),
+            tc(|t| t.cursor.with_alpha(alpha)),
             None,
             &r,
         );
@@ -762,7 +1137,7 @@ fn draw_pane(
             scene.stroke(
                 &Stroke::new(1.2 / scale),
                 to_screen(pos.page),
-                Color::from_rgba8(230, 140, 0, 255),
+                tc(|t| t.cursor_outline),
                 None,
                 &r,
             );
@@ -774,7 +1149,7 @@ fn draw_pane(
         scene.fill(
             Fill::NonZero,
             to_screen(page),
-            Color::from_rgba8(225, 40, 40, 230),
+            tc(|t| t.playhead.with_alpha(230)),
             None,
             &Rect::new(x - w / 2.0, top, x + w / 2.0, bottom),
         );
@@ -794,7 +1169,7 @@ fn draw_waveform(
     r: Rect,
     play: Option<(usize, Location, f64, f64)>,
 ) {
-    fill(scene, r, Color::from_rgba8(28, 30, 36, 255));
+    fill(scene, r, tc(|t| t.panel));
     let Some(audio) = playback.loaded_audio(buffer) else {
         let label = if playback.audio_loading(buffer) {
             "loading audio…"
@@ -808,7 +1183,7 @@ fn draw_waveform(
             r.center().y + 5.0,
             13.0,
             Align::Left,
-            DIM,
+            dim(),
             false,
         );
         return;
@@ -881,7 +1256,7 @@ fn draw_waveform(
             let t = p.frame as f64 / muse_audio::SYNC_RATE - pad;
             let x = x_of(t);
             if x >= r.x0 && x <= r.x1 {
-                fill(scene, Rect::new(x, r.y0, x + 1.5, r.y1), ACCENT);
+                fill(scene, Rect::new(x, r.y0, x + 1.5, r.y1), accent());
                 text(
                     scene,
                     &format!("{}", p.bar + 1),
@@ -889,7 +1264,7 @@ fn draw_waveform(
                     r.y0 + 12.0,
                     11.0,
                     Align::Left,
-                    ACCENT,
+                    accent(),
                     false,
                 );
             }
@@ -909,7 +1284,7 @@ fn draw_waveform(
         r.y1 - 6.0,
         11.0,
         Align::Right,
-        CHROME_TEXT,
+        chrome_text(),
         false,
     );
 }
@@ -1021,8 +1396,8 @@ fn draw_palette(scene: &mut Scene, p: &muse_app::Palette, width: f64, height: f6
         &RoundedRect::new(x0 - 2.0, y0 + 2.0, x0 + w + 2.0, y0 + h + 6.0, 12.0),
     );
     let frame = RoundedRect::new(x0, y0, x0 + w, y0 + h, 10.0);
-    scene.fill(Fill::NonZero, Affine::IDENTITY, CHROME, None, &frame);
-    scene.stroke(&Stroke::new(1.0), Affine::IDENTITY, ACCENT, None, &frame);
+    scene.fill(Fill::NonZero, Affine::IDENTITY, chrome(), None, &frame);
+    scene.stroke(&Stroke::new(1.0), Affine::IDENTITY, accent(), None, &frame);
     let line = if p.prompt == ":" {
         format!(":{}", p.input)
     } else {
@@ -1040,7 +1415,11 @@ fn draw_palette(scene: &mut Scene, p: &muse_app::Palette, width: f64, height: f6
         false,
     );
     let cx = x0 + 14.0 + fonts.text_width(FontKind::Text, &line, 16.0) + 1.0;
-    fill(scene, Rect::new(cx, ty - 15.0, cx + 2.0, ty + 4.0), ACCENT);
+    fill(
+        scene,
+        Rect::new(cx, ty - 15.0, cx + 2.0, ty + 4.0),
+        accent(),
+    );
     if rows == 0 {
         return;
     }
@@ -1061,13 +1440,13 @@ fn draw_palette(scene: &mut Scene, p: &muse_app::Palette, width: f64, height: f6
             scene.fill(
                 Fill::NonZero,
                 Affine::IDENTITY,
-                Color::from_rgba8(250, 190, 40, 60),
+                tc(|t| t.accent.with_alpha(60)),
                 None,
                 &RoundedRect::new(x0 + 6.0, ry, x0 + w - 6.0, ry + row_h - 2.0, 6.0),
             );
         }
         let base = ry + row_h / 2.0 + 4.5;
-        let color = if selected { ACCENT } else { CHROME_TEXT };
+        let color = if selected { accent() } else { chrome_text() };
         text(
             scene,
             &item.text,
@@ -1084,7 +1463,7 @@ fn draw_palette(scene: &mut Scene, p: &muse_app::Palette, width: f64, height: f6
         } else {
             FontKind::Text
         };
-        let hl = if selected { Color::WHITE } else { ACCENT };
+        let hl = if selected { Color::WHITE } else { accent() };
         let chars: Vec<char> = item.text.chars().collect();
         for &i in &item.matched {
             let Some(c) = chars.get(i) else { continue };
@@ -1109,7 +1488,7 @@ fn draw_palette(scene: &mut Scene, p: &muse_app::Palette, width: f64, height: f6
                 base,
                 13.0,
                 Align::Right,
-                DIM,
+                dim(),
                 false,
             );
         }
@@ -1126,7 +1505,7 @@ fn draw_palette(scene: &mut Scene, p: &muse_app::Palette, width: f64, height: f6
             y0 + 24.0,
             11.0,
             Align::Right,
-            DIM,
+            dim(),
             false,
         );
     }
@@ -1139,12 +1518,12 @@ fn draw_command_line(scene: &mut Scene, app: &App, width: f64, height: f64) {
     match app.mode {
         // Typed in the command palette.
         Mode::Command | Mode::Picker => {}
-        Mode::Normal | Mode::Insert | Mode::Visual => {
+        Mode::Normal | Mode::Insert | Mode::Visual | Mode::Tracks => {
             if let Some(m) = &app.message {
                 let c = if m.error {
                     Color::from_rgba8(255, 110, 100, 255)
                 } else {
-                    CHROME_TEXT
+                    chrome_text()
                 };
                 text(scene, &m.text, 10.0, cy, 14.0, Align::Left, c, false);
             }
@@ -1157,7 +1536,7 @@ fn draw_command_line(scene: &mut Scene, app: &App, width: f64, height: f64) {
                 cy,
                 14.0,
                 Align::Right,
-                ACCENT,
+                accent(),
                 false,
             );
         }
@@ -1172,13 +1551,14 @@ fn draw_status(
     height: f64,
 ) {
     let y0 = height - STATUS - CMDLINE;
-    fill(scene, Rect::new(0.0, y0, width, height), CHROME);
+    fill(scene, Rect::new(0.0, y0, width, height), chrome());
     let (label, color) = match app.mode {
-        Mode::Normal => (" NORMAL ", Color::from_rgba8(90, 150, 230, 255)),
-        Mode::Command => (" COMMAND ", Color::from_rgba8(100, 190, 120, 255)),
-        Mode::Insert => (" INSERT ", Color::from_rgba8(240, 180, 60, 255)),
-        Mode::Visual => (" VISUAL ", Color::from_rgba8(190, 120, 220, 255)),
-        Mode::Picker => (" PICK ", Color::from_rgba8(80, 190, 200, 255)),
+        Mode::Normal => (" NORMAL ", tc(|t| t.mode_normal)),
+        Mode::Command => (" COMMAND ", tc(|t| t.mode_command)),
+        Mode::Insert => (" INSERT ", tc(|t| t.mode_insert)),
+        Mode::Visual => (" VISUAL ", tc(|t| t.mode_visual)),
+        Mode::Picker => (" PICK ", tc(|t| t.mode_picker)),
+        Mode::Tracks => (" TRACKS ", tc(|t| t.mode_tracks)),
     };
     let w = muse_engrave::fonts::fonts().text_width(FontKind::Bold, label, 13.0) + 8.0;
     scene.fill(
@@ -1195,7 +1575,7 @@ fn draw_status(
         y0 + 17.5,
         13.0,
         Align::Left,
-        CHROME,
+        text_on(color),
         true,
     );
     let pane = app.pane();
@@ -1211,7 +1591,7 @@ fn draw_status(
         y0 + 17.5,
         13.0,
         Align::Left,
-        CHROME_TEXT,
+        chrome_text(),
         false,
     );
     let mut right = String::new();
@@ -1268,7 +1648,7 @@ fn draw_status(
         y0 + 17.5,
         13.0,
         Align::Right,
-        CHROME_TEXT,
+        chrome_text(),
         false,
     );
 
@@ -1296,7 +1676,7 @@ fn panel(scene: &mut Scene, r: Rect, title: &str) {
     scene.fill(
         Fill::NonZero,
         Affine::IDENTITY,
-        Color::from_rgba8(30, 32, 38, 240),
+        tc(|t| t.panel.with_alpha(240)),
         None,
         &RoundedRect::from_rect(r, 8.0),
     );
@@ -1307,7 +1687,7 @@ fn panel(scene: &mut Scene, r: Rect, title: &str) {
         r.y0 + 22.0,
         14.0,
         Align::Left,
-        ACCENT,
+        accent(),
         true,
     );
 }
@@ -1334,7 +1714,7 @@ fn draw_which_key(scene: &mut Scene, app: &App, main: Rect) {
             y,
             14.0,
             Align::Right,
-            ACCENT,
+            accent(),
             false,
         );
         let names: Vec<String> = cmds.iter().map(command_name).collect();
@@ -1345,7 +1725,7 @@ fn draw_which_key(scene: &mut Scene, app: &App, main: Rect) {
             y,
             14.0,
             Align::Left,
-            CHROME_TEXT,
+            chrome_text(),
             false,
         );
     }
@@ -1375,7 +1755,7 @@ fn draw_help(scene: &mut Scene, app: &App, main: Rect) {
             break;
         }
         let y = r.y0 + 48.0 + (i % rows) as f64 * 19.0;
-        text(scene, k, x + 110.0, y, 13.0, Align::Right, ACCENT, false);
+        text(scene, k, x + 110.0, y, 13.0, Align::Right, accent(), false);
         text(
             scene,
             c,
@@ -1383,7 +1763,7 @@ fn draw_help(scene: &mut Scene, app: &App, main: Rect) {
             y,
             13.0,
             Align::Left,
-            CHROME_TEXT,
+            chrome_text(),
             false,
         );
     }
@@ -1417,7 +1797,48 @@ impl Views {
         y < TAB_BAR
     }
 
+    /// Mouse down over the tracks panel: select, solo, mute, or start dragging a volume.
+    /// True when the panel took the click.
+    fn click_tracks(&mut self, app: &mut App, x: f64, y: f64) -> bool {
+        let Some(&(_, hit)) = self.tracks.iter().find(|(r, _)| r.contains((x, y))) else {
+            return false;
+        };
+        match hit {
+            TracksHit::Volume(t, x0, x1) => {
+                app.select_track_bar(t, None);
+                app.group_edits(true);
+                self.volume_drag = Some((t, x0, x1));
+                self.drag_to(app, x);
+            }
+            TracksHit::Solo(t) => app.run(muse_app::Command::Solo(Some(t + 1))),
+            TracksHit::Mute(t) => app.run(muse_app::Command::Mute(Some(t + 1))),
+            TracksHit::Row(t) => app.select_track_bar(t, None),
+            TracksHit::Bar(t, b) => app.select_track_bar(t, Some(b)),
+        }
+        true
+    }
+
+    /// Mouse moved with the button down: drags a volume slider.
+    pub fn drag_to(&mut self, app: &mut App, x: f64) -> bool {
+        let Some((t, x0, x1)) = self.volume_drag else {
+            return false;
+        };
+        let v = ((x - x0) / (x1 - x0)).clamp(0.0, 1.0) * 127.0;
+        app.set_track_volume(t, v.round() as u8);
+        true
+    }
+
+    /// Mouse up: ends a volume drag (one undo step for all of it).
+    pub fn release(&mut self, app: &mut App) {
+        if self.volume_drag.take().is_some() {
+            app.group_edits(false);
+        }
+    }
+
     pub fn click(&mut self, app: &mut App, x: f64, y: f64) {
+        if self.click_tracks(app, x, y) {
+            return;
+        }
         if let Some(&(_, hit)) = self.tabline.iter().rev().find(|(r, _)| r.contains((x, y))) {
             app.run(match hit {
                 TablineHit::Buffer(n) => muse_app::Command::BufferGoto(n + 1),

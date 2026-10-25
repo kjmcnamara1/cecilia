@@ -55,7 +55,7 @@ pub(crate) struct EditorState {
     /// First digit of a possibly two-digit fret typed in insert mode.
     digit: Option<(Cursor, u8)>,
     /// Undo grouping of an insert session: Some(true) once its first change is recorded.
-    group: Option<bool>,
+    pub(crate) group: Option<bool>,
 }
 
 fn is_motion(cmd: &Command) -> bool {
@@ -124,6 +124,7 @@ impl App {
             Mode::Normal => self.normal_key(key),
             Mode::Insert => self.insert_key(key),
             Mode::Visual => self.visual_key(key),
+            Mode::Tracks => self.tracks_key(key),
         }
         self.seek_to_cursor(before);
         if in_insert && self.mode != Mode::Insert {

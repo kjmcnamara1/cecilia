@@ -39,6 +39,8 @@ full specification and roadmap, and [docs/keymap.md](docs/keymap.md) for key bin
 - WAV/FLAC export of the MIDI rendering mixed with the recording
 - A bufferline.nvim-style tabline: each view's open files as tabs (file-type icon, name
   shortened in the middle, hover close button) and the views on the right
+- A tracks panel (`<leader>T`) as in Guitar Pro: per-track volume, solo, mute, instrument and a
+  coloured bar overview with the edit cursor and playhead; themes and colours in `[theme]`
 - Workspaces: `:workspace-save NAME` / `:workspace-open NAME` / `muse --workspace NAME` keep the
   views, their pane splits and open files, saved automatically; `muse` reopens the last one (or `default`)
 - TOML configuration with custom keybinds, reloaded automatically when the file changes

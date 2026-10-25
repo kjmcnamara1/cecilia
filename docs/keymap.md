@@ -7,36 +7,36 @@ Items marked _(M1)_ are implemented in the first milestone; the rest are the pla
 
 ### Cursor movement
 
-| keys                | command                                         |        |
-| ------------------- | ----------------------------------------------- | ------ |
-| `h` / `l`           | previous / next beat                            | _(M1)_ |
-| `j` / `k`           | next / previous string (lower / higher)         | _(M1)_ |
-| `w` / `b`           | next / previous beat with notes                 | _(M1)_ |
-| `}` / `{`           | next / previous bar                             | _(M1)_ |
-| `0` / `$`           | first / last beat of bar                        | _(M1)_ |
-| `gg` / `G`          | first bar / last bar (`[count]G` = bar _count_) | _(M1)_ |
-| `J` / `K`           | next / previous track                           | _(M1)_ |
-| `]s` / `[s`         | next / previous section marker                  |        |
-| `m{a-z}` / `m{A-Z}` | set a mark in this file / a global mark (any file) |      |
-| `'{mark}` / `` `{mark} `` | jump to the mark's bar / exact position; a global mark reopens its file if it was closed. `''` jumps back to before the last jump (also after `gg`, `G`) | |
-| `<C-d>` / `<C-u>`   | half page down / up                             | _(M1)_ |
+| keys                      | command                                                                                                                                                  |        |
+| ------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------- | ------ |
+| `h` / `l`                 | previous / next beat                                                                                                                                     | _(M1)_ |
+| `j` / `k`                 | next / previous string (lower / higher)                                                                                                                  | _(M1)_ |
+| `w` / `b`                 | next / previous beat with notes                                                                                                                          | _(M1)_ |
+| `}` / `{`                 | next / previous bar                                                                                                                                      | _(M1)_ |
+| `0` / `$`                 | first / last beat of bar                                                                                                                                 | _(M1)_ |
+| `gg` / `G`                | first bar / last bar (`[count]G` = bar _count_)                                                                                                          | _(M1)_ |
+| `J` / `K`                 | next / previous track                                                                                                                                    | _(M1)_ |
+| `]s` / `[s`               | next / previous section marker                                                                                                                           |        |
+| `m{a-z}` / `m{A-Z}`       | set a mark in this file / a global mark (any file)                                                                                                       |        |
+| `'{mark}` / `` `{mark} `` | jump to the mark's bar / exact position; a global mark reopens its file if it was closed. `''` jumps back to before the last jump (also after `gg`, `G`) |        |
+| `<C-d>` / `<C-u>`         | half page down / up                                                                                                                                      | _(M1)_ |
 
 ### Playback
 
-| keys                      | command                   |        |
-| ------------------------- | ------------------------- | ------ |
-| `<leader><leader>`        | play / pause from cursor  | _(M1)_ |
-| `<leader>s`               | stop                      | _(M1)_ |
-| `<leader>f`               | toggle following playback. A red bar always marks the playhead; while following, the editing cursor and the view move with it. Turned off (even mid-playback), the cursor stays where it is and is moved only by `hjkl` | _(M1)_ |
-| `<leader>l`               | loop the selected bars (or the cursor bar) / loop off | _(M5)_ |
-| `<leader>c`               | toggle count-in           | _(M5)_ |
-| `<leader>m`               | toggle metronome          | _(M5)_ |
-| `<leader>-` / `<leader>=` | speed −5% / +5%           | _(M5)_ |
-| `<leader>a`               | cycle mix: audio + MIDI / audio only / MIDI only | _(M5)_ |
-| `<leader>t`               | sync tap: place the next bar at the current audio time | _(M5)_ |
-| `<leader>w`               | show / hide the waveform strip of the focused pane (GUI) | _(M5)_ |
-| `<leader>v`               | cycle the focused pane's score layout (vertical / page / horizontal); new splits and views copy it | _(M3)_ |
-| `<C-=>` / `<C-->` / `<C-0>` | zoom in / out / reset (GUI; also Ctrl+wheel) | _(M3)_ |
+| keys                        | command                                                                                                                                                                                                                 |        |
+| --------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------ |
+| `<leader><leader>`          | play / pause from cursor                                                                                                                                                                                                | _(M1)_ |
+| `<leader>s`                 | stop                                                                                                                                                                                                                    | _(M1)_ |
+| `<leader>f`                 | toggle following playback. A red bar always marks the playhead; while following, the editing cursor and the view move with it. Turned off (even mid-playback), the cursor stays where it is and is moved only by `hjkl` | _(M1)_ |
+| `<leader>l`                 | loop the selected bars (or the cursor bar) / loop off                                                                                                                                                                   | _(M5)_ |
+| `<leader>c`                 | toggle count-in                                                                                                                                                                                                         | _(M5)_ |
+| `<leader>m`                 | toggle metronome                                                                                                                                                                                                        | _(M5)_ |
+| `<leader>-` / `<leader>=`   | speed −5% / +5%                                                                                                                                                                                                         | _(M5)_ |
+| `<leader>a`                 | cycle mix: audio + MIDI / audio only / MIDI only                                                                                                                                                                        | _(M5)_ |
+| `<leader>t`                 | sync tap: place the next bar at the current audio time                                                                                                                                                                  | _(M5)_ |
+| `<leader>w`                 | show / hide the waveform strip of the focused pane (GUI)                                                                                                                                                                | _(M5)_ |
+| `<leader>v`                 | cycle the focused pane's score layout (vertical / page / horizontal); new splits and views copy it                                                                                                                      | _(M3)_ |
+| `<C-=>` / `<C-->` / `<C-0>` | zoom in / out / reset (GUI; also Ctrl+wheel)                                                                                                                                                                            | _(M3)_ |
 
 ### Buffers, panes, views
 
@@ -55,16 +55,16 @@ other buffer they showed (the view's only pane falls back to the neighbouring ta
 there is none. The buffer is unloaded once no view has it; unsaved changes then stop the close
 unless forced (`:bdelete!`).
 
-| keys                | command                         |        |
-| ------------------- | ------------------------------- | ------ |
-| `<leader>b`         | buffer picker                   |        |
-| `<leader>V`         | view picker                     |        |
-| `<leader>W`         | workspace picker                |        |
-| `L` / `H`           | next / previous buffer tab      |        |
-| `<leader>x`         | close the buffer's tab          |        |
-| `gt` / `gT`         | next / previous view            |        |
-| `<C-w>s` / `<C-w>v` | split horizontally / vertically | _(M1)_ |
-| `<C-w>h/j/k/l`      | focus pane left/down/up/right   | _(M1)_ |
+| keys                | command                                   |        |
+| ------------------- | ----------------------------------------- | ------ |
+| `<leader>b`         | buffer picker                             |        |
+| `<leader>V`         | view picker                               |        |
+| `<leader>W`         | workspace picker                          |        |
+| `L` / `H`           | next / previous buffer tab                |        |
+| `<leader>x`         | close the buffer's tab                    |        |
+| `gt` / `gT`         | next / previous view                      |        |
+| `<C-w>s` / `<C-w>v` | split horizontally / vertically           | _(M1)_ |
+| `<C-w>h/j/k/l`      | focus pane left/down/up/right             | _(M1)_ |
 | `<C-w>q`            | close pane (the last one closes the view) | _(M1)_ |
 
 **Pickers** open in the command palette's box and list the view's buffers (with their folder,
@@ -74,50 +74,80 @@ by default) and highlights what matched; the top match is selected — `<Up>`/`<
 `<Tab>`/`<S-Tab>`, `<C-p>`/`<C-n>`) move, `<Enter>` switches, `<Esc>` cancels. The buffer and
 view pickers also work while a song plays.
 
-| command | |
-| --- | --- |
-| `:open {file}` | open a file in the focused pane, adding it to the view's tabs |
-| `:open` (`:open-dialog`) | choose one or more files in the system file picker; they open as tabs and the first is shown |
-| `:pick-buffer` / `:pick-view` / `:pick-workspace` (`:pick buffer\|view\|workspace\|mark\|macro`) | open a picker |
-| `:marks` / `:macros` (`:registers`) | pick a mark to jump to / a macro to run |
-| `:mark x` (`:k x`) / `:delmarks xyz` / `:delmarks!` | set a mark / delete marks / delete this file's lowercase marks |
-| `:goto-mark x` / `:run-macro r` | jump to a mark / run a macro (for bindings) |
-| `:bnext` / `:bprev` / `:buffer N` | next / previous / Nth buffer tab |
-| `:bdelete [N]` / `:bdelete! [N]` | close the focused (or Nth) buffer tab / discarding unsaved changes |
-| `:view-new [file]` | new view: a copy of the current view's tabs, just the current buffer, or empty (`tabline.new_view`) |
-| `:view-close` / `:view-close!` | close the view (buffers only it had are unloaded) |
-| `:view N` / `:view-next` / `:view-prev` | switch views |
-| `:view-rename [name]` | name the view in the tabline (no name: its number) |
+| command                                                                                          |                                                                                                     |
+| ------------------------------------------------------------------------------------------------ | --------------------------------------------------------------------------------------------------- |
+| `:open {file}`                                                                                   | open a file in the focused pane, adding it to the view's tabs                                       |
+| `:open` (`:open-dialog`, `<C-o>`) | choose one or more files in the system file picker; they open as tabs and the first is shown |
+| `<leader>?` (`:keymaps`, `:pick-keymap`) | every key binding of every mode, found by keys, command or description; Enter runs a Normal-mode one |
+| `:pick-buffer` / `:pick-view` / `:pick-workspace` (`:pick buffer\|view\|workspace\|mark\|macro`) | open a picker                                                                                       |
+| `:marks` / `:macros` (`:registers`)                                                              | pick a mark to jump to / a macro to run                                                             |
+| `:mark x` (`:k x`) / `:delmarks xyz` / `:delmarks!`                                              | set a mark / delete marks / delete this file's lowercase marks                                      |
+| `:goto-mark x` / `:run-macro r`                                                                  | jump to a mark / run a macro (for bindings)                                                         |
+| `:bnext` / `:bprev` / `:buffer N`                                                                | next / previous / Nth buffer tab                                                                    |
+| `:bdelete [N]` / `:bdelete! [N]`                                                                 | close the focused (or Nth) buffer tab / discarding unsaved changes                                  |
+| `:view-new [file]`                                                                               | new view: a copy of the current view's tabs, just the current buffer, or empty (`tabline.new_view`) |
+| `:view-close` / `:view-close!`                                                                   | close the view (buffers only it had are unloaded)                                                   |
+| `:view N` / `:view-next` / `:view-prev`                                                          | switch views                                                                                        |
+| `:view-rename [name]`                                                                            | name the view in the tabline (no name: its number)                                                  |
 
 ### Editing (M4, done)
 
-| keys | command |
-| --- | --- |
-| `i` / `a` | insert at the cursor beat / append a beat and insert |
-| `x` | delete the note on the cursor string (`[count]x`) |
-| `d{motion}` / `dd` | delete beats / bars (`[count]dd`) |
-| `y{motion}` / `yy`, `p` / `P` | yank beats or bars / put after / before |
-| `c{motion}` / `cc` | change (delete, then insert) |
-| `"{reg}` | use register for the next yank/delete/put |
-| `.` | repeat the last change (including an insert session) |
-| `u` / `U` / `g-` / `g+` | undo / redo / older / newer state across undo branches |
-| `q{reg}` … `q` / `[count]@{reg}` / `@@` | record / play / replay a macro; `q{A-Z}` appends to the lowercase register |
-| `v` / `V` | visual beats / visual bars (then `d`, `y`, `c`, `x`) |
-| `o` / `O` | new bar after / before |
-| `+` / `-` | longer / shorter note value |
-| `<C-a>` / `<C-x>` | pitch up / down a semitone (moves string when the fret runs out) |
-| `r` | make the beat a rest |
+| keys                                                   | command                                                                                           |
+| ------------------------------------------------------ | ------------------------------------------------------------------------------------------------- |
+| `i` / `a`                                              | insert at the cursor beat / append a beat and insert                                              |
+| `x`                                                    | delete the note on the cursor string (`[count]x`)                                                 |
+| `d{motion}` / `dd`                                     | delete beats / bars (`[count]dd`)                                                                 |
+| `y{motion}` / `yy`, `p` / `P`                          | yank beats or bars / put after / before                                                           |
+| `c{motion}` / `cc`                                     | change (delete, then insert)                                                                      |
+| `"{reg}`                                               | use register for the next yank/delete/put                                                         |
+| `.`                                                    | repeat the last change (including an insert session)                                              |
+| `u` / `U` / `g-` / `g+`                                | undo / redo / older / newer state across undo branches                                            |
+| `q{reg}` … `q` / `[count]@{reg}` / `@@`                | record / play / replay a macro; `q{A-Z}` appends to the lowercase register                        |
+| `v` / `V`                                              | visual beats / visual bars (then `d`, `y`, `c`, `x`)                                              |
+| `o` / `O`                                              | new bar after / before                                                                            |
+| `+` / `-`                                              | longer / shorter note value                                                                       |
+| `<C-a>` / `<C-x>`                                      | pitch up / down a semitone (moves string when the fret runs out)                                  |
+| `r`                                                    | make the beat a rest                                                                              |
 | `th` `tb` `ts` `tv` `tx` `tm` `tl` `tg` `ta` `tn` `tt` | toggle hammer/pull, bend, slide, vibrato, dead, palm mute, let ring, ghost, accent, harmonic, tie |
-| `t.` / `t3` | toggle dot / triplet |
-| `ZZ` | write and close |
+| `t.` / `t3`                                            | toggle dot / triplet                                                                              |
+| `ZZ`                                                   | write and close                                                                                   |
 
 ### Other
 
 | keys        | command          |        |
 | ----------- | ---------------- | ------ |
 | `:`         | command line     | _(M1)_ |
-| `<leader>?` | which-key / help |        |
+| `<F1>`      | help             |        |
+| `<leader>?` | find a key binding (keymaps picker) |        |
 | `ZZ`        | write and quit   |        |
+
+## Tracks panel
+
+`<leader>T` shows or hides the tracks panel at the bottom of the window (`ui.tracks_panel` sets
+the default; workspaces remember it). Each track of the focused file has a row: its number, a
+volume slider, **S**olo and **M**ute, its name and instrument, then a block per bar — coloured
+where the bar has notes, faded when the track isn't heard. The edit cursor's bar is outlined
+and the red playhead runs across all tracks. Click a block to move the cursor there, click S or
+M to toggle them, drag a slider to set the volume (one undo step).
+
+`<C-w>t` focuses the panel (**TRACKS** in the status line); its keys are `[keymap.tracks]`:
+
+| keys | command |
+| --- | --- |
+| `j` `k` / `<Down>` `<Up>` | next / previous track |
+| `h` `l` / `<Left>` `<Right>`, `gg` `G` | previous / next bar, first / last bar |
+| `s` / `m` | solo / mute the track |
+| `+` (`=`) / `-` | volume up / down 5% |
+| `c` | next colour of the theme's palette for the track |
+| `<CR>` `<Esc>` `q` `<C-w>k` | back to the score |
+| `<leader><leader>` `<leader>s` `<leader>f` `:` | play/pause, stop, follow, command line |
+
+| command | |
+| --- | --- |
+| `:tracks [on\|off]` / `:tracks-focus` | show or hide the panel / focus it (again: back to the score) |
+| `:track-volume 80` (`+10`, `-10`) / `:track-volume-up` / `:track-volume-down` | the track's volume in percent |
+| `:track-color #rrggbb` / `:track-color off` / `:track-color` | the track's colour (saved in `.muse` files) / back to the theme's / the next palette colour |
+| `:mute [n]` / `:solo [n]` | toggle mute / solo of track n (default: the cursor's) |
 
 ## Playing
 
@@ -125,26 +155,26 @@ Playing is not a mode: Normal, Visual, Insert and the command line all keep work
 song plays, and edits are heard at once. One file plays at a time; its tab in the bufferline
 shows ▶ (⏸ when paused).
 
-| keys | command |
-| --- | --- |
-| `<leader><leader>` | play from the edit cursor / pause. Resuming carries on from where it paused if the cursor is still there; otherwise play starts at the cursor. In another file, it stops the playing file and plays this one |
-| `<leader>s` | stop: the playhead goes back to where playback started (and the cursor too, when following) |
-| `<leader>f` | follow playback. **On**: the edit cursor glides along with the red playhead, and moving the cursor by hand (`}`, `{`, `hjkl`, marks…) jumps the playhead to it. **Off**: the playhead plays on by itself while the cursor moves and edits independently |
-| `<leader>l` `<leader>m` `<leader>-` `<leader>=` `<leader>a` `<leader>t` | loop, metronome, speed, mix, sync tap |
+| keys                                                                    | command                                                                                                                                                                                                                                                 |
+| ----------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `<leader><leader>`                                                      | play from the edit cursor / pause. Resuming carries on from where it paused if the cursor is still there; otherwise play starts at the cursor. In another file, it stops the playing file and plays this one                                            |
+| `<leader>s`                                                             | stop: the playhead goes back to where playback started (and the cursor too, when following)                                                                                                                                                             |
+| `<leader>f`                                                             | follow playback. **On**: the edit cursor glides along with the red playhead, and moving the cursor by hand (`}`, `{`, `hjkl`, marks…) jumps the playhead to it. **Off**: the playhead plays on by itself while the cursor moves and edits independently |
+| `<leader>l` `<leader>m` `<leader>-` `<leader>=` `<leader>a` `<leader>t` | loop, metronome, speed, mix, sync tap                                                                                                                                                                                                                   |
 
 ## Insert mode (M4, done)
 
-| keys | command |
-| --- | --- |
-| `0`–`9` | fret on the cursor string (two quick digits = two-digit fret; MIDI key on drum/pitched tracks) |
-| `<Space>` / `<Right>` | next beat, appending one (or moving to the next bar) at the end |
-| `<Left>` / `<Up>` / `<Down>` | previous beat / string up / string down |
-| `<CR>` | new beat after the cursor |
-| `<BS>` / `<Del>` | delete the note |
-| `h` `b` `s` `~` `x` `m` `l` `g` `a` `n` `t` | hammer/pull, bend, slide, vibrato, dead, palm mute, let ring, ghost, accent, harmonic, tie |
-| `r` / `.` / `<C-t>` | rest / dot / triplet |
-| `+` / `-` / `<A-1>`…`<A-7>` | longer / shorter / whole … 64th |
-| `<Esc>` | back to Normal (the whole session is one undo step) |
+| keys                                        | command                                                                                        |
+| ------------------------------------------- | ---------------------------------------------------------------------------------------------- |
+| `0`–`9`                                     | fret on the cursor string (two quick digits = two-digit fret; MIDI key on drum/pitched tracks) |
+| `<Space>` / `<Right>`                       | next beat, appending one (or moving to the next bar) at the end                                |
+| `<Left>` / `<Up>` / `<Down>`                | previous beat / string up / string down                                                        |
+| `<CR>`                                      | new beat after the cursor                                                                      |
+| `<BS>` / `<Del>`                            | delete the note                                                                                |
+| `h` `b` `s` `~` `x` `m` `l` `g` `a` `n` `t` | hammer/pull, bend, slide, vibrato, dead, palm mute, let ring, ghost, accent, harmonic, tie     |
+| `r` / `.` / `<C-t>`                         | rest / dot / triplet                                                                           |
+| `+` / `-` / `<A-1>`…`<A-7>`                 | longer / shorter / whole … 64th                                                                |
+| `<Esc>`                                     | back to Normal (the whole session is one undo step)                                            |
 
 On drum tracks _(M7)_, letters add or remove an instrument on the cursor beat: `k` bass drum,
 `s` snare, `h` closed hi-hat, `o` open hi-hat, `p` pedal hi-hat, `c` crash, `d` ride, `t` high
@@ -170,23 +200,23 @@ them on the fly with `:completion-fuzzy [on|off]` and `:completion-ignore-case [
 (without an argument they toggle); bind them under `[keymap.command]` to flip them while typing,
 e.g. `"<C-g>" = "completion-ignore-case"`, `"<C-f>" = "completion-fuzzy"`.
 
-| command                                          |                                |
-| ------------------------------------------------ | ------------------------------ |
-| `:open {file}` / `:w [file]` / `:q` / `:wq` / `:q!` | _(M2)_ `:w file.ext` exports by extension |
-| `:split` / `:vsplit`                             | _(M1)_                         |
-| `:track {n}`                                     | _(M1)_                         |
-| `:bar {n}` / `:{n}`                              | _(M1)_                         |
-| `:set {option}[=value]`                          |                                |
-| `:source`                                        | reload config _(M1)_           |
-| `:time 3/4` / `:key -2` / `:tempo 96` | time / key signature from the cursor bar, tempo at the cursor bar |
-| `:repeat-start` / `:repeat-end [n]` / `:section NAME` / `:text TEXT` | bar marks and beat text |
-| `:note C#4` / `:voice 2` | set the cursor note's pitch / edit another voice |
-| `:tuning drop-d` or `:tuning D2 A2 D3 G3 B3 E4` / `:capo 2` | retune keeping pitches |
-| `:refinger` / `:transpose 2` | re-finger the track to minimise hand movement / transpose |
-| `:track-add bass` / `:track-delete` / `:new` | tracks and new scores (`:track-add piano` adds a grand staff: two staves of one part) |
-| `:lyrics [verse] TEXT` _(M7)_ | syllables from the cursor on, one per note, in Guitar Pro syntax: spaces and hyphens separate syllables (`he-si-tate`), an extra space skips a note, `+` joins words on one note; verse 1–5 |
-| `:lyrics-clear [verse]` _(M7)_ | remove a verse (all verses without a number) from the track |
-| `:speed 75` | playback speed in percent |
+| command                                                              |                                                                                                                                                                                             |
+| -------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `:open {file}` / `:w [file]` / `:q` / `:wq` / `:q!`                  | _(M2)_ `:w file.ext` exports by extension                                                                                                                                                   |
+| `:split` / `:vsplit`                                                 | _(M1)_                                                                                                                                                                                      |
+| `:track {n}`                                                         | _(M1)_                                                                                                                                                                                      |
+| `:bar {n}` / `:{n}`                                                  | _(M1)_                                                                                                                                                                                      |
+| `:set {option}[=value]`                                              |                                                                                                                                                                                             |
+| `:source`                                                            | reload config _(M1)_                                                                                                                                                                        |
+| `:time 3/4` / `:key -2` / `:tempo 96`                                | time / key signature from the cursor bar, tempo at the cursor bar                                                                                                                           |
+| `:repeat-start` / `:repeat-end [n]` / `:section NAME` / `:text TEXT` | bar marks and beat text                                                                                                                                                                     |
+| `:note C#4` / `:voice 2`                                             | set the cursor note's pitch / edit another voice                                                                                                                                            |
+| `:tuning drop-d` or `:tuning D2 A2 D3 G3 B3 E4` / `:capo 2`          | retune keeping pitches                                                                                                                                                                      |
+| `:refinger` / `:transpose 2`                                         | re-finger the track to minimise hand movement / transpose                                                                                                                                   |
+| `:track-add bass` / `:track-delete` / `:new`                         | tracks and new scores (`:track-add piano` adds a grand staff: two staves of one part)                                                                                                       |
+| `:lyrics [verse] TEXT` _(M7)_                                        | syllables from the cursor on, one per note, in Guitar Pro syntax: spaces and hyphens separate syllables (`he-si-tate`), an extra space skips a note, `+` joins words on one note; verse 1–5 |
+| `:lyrics-clear [verse]` _(M7)_                                       | remove a verse (all verses without a number) from the track                                                                                                                                 |
+| `:speed 75`                                                          | playback speed in percent                                                                                                                                                                   |
 
 ### Workspaces
 
@@ -198,41 +228,41 @@ saved again whenever the session changes and when muse quits. Until you choose o
 `default`. `muse` reopens the workspace used last; `muse --workspace NAME` starts with another
 (created from scratch if it doesn't exist yet), and files named on the command line open in it.
 
-| command | |
-| --- | --- |
-| `:workspace-save [name]` | save the session as a workspace and make it active (no name: the active one) |
-| `:workspace-open name` | replace the session with a saved workspace (`:workspace-open!` discards unsaved changes) |
-| `:workspace-close` | save and leave the active workspace for `default` |
+| command                  |                                                                                          |
+| ------------------------ | ---------------------------------------------------------------------------------------- |
+| `:workspace-save [name]` | save the session as a workspace and make it active (no name: the active one)             |
+| `:workspace-open name`   | replace the session with a saved workspace (`:workspace-open!` discards unsaved changes) |
+| `:workspace-close`       | save and leave the active workspace for `default`                                        |
 
 ### Chant _(M6)_
 
 On a chant track the cursor moves note by note; `<C-a>`/`<C-x>` move a note up or down (adding a
 flat or natural when needed), `x` deletes it and `u` undoes, as on any track.
 
-| command | |
-| --- | --- |
-| `:gabc` / `:gabc fgh` / `:gabc Glo(fg)ri(h)` | show the cursor syllable as GABC; replace its notes, or the syllable itself |
-| `:interpretation [equalist\|solesmes]` | rhythm used for playback and the modern transcription |
-| `:clef c3` | change the chant clef (`c1`–`c4`, `f1`–`f4`, `cb3` for a flat clef); notes keep their staff positions |
-| `:chant-view` | square notation / modern transcription of chant tracks |
-| `:modern-to-chant` | open the cursor track's melody as chant in a new buffer (syllables from lyrics) |
-| `:chant-to-modern` | turn the chant track into an ordinary staff track |
+| command                                      |                                                                                                       |
+| -------------------------------------------- | ----------------------------------------------------------------------------------------------------- |
+| `:gabc` / `:gabc fgh` / `:gabc Glo(fg)ri(h)` | show the cursor syllable as GABC; replace its notes, or the syllable itself                           |
+| `:interpretation [equalist\|solesmes]`       | rhythm used for playback and the modern transcription                                                 |
+| `:clef c3`                                   | change the chant clef (`c1`–`c4`, `f1`–`f4`, `cb3` for a flat clef); notes keep their staff positions |
+| `:chant-view`                                | square notation / modern transcription of chant tracks                                                |
+| `:modern-to-chant`                           | open the cursor track's melody as chant in a new buffer (syllables from lyrics)                       |
+| `:chant-to-modern`                           | turn the chant track into an ordinary staff track                                                     |
 
 ### Play-along _(M5)_
 
-| command | |
-| --- | --- |
-| `:audio [file]` / `:audio off` | attach a recording (mp3, m4a/aac, flac, ogg, wav; relative to the score). Without a file, the best name match next to the score or in its `mp3/`/`audio/` folder |
-| `:sync` | start (or stop) sync tapping from the cursor bar: play, then `<leader>t` on each downbeat |
-| `:sync-tap` / `:sync-clear` | add a sync point at the playing bar / remove all sync points |
-| `:sync-detect` | beat-detection assist: fill in sync points from the last existing one (tap the first downbeat first for best results) |
-| `:mix [both\|audio\|midi]` | what plays when a recording is attached (no argument cycles) |
-| `:volume midi\|audio\|metronome {percent}` | source levels |
-| `:mute [n]` / `:solo [n]` | toggle a track's mute / solo (cursor track by default) |
-| `:loop [a b]` / `:loop-toggle` | loop bars a–b (1-based), or the selection / cursor bar |
-| `:trainer start target step` | speed trainer: start at `start`%, add `step`% each loop up to `target`% (e.g. `:trainer 60 100 5`) |
-| `:pitch {semitones}` | shift the recording's pitch (−12…12, keeps tempo) |
-| `:metronome` / `:count-in` / `:waveform` | toggles (`:waveform` only in the focused pane) |
-| `:waveform-global [on\|off]` | a waveform bar across the window above the status line, for the focused pane's file, marking the play position (or the cursor when stopped); no argument toggles (`ui.global_waveform` sets the default) |
-| `:export {file}`                                 | export by extension            |
-| `:layout [page\|vertical\|horizontal]`            | GUI score layout of the focused pane _(M3)_ |
+| command                                    |                                                                                                                                                                                                          |
+| ------------------------------------------ | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `:audio [file]` / `:audio off`             | attach a recording (mp3, m4a/aac, flac, ogg, wav; relative to the score). Without a file, the best name match next to the score or in its `mp3/`/`audio/` folder                                         |
+| `:sync`                                    | start (or stop) sync tapping from the cursor bar: play, then `<leader>t` on each downbeat                                                                                                                |
+| `:sync-tap` / `:sync-clear`                | add a sync point at the playing bar / remove all sync points                                                                                                                                             |
+| `:sync-detect`                             | beat-detection assist: fill in sync points from the last existing one (tap the first downbeat first for best results)                                                                                    |
+| `:mix [both\|audio\|midi]`                 | what plays when a recording is attached (no argument cycles)                                                                                                                                             |
+| `:volume midi\|audio\|metronome {percent}` | source levels                                                                                                                                                                                            |
+| `:mute [n]` / `:solo [n]`                  | toggle a track's mute / solo (cursor track by default)                                                                                                                                                   |
+| `:loop [a b]` / `:loop-toggle`             | loop bars a–b (1-based), or the selection / cursor bar                                                                                                                                                   |
+| `:trainer start target step`               | speed trainer: start at `start`%, add `step`% each loop up to `target`% (e.g. `:trainer 60 100 5`)                                                                                                       |
+| `:pitch {semitones}`                       | shift the recording's pitch (−12…12, keeps tempo)                                                                                                                                                        |
+| `:metronome` / `:count-in` / `:waveform`   | toggles (`:waveform` only in the focused pane)                                                                                                                                                           |
+| `:waveform-global [on\|off]`               | a waveform bar across the window above the status line, for the focused pane's file, marking the play position (or the cursor when stopped); no argument toggles (`ui.global_waveform` sets the default) |
+| `:export {file}`                           | export by extension                                                                                                                                                                                      |
+| `:layout [page\|vertical\|horizontal]`     | GUI score layout of the focused pane _(M3)_                                                                                                                                                              |
