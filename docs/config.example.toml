@@ -8,6 +8,7 @@ leader = "<Space>"
 tab_width = 2            # horizontal spacing of the tab view (1–8)
 follow_playback = true   # the cursor and view move with the playhead (red bar) while playing
 completion_ignore_case = true   # Tab completion on the command line ignores letter case
+global_waveform = false  # waveform bar across the window bottom for the focused file
 
 [audio]
 # soundfont = "~/soundfonts/GeneralUser-GS.sf2"

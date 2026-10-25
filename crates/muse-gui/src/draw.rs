@@ -111,7 +111,10 @@ pub fn build(
     width: f64,
     height: f64,
 ) {
-    let main = Rect::new(0.0, TAB_BAR, width, height - STATUS - CMDLINE);
+    // The window-wide waveform bar sits between the panes and the status line.
+    let global_wave = app.global_waveform && height > 300.0;
+    let bottom = height - STATUS - CMDLINE - if global_wave { WAVE + 4.0 } else { 0.0 };
+    let main = Rect::new(0.0, TAB_BAR, width, bottom);
     app.viewport = muse_app::layout::Rect {
         x: main.x0 as u16,
         y: main.y0 as u16,
@@ -139,6 +142,30 @@ pub fn build(
             id == focused,
             play,
         );
+    }
+    if global_wave {
+        let r = Rect::new(4.0, bottom + 2.0, width - 4.0, bottom + 2.0 + WAVE);
+        let buffer = app.pane().buffer;
+        match playback.as_deref_mut() {
+            Some(pb) if app.buffers[buffer].score.audio.is_some() => {
+                pb.ensure_audio(app, buffer);
+                draw_waveform(scene, app, pb, buffer, r, play);
+            }
+            _ => {
+                fill(scene, r, Color::from_rgba8(28, 30, 36, 255));
+                let name = &app.buffers[buffer].name;
+                text(
+                    scene,
+                    &format!("{name}: no audio attached (:audio FILE)"),
+                    r.x0 + 10.0,
+                    r.center().y + 5.0,
+                    13.0,
+                    Align::Left,
+                    DIM,
+                    false,
+                );
+            }
+        }
     }
     draw_status(scene, app, play, width, height);
     if !app.pending.is_empty() {
@@ -250,8 +277,8 @@ fn draw_pane(
         false,
     );
     let mut content = Rect::new(rect.x0 + 2.0, rect.y0 + TITLE, rect.x1 - 2.0, rect.y1 - 2.0);
-    let waveform = (app.pa.show_waveform && score.audio.is_some() && content.height() > 200.0)
-        .then(|| {
+    let waveform =
+        (pane.waveform && score.audio.is_some() && content.height() > 200.0).then(|| {
             let strip = Rect::new(content.x0, content.y1 - WAVE, content.x1, content.y1);
             content.y1 -= WAVE + 2.0;
             strip
@@ -501,10 +528,10 @@ fn draw_waveform(
         return;
     };
     let (peaks, duration) = (audio.peaks.clone(), audio.clip.duration());
-    let cursor = app
-        .panes
-        .values()
-        .find(|p| p.buffer == buffer)
+    // The edit cursor: the focused pane's if it shows this file, else another pane's.
+    let cursor = Some(app.pane())
+        .filter(|p| p.buffer == buffer)
+        .or_else(|| app.panes.values().find(|p| p.buffer == buffer))
         .map(|p| p.cursor)
         .unwrap_or_default();
     let tick = muse_app::cursor_tick(&app.buffers[buffer].score, &cursor);

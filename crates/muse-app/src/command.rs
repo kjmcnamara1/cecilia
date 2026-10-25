@@ -100,7 +100,10 @@ pub enum Command {
     SyncTap,
     SyncClear,
     SyncDetect,
+    /// Toggle the waveform strip of the focused pane.
     Waveform,
+    /// The window-wide waveform bar: on, off, or toggle (None).
+    WaveformGlobal(Option<bool>),
     /// Level of "midi", "audio" or "metronome" in percent.
     Volume(String, u32),
     Mute(Option<usize>),
@@ -387,6 +390,16 @@ impl Command {
             "sync-clear" => SyncClear,
             "sync-detect" => SyncDetect,
             "waveform" => Waveform,
+            "waveform-global" => WaveformGlobal(match arg {
+                None | Some("toggle") => None,
+                Some("on" | "true" | "yes") => Some(true),
+                Some("off" | "false" | "no") => Some(false),
+                Some(other) => {
+                    return Err(format!(
+                        "waveform-global: expected on, off or toggle, not '{other}'"
+                    ));
+                }
+            }),
             "volume" => {
                 let a = arg.ok_or("volume: expected SOURCE PERCENT (midi, audio, metronome)")?;
                 let (src, pct) = a.split_once(' ').ok_or("volume: expected SOURCE PERCENT")?;

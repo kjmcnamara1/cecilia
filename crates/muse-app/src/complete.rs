@@ -139,6 +139,7 @@ pub const COMMANDS: &[&str] = &[
     "vsplit",
     "w",
     "waveform",
+    "waveform-global",
     "wq",
     "write",
     "write-quit",
@@ -169,7 +170,7 @@ fn values(command: &str) -> Option<&'static [&'static str]> {
         ],
         "track-add" => &["bass", "drums", "guitar", "piano", "voice"],
         "volume" => &["audio", "metronome", "midi"],
-        "completion-ignore-case" => &["off", "on", "toggle"],
+        "completion-ignore-case" | "waveform-global" => &["off", "on", "toggle"],
         "duration" => &["1", "2", "4", "8", "16", "32", "64"],
         "tuning" => &[
             "7-string", "bass", "bass5", "d", "dadgad", "drop-d", "eb", "open-d", "open-e",

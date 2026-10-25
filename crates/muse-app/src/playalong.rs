@@ -24,7 +24,6 @@ pub struct PlayAlong {
     pub trainer: Option<(f64, f64)>,
     /// Played-bar index the next sync tap assigns, while tapping.
     pub sync_next: Option<usize>,
-    pub show_waveform: bool,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -45,7 +44,6 @@ impl Default for PlayAlong {
             loop_bars: None,
             trainer: None,
             sync_next: None,
-            show_waveform: true,
         }
     }
 }
@@ -313,7 +311,24 @@ impl App {
                 self.info("sync points cleared");
             }
             SyncDetect => self.effects.push(Effect::SyncDetect),
-            Waveform => self.pa.show_waveform = !self.pa.show_waveform,
+            Waveform => {
+                let pane = self.pane_mut();
+                pane.waveform = !pane.waveform;
+                let on = pane.waveform;
+                self.info(if on {
+                    "waveform on in this pane"
+                } else {
+                    "waveform off in this pane"
+                });
+            }
+            WaveformGlobal(on) => {
+                self.global_waveform = on.unwrap_or(!self.global_waveform);
+                self.info(if self.global_waveform {
+                    "window waveform bar on"
+                } else {
+                    "window waveform bar off"
+                });
+            }
             Volume(src, pct) => {
                 let v = (*pct as f32 / 100.0).clamp(0.0, 1.5);
                 match src.as_str() {

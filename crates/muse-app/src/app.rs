@@ -43,6 +43,8 @@ pub struct Pane {
     pub scroll: usize,
     /// GUI score layout of this pane: "page", "vertical" or "horizontal".
     pub layout: String,
+    /// GUI: show the audio waveform strip at the bottom of this pane.
+    pub waveform: bool,
 }
 
 #[derive(Debug, Clone)]
@@ -119,6 +121,9 @@ pub struct App {
     pub follow: bool,
     /// Command-line completion ignores case (`ui.completion_ignore_case`).
     pub completion_ignore_case: bool,
+    /// GUI: a waveform bar across the whole window above the status line, for the focused
+    /// pane's file (`ui.global_waveform`).
+    pub global_waveform: bool,
     /// Screen area for panes, set by the frontend.
     pub viewport: Rect,
     /// Bars moved by page-down/up, set by the frontend.
@@ -140,6 +145,7 @@ impl App {
     pub fn new(config: Config, config_path: Option<PathBuf>) -> Self {
         let follow = config.file.ui.follow_playback;
         let completion_ignore_case = config.file.ui.completion_ignore_case;
+        let global_waveform = config.file.ui.global_waveform;
         let (score_layout, zoom) = (config.file.ui.layout.clone(), config.file.ui.zoom);
         let config_mtime = config_path.as_deref().and_then(mtime);
         let mut panes = HashMap::new();
@@ -150,6 +156,7 @@ impl App {
                 cursor: Cursor::default(),
                 scroll: 0,
                 layout: score_layout.clone(),
+                waveform: true,
             },
         );
         Self {
@@ -185,6 +192,7 @@ impl App {
             play_start: None,
             follow,
             completion_ignore_case,
+            global_waveform,
             viewport: Rect {
                 x: 0,
                 y: 0,
@@ -337,6 +345,7 @@ impl App {
                 self.config = config;
                 self.follow = self.config.file.ui.follow_playback;
                 self.completion_ignore_case = self.config.file.ui.completion_ignore_case;
+                self.global_waveform = self.config.file.ui.global_waveform;
                 self.effects.push(Effect::ConfigReloaded);
                 if errors.is_empty() {
                     self.info(format!("config reloaded: {}", path.display()));
@@ -741,10 +750,10 @@ impl App {
     fn new_pane(&mut self, buffer: usize) -> PaneId {
         let id = self.next_pane;
         self.next_pane += 1;
-        let layout = self
-            .panes
-            .get(&self.focused())
-            .map_or_else(|| self.score_layout.clone(), |p| p.layout.clone());
+        let (layout, waveform) = self.panes.get(&self.focused()).map_or_else(
+            || (self.score_layout.clone(), true),
+            |p| (p.layout.clone(), p.waveform),
+        );
         self.panes.insert(
             id,
             Pane {
@@ -752,6 +761,7 @@ impl App {
                 cursor: Cursor::default(),
                 scroll: 0,
                 layout,
+                waveform,
             },
         );
         id
@@ -1021,6 +1031,24 @@ mod tests {
         app.run(Command::Write(Some(dir.join("out.unknown"))));
         assert!(app.message.as_ref().unwrap().error);
         std::fs::remove_dir_all(&dir).unwrap();
+    }
+
+    #[test]
+    fn waveform_strip_is_per_pane_and_window_bar_toggles() {
+        let mut app = App::new(Config::default(), None);
+        let first = app.focused();
+        app.run(Command::Split);
+        let second = app.focused();
+        app.run(Command::Waveform);
+        assert!(!app.panes[&second].waveform);
+        assert!(app.panes[&first].waveform);
+        assert!(!app.global_waveform);
+        app.run(Command::WaveformGlobal(None));
+        assert!(app.global_waveform);
+        app.run(Command::WaveformGlobal(Some(false)));
+        assert!(!app.global_waveform);
+        let (config, _) = Config::parse("[ui]\nglobal_waveform = true\n").unwrap();
+        assert!(App::new(config, None).global_waveform);
     }
 
     #[test]

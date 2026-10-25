@@ -33,7 +33,7 @@ Items marked _(M1)_ are implemented in the first milestone; the rest are the pla
 | `<leader>-` / `<leader>=` | speed −5% / +5%           | _(M5)_ |
 | `<leader>a`               | cycle mix: audio + MIDI / audio only / MIDI only | _(M5)_ |
 | `<leader>t`               | sync tap: place the next bar at the current audio time | _(M5)_ |
-| `<leader>w`               | show / hide the waveform strip (GUI) | _(M5)_ |
+| `<leader>w`               | show / hide the waveform strip of the focused pane (GUI) | _(M5)_ |
 | `<leader>v`               | cycle the focused pane's score layout (vertical / page / horizontal); new splits and tabs copy it | _(M3)_ |
 | `<C-=>` / `<C-->` / `<C-0>` | zoom in / out / reset (GUI; also Ctrl+wheel) | _(M3)_ |
 
@@ -157,6 +157,7 @@ flat or natural when needed), `x` deletes it and `u` undoes, as on any track.
 | `:loop [a b]` / `:loop-toggle` | loop bars a–b (1-based), or the selection / cursor bar |
 | `:trainer start target step` | speed trainer: start at `start`%, add `step`% each loop up to `target`% (e.g. `:trainer 60 100 5`) |
 | `:pitch {semitones}` | shift the recording's pitch (−12…12, keeps tempo) |
-| `:metronome` / `:count-in` / `:waveform` | toggles |
+| `:metronome` / `:count-in` / `:waveform` | toggles (`:waveform` only in the focused pane) |
+| `:waveform-global [on\|off]` | a waveform bar across the window above the status line, for the focused pane's file, marking the play position (or the cursor when stopped); no argument toggles (`ui.global_waveform` sets the default) |
 | `:export {file}`                                 | export by extension            |
 | `:layout [page\|vertical\|horizontal]`            | GUI score layout of the focused pane _(M3)_ |

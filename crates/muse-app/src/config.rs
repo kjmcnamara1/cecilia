@@ -50,6 +50,8 @@ pub struct UiConfig {
     pub follow_playback: bool,
     /// Command-line Tab completion ignores letter case.
     pub completion_ignore_case: bool,
+    /// GUI: a waveform bar across the whole window above the status line.
+    pub global_waveform: bool,
     /// GUI score layout: "page", "vertical" or "horizontal".
     pub layout: String,
     /// GUI zoom factor.
@@ -62,6 +64,7 @@ impl Default for UiConfig {
             tab_width: 2,
             follow_playback: true,
             completion_ignore_case: true,
+            global_waveform: false,
             layout: "vertical".into(),
             zoom: 1.0,
         }
