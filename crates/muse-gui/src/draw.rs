@@ -146,7 +146,7 @@ pub fn build(
     if global_wave {
         let r = Rect::new(4.0, bottom + 2.0, width - 4.0, bottom + 2.0 + WAVE);
         let buffer = app.pane().buffer;
-        match playback.as_deref_mut() {
+        match playback {
             Some(pb) if app.buffers[buffer].score.audio.is_some() => {
                 pb.ensure_audio(app, buffer);
                 draw_waveform(scene, app, pb, buffer, r, play);
