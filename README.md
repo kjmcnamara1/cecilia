@@ -37,6 +37,8 @@ full specification and roadmap, and [docs/keymap.md](docs/keymap.md) for key bin
   any speed or pitch, with A–B loops, a speed trainer, metronome and count-in; a waveform strip
   shows the recording, sync points and loop in the GUI
 - WAV/FLAC export of the MIDI rendering mixed with the recording
+- Workspaces: `:workspace-save NAME` / `:workspace-open NAME` / `muse --workspace NAME` keep the
+  open files, tabs, pane splits and views, saved automatically while active
 - TOML configuration with custom keybinds, reloaded automatically when the file changes
 
 ## Usage

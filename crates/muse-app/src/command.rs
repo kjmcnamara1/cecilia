@@ -115,6 +115,12 @@ pub enum Command {
     LyricsClear(Option<usize>),
     /// Whether command-line completion ignores case: on, off, or toggle (None).
     CompletionIgnoreCase(Option<bool>),
+    /// Save the session as a workspace (by name or path; the active one without).
+    WorkspaceSave(Option<String>),
+    /// Replace the session with a saved workspace (`!` discards unsaved changes).
+    WorkspaceOpen(String, bool),
+    /// Stop saving the session to the active workspace.
+    WorkspaceClose,
     /// Show the cursor syllable as GABC, or replace it (`Glo(fg)`, or just notes `fgh`).
     Gabc(Option<String>),
     /// Chant rhythm: "equalist" or "solesmes" (None shows it).
@@ -436,6 +442,13 @@ impl Command {
                     ));
                 }
             }),
+            "workspace-save" => WorkspaceSave(arg.map(String::from)),
+            "workspace-open" | "workspace-open!" => WorkspaceOpen(
+                arg.ok_or("workspace-open: expected a workspace name or path")?
+                    .to_string(),
+                name.ends_with('!'),
+            ),
+            "workspace-close" => WorkspaceClose,
             "gabc" => Gabc(arg.map(String::from)),
             "interpretation" => Interpretation(arg.map(String::from)),
             "clef" => ChantClef(arg.ok_or("clef: expected c1–c4, f1–f4 or cb3")?.to_string()),

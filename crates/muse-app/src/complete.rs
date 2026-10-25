@@ -139,6 +139,10 @@ pub const COMMANDS: &[&str] = &[
     "w",
     "waveform",
     "waveform-global",
+    "workspace-close",
+    "workspace-open",
+    "workspace-open!",
+    "workspace-save",
     "wq",
     "write",
     "write-quit",
@@ -255,6 +259,12 @@ pub fn complete(
             paths(arg, cwd, Some(SCORE_EXTENSIONS), ignore_case)
         }
         "w" | "write" => paths(arg, cwd, Some(WRITE_EXTENSIONS), ignore_case),
+        "workspace-open" | "workspace-open!" | "workspace-save" => {
+            crate::workspace::workspace_names()
+                .into_iter()
+                .filter(|n| matches(n, arg, ignore_case))
+                .collect()
+        }
         "audio" => {
             let mut v = paths(
                 arg,
@@ -605,6 +615,10 @@ pub fn describe(command: &str) -> Option<&'static str> {
         "waveform" => "Toggle this pane's waveform strip",
         "waveform-global" => "Toggle the window waveform bar",
         "wq" | "write-quit" => "Save and close the pane",
+        "workspace-save" => "Save open files, tabs and panes as a workspace",
+        "workspace-open" => "Open a saved workspace",
+        "workspace-open!" => "Open a workspace, discarding unsaved changes",
+        "workspace-close" => "Stop saving to the active workspace",
         "yank" => "Yank operator",
         "zoom-in" => "Zoom in",
         "zoom-out" => "Zoom out",

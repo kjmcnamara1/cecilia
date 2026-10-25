@@ -431,6 +431,9 @@ fn draw_status(f: &mut Frame, app: &App, play: Option<(usize, Location, f64, f64
         &app.pa
             .status(app.config.file.audio.speed, score.audio.is_some()),
     );
+    if let Some(ws) = app.workspace_name() {
+        right.push_str(&format!("  ws:{ws}"));
+    }
     if app.follow {
         right.push_str("  follow");
     }

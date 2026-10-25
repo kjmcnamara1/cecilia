@@ -14,6 +14,7 @@ pub mod keys;
 pub mod layout;
 pub mod playalong;
 pub mod playback;
+pub mod workspace;
 
 pub use app::{
     App, Buffer, Cursor, Effect, Message, Palette, PaletteItem, Pane, Tab, beat_at_tick, beats,

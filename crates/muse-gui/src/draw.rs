@@ -944,6 +944,9 @@ fn draw_status(
     if app.buffer().modified {
         right.push_str("   [+]");
     }
+    if let Some(ws) = app.workspace_name() {
+        right.push_str(&format!("   ws:{ws}"));
+    }
     right.push_str(&format!(
         "   {}  {:.0}%",
         mode_tag(app.pane()),

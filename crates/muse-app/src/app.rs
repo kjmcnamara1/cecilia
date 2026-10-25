@@ -116,7 +116,7 @@ pub struct App {
     config_mtime: Option<SystemTime>,
     pub buffers: Vec<Buffer>,
     pub panes: HashMap<PaneId, Pane>,
-    next_pane: PaneId,
+    pub(crate) next_pane: PaneId,
     pub tabs: Vec<Tab>,
     pub active_tab: usize,
     pub mode: Mode,
@@ -158,6 +158,10 @@ pub struct App {
     pub(crate) ed: crate::editor::EditorState,
     /// Play-along settings.
     pub pa: crate::playalong::PlayAlong,
+    /// The active workspace file, saved again as the session changes.
+    pub workspace_file: Option<PathBuf>,
+    /// The workspace as last written, to save only when something changed.
+    pub(crate) workspace_saved: Option<String>,
 }
 
 impl App {
@@ -182,14 +186,7 @@ impl App {
             config,
             config_path,
             config_mtime,
-            buffers: vec![Buffer {
-                path: None,
-                name: "[No file]".into(),
-                score: Score::default(),
-                modified: false,
-                history: Default::default(),
-                version: 0,
-            }],
+            buffers: vec![Buffer::empty()],
             panes,
             next_pane: 2,
             tabs: vec![Tab {
@@ -227,6 +224,8 @@ impl App {
             zoom,
             ed: Default::default(),
             pa: Default::default(),
+            workspace_file: None,
+            workspace_saved: None,
         }
     }
 
@@ -345,6 +344,7 @@ impl App {
 
     /// Reloads the config file if it changed on disk.
     pub fn poll_config(&mut self) {
+        self.autosave_workspace();
         let Some(path) = self.config_path.clone() else {
             return;
         };
@@ -674,7 +674,19 @@ impl App {
                 }
             }
             ClosePane | Quit { .. } => self.close_pane(),
-            QuitAll { .. } => self.quit = true,
+            QuitAll { .. } => {
+                self.autosave_workspace();
+                self.quit = true;
+            }
+            WorkspaceSave(target) => self.save_workspace(target.as_deref()),
+            WorkspaceOpen(name, force) => self.open_workspace(&name, force),
+            WorkspaceClose => match self.workspace_file.take() {
+                Some(_) => {
+                    self.workspace_saved = None;
+                    self.info("workspace closed (no longer saved automatically)");
+                }
+                None => self.error("no workspace is active"),
+            },
             TabNext => self.active_tab = (self.active_tab + 1) % self.tabs.len(),
             TabPrev => self.active_tab = (self.active_tab + self.tabs.len() - 1) % self.tabs.len(),
             TabNew(path) => {
@@ -872,6 +884,7 @@ impl App {
         } else if self.tabs.len() > 1 {
             self.run(Command::TabClose);
         } else {
+            self.autosave_workspace();
             self.quit = true;
         }
     }
@@ -951,6 +964,20 @@ pub fn beat_at_tick(score: &Score, track: usize, bar: usize, tick: u32) -> usize
         }
     }
     beats(score, &c).len().saturating_sub(1)
+}
+
+impl Buffer {
+    /// The placeholder buffer of a session without files.
+    pub fn empty() -> Self {
+        Self {
+            path: None,
+            name: "[No file]".into(),
+            score: Score::default(),
+            modified: false,
+            history: Default::default(),
+            version: 0,
+        }
+    }
 }
 
 pub(crate) fn clamp_cursor(score: &Score, c: &mut Cursor) {

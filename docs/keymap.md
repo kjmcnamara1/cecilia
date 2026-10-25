@@ -148,6 +148,19 @@ it under `[keymap.command]` to flip it while typing, e.g. `"<C-g>" = "completion
 | `:lyrics-clear [verse]` _(M7)_ | remove a verse (all verses without a number) from the track |
 | `:speed 75` | playback speed in percent |
 
+### Workspaces
+
+A workspace saves the open files, tabs, pane splits and each pane's file, cursor, layout and
+waveform strip, plus zoom, follow, chant view and the window waveform bar, to
+`~/.local/share/muse/workspaces/NAME.toml` (or a path). While one is active it is saved again
+whenever the session changes and when muse quits. Start with one using `muse --workspace NAME`.
+
+| command | |
+| --- | --- |
+| `:workspace-save [name]` | save the session as a workspace and make it active (no name: the active one) |
+| `:workspace-open name` | replace the session with a saved workspace (`:workspace-open!` discards unsaved changes) |
+| `:workspace-close` | stop saving the session to the active workspace |
+
 ### Chant _(M6)_
 
 On a chant track the cursor moves note by note; `<C-a>`/`<C-x>` move a note up or down (adding a

@@ -198,7 +198,8 @@ untouched original (which may contain data muse does not model) is never rewritt
   `waveform` (sync editor), `mixer`, `tracks`, `files`, `help`. Panes viewing the same buffer can be
   cursor-linked or independent (`:set linkcursor`).
 - **Tab**: an arrangement of panes (binary split tree).
-- **Workspace**: saved session (open buffers, tabs, layouts, cursor positions) as TOML.
+- **Workspace**: saved session (open buffers, tabs, layouts, cursor positions) as TOML. Done:
+  `:workspace-save/open/close`, `--workspace`, autosaved while active.
 
 ### 8.2 Modes
 

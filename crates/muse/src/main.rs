@@ -23,6 +23,9 @@ struct Cli {
     /// 1400×900 logical pixels times this.
     #[arg(long, hide = true, default_value_t = 1.0)]
     scale_factor: f64,
+    /// Open a saved workspace (by name, or a path to its .toml file).
+    #[arg(long, short = 'W')]
+    workspace: Option<String>,
     /// Keys to feed before a --screenshot, in key notation (e.g. "J4}<C-w>v").
     #[arg(long, hide = true)]
     keys: Option<String>,
@@ -137,6 +140,9 @@ fn main() -> Result<()> {
             }
             if cli.files.len() > 1 {
                 app.run(Command::TabNext);
+            }
+            if let Some(ws) = &cli.workspace {
+                app.run(Command::WorkspaceOpen(ws.clone(), false));
             }
             if let Some(out) = &cli.screenshot {
                 if let Some(keys) = &cli.keys {
