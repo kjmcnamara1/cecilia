@@ -99,7 +99,7 @@ tom, `m` mid tom, `f` floor tom (`r` is still a rest, `g`/`a` ghost and accent).
 
 ## Command mode (selected)
 
-`<Tab>` completes the word being typed: command names, then arguments — file names for `:e`,
+`<Tab>` completes the word being typed: command names, then arguments — file names for `:open`,
 `:w`, `:tabnew` and `:audio` (folders first, only files muse can open or write), and the values of
 `:layout`, `:mix`, `:volume`, `:track-add`, `:tuning`, `:toggle`, `:duration`, `:clef`,
 `:interpretation`. A unique match is filled in; otherwise the common part, then further `<Tab>`
@@ -112,7 +112,7 @@ it under `[keymap.command]` to flip it while typing, e.g. `"<C-g>" = "completion
 
 | command                                          |                                |
 | ------------------------------------------------ | ------------------------------ |
-| `:e {file}` / `:w [file]` / `:q` / `:wq` / `:q!` | _(M2)_ `:w file.ext` exports by extension |
+| `:open {file}` / `:w [file]` / `:q` / `:wq` / `:q!` | _(M2)_ `:w file.ext` exports by extension |
 | `:tabnew [file]` / `:tabclose`                   | _(M1)_                         |
 | `:split` / `:vsplit`                             | _(M1)_                         |
 | `:track {n}`                                     | _(M1)_                         |

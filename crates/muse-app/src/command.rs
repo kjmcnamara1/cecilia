@@ -242,7 +242,7 @@ impl Command {
             "tab-prev" | "tabprevious" | "tabp" => TabPrev,
             "tabnew" | "tabe" | "tabedit" => TabNew(arg.map(expand_tilde)),
             "tabclose" | "tabc" => TabClose,
-            "edit" | "e" => Edit(path()?),
+            "open" => Edit(path()?),
             "write" | "w" => Write(arg.map(expand_tilde)),
             "wq" | "x" | "write-quit" => WriteQuit,
             "quit" | "q" => Quit { force: false },
@@ -524,7 +524,7 @@ mod tests {
         assert_eq!(Command::parse(":12"), Ok(Command::GotoBar(12)));
         assert_eq!(Command::parse("q!"), Ok(Command::Quit { force: true }));
         assert_eq!(
-            Command::parse("e song.gp5"),
+            Command::parse("open song.gp5"),
             Ok(Command::Edit("song.gp5".into()))
         );
         assert_eq!(Command::parse("tabnew"), Ok(Command::TabNew(None)));

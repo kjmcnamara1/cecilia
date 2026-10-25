@@ -200,7 +200,7 @@ impl Widget for TabView<'_> {
         let pane = &self.app.panes[&self.pane];
         let score = &self.app.buffers[pane.buffer].score;
         let Some(track) = score.tracks.get(pane.cursor.track) else {
-            let msg = "No score loaded — open one with :e <file>";
+            let msg = "No score loaded — open one with :open <file>";
             buf.set_string(
                 area.x + 1,
                 area.y,

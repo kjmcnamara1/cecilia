@@ -33,9 +33,7 @@ pub const COMMANDS: &[&str] = &[
     "duration",
     "duration-longer",
     "duration-shorter",
-    "e",
     "earlier",
-    "edit",
     "enew",
     "focus-down",
     "focus-left",
@@ -70,6 +68,7 @@ pub const COMMANDS: &[&str] = &[
     "note-prev",
     "octave-down",
     "octave-up",
+    "open",
     "page-down",
     "page-up",
     "pause",
@@ -252,7 +251,7 @@ pub fn complete(
     let arg_start = lead + space + (rest.len() - rest.trim_start().len());
     let arg = &line[arg_start..];
     let items = match command {
-        "e" | "edit" | "tabnew" | "tabe" | "tabedit" => {
+        "open" | "tabnew" | "tabe" | "tabedit" => {
             paths(arg, cwd, Some(SCORE_EXTENSIONS), ignore_case)
         }
         "w" | "write" => paths(arg, cwd, Some(WRITE_EXTENSIONS), ignore_case),
@@ -397,10 +396,10 @@ mod tests {
             (c.start, c.items.as_slice()),
             (8, &["page".to_string()][..])
         );
-        let c = complete(":e ", &dir, None, false);
+        let c = complete(":open ", &dir, None, false);
         assert_eq!(c.items, ["songs/", "a.gp5"]);
         assert_eq!(
-            complete(":e songs/", &dir, None, false).items,
+            complete(":open songs/", &dir, None, false).items,
             ["songs/c.gabc"]
         );
         assert_eq!(complete(":w a", &dir, None, false).items, ["a.gp5"]);
@@ -410,8 +409,8 @@ mod tests {
         );
         // Ignoring case.
         std::fs::write(dir.join("Hymn.gabc"), b"").unwrap();
-        assert!(complete(":e h", &dir, None, false).items.is_empty());
-        assert_eq!(complete(":e h", &dir, None, true).items, ["Hymn.gabc"]);
+        assert!(complete(":open h", &dir, None, false).items.is_empty());
+        assert_eq!(complete(":open h", &dir, None, true).items, ["Hymn.gabc"]);
         assert_eq!(complete(":LAY", &dir, None, true).items, ["layout"]);
         assert_eq!(complete(":layout PA", &dir, None, true).items, ["page"]);
         assert_eq!(

@@ -286,7 +286,7 @@ fn draw_pane(
     if score.tracks.is_empty() {
         text(
             scene,
-            "No score loaded — open one with :e <file>",
+            "No score loaded — open one with :open <file>",
             content.center().x,
             content.center().y,
             16.0,
