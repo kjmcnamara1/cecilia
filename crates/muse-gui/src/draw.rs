@@ -1033,6 +1033,29 @@ fn draw_palette(scene: &mut Scene, p: &muse_app::Palette, width: f64, height: f6
             color,
             selected,
         );
+        // The characters that matched what was typed, over the text in a stronger colour.
+        let font = if selected {
+            FontKind::Bold
+        } else {
+            FontKind::Text
+        };
+        let hl = if selected { Color::WHITE } else { ACCENT };
+        let chars: Vec<char> = item.text.chars().collect();
+        for &i in &item.matched {
+            let Some(c) = chars.get(i) else { continue };
+            let before: String = chars[..i].iter().collect();
+            let cx = x0 + 16.0 + fonts.text_width(font, &before, 14.0);
+            text(
+                scene,
+                &c.to_string(),
+                cx,
+                base,
+                14.0,
+                Align::Left,
+                hl,
+                selected,
+            );
+        }
         if let Some(d) = item.description {
             text(
                 scene,

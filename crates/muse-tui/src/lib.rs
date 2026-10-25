@@ -346,6 +346,22 @@ fn draw_palette(f: &mut Frame, p: &muse_app::Palette, screen: Rect) {
             line.push(' ');
         }
         f.render_widget(Paragraph::new(line).style(style), row);
+        // Highlight the characters that matched what was typed.
+        let hl = if selected {
+            Style::default()
+                .fg(Color::Black)
+                .add_modifier(Modifier::BOLD | Modifier::UNDERLINED)
+        } else {
+            Style::default()
+                .fg(Color::Yellow)
+                .add_modifier(Modifier::BOLD)
+        };
+        for &i in &item.matched {
+            let x = row.x + 1 + i as u16;
+            if x < row.x + row.width {
+                f.buffer_mut().set_style(Rect { x, width: 1, ..row }, hl);
+            }
+        }
         if let Some(d) = item.description.filter(|_| !selected) {
             // Dim the description part.
             let len = d.chars().take(width).count() as u16;

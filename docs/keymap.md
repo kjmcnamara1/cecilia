@@ -149,9 +149,14 @@ description on the right, then each command's arguments — file names for `:ope
 or `<Down>`/`<Up>` move through the list, putting the selected match on the line. `<Enter>`
 runs the line, `<Esc>` closes the palette, `<C-p>`/`<C-n>` recall earlier commands.
 
-Matching ignores letter case unless `ui.completion_ignore_case = false` in `config.toml`.
-`:completion-ignore-case [on|off]` changes it on the fly (without an argument it toggles); bind
-it under `[keymap.command]` to flip it while typing, e.g. `"<C-g>" = "completion-ignore-case"`.
+Matching is **fuzzy** by default: the typed letters may appear anywhere in a candidate, in order
+(`:sd` finds `sync-detect`, `speed-down`), with prefix matches first, then matches at word
+starts and in runs; matched letters are highlighted. One candidate starting with what you typed
+still completes outright on `<Tab>`. Matching also ignores letter case. Turn either off with
+`ui.completion_fuzzy = false` / `ui.completion_ignore_case = false` in `config.toml`, or change
+them on the fly with `:completion-fuzzy [on|off]` and `:completion-ignore-case [on|off]`
+(without an argument they toggle); bind them under `[keymap.command]` to flip them while typing,
+e.g. `"<C-g>" = "completion-ignore-case"`, `"<C-f>" = "completion-fuzzy"`.
 
 | command                                          |                                |
 | ------------------------------------------------ | ------------------------------ |

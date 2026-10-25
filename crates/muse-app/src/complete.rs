@@ -46,6 +46,7 @@ pub const COMMANDS: &[&str] = &[
     "focus-left",
     "focus-right",
     "focus-up",
+    "completion-fuzzy",
     "completion-ignore-case",
     "follow-toggle",
     "gabc",
@@ -182,7 +183,9 @@ fn values(command: &str) -> Option<&'static [&'static str]> {
         ],
         "track-add" => &["bass", "drums", "guitar", "piano", "voice"],
         "volume" => &["audio", "metronome", "midi"],
-        "completion-ignore-case" | "waveform-global" => &["off", "on", "toggle"],
+        "completion-ignore-case" | "completion-fuzzy" | "waveform-global" => {
+            &["off", "on", "toggle"]
+        }
         "duration" => &["1", "2", "4", "8", "16", "32", "64"],
         "tuning" => &[
             "7-string", "bass", "bass5", "d", "dadgad", "drop-d", "eb", "open-d", "open-e",
@@ -223,64 +226,153 @@ pub struct Completions {
     /// Byte offset in the line where the completed word starts.
     pub start: usize,
     pub items: Vec<String>,
+    /// Character positions in each item that matched what was typed (for highlighting).
+    pub positions: Vec<Vec<usize>>,
     /// The candidates are command names (a space follows a unique match).
     pub commands: bool,
 }
 
-/// Whether `candidate` starts with `typed`, optionally ignoring case.
-fn matches(candidate: &str, typed: &str, ignore_case: bool) -> bool {
-    if ignore_case {
-        candidate.to_lowercase().starts_with(&typed.to_lowercase())
-    } else {
-        candidate.starts_with(typed)
+/// How typed text matches candidates.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct Matcher {
+    pub ignore_case: bool,
+    /// The typed characters may be spread through the candidate, in order ("sd" finds
+    /// "sync-detect"); otherwise the candidate must start with them.
+    pub fuzzy: bool,
+}
+
+impl Matcher {
+    fn same(&self, a: char, b: char) -> bool {
+        if self.ignore_case {
+            a.to_lowercase().eq(b.to_lowercase())
+        } else {
+            a == b
+        }
+    }
+
+    /// Whether `candidate` starts with `typed`.
+    pub fn is_prefix(&self, candidate: &str, typed: &str) -> bool {
+        let mut c = candidate.chars();
+        typed
+            .chars()
+            .all(|t| c.next().is_some_and(|x| self.same(x, t)))
+    }
+
+    /// A score for `candidate` against `typed` (higher is better) and the matched character
+    /// positions, or None when it does not match.
+    pub fn score(&self, candidate: &str, typed: &str) -> Option<(i64, Vec<usize>)> {
+        let chars: Vec<char> = candidate.chars().collect();
+        let n = typed.chars().count();
+        if self.is_prefix(candidate, typed) {
+            // Prefix matches first (an exact match before the rest, which keep their order).
+            let exact = chars.len() == n;
+            return Some((1_000_000 + i64::from(exact), (0..n).collect()));
+        }
+        if !self.fuzzy {
+            return None;
+        }
+        // In-order subsequence, preferring word starts and runs of consecutive characters.
+        let boundary =
+            |i: usize| i == 0 || matches!(chars[i - 1], '-' | '_' | ' ' | '/' | '.' | '(' | '[');
+        let mut positions = Vec::with_capacity(n);
+        let mut from = 0;
+        for t in typed.chars() {
+            let candidates: Vec<usize> = (from..chars.len())
+                .filter(|&i| self.same(chars[i], t))
+                .collect();
+            let first = *candidates.first()?;
+            // Take a later word-start occurrence over an earlier mid-word one, unless the
+            // earlier one continues a run.
+            let continues = positions.last().is_some_and(|&p: &usize| p + 1 == first);
+            let pick = if continues {
+                first
+            } else {
+                candidates
+                    .iter()
+                    .copied()
+                    .find(|&i| boundary(i))
+                    .unwrap_or(first)
+            };
+            positions.push(pick);
+            from = pick + 1;
+        }
+        let mut score = 0i64;
+        for (k, &p) in positions.iter().enumerate() {
+            score += 16;
+            if boundary(p) {
+                score += 10;
+            }
+            if k > 0 && positions[k - 1] + 1 == p {
+                score += 8;
+            }
+        }
+        score -= positions.last().map_or(0, |&l| l as i64 - n as i64 + 1);
+        score -= chars.len() as i64 / 4;
+        Some((score, positions))
+    }
+
+    /// The candidates that match, best first (prefix matches in their given order).
+    fn rank(
+        &self,
+        items: impl IntoIterator<Item = String>,
+        typed: &str,
+    ) -> Vec<(String, Vec<usize>)> {
+        let mut scored: Vec<(i64, usize, String, Vec<usize>)> = items
+            .into_iter()
+            .enumerate()
+            .filter_map(|(i, item)| {
+                let (score, pos) = self.score(&item, typed)?;
+                Some((score, i, item, pos))
+            })
+            .collect();
+        // Equal scores keep the given order (alphabetical, folders first).
+        scored.sort_by(|a, b| b.0.cmp(&a.0).then(a.1.cmp(&b.1)));
+        scored
+            .into_iter()
+            .map(|(_, _, item, pos)| (item, pos))
+            .collect()
+    }
+}
+
+fn completions(start: usize, ranked: Vec<(String, Vec<usize>)>, commands: bool) -> Completions {
+    let (items, positions) = ranked.into_iter().unzip();
+    Completions {
+        start,
+        items,
+        positions,
+        commands,
     }
 }
 
 /// Candidates for the word being typed at the end of `line`. `score_dir` is the folder of the
 /// current score (for `:audio`).
-pub fn complete(
-    line: &str,
-    cwd: &Path,
-    score_dir: Option<&Path>,
-    ignore_case: bool,
-) -> Completions {
+pub fn complete(line: &str, cwd: &Path, score_dir: Option<&Path>, m: Matcher) -> Completions {
     let lead = line.len() - line.trim_start_matches([':', ' ']).len();
     let body = &line[lead..];
     let Some(space) = body.find(char::is_whitespace) else {
-        let mut items: Vec<String> = COMMANDS
-            .iter()
-            .filter(|c| matches(c, body, ignore_case))
-            .map(|c| c.to_string())
-            .collect();
-        items.sort();
-        return Completions {
-            start: lead,
-            items,
-            commands: true,
-        };
+        let mut names: Vec<String> = COMMANDS.iter().map(|c| c.to_string()).collect();
+        names.sort();
+        return completions(lead, m.rank(names, body), true);
     };
     let command = &body[..space];
     let rest = &body[space..];
     let arg_start = lead + space + (rest.len() - rest.trim_start().len());
     let arg = &line[arg_start..];
-    let items = match command {
-        "open" | "view-new" => paths(arg, cwd, Some(SCORE_EXTENSIONS), ignore_case),
-        "w" | "write" => paths(arg, cwd, Some(WRITE_EXTENSIONS), ignore_case),
+    let ranked = match command {
+        "open" | "view-new" => paths(arg, cwd, Some(SCORE_EXTENSIONS), m),
+        "w" | "write" => paths(arg, cwd, Some(WRITE_EXTENSIONS), m),
         "workspace-open" | "workspace-open!" | "workspace-save" => {
-            crate::workspace::workspace_names()
-                .into_iter()
-                .filter(|n| matches(n, arg, ignore_case))
-                .collect()
+            m.rank(crate::workspace::workspace_names(), arg)
         }
         "audio" => {
             let mut v = paths(
                 arg,
                 score_dir.unwrap_or(cwd),
                 Some(crate::playalong::AUDIO_EXTENSIONS),
-                ignore_case,
+                m,
             );
-            if matches("off", arg, ignore_case) {
-                v.insert(0, "off".into());
+            if let Some((_, pos)) = m.score("off", arg) {
+                v.insert(0, ("off".into(), pos));
             }
             v
         }
@@ -293,28 +385,21 @@ pub fn complete(
             } else {
                 None
             };
-            let items = list
-                .unwrap_or_default()
-                .iter()
-                .filter(|v| matches(v, word, ignore_case))
-                .map(|v| v.to_string())
-                .collect();
-            return Completions {
-                start: arg_start + word_start,
-                items,
-                commands: false,
-            };
+            let items = list.unwrap_or_default().iter().map(|v| v.to_string());
+            return completions(arg_start + word_start, m.rank(items, word), false);
         }
     };
-    Completions {
-        start: arg_start,
-        items,
-        commands: false,
-    }
+    completions(arg_start, ranked, false)
 }
 
-/// Files and folders matching a typed path (relative to `base`); folders end with `/`.
-fn paths(typed: &str, base: &Path, extensions: Option<&[&str]>, ignore_case: bool) -> Vec<String> {
+/// Files and folders matching a typed path (relative to `base`); folders end with `/`. Only the
+/// last path component is matched.
+fn paths(
+    typed: &str,
+    base: &Path,
+    extensions: Option<&[&str]>,
+    m: Matcher,
+) -> Vec<(String, Vec<usize>)> {
     let (dir_part, prefix) = match typed.rfind('/') {
         Some(i) => (&typed[..=i], &typed[i + 1..]),
         None => ("", typed),
@@ -331,13 +416,11 @@ fn paths(typed: &str, base: &Path, extensions: Option<&[&str]>, ignore_case: boo
     let Ok(entries) = std::fs::read_dir(&dir) else {
         return Vec::new();
     };
-    let mut out: Vec<String> = entries
+    let mut names: Vec<(String, bool)> = entries
         .flatten()
         .filter_map(|e| {
             let name = e.file_name().to_string_lossy().to_string();
-            if !matches(&name, prefix, ignore_case)
-                || (name.starts_with('.') && !prefix.starts_with('.'))
-            {
+            if name.starts_with('.') && !prefix.starts_with('.') {
                 return None;
             }
             let is_dir = e.path().is_dir();
@@ -351,12 +434,22 @@ fn paths(typed: &str, base: &Path, extensions: Option<&[&str]>, ignore_case: boo
                     return None;
                 }
             }
-            Some(format!("{dir_part}{name}{}", if is_dir { "/" } else { "" }))
+            Some((name, is_dir))
         })
         .collect();
-    // Folders first, then files, alphabetically.
-    out.sort_by_key(|p| (!p.ends_with('/'), p.to_lowercase()));
-    out
+    // Folders first, then files, alphabetically (the order among equal scores).
+    names.sort_by_key(|(n, d)| (!d, n.to_lowercase()));
+    let offset = dir_part.chars().count();
+    m.rank(names.iter().map(|(n, _)| n.clone()), prefix)
+        .into_iter()
+        .map(|(name, pos)| {
+            let is_dir = names.iter().any(|(n, d)| *n == name && *d);
+            (
+                format!("{dir_part}{name}{}", if is_dir { "/" } else { "" }),
+                pos.into_iter().map(|p| p + offset).collect(),
+            )
+        })
+        .collect()
 }
 
 /// Longest common prefix of the candidates (compared without case when `ignore_case`), in the
@@ -390,6 +483,47 @@ mod tests {
     use super::*;
     use crate::Command;
 
+    const PREFIX: Matcher = Matcher {
+        ignore_case: false,
+        fuzzy: false,
+    };
+    const NOCASE: Matcher = Matcher {
+        ignore_case: true,
+        fuzzy: false,
+    };
+    const FUZZY: Matcher = Matcher {
+        ignore_case: true,
+        fuzzy: true,
+    };
+
+    #[test]
+    fn fuzzy_matching_ranks_and_marks_characters() {
+        let dir = std::env::temp_dir();
+        // Characters in order anywhere; word starts rank above mid-word matches.
+        let c = complete(":sd", &dir, None, FUZZY);
+        assert_eq!(&c.items[..2], ["sync-detect", "speed-down"]);
+        assert_eq!(c.positions[0], [0, 5]);
+        // Prefix matches come first, the closest first.
+        let c = complete(":sync", &dir, None, FUZZY);
+        assert_eq!(c.items[0], "sync");
+        assert!(c.items.iter().take(5).all(|i| i.starts_with("sync")));
+        // Out-of-order characters do not match; without fuzzy only prefixes do.
+        assert!(complete(":zyx", &dir, None, FUZZY).items.is_empty());
+        assert!(complete(":sd", &dir, None, NOCASE).items.is_empty());
+        // Case follows the case setting.
+        let strict = Matcher {
+            ignore_case: false,
+            fuzzy: true,
+        };
+        assert!(strict.score("sync-detect", "SD").is_none());
+        assert!(FUZZY.score("sync-detect", "SD").is_some());
+        // Argument values too.
+        assert_eq!(
+            complete(":layout hz", &dir, None, FUZZY).items,
+            ["horizontal"]
+        );
+    }
+
     #[test]
     fn every_listed_command_parses() {
         for name in COMMANDS {
@@ -405,31 +539,31 @@ mod tests {
         for f in ["a.gp5", "b.txt", "songs/c.gabc"] {
             std::fs::write(dir.join(f), b"").unwrap();
         }
-        let c = complete(":sync-", &dir, None, false);
+        let c = complete(":sync-", &dir, None, PREFIX);
         assert_eq!(c.items, ["sync-clear", "sync-detect", "sync-tap"]);
         assert_eq!((c.start, c.commands), (1, true));
-        let c = complete(":layout p", &dir, None, false);
+        let c = complete(":layout p", &dir, None, PREFIX);
         assert_eq!(
             (c.start, c.items.as_slice()),
             (8, &["page".to_string()][..])
         );
-        let c = complete(":open ", &dir, None, false);
+        let c = complete(":open ", &dir, None, PREFIX);
         assert_eq!(c.items, ["songs/", "a.gp5"]);
         assert_eq!(
-            complete(":open songs/", &dir, None, false).items,
+            complete(":open songs/", &dir, None, PREFIX).items,
             ["songs/c.gabc"]
         );
-        assert_eq!(complete(":w a", &dir, None, false).items, ["a.gp5"]);
+        assert_eq!(complete(":w a", &dir, None, PREFIX).items, ["a.gp5"]);
         assert_eq!(
             common_prefix(&["sync-clear".into(), "sync-detect".into()], false),
             "sync-"
         );
         // Ignoring case.
         std::fs::write(dir.join("Hymn.gabc"), b"").unwrap();
-        assert!(complete(":open h", &dir, None, false).items.is_empty());
-        assert_eq!(complete(":open h", &dir, None, true).items, ["Hymn.gabc"]);
-        assert_eq!(complete(":LAY", &dir, None, true).items, ["layout"]);
-        assert_eq!(complete(":layout PA", &dir, None, true).items, ["page"]);
+        assert!(complete(":open h", &dir, None, PREFIX).items.is_empty());
+        assert_eq!(complete(":open h", &dir, None, NOCASE).items, ["Hymn.gabc"]);
+        assert_eq!(complete(":LAY", &dir, None, NOCASE).items, ["layout"]);
+        assert_eq!(complete(":layout PA", &dir, None, NOCASE).items, ["page"]);
         assert_eq!(
             common_prefix(&["Song1".into(), "song2".into()], true),
             "Song"
@@ -518,6 +652,7 @@ pub fn describe(command: &str) -> Option<&'static str> {
         "close" | "close-pane" => "Close the pane",
         "command-mode" => "Open the command line",
         "completion-ignore-case" => "Toggle case-insensitive completion",
+        "completion-fuzzy" => "Toggle fuzzy completion (letters in order, anywhere)",
         "count-in" => "Toggle the count-in before playing",
         "delete" => "Delete operator",
         "delete-note" => "Delete the note under the cursor",

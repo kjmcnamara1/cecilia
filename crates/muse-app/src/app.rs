@@ -48,6 +48,8 @@ pub struct PaletteItem {
     pub text: String,
     /// Short description, for command names.
     pub description: Option<&'static str>,
+    /// Character positions that matched the typed text (highlighted).
+    pub matched: Vec<usize>,
 }
 
 #[derive(Debug, Clone)]
@@ -194,6 +196,8 @@ pub struct App {
     pub follow: bool,
     /// Command-line completion ignores case (`ui.completion_ignore_case`).
     pub completion_ignore_case: bool,
+    /// Command-line completion is fuzzy (`ui.completion_fuzzy`).
+    pub completion_fuzzy: bool,
     /// GUI: a waveform bar across the whole window above the status line, for the focused
     /// pane's file (`ui.global_waveform`).
     pub global_waveform: bool,
@@ -222,6 +226,7 @@ impl App {
     pub fn new(config: Config, config_path: Option<PathBuf>) -> Self {
         let follow = config.file.ui.follow_playback;
         let completion_ignore_case = config.file.ui.completion_ignore_case;
+        let completion_fuzzy = config.file.ui.completion_fuzzy;
         let global_waveform = config.file.ui.global_waveform;
         let (score_layout, zoom) = (config.file.ui.layout.clone(), config.file.ui.zoom);
         let config_mtime = config_path.as_deref().and_then(mtime);
@@ -266,6 +271,7 @@ impl App {
             paused: false,
             follow,
             completion_ignore_case,
+            completion_fuzzy,
             global_waveform,
             viewport: Rect {
                 x: 0,
@@ -636,6 +642,7 @@ impl App {
                 self.config = config;
                 self.follow = self.config.file.ui.follow_playback;
                 self.completion_ignore_case = self.config.file.ui.completion_ignore_case;
+                self.completion_fuzzy = self.config.file.ui.completion_fuzzy;
                 self.global_waveform = self.config.file.ui.global_waveform;
                 self.effects.push(Effect::ConfigReloaded);
                 if errors.is_empty() {
@@ -751,13 +758,26 @@ impl App {
             .as_deref()
             .and_then(Path::parent)
             .map(Path::to_path_buf);
-        let c = complete(
-            &self.cmdline,
-            &cwd,
-            score_dir.as_deref(),
-            self.completion_ignore_case,
-        );
+        let c = complete(&self.cmdline, &cwd, score_dir.as_deref(), self.matcher());
         let typed = self.cmdline[c.start..].to_string();
+        // One candidate starting with what was typed completes outright, whatever fuzzy
+        // matching also found.
+        let prefixed: Vec<usize> = (0..c.items.len())
+            .filter(|&i| self.matcher().is_prefix(&c.items[i], &typed))
+            .collect();
+        let unique = match (c.items.len(), prefixed.as_slice()) {
+            (1, _) => Some(0),
+            (_, [only]) if !typed.is_empty() => Some(*only),
+            _ => None,
+        };
+        if let Some(i) = unique {
+            self.cmdline.truncate(c.start);
+            self.cmdline.push_str(&c.items[i]);
+            if c.commands || !c.items[i].ends_with('/') {
+                self.cmdline.push(' ');
+            }
+            return;
+        }
         match c.items.len() {
             0 => self.error(format!("no completions for '{typed}'")),
             1 => {
@@ -768,8 +788,12 @@ impl App {
                 }
             }
             _ => {
+                // Fill in what all candidates share, if that extends what was typed (with fuzzy
+                // matching they may share a start unrelated to it).
                 let prefix = common_prefix(&c.items, self.completion_ignore_case);
-                if prefix.chars().count() > typed.chars().count() {
+                if prefix.chars().count() > typed.chars().count()
+                    && self.matcher().is_prefix(&prefix, &typed)
+                {
                     self.cmdline.truncate(c.start);
                     self.cmdline.push_str(&prefix);
                     self.completion = Some((c, None));
@@ -778,6 +802,14 @@ impl App {
                     self.complete_step(forward);
                 }
             }
+        }
+    }
+
+    /// How completion matches, from the case and fuzzy settings.
+    pub fn matcher(&self) -> crate::complete::Matcher {
+        crate::complete::Matcher {
+            ignore_case: self.completion_ignore_case,
+            fuzzy: self.completion_fuzzy,
         }
     }
 
@@ -794,7 +826,7 @@ impl App {
                 let cwd = std::env::current_dir().unwrap_or_default();
                 let score_dir = self.buffer().path.as_deref().and_then(Path::parent);
                 (
-                    complete(&self.cmdline, &cwd, score_dir, self.completion_ignore_case),
+                    complete(&self.cmdline, &cwd, score_dir, self.matcher()),
                     None,
                 )
             }
@@ -802,9 +834,11 @@ impl App {
         let items = c
             .items
             .into_iter()
-            .map(|text| PaletteItem {
+            .zip(c.positions)
+            .map(|(text, matched)| PaletteItem {
                 description: if c.commands { describe(&text) } else { None },
                 text,
+                matched,
             })
             .collect();
         Some(Palette {
@@ -918,6 +952,15 @@ impl App {
                     }
                 }
                 self.effects.push(Effect::Pause);
+            }
+            CompletionFuzzy(on) => {
+                self.completion_fuzzy = on.unwrap_or(!self.completion_fuzzy);
+                self.completion = None;
+                self.info(if self.completion_fuzzy {
+                    "fuzzy completion on"
+                } else {
+                    "fuzzy completion off (prefix matching)"
+                });
             }
             CompletionIgnoreCase(on) => {
                 self.completion_ignore_case = on.unwrap_or(!self.completion_ignore_case);

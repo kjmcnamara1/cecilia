@@ -115,6 +115,8 @@ pub enum Command {
     LyricsClear(Option<usize>),
     /// Whether command-line completion ignores case: on, off, or toggle (None).
     CompletionIgnoreCase(Option<bool>),
+    /// Whether command-line completion is fuzzy: on, off, or toggle (None).
+    CompletionFuzzy(Option<bool>),
     /// Save the session as a workspace (by name or path; the active one without).
     WorkspaceSave(Option<String>),
     /// Replace the session with a saved workspace (`!` discards unsaved changes).
@@ -455,6 +457,16 @@ impl Command {
                 .transpose()?
                 .map(|n| n.saturating_sub(1)),
             ),
+            "completion-fuzzy" => CompletionFuzzy(match arg {
+                None | Some("toggle") => None,
+                Some("on" | "true" | "yes") => Some(true),
+                Some("off" | "false" | "no") => Some(false),
+                Some(other) => {
+                    return Err(format!(
+                        "completion-fuzzy: expected on, off or toggle, not '{other}'"
+                    ));
+                }
+            }),
             "completion-ignore-case" => CompletionIgnoreCase(match arg {
                 None | Some("toggle") => None,
                 Some("on" | "true" | "yes") => Some(true),
