@@ -211,7 +211,7 @@ untouched original (which may contain data muse does not model) is never rewritt
 | Sync | tap sync points while audio plays |
 
 Vim grammar: `[count] operator motion`, `.` repeat, registers, macros (`q`/`@`), marks, branching
-undo tree (`u`, `<C-r>`, `g-`/`g+`, `:undotree`), leader key with a which-key popup that lists
+undo tree (`u`, `U`, `g-`/`g+`, `:undotree`), leader key with a which-key popup that lists
 available continuations. The default keymap is in [`keymap.md`](keymap.md).
 
 ### 8.3 Mouse
