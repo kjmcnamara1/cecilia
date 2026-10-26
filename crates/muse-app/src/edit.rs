@@ -185,6 +185,86 @@ pub fn set_fret(cx: &mut EditCx, fret: u8, duration: Duration) -> Result<(), Str
     Ok(())
 }
 
+/// Puts `fret` on `string` in the cursor beat (a fretboard click), or takes it off if that note
+/// is there already.
+pub fn toggle_fret(
+    cx: &mut EditCx,
+    string: usize,
+    fret: u8,
+    duration: Duration,
+) -> Result<(), String> {
+    if cx.track().kind != TrackKind::Fretted {
+        return Err("not a fretted track".into());
+    }
+    cx.cursor.string = string;
+    let beat = cx.beat();
+    if let Some(i) = beat
+        .notes
+        .iter()
+        .position(|n| n.string as usize == string && n.fret == fret)
+    {
+        beat.notes.remove(i);
+        return Ok(());
+    }
+    set_fret(cx, fret, duration)
+}
+
+/// Adds `pitch` to the cursor beat as a chord note (a piano click), or takes it off if it's
+/// there. On a fretted track it goes on a free string that can play it, the cursor's first,
+/// then the one needing the lowest fret; on drums it toggles that drum.
+pub fn toggle_pitch(cx: &mut EditCx, pitch: u8, duration: Duration) -> Result<(), String> {
+    let track = cx.track().clone();
+    match track.kind {
+        TrackKind::Drums => return toggle_drum(cx, pitch, duration),
+        TrackKind::Fretted => {}
+        _ => {
+            let beat = cx.beat();
+            ensure_real(beat, duration);
+            if let Some(i) = beat.notes.iter().position(|n| n.fret == pitch) {
+                beat.notes.remove(i);
+            } else {
+                let string = beat.notes.len() as u8;
+                beat.notes.push(Note::new(string, pitch));
+            }
+            return Ok(());
+        }
+    }
+    let cursor_string = cx.string() as usize;
+    let beat = cx.beat();
+    if let Some(i) = beat.notes.iter().position(|n| track.pitch_of(n) == pitch) {
+        beat.notes.remove(i);
+        return Ok(());
+    }
+    let max = track.fret_count.max(24) as i32;
+    let fret_on = |s: usize| {
+        let f = pitch as i32 - track.strings[s] as i32 - track.capo as i32;
+        (0..=max).contains(&f).then_some(f as u8)
+    };
+    let used: Vec<usize> = beat.notes.iter().map(|n| n.string as usize).collect();
+    let free = |s: &usize| !used.contains(s);
+    let string = Some(cursor_string)
+        .filter(|s| *s < track.strings.len() && free(s) && fret_on(*s).is_some())
+        .or_else(|| {
+            (0..track.strings.len())
+                .filter(free)
+                .filter_map(|s| fret_on(s).map(|f| (f, s)))
+                .min()
+                .map(|(_, s)| s)
+        })
+        .ok_or_else(|| format!("no free string can play {}", crate::edit::pitch_name(pitch)))?;
+    let fret = fret_on(string).unwrap();
+    cx.cursor.string = string;
+    set_fret(cx, fret, duration)
+}
+
+/// A pitch's name, e.g. "C#4".
+pub fn pitch_name(pitch: u8) -> String {
+    const NAMES: [&str; 12] = [
+        "C", "C#", "D", "D#", "E", "F", "F#", "G", "G#", "A", "A#", "B",
+    ];
+    format!("{}{}", NAMES[pitch as usize % 12], pitch as i32 / 12 - 1)
+}
+
 pub fn delete_note(cx: &mut EditCx) {
     let string = cx.string();
     let fretted = cx.track().kind == TrackKind::Fretted;

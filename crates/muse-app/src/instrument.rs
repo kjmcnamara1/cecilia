@@ -104,6 +104,28 @@ impl App {
     }
 }
 
+impl App {
+    /// A click on the fretboard at `position` (frets from the nut) on `string`: that note in the
+    /// cursor beat, or off again. Below a capo it is the capo's open string.
+    pub fn click_fret(&mut self, string: usize, position: u8) {
+        let capo = self
+            .buffer()
+            .score
+            .tracks
+            .get(self.pane().cursor.track)
+            .map_or(0, |t| t.capo);
+        let fret = position.saturating_sub(capo);
+        let duration = self.insert_duration();
+        self.edit(|cx| crate::edit::toggle_fret(cx, string, fret, duration));
+    }
+
+    /// A click on a piano key: that pitch in the cursor beat (as a chord note), or off again.
+    pub fn click_key(&mut self, pitch: u8) {
+        let duration = self.insert_duration();
+        self.edit(|cx| crate::edit::toggle_pitch(cx, pitch, duration));
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use crate::keys::parse_keys;
@@ -131,6 +153,30 @@ mod tests {
             .instrument_view(Some((app.pane().buffer, 1, 0)))
             .unwrap();
         assert!(v.notes.is_empty() && v.cursor_string.is_none());
+        // Clicks: a fret puts the note on that string (and again takes it off); a key adds the
+        // pitch on a free string.
+        app.playing = false;
+        app.playing_buffer = None;
+        app.click_fret(2, 4);
+        let notes = |app: &App| {
+            let mut v: Vec<(usize, u8)> = app
+                .instrument_view(None)
+                .unwrap()
+                .notes
+                .iter()
+                .map(|n| (n.string, n.fret))
+                .collect();
+            v.sort();
+            v
+        };
+        assert_eq!(notes(&app), [(0, 3), (1, 5), (2, 4)]);
+        assert_eq!(app.pane().cursor.string, 2);
+        app.click_fret(2, 4);
+        assert_eq!(notes(&app), [(0, 3), (1, 5)]);
+        app.click_key(52); // E3: D string fret 2 (cursor's string G can't, the D string is free)
+        assert!(notes(&app).contains(&(3, 2)), "{:?}", notes(&app));
+        app.click_key(52);
+        assert_eq!(notes(&app), [(0, 3), (1, 5)]);
         // Toggles.
         app.run(Command::Fretboard(None));
         app.run(Command::Piano(Some(true)));

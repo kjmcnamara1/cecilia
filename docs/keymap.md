@@ -178,7 +178,10 @@ keys above the tracks panel, for the focused pane's track: the notes at the edit
 under the playhead while playing — as dots on the neck (named, in the track's colour; the
 cursor's string in the mode colour, a capo across its fret) and as pressed keys. The GUI's neck
 spaces its frets as a real one, with inlays; its piano has all 88 keys. `ui.fretboard` and
-`ui.piano` set the defaults, and workspaces remember them.
+`ui.piano` set the defaults, and workspaces remember them. Clicking a fret puts that note on
+that string in the cursor beat (clicking it again takes it off); clicking a key adds that pitch
+as a chord note on a free string that can play it (the cursor's string first), or toggles that
+drum on a drum track.
 
 ## Tracks panel
 

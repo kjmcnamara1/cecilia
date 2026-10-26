@@ -35,6 +35,9 @@ pub fn run(mut app: App) -> Result<()> {
 /// Mouse state between frames: what was drawn where, and where the mouse is.
 #[derive(Default)]
 struct Ui {
+    /// Fretboard cells (string, frets from the nut) and piano keys (pitch): clicks enter notes.
+    frets: Vec<(Rect, usize, u8)>,
+    keys: Vec<(Rect, u8)>,
     /// The status line's clickable sections, and what they run.
     status: Vec<(Rect, muse_app::Command)>,
     /// The toolbar's buttons (area, index into `App::toolbar_items`), and the hovered one's
@@ -206,6 +209,23 @@ fn event_loop(terminal: &mut DefaultTerminal, app: &mut App) -> Result<()> {
                                 as usize,
                             (first_bar as i64 + bars).max(0) as usize,
                         );
+                    }
+                    // A fret or a piano key enters (or removes) that note at the cursor.
+                    MouseEventKind::Down(MouseButton::Left)
+                        if ui.frets.iter().any(|(r, ..)| contains(*r, m.column, m.row))
+                            || ui.keys.iter().any(|(r, _)| contains(*r, m.column, m.row)) =>
+                    {
+                        if let Some(&(_, string, fret)) = ui
+                            .frets
+                            .iter()
+                            .find(|(r, ..)| contains(*r, m.column, m.row))
+                        {
+                            app.click_fret(string, fret);
+                        } else if let Some(&(_, pitch)) =
+                            ui.keys.iter().find(|(r, _)| contains(*r, m.column, m.row))
+                        {
+                            app.click_key(pitch);
+                        }
                     }
                     // Clickable status sections: layout, workspace, mix, speed.
                     MouseEventKind::Down(MouseButton::Left)
@@ -402,12 +422,14 @@ fn draw(f: &mut Frame, app: &mut App, play: Option<(usize, Location, f64, f64)>,
     if tracks_h > 0 {
         draw_tracks(f, app, tracks, play, ui);
     }
+    ui.frets.clear();
+    ui.keys.clear();
     if let Some(v) = &instrument {
         if fret_h > 0 {
-            draw_fretboard(f, app, v, fretboard);
+            draw_fretboard(f, app, v, fretboard, ui);
         }
         if piano_h > 0 {
-            draw_piano(f, app, v, piano);
+            draw_piano(f, app, v, piano, ui);
         }
     }
 
@@ -668,7 +690,13 @@ fn file_icon(kind: &str, style: &str) -> &'static str {
 
 /// The fretboard: a row per string (open note, nut, a cell per fret) and the fret numbers
 /// under it; the notes at the cursor or playhead are named in the track's colour.
-fn draw_fretboard(f: &mut Frame, app: &App, v: &muse_app::instrument::InstrumentView, area: Rect) {
+fn draw_fretboard(
+    f: &mut Frame,
+    app: &App,
+    v: &muse_app::instrument::InstrumentView,
+    area: Rect,
+    ui: &mut Ui,
+) {
     use muse_app::instrument::NOTE_NAMES;
     let t = &app.config.theme;
     let base = Style::default().bg(rc(t.panel)).fg(rc(t.dim));
@@ -695,10 +723,31 @@ fn draw_fretboard(f: &mut Frame, app: &App, v: &muse_app::instrument::Instrument
         };
         buf.set_string(area.x, y, NOTE_NAMES[open as usize % 12], line);
         buf.set_string(nut, y, "║", base.fg(rc(t.chrome_text)));
+        // Clickable: the open note, then each fret.
+        let cell = |x, width| Rect {
+            x,
+            y,
+            width,
+            height: 1,
+        };
+        ui.frets.push((cell(area.x + 2, 2), s, 0));
+        for k in 1..=frets {
+            ui.frets.push((cell(nut + 1 + (k - 1) * 4, 3), s, k as u8));
+        }
         for k in 1..=frets {
             let x = nut + 1 + (k - 1) * 4;
             buf.set_string(x, y, "───", line);
             buf.set_string(x + 3, y, "│", base);
+        }
+        // A capo: a heavy bar across its fret.
+        if v.capo > 0 && (v.capo as u16) <= frets {
+            let x = nut + v.capo as u16 * 4;
+            buf.set_string(
+                x,
+                y,
+                "┃",
+                base.fg(rc(t.chrome_text)).add_modifier(Modifier::BOLD),
+            );
         }
         for n in v.notes.iter().filter(|n| n.string == s) {
             let name = NOTE_NAMES[n.pitch as usize % 12];
@@ -724,7 +773,13 @@ fn draw_fretboard(f: &mut Frame, app: &App, v: &muse_app::instrument::Instrument
 
 /// The piano: a column per key around the notes (C4 in the middle when there are none); the
 /// notes at the cursor or playhead are in the track's colour.
-fn draw_piano(f: &mut Frame, app: &App, v: &muse_app::instrument::InstrumentView, area: Rect) {
+fn draw_piano(
+    f: &mut Frame,
+    app: &App,
+    v: &muse_app::instrument::InstrumentView,
+    area: Rect,
+    ui: &mut Ui,
+) {
     let t = &app.config.theme;
     let buf = f.buffer_mut();
     buf.set_style(area, Style::default().bg(rc(t.panel)));
@@ -746,6 +801,15 @@ fn draw_piano(f: &mut Frame, app: &App, v: &muse_app::instrument::InstrumentView
         let p = start + i as u8;
         let x = x0 + i;
         let pressed = v.notes.iter().any(|n| n.pitch == p);
+        ui.keys.push((
+            Rect {
+                x,
+                y: area.y,
+                width: 1,
+                height: 2,
+            },
+            p,
+        ));
         let key = if pressed {
             v.color
         } else if is_black(p) {
@@ -1551,6 +1615,27 @@ mod render_tests {
         assert_eq!(fretboard.len(), 6, "{screen}");
         assert!(fretboard[0].contains(" G "), "{screen}");
         assert!(fretboard[1].contains(" E "), "{screen}");
+        // Clicking a fret enters the note; a key adds a chord note.
+        let mut terminal = Terminal::new(TestBackend::new(100, 24)).unwrap();
+        let mut ui = Ui::default();
+        terminal.draw(|f| draw(f, &mut app, None, &mut ui)).unwrap();
+        let &(_, s, k) = ui
+            .frets
+            .iter()
+            .find(|(_, s, k)| *s == 2 && *k == 2)
+            .unwrap();
+        app.click_fret(s, k);
+        let v = app.instrument_view(None).unwrap();
+        assert!(v.notes.iter().any(|n| n.string == 2 && n.fret == 2));
+        // A capo shows as a heavy bar across its fret.
+        let b = app.pane().buffer;
+        app.buffers[b].score.tracks[0].capo = 2;
+        let screen = render(&mut app, 100, 24);
+        assert_eq!(
+            screen.lines().filter(|l| l.contains('┃')).count(),
+            6,
+            "{screen}"
+        );
         // The piano row with octave numbers.
         assert!(
             lines

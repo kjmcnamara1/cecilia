@@ -102,6 +102,10 @@ pub struct Views {
     pub hover: (f64, f64),
     /// Clickable areas of the tabline drawn last frame.
     tabline: Vec<(Rect, TablineHit)>,
+    /// Fretboard cells (string, frets from the nut) and piano keys (pitch) drawn last frame;
+    /// black keys come first, as they lie over the white ones.
+    frets: Vec<(Rect, usize, u8)>,
+    keys: Vec<(Rect, u8)>,
     /// The status line's clickable sections drawn last frame, and what they run.
     status: Vec<(Rect, muse_app::Command)>,
     /// The toolbar's buttons drawn last frame (area, index into `App::toolbar_items`).
@@ -617,18 +621,16 @@ pub fn build(
     views.chrome_bottom = top;
     let panels_top = bottom - tracks_h - piano_h - fret_h;
     let main = Rect::new(0.0, top, width, panels_top);
+    views.frets.clear();
+    views.keys.clear();
     if let Some(v) = &instrument {
         if fret_h > 0.0 {
-            draw_fretboard(
-                scene,
-                app,
-                v,
-                Rect::new(0.0, panels_top, width, panels_top + fret_h),
-            );
+            let r = Rect::new(0.0, panels_top, width, panels_top + fret_h);
+            draw_fretboard(scene, app, views, v, r);
         }
         if piano_h > 0.0 {
             let y = panels_top + fret_h;
-            draw_piano_panel(scene, app, v, Rect::new(0.0, y, width, y + piano_h));
+            draw_piano_panel(scene, app, views, v, Rect::new(0.0, y, width, y + piano_h));
         }
     }
     views.tracks.clear();
@@ -2284,7 +2286,13 @@ fn fretboard_height(v: &muse_app::instrument::InstrumentView) -> f64 {
 
 /// The fretboard: the track's strings and frets (spaced as on a real neck), inlays, and the
 /// notes at the cursor or playhead as dots in the track's colour with their names.
-fn draw_fretboard(scene: &mut Scene, app: &App, v: &muse_app::instrument::InstrumentView, r: Rect) {
+fn draw_fretboard(
+    scene: &mut Scene,
+    app: &App,
+    views: &mut Views,
+    v: &muse_app::instrument::InstrumentView,
+    r: Rect,
+) {
     use muse_app::instrument::NOTE_NAMES;
     let th = &app.config.theme;
     fill(scene, r, col(th.panel));
@@ -2372,9 +2380,18 @@ fn draw_fretboard(scene: &mut Scene, app: &App, v: &muse_app::instrument::Instru
             &RoundedRect::new(x - 3.0, top - 7.0, x + 3.0, bottom + 7.0, 3.0),
         );
     }
-    // Strings (thicker going down), with their open notes on the left.
+    // Strings (thicker going down), with their open notes on the left. Each string's cells
+    // (open, then fret by fret) can be clicked.
+    let half = (bottom - top) / (n.max(2) - 1) as f64 / 2.0;
     for (s, &open) in v.strings.iter().enumerate() {
         let y = string_y(s);
+        views
+            .frets
+            .push((Rect::new(left - 24.0, y - half, left, y + half), s, 0));
+        for k in 1..=v.frets {
+            let cell = Rect::new(fret_x(k as f64 - 1.0), y - half, fret_x(k as f64), y + half);
+            views.frets.push((cell, s, k));
+        }
         let w = 0.8 + s as f64 * 0.25;
         let cursor = v.cursor_string == Some(s);
         let c = if cursor {
@@ -2434,6 +2451,7 @@ fn draw_fretboard(scene: &mut Scene, app: &App, v: &muse_app::instrument::Instru
 fn draw_piano_panel(
     scene: &mut Scene,
     app: &App,
+    views: &mut Views,
     v: &muse_app::instrument::InstrumentView,
     r: Rect,
 ) {
@@ -2451,9 +2469,11 @@ fn draw_piano_panel(
     let black = th.ink.mix(th.page, 0.15);
     // White keys, with C names under middle C's octave marks.
     let mut x = x0;
+    let mut white_keys = Vec::new();
     let mut white_x = std::collections::HashMap::new();
     for p in (lo..=hi).filter(|&p| !is_black(p)) {
         white_x.insert(p, x);
+        white_keys.push((Rect::new(x, top, x + kw, bottom), p));
         let c = if pressed(p) { v.color } else { white };
         scene.fill(
             Fill::NonZero,
@@ -2482,6 +2502,10 @@ fn draw_piano_panel(
             continue;
         };
         let bx = wx + kw * 0.68;
+        views.keys.push((
+            Rect::new(bx, top, bx + kw * 0.64, top + (bottom - top) * 0.62),
+            p,
+        ));
         let c = if pressed(p) { v.color } else { black };
         scene.fill(
             Fill::NonZero,
@@ -2491,6 +2515,8 @@ fn draw_piano_panel(
             &RoundedRect::new(bx, top, bx + kw * 0.64, top + (bottom - top) * 0.62, 1.5),
         );
     }
+    // Black keys lie over white ones: they are hit first.
+    views.keys.extend(white_keys);
 }
 
 /// A piano keyboard (the synth plays), as the 󰣱 glyph.
@@ -2876,6 +2902,15 @@ impl Views {
         }
         if let Some((_, cmd)) = self.status.iter().find(|(r, _)| r.contains((x, y))) {
             app.run(cmd.clone());
+            return;
+        }
+        // A fret or a piano key enters (or removes) that note at the cursor.
+        if let Some(&(_, string, fret)) = self.frets.iter().find(|(r, ..)| r.contains((x, y))) {
+            app.click_fret(string, fret);
+            return;
+        }
+        if let Some(&(_, pitch)) = self.keys.iter().find(|(r, _)| r.contains((x, y))) {
+            app.click_key(pitch);
             return;
         }
         if self.click_tracks(app, x, y) {
