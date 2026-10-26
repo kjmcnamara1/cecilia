@@ -31,7 +31,23 @@ pub struct ConfigFile {
     pub audio: AudioConfig,
     pub theme: crate::theme::ThemeConfig,
     pub toolbar: ToolbarConfig,
+    pub statusline: StatuslineConfig,
     pub keymap: KeymapConfig,
+}
+
+/// The status line: how its sections are separated: "arrow" (default), "round" or "none".
+#[derive(Debug, Clone, Deserialize)]
+#[serde(default, deny_unknown_fields)]
+pub struct StatuslineConfig {
+    pub separators: String,
+}
+
+impl Default for StatuslineConfig {
+    fn default() -> Self {
+        Self {
+            separators: "arrow".into(),
+        }
+    }
 }
 
 /// The toolbar's buttons: command lines in order, `"|"` between groups.
@@ -541,6 +557,12 @@ impl Config {
         keymaps.insert(Mode::Command, command);
         let (theme, theme_errors) = crate::theme::Theme::from_config(&file.theme);
         errors.extend(theme_errors);
+        if !["arrow", "round", "none"].contains(&file.statusline.separators.as_str()) {
+            errors.push(format!(
+                "statusline.separators: '{}' is not arrow, round or none",
+                file.statusline.separators
+            ));
+        }
         for item in &file.toolbar.items {
             if item.trim() != "|" {
                 if let Err(e) = Command::parse(item) {

@@ -10,7 +10,8 @@ follow_playback = true   # the cursor and view move with the playhead (red bar) 
 hide_cursor_while_following = true   # …and only the red bar shows then (the edit cursor hides)
 completion_ignore_case = true   # Tab completion on the command line ignores letter case
 completion_fuzzy = true         # …and matches the typed letters in order anywhere ("sd" → sync-detect)
-global_waveform = false  # waveform bar across the window bottom for the focused file
+global_waveform = false  # waveform bar across the window bottom for the focused file (replaces the
+                         # per-pane strips; :waveform then toggles it)
 tracks_panel = false     # the tracks panel (mixer and bar overview) at the window bottom
 toolbar = true           # the toolbar of common commands at the top of the window (:toolbar, <leader>B)
 tracks_peek = 1.0        # seconds the hidden tracks panel shows when the track changes (0: never)
@@ -43,6 +44,7 @@ preset = "dark"
 # selection = "#965adc"
 # tab = "#34373f"             # buffer tabs
 # tab_hover = "#484b56"
+# status_b = "#3c3f49"        # the status line's second sections (layout, progress)
 # toolbar = "#2e3037"
 # button_hover = "#484b56"
 # panel = "#1e2025"           # tracks panel, waveform bar
@@ -57,6 +59,9 @@ preset = "dark"
 # mode_normal = "#5a96e6"     # also mode_insert, mode_visual, mode_command, mode_picker, mode_tracks
 # icon_guitar_pro = "#f08c32" # also icon_musicxml, icon_midi, icon_chant, icon_muse
 # track_colors = ["#e05050", "#e0a030", "#50b060", "#4090e0"]   # instead of the spectrum
+
+[statusline]
+separators = "arrow"     # between sections, as lualine: "arrow", "round" or "none"
 
 [toolbar]
 # The toolbar's buttons: commands as typed after ":", "|" between groups (ui.toolbar shows it).

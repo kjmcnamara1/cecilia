@@ -1380,8 +1380,8 @@ fn draw_pane(
         false,
     );
     let mut content = Rect::new(rect.x0 + 2.0, rect.y0 + TITLE, rect.x1 - 2.0, rect.y1 - 2.0);
-    let waveform =
-        (pane.waveform && score.audio.is_some() && content.height() > 200.0).then(|| {
+    let waveform = (app.pane_waveform(&pane) && score.audio.is_some() && content.height() > 200.0)
+        .then(|| {
             let wave_h = app.waveform_height as f64;
             let strip = Rect::new(content.x0, content.y1 - wave_h, content.x1, content.y1);
             content.y1 -= wave_h + 2.0;
@@ -2040,6 +2040,9 @@ fn draw_command_line(scene: &mut Scene, app: &App, width: f64, height: f64) {
     }
 }
 
+/// The status line, as lualine.nvim: mode, layout, workspace and file on the left; the rest of
+/// the state, progress and `bar:beat` on the right, in coloured sections with the separators
+/// of `[statusline] separators` (arrow, round or none).
 fn draw_status(
     scene: &mut Scene,
     app: &App,
@@ -2047,110 +2050,145 @@ fn draw_status(
     width: f64,
     height: f64,
 ) {
+    use muse_app::statusline::{SegKind, Segment, StatusIcon};
     let y0 = height - STATUS - CMDLINE;
+    let (top, bottom) = (y0, y0 + STATUS);
     fill(scene, Rect::new(0.0, y0, width, height), chrome());
-    let label = match app.mode {
-        Mode::Normal => " NORMAL ",
-        Mode::Command => " COMMAND ",
-        Mode::Insert => " INSERT ",
-        Mode::Visual => " VISUAL ",
-        Mode::Picker => " PICK ",
-        Mode::Tracks => " TRACKS ",
+    let line = app.statusline(play.map(|(_, _, now, total)| (now, total)), true);
+    let th = app.config.theme.clone();
+    let mode = th.mode_color(app.mode);
+    let sep = app.config.file.statusline.separators.clone();
+    let bg_of = |k: SegKind| match k {
+        SegKind::Mode => mode,
+        SegKind::ModeText | SegKind::B => th.status_b,
+        SegKind::Plain => th.chrome,
     };
-    let color = tc(|t| t.mode_color(app.mode));
-    let w = muse_engrave::fonts::fonts().text_width(FontKind::Bold, label, 13.0) + 8.0;
-    scene.fill(
-        Fill::NonZero,
-        Affine::IDENTITY,
-        color,
-        None,
-        &RoundedRect::new(6.0, y0 + 4.0, 6.0 + w, y0 + STATUS - 4.0, 4.0),
-    );
-    text(
-        scene,
-        label,
-        10.0,
-        y0 + 17.5,
-        13.0,
-        Align::Left,
-        text_on(color),
-        true,
-    );
-    let pane = app.pane();
-    let score = &app.buffer().score;
-    let mut left = score.meta.title.clone();
-    if !score.meta.artist.is_empty() {
-        left.push_str(&format!(" — {}", score.meta.artist));
+    let fg_of = |k: SegKind| match k {
+        SegKind::Mode => th.text_on(mode),
+        SegKind::ModeText => mode,
+        SegKind::B | SegKind::Plain => th.chrome_text,
+    };
+    let fonts = muse_engrave::fonts::fonts();
+    const PAD: f64 = 10.0;
+    const ICON: f64 = 18.0;
+    let tip = STATUS / 2.0;
+    let seg_width = |seg: &Segment| {
+        let font = if seg.bold {
+            FontKind::Bold
+        } else {
+            FontKind::Text
+        };
+        fonts.text_width(font, &seg.text, 13.0)
+            + 2.0 * PAD
+            + if seg.icon.is_some() { ICON } else { 0.0 }
+    };
+    // A section's block; with round separators coloured sections are pills.
+    let block = |scene: &mut Scene, x0: f64, x1: f64, kind: SegKind| {
+        if kind == SegKind::Plain {
+            return;
+        }
+        let r = if sep == "round" { STATUS / 2.0 } else { 0.0 };
+        let gap = if sep == "none" { 3.0 } else { 0.0 };
+        scene.fill(
+            Fill::NonZero,
+            Affine::IDENTITY,
+            col(bg_of(kind)),
+            None,
+            &RoundedRect::new(x0 + gap, top, x1 - gap, bottom, r),
+        );
+    };
+    let label = |scene: &mut Scene, x: f64, seg: &Segment| {
+        let color = col(fg_of(seg.kind));
+        let mut tx = x + PAD;
+        if seg.icon == Some(StatusIcon::Workspace) {
+            draw_workspace_icon(scene, tx, (top + bottom) / 2.0, color);
+            tx += ICON;
+        }
+        text(
+            scene,
+            &seg.text,
+            tx,
+            top + 17.5,
+            13.0,
+            Align::Left,
+            color,
+            seg.bold,
+        );
+    };
+    // An arrow from a section into the next: pointing right on the left side, left on the
+    // right side.
+    let arrow = |scene: &mut Scene, x: f64, kind: SegKind, rightwards: bool| {
+        let mut p = BezPath::new();
+        if rightwards {
+            p.move_to((x, top));
+            p.line_to((x + tip, top + STATUS / 2.0));
+            p.line_to((x, bottom));
+        } else {
+            p.move_to((x, top));
+            p.line_to((x - tip, top + STATUS / 2.0));
+            p.line_to((x, bottom));
+        }
+        p.close_path();
+        scene.fill(Fill::NonZero, Affine::IDENTITY, col(bg_of(kind)), None, &p);
+    };
+
+    // Right side first, from the right edge (section x gives way when narrow).
+    let mut x = width;
+    let mut placed = Vec::new();
+    for seg in line.right.iter().rev().filter(|s| !s.text.is_empty()) {
+        let w = seg_width(seg);
+        let extra = if sep == "arrow" && seg.kind != SegKind::Plain {
+            tip
+        } else {
+            0.0
+        };
+        if x - w - extra < width * 0.45 {
+            continue;
+        }
+        x -= w;
+        placed.push((x, w, seg));
+        x -= extra;
     }
-    text(
-        scene,
-        &left,
-        20.0 + w,
-        y0 + 17.5,
-        13.0,
-        Align::Left,
-        chrome_text(),
-        false,
-    );
-    let mut right = String::new();
-    if !score.tracks.is_empty() {
-        right.push_str(&format!(
-            "bar {}/{}  beat {}  string {}  tempo {}",
-            pane.cursor.bar + 1,
-            score.master_bars.len(),
-            pane.cursor.beat + 1,
-            pane.cursor.string + 1,
-            score.tempo
-        ));
+    let right_x = x;
+    for &(x, w, seg) in &placed {
+        block(scene, x, x + w, seg.kind);
+        if sep == "arrow" && seg.kind != SegKind::Plain {
+            arrow(scene, x, seg.kind, false);
+        }
+        label(scene, x, seg);
     }
-    if let Some((_, _, t, total)) = play {
-        let f = |t: f64| format!("{}:{:02}", t as u64 / 60, t as u64 % 60);
-        right.push_str(&format!(
-            "   {} {}/{}",
-            if app.playing { "▶" } else { "⏸" },
-            f(t),
-            f(total)
-        ));
+
+    // Left side.
+    let mut x = 0.0;
+    for (i, seg) in line.left.iter().enumerate() {
+        let w = seg_width(seg);
+        if x + w > right_x - 8.0 {
+            break;
+        }
+        block(scene, x, x + w, seg.kind);
+        label(scene, x, seg);
+        x += w;
+        let next = line.left.get(i + 1).map_or(SegKind::Plain, |n| n.kind);
+        if sep == "arrow" && seg.kind != SegKind::Plain && bg_of(next) != bg_of(seg.kind) {
+            arrow(scene, x, seg.kind, true);
+            x += tip;
+        }
     }
-    right.push_str("   ");
-    right.push_str(&app.pa.status(
-        app.config.file.audio.speed,
-        app.buffer().score.audio.is_some(),
-    ));
-    if let Some(r) = app.recording_macro() {
-        right.push_str(&format!("   recording @{r}"));
-    }
-    if app.mode == Mode::Insert {
-        let d = app.insert_duration();
-        right.push_str(&format!(
-            "   new beats: 1/{}{}",
-            d.value.denominator(),
-            ".".repeat(d.dots as usize)
-        ));
-    }
-    if app.buffer().modified {
-        right.push_str("   [+]");
-    }
-    if let Some(ws) = app.workspace_name() {
-        right.push_str(&format!("   ws:{ws}"));
-    }
-    right.push_str(&format!(
-        "   {}  {:.0}%",
-        mode_tag(app.pane()),
-        app.zoom * 100.0
-    ));
-    text(
-        scene,
-        &right,
-        width - 12.0,
-        y0 + 17.5,
-        13.0,
-        Align::Right,
-        chrome_text(),
-        false,
-    );
 
     draw_command_line(scene, app, width, height);
+}
+
+/// A small briefcase: the workspace.
+fn draw_workspace_icon(scene: &mut Scene, x: f64, cy: f64, color: Color) {
+    let body = RoundedRect::new(x, cy - 4.0, x + 13.0, cy + 6.0, 1.5);
+    scene.stroke(&Stroke::new(1.5), Affine::IDENTITY, color, None, &body);
+    let mut handle = BezPath::new();
+    handle.move_to((x + 4.0, cy - 4.0));
+    handle.line_to((x + 4.0, cy - 6.5));
+    handle.line_to((x + 9.0, cy - 6.5));
+    handle.line_to((x + 9.0, cy - 4.0));
+    scene.stroke(&Stroke::new(1.5), Affine::IDENTITY, color, None, &handle);
+    fill(scene, Rect::new(x, cy - 0.3, x + 13.0, cy + 0.9), color);
 }
 
 fn command_name(cmd: &muse_app::Command) -> String {

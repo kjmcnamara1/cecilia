@@ -474,6 +474,12 @@ impl App {
             && self.playing_buffer == Some(buffer)
     }
 
+    /// Whether a pane shows its own waveform strip: not when the window waveform bar is
+    /// configured (`ui.global_waveform`), which takes its place.
+    pub fn pane_waveform(&self, pane: &Pane) -> bool {
+        pane.waveform && !self.config.file.ui.global_waveform
+    }
+
     /// Whether the tracks panel is on screen: shown, or peeking after a change of track.
     pub fn tracks_shown(&self) -> bool {
         self.tracks_panel || self.tracks_peeking()
@@ -1972,7 +1978,15 @@ mod tests {
         app.run(Command::WaveformGlobal(Some(false)));
         assert!(!app.global_waveform);
         let (config, _) = Config::parse("[ui]\nglobal_waveform = true\n").unwrap();
-        assert!(App::new(config, None).global_waveform);
+        let mut app = App::new(config, None);
+        assert!(app.global_waveform);
+        // With the window bar configured, panes have no strip of their own and :waveform
+        // toggles the bar.
+        assert!(!app.pane_waveform(app.pane()));
+        app.run(Command::Waveform);
+        assert!(!app.global_waveform && !app.pane_waveform(app.pane()));
+        app.run(Command::Waveform);
+        assert!(app.global_waveform);
     }
 
     #[test]

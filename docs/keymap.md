@@ -34,7 +34,7 @@ Items marked _(M1)_ are implemented in the first milestone; the rest are the pla
 | `<leader>-` / `<leader>=`   | speed −5% / +5%                                                                                                                                                                                                         | _(M5)_ |
 | `<leader>a`                 | cycle mix: audio + MIDI / audio only / MIDI only                                                                                                                                                                        | _(M5)_ |
 | `<leader>t`                 | sync tap: place the next bar at the current audio time                                                                                                                                                                  | _(M5)_ |
-| `<leader>w`                 | show / hide the waveform strip of the focused pane (GUI)                                                                                                                                                                | _(M5)_ |
+| `<leader>w`                 | show / hide the waveform strip of the focused pane (GUI); with `ui.global_waveform = true` panes have no strip and this toggles the window waveform bar instead | _(M5)_ |
 | `<leader>v`                 | cycle the focused pane's score layout (vertical / page / horizontal); new splits and views copy it                                                                                                                      | _(M3)_ |
 | `<C-=>` / `<C-->` / `<C-0>` | zoom in / out / reset (GUI; also Ctrl+wheel)                                                                                                                                                                            | _(M3)_ |
 
@@ -138,6 +138,16 @@ view pickers also work while a song plays.
 | `<leader>?` | find a key binding (keymaps picker) |        |
 | `ZZ`        | write and quit   |        |
 | `<C-q>`     | quit muse (`:quitall`; not while files have unsaved changes) | |
+
+## Status line
+
+As lualine.nvim: on the left the mode (in its colour), the pane's layout (in the mode's colour),
+the workspace and the file (● when changed); on the right the tuning, tempo, play time,
+play-along settings, macro recording, insert note length and zoom, then the position as
+`Top` / `NN%` / `Bot` and `bar:beat` in the mode's colour. `[statusline] separators` chooses
+`arrow` (default), `round` or `none` between sections; the terminal draws arrows and rounds
+with Nerd Font glyphs when `tabline.icons = "nerd"`, flat blocks otherwise. `theme.status_b`
+colours the second sections.
 
 ## Toolbar
 
@@ -301,7 +311,7 @@ flat or natural when needed), `x` deletes it and `u` undoes, as on any track.
 | `:loop [a b]` / `:loop-toggle`             | loop bars a–b (1-based), or the selection / cursor bar                                                                                                                                                   |
 | `:trainer start target step`               | speed trainer: start at `start`%, add `step`% each loop up to `target`% (e.g. `:trainer 60 100 5`)                                                                                                       |
 | `:pitch {semitones}`                       | shift the recording's pitch (−12…12, keeps tempo)                                                                                                                                                        |
-| `:metronome` / `:count-in` / `:waveform`   | toggles (`:waveform` only in the focused pane)                                                                                                                                                           |
+| `:metronome` / `:count-in` / `:waveform`   | toggles (`:waveform`: the focused pane's strip, or the window bar when `ui.global_waveform` is set) |
 | `:waveform-global [on\|off]`               | a waveform bar across the window above the status line, for the focused pane's file, marking the play position (or the cursor when stopped); no argument toggles (`ui.global_waveform` sets the default) |
 | `:export {file}`                           | export by extension                                                                                                                                                                                      |
 | `:layout [page\|vertical\|horizontal]`     | GUI score layout of the focused pane _(M3)_                                                                                                                                                              |

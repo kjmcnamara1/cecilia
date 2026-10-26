@@ -1062,86 +1062,109 @@ fn draw_tracks(
     }
 }
 
-fn fmt_time(t: f64) -> String {
-    let t = t.max(0.0) as u64;
-    format!("{}:{:02}", t / 60, t % 60)
-}
-
+/// The status line, as lualine.nvim: mode, layout, workspace and file on the left; the rest of
+/// the state, progress and `bar:beat` on the right, in coloured sections.
 fn draw_status(f: &mut Frame, app: &App, play: Option<(usize, Location, f64, f64)>, area: Rect) {
+    use muse_app::statusline::{SegKind, Segment, StatusIcon};
     let t = &app.config.theme;
-    let mode = match app.mode {
-        Mode::Normal => " NORMAL ",
-        Mode::Insert => " INSERT ",
-        Mode::Visual => " VISUAL ",
-        Mode::Command => " COMMAND ",
-        Mode::Picker => " PICK ",
-        Mode::Tracks => " TRACKS ",
+    let line = app.statusline(play.map(|(_, _, now, total)| (now, total)), false);
+    let icons = app.config.file.tabline.icons.as_str();
+    // Powerline separators need a Nerd/Powerline font: only with Nerd Font icons.
+    let seps = match (app.config.file.statusline.separators.as_str(), icons) {
+        ("arrow", "nerd") => Some(("\u{e0b0}", "\u{e0b2}")),
+        ("round", "nerd") => Some(("\u{e0b4}", "\u{e0b6}")),
+        _ => None,
     };
-    let color = t.mode_color(app.mode);
-    let mode_style = on(app, color);
-    let pane = app.pane();
-    let score = &app.buffer().score;
-    let mut right = String::new();
-    if let Some(t) = score.tracks.get(pane.cursor.track) {
-        let tuning: Vec<&str> = t
-            .strings
-            .iter()
-            .rev()
-            .map(|&p| {
-                [
-                    "C", "C#", "D", "D#", "E", "F", "F#", "G", "G#", "A", "A#", "B",
-                ][p as usize % 12]
-            })
-            .collect();
-        if t.kind != muse_core::TrackKind::Drums {
-            right.push_str(&tuning.join(" "));
-            if t.capo > 0 {
-                right.push_str(&format!(" capo {}", t.capo));
-            }
-            right.push_str("  ");
-        }
-        right.push_str(&format!(
-            "bar {}/{}  beat {}  str {}  ♩={}",
-            pane.cursor.bar + 1,
-            score.master_bars.len(),
-            pane.cursor.beat + 1,
-            pane.cursor.string + 1,
-            score.tempo
-        ));
-    }
-    if let Some((_, _, t, total)) = play {
-        let icon = if app.playing { "▶" } else { "⏸" };
-        right.push_str(&format!("  {icon} {}/{}", fmt_time(t), fmt_time(total)));
-    }
-    right.push_str("  ");
-    right.push_str(
-        &app.pa
-            .status(app.config.file.audio.speed, score.audio.is_some()),
-    );
-    if let Some(ws) = app.workspace_name() {
-        right.push_str(&format!("  ws:{ws}"));
-    }
-    if app.follow {
-        right.push_str("  follow");
-    }
-    let line = Line::from(vec![
-        Span::styled(mode, mode_style.add_modifier(Modifier::BOLD)),
-        Span::raw(" "),
-        Span::styled(
-            score.meta.title.clone(),
-            Style::default().fg(rc(app.config.theme.chrome_text)),
-        ),
-        Span::raw(if score.meta.artist.is_empty() {
-            String::new()
+    let mode = t.mode_color(app.mode);
+    let bg_of = |k: SegKind| match k {
+        SegKind::Mode => mode,
+        SegKind::ModeText | SegKind::B => t.status_b,
+        SegKind::Plain => t.chrome,
+    };
+    let style_of = |seg: &Segment| {
+        let bg = bg_of(seg.kind);
+        let fg = match seg.kind {
+            SegKind::Mode => t.text_on(mode),
+            SegKind::ModeText => mode,
+            SegKind::B | SegKind::Plain => t.chrome_text,
+        };
+        let st = Style::default().fg(rc(fg)).bg(rc(bg));
+        if seg.bold {
+            st.add_modifier(Modifier::BOLD)
         } else {
-            format!(" — {}", score.meta.artist)
-        }),
-    ]);
-    let bg = Style::default()
-        .bg(rc(app.config.theme.chrome))
-        .fg(rc(app.config.theme.chrome_text));
-    f.render_widget(Paragraph::new(line).style(bg), area);
-    f.render_widget(Paragraph::new(right + " ").right_aligned().style(bg), area);
+            st
+        }
+    };
+    let text_of = |seg: &Segment| {
+        let icon = match (seg.icon, icons) {
+            (Some(StatusIcon::Workspace), "nerd") => "\u{f0b1} ",
+            (Some(StatusIcon::Workspace), "unicode") => "⌂ ",
+            (Some(StatusIcon::Workspace), _) => "ws ",
+            (None, _) => "",
+        };
+        format!(" {icon}{} ", seg.text)
+    };
+    let width = |s: &str| s.chars().count() as u16;
+    let buf = f.buffer_mut();
+    let base = Style::default().bg(rc(t.chrome)).fg(rc(t.chrome_text));
+    buf.set_style(area, base);
+    for x in area.x..area.x + area.width {
+        buf[(x, area.y)].set_symbol(" ");
+    }
+    let end = area.x + area.width;
+
+    // Right side first (it keeps its place; the left gives way when narrow).
+    let mut right_x = end;
+    let mut prev_bg = t.chrome;
+    let right: Vec<&Segment> = line.right.iter().filter(|s| !s.text.is_empty()).collect();
+    let mut placed = Vec::new();
+    for seg in right.iter().rev() {
+        let text = text_of(seg);
+        let sep_w = u16::from(seps.is_some() && seg.kind != SegKind::Plain);
+        let w = width(&text) + sep_w;
+        if w + 20 > right_x.saturating_sub(area.x) {
+            continue;
+        }
+        right_x -= w;
+        placed.push((right_x, *seg, text));
+    }
+    for (x, seg, text) in placed.iter().rev() {
+        let bg = bg_of(seg.kind);
+        let mut x = *x;
+        if let (Some((_, left_sep)), true) = (seps, seg.kind != SegKind::Plain) {
+            buf.set_string(
+                x,
+                area.y,
+                left_sep,
+                Style::default().fg(rc(bg)).bg(rc(prev_bg)),
+            );
+            x += 1;
+        }
+        buf.set_string(x, area.y, text, style_of(seg));
+        prev_bg = bg;
+    }
+
+    // Left side.
+    let mut x = area.x;
+    let segs: Vec<&Segment> = line.left.iter().collect();
+    for (i, seg) in segs.iter().enumerate() {
+        let text = text_of(seg);
+        let room = right_x.saturating_sub(x + 1);
+        if room == 0 {
+            break;
+        }
+        let shown: String = text.chars().take(room as usize).collect();
+        buf.set_string(x, area.y, &shown, style_of(seg));
+        x += width(&shown);
+        let bg = bg_of(seg.kind);
+        let next = segs.get(i + 1).map_or(t.chrome, |n| bg_of(n.kind));
+        if let Some((sep, _)) = seps {
+            if bg != next && x < right_x {
+                buf.set_string(x, area.y, sep, Style::default().fg(rc(bg)).bg(rc(next)));
+                x += 1;
+            }
+        }
+    }
 }
 
 fn draw_cmdline(f: &mut Frame, app: &App, area: Rect) {
@@ -1308,6 +1331,28 @@ mod render_tests {
         let screen = render(&mut app, 120, 20);
         let first = screen.lines().next().unwrap();
         assert!(!first.contains(" save "), "{screen}");
+    }
+
+    #[test]
+    fn the_status_line_has_lualine_sections() {
+        let mut app = App::new(muse_app::Config::default(), None);
+        app.run(muse_app::Command::New);
+        let mut terminal = Terminal::new(TestBackend::new(100, 12)).unwrap();
+        let mut ui = Ui::default();
+        terminal.draw(|f| draw(f, &mut app, None, &mut ui)).unwrap();
+        let buf = terminal.backend().buffer().clone();
+        let y = 10;
+        let row: String = (0..100).map(|x| buf[(x, y)].symbol().to_string()).collect();
+        // The mode keeps its colour (it used to be painted over).
+        let mode = rc(app.config.theme.mode_color(muse_app::Mode::Normal));
+        assert!(row.starts_with(" NORMAL "), "{row}");
+        assert_eq!(buf[(1, y)].bg, mode);
+        assert!(row.contains("vertical"), "{row}");
+        // Arrow separators with Nerd Font icons; the location on the mode colour at the end.
+        assert_eq!(buf[(8, y)].symbol(), "\u{e0b0}");
+        assert!(row.trim_end().ends_with("1:1"), "{row}");
+        assert_eq!(buf[(98, y)].bg, mode);
+        assert!(row.contains("Top"), "{row}");
     }
 
     fn render(app: &mut App, w: u16, h: u16) -> String {
@@ -1502,7 +1547,7 @@ mod render_tests {
         assert!(screen.contains("Lead"), "{screen}");
         assert!(screen.contains("12"), "{screen}");
         assert!(screen.contains("NORMAL"), "{screen}");
-        assert!(screen.contains("bar 1/6"), "{screen}");
+        assert!(screen.contains(" 1:1 "), "{screen}");
         // The tab of the file playing audio is marked.
         assert!(!screen.contains("▶"), "{screen}");
         app.playing_buffer = Some(0);

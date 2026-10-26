@@ -51,7 +51,13 @@ impl Default for PlayAlong {
 impl PlayAlong {
     /// Status-line summary: speed, mix, metronome, count-in, loop, pitch and sync tapping.
     pub fn status(&self, speed: f64, has_audio: bool) -> String {
-        let mut s = format!("{:.0}%", speed * 100.0);
+        format!("{:.0}%{}", speed * 100.0, self.flags(has_audio))
+    }
+
+    /// The play-along settings that are on (mix, click, count-in, loop, pitch, sync tap), each
+    /// after two spaces.
+    pub fn flags(&self, has_audio: bool) -> String {
+        let mut s = String::new();
         if has_audio {
             s.push_str(&format!(
                 "  mix:{}",
@@ -311,6 +317,11 @@ impl App {
                 self.info("sync points cleared");
             }
             SyncDetect => self.effects.push(Effect::SyncDetect),
+            // With the window waveform bar configured (ui.global_waveform), :waveform toggles
+            // that bar rather than adding a second waveform in the pane.
+            Waveform if self.config.file.ui.global_waveform => {
+                self.run(WaveformGlobal(None));
+            }
             Waveform => {
                 let pane = self.pane_mut();
                 pane.waveform = !pane.waveform;
