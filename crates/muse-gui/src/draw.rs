@@ -102,6 +102,8 @@ pub struct Views {
     pub hover: (f64, f64),
     /// Clickable areas of the tabline drawn last frame.
     tabline: Vec<(Rect, TablineHit)>,
+    /// The status line's clickable sections drawn last frame, and what they run.
+    status: Vec<(Rect, muse_app::Command)>,
     /// The toolbar's buttons drawn last frame (area, index into `App::toolbar_items`).
     toolbar: Vec<(Rect, usize)>,
     /// The button under the mouse and since when (its tooltip shows after a moment).
@@ -687,7 +689,7 @@ pub fn build(
             }
         }
     }
-    draw_status(scene, app, play, width, height);
+    draw_status(scene, app, views, play, width, height);
     if !app.pending.is_empty() {
         draw_which_key(scene, app, main);
     }
@@ -2053,6 +2055,7 @@ fn draw_command_line(scene: &mut Scene, app: &App, width: f64, height: f64) {
 fn draw_status(
     scene: &mut Scene,
     app: &App,
+    views: &mut Views,
     play: Option<(usize, Location, f64, f64)>,
     width: f64,
     height: f64,
@@ -2155,6 +2158,14 @@ fn draw_status(
         );
     };
 
+    views.status.clear();
+    let mut hit = |x: f64, w: f64, seg: &Segment| {
+        if let Some(cmd) = &seg.action {
+            views
+                .status
+                .push((Rect::new(x, y0, x + w, y0 + STATUS), cmd.clone()));
+        }
+    };
     // Right side first, from the right edge (section x gives way when narrow).
     let mut x = width - GAP;
     for seg in line
@@ -2169,6 +2180,7 @@ fn draw_status(
         }
         x -= w;
         draw(scene, x, w, seg);
+        hit(x, w, seg);
         x -= GAP;
     }
     let right_x = x;
@@ -2181,6 +2193,7 @@ fn draw_status(
             break;
         }
         draw(scene, x, w, seg);
+        hit(x, w, seg);
         x += w + GAP;
     }
 
@@ -2609,6 +2622,10 @@ impl Views {
     pub fn click(&mut self, app: &mut App, x: f64, y: f64) {
         if let Some(&(_, i)) = self.toolbar.iter().find(|(r, _)| r.contains((x, y))) {
             app.run_toolbar(i);
+            return;
+        }
+        if let Some((_, cmd)) = self.status.iter().find(|(r, _)| r.contains((x, y))) {
+            app.run(cmd.clone());
             return;
         }
         if self.click_tracks(app, x, y) {

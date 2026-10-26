@@ -35,6 +35,8 @@ pub fn run(mut app: App) -> Result<()> {
 /// Mouse state between frames: what was drawn where, and where the mouse is.
 #[derive(Default)]
 struct Ui {
+    /// The status line's clickable sections, and what they run.
+    status: Vec<(Rect, muse_app::Command)>,
     /// The toolbar's buttons (area, index into `App::toolbar_items`), and the hovered one's
     /// tooltip.
     toolbar: Vec<(Rect, usize)>,
@@ -204,6 +206,18 @@ fn event_loop(terminal: &mut DefaultTerminal, app: &mut App) -> Result<()> {
                                 as usize,
                             (first_bar as i64 + bars).max(0) as usize,
                         );
+                    }
+                    // Clickable status sections: layout, workspace, mix, speed.
+                    MouseEventKind::Down(MouseButton::Left)
+                        if ui.status.iter().any(|(r, _)| contains(*r, m.column, m.row)) =>
+                    {
+                        let cmd = ui
+                            .status
+                            .iter()
+                            .find(|(r, _)| contains(*r, m.column, m.row))
+                            .map(|(_, c)| c.clone())
+                            .unwrap();
+                        app.run(cmd);
                     }
                     MouseEventKind::Down(MouseButton::Left)
                         if ui
@@ -451,7 +465,7 @@ fn draw(f: &mut Frame, app: &mut App, play: Option<(usize, Location, f64, f64)>,
         }
     }
 
-    draw_status(f, app, play, status);
+    draw_status(f, app, play, status, ui);
     draw_cmdline(f, app, cmdline);
     // The hovered toolbar button's tooltip, on the command line.
     if let Some(tip) = ui.tooltip.clone() {
@@ -1071,7 +1085,13 @@ fn draw_tracks(
 
 /// The status line, as lualine.nvim: mode, layout, workspace and file on the left; the rest of
 /// the state, progress and `bar:beat` on the right, in coloured sections.
-fn draw_status(f: &mut Frame, app: &App, play: Option<(usize, Location, f64, f64)>, area: Rect) {
+fn draw_status(
+    f: &mut Frame,
+    app: &App,
+    play: Option<(usize, Location, f64, f64)>,
+    area: Rect,
+    ui: &mut Ui,
+) {
     use muse_app::statusline::{SegKind, Segment, StatusIcon};
     let t = &app.config.theme;
     let line = app.statusline(play.map(|(_, _, now, total)| (now, total)), false);
@@ -1124,6 +1144,7 @@ fn draw_status(f: &mut Frame, app: &App, play: Option<(usize, Location, f64, f64
         format!(" {icon}{} ", seg.text)
     };
     let width = |s: &str| s.chars().count() as u16;
+    ui.status.clear();
     let buf = f.buffer_mut();
     let base = Style::default().bg(rc(t.chrome)).fg(rc(t.chrome_text));
     buf.set_style(area, base);
@@ -1164,6 +1185,15 @@ fn draw_status(f: &mut Frame, app: &App, play: Option<(usize, Location, f64, f64
             x += 1;
         }
         buf.set_string(x, area.y, text, style_of(seg));
+        if let Some(cmd) = &seg.action {
+            let r = Rect {
+                x,
+                y: area.y,
+                width: width(text),
+                height: 1,
+            };
+            ui.status.push((r, cmd.clone()));
+        }
         prev_bg = bg;
     }
 
@@ -1178,6 +1208,15 @@ fn draw_status(f: &mut Frame, app: &App, play: Option<(usize, Location, f64, f64
         }
         let shown: String = text.chars().take(room as usize).collect();
         buf.set_string(x, area.y, &shown, style_of(seg));
+        if let Some(cmd) = &seg.action {
+            let r = Rect {
+                x,
+                y: area.y,
+                width: width(&shown),
+                height: 1,
+            };
+            ui.status.push((r, cmd.clone()));
+        }
         x += width(&shown);
         let bg = bg_of(seg.kind);
         let next = segs.get(i + 1).map_or(t.chrome, |n| bg_of(n.kind));
@@ -1376,6 +1415,20 @@ mod render_tests {
         assert!(row.trim_end().ends_with("1:1"), "{row}");
         assert_eq!(buf[(98, y)].bg, mode);
         assert!(row.contains("Top"), "{row}");
+        // Clicking the layout section cycles the pane's layout.
+        let (_, cmd) = ui
+            .status
+            .iter()
+            .find(|(r, _)| {
+                (r.x..r.x + r.width)
+                    .map(|x| buf[(x, y)].symbol())
+                    .collect::<String>()
+                    .contains("vertical")
+            })
+            .cloned()
+            .unwrap();
+        app.run(cmd);
+        assert_eq!(app.pane().layout, "page");
         // The tempo as a quarter note (Nerd Font glyph) and its value.
         assert!(row.contains("\u{f038b}=120"), "{row}");
     }

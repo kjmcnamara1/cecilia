@@ -144,7 +144,9 @@ view pickers also work while a song plays.
 As lualine.nvim: on the left the mode (in its colour), the pane's layout (in the mode's colour),
 the workspace and the file (● when changed); on the right the tempo, play time, play-along
 settings, macro recording, insert note length and zoom, then the position as `Top` / `NN%` /
-`Bot` and `bar:beat` in the mode's colour. The GUI draws coloured sections as rounded chips;
+`Bot` and `bar:beat` in the mode's colour. Click the layout to cycle it, the workspace to pick
+another, the mix icon (󰣱 synth, 󰝚 audio, 󰣱 +󰝚 both) to cycle what plays, and the speed (󰓅) or
+zoom (shown only when not 100%) to reset it to 100%. The GUI draws coloured sections as rounded chips;
 in the terminal `[statusline] separators` chooses `arrow` (default), `round` or `none` between
 them (Nerd Font glyphs when `tabline.icons = "nerd"`, flat blocks otherwise). `theme.status_b`
 colours the second sections. The tuning and capo of a fretted track are printed under the

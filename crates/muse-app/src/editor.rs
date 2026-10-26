@@ -899,6 +899,7 @@ impl App {
             }
             Speed(pct) => {
                 self.config.file.audio.speed = (*pct as f64 / 100.0).clamp(0.1, 4.0);
+                self.effects.push(crate::app::Effect::PlaybackSettings);
                 self.info(format!("playback speed {pct}%"));
             }
             _ => return false,
