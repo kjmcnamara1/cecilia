@@ -1360,13 +1360,21 @@ fn draw_pane(
         &RoundedRect::from_rect(rect, 6.0),
     );
     let title = match score.tracks.get(pane.cursor.track) {
-        Some(t) => format!(
-            "{} — {}/{}  {}",
-            buffer.name,
-            pane.cursor.track + 1,
-            score.tracks.len(),
-            t.name.trim()
-        ),
+        Some(t) => {
+            // The horizontal layout has no header on the score: its tuning goes here.
+            let tuning = t
+                .tuning_text()
+                .filter(|_| pane.layout == "horizontal")
+                .map(|s| format!("  ·  {s}"))
+                .unwrap_or_default();
+            format!(
+                "{} — {}/{}  {}{tuning}",
+                buffer.name,
+                pane.cursor.track + 1,
+                score.tracks.len(),
+                t.name.trim()
+            )
+        }
         None => buffer.name.clone(),
     };
     text(
@@ -2041,8 +2049,7 @@ fn draw_command_line(scene: &mut Scene, app: &App, width: f64, height: f64) {
 }
 
 /// The status line, as lualine.nvim: mode, layout, workspace and file on the left; the rest of
-/// the state, progress and `bar:beat` on the right, in coloured sections with the separators
-/// of `[statusline] separators` (arrow, round or none).
+/// the state, progress and `bar:beat` on the right. Coloured sections are rounded chips.
 fn draw_status(
     scene: &mut Scene,
     app: &App,
@@ -2052,12 +2059,10 @@ fn draw_status(
 ) {
     use muse_app::statusline::{SegKind, Segment, StatusIcon};
     let y0 = height - STATUS - CMDLINE;
-    let (top, bottom) = (y0, y0 + STATUS);
     fill(scene, Rect::new(0.0, y0, width, height), chrome());
     let line = app.statusline(play.map(|(_, _, now, total)| (now, total)), true);
     let th = app.config.theme.clone();
     let mode = th.mode_color(app.mode);
-    let sep = app.config.file.statusline.separators.clone();
     let bg_of = |k: SegKind| match k {
         SegKind::Mode => mode,
         SegKind::ModeText | SegKind::B => th.status_b,
@@ -2069,9 +2074,10 @@ fn draw_status(
         SegKind::B | SegKind::Plain => th.chrome_text,
     };
     let fonts = muse_engrave::fonts::fonts();
-    const PAD: f64 = 10.0;
+    // Chips have a little padding inside; plain sections a little more room around them.
+    const PAD: f64 = 5.0;
+    const GAP: f64 = 6.0;
     const ICON: f64 = 18.0;
-    let tip = STATUS / 2.0;
     let seg_width = |seg: &Segment| {
         let font = if seg.bold {
             FontKind::Bold
@@ -2082,97 +2088,56 @@ fn draw_status(
             + 2.0 * PAD
             + if seg.icon.is_some() { ICON } else { 0.0 }
     };
-    // A section's block; with round separators coloured sections are pills.
-    let block = |scene: &mut Scene, x0: f64, x1: f64, kind: SegKind| {
-        if kind == SegKind::Plain {
-            return;
+    let draw = |scene: &mut Scene, x: f64, w: f64, seg: &Segment| {
+        if seg.kind != SegKind::Plain {
+            scene.fill(
+                Fill::NonZero,
+                Affine::IDENTITY,
+                col(bg_of(seg.kind)),
+                None,
+                &RoundedRect::new(x, y0 + 4.0, x + w, y0 + STATUS - 4.0, 4.0),
+            );
         }
-        let r = if sep == "round" { STATUS / 2.0 } else { 0.0 };
-        let gap = if sep == "none" { 3.0 } else { 0.0 };
-        scene.fill(
-            Fill::NonZero,
-            Affine::IDENTITY,
-            col(bg_of(kind)),
-            None,
-            &RoundedRect::new(x0 + gap, top, x1 - gap, bottom, r),
-        );
-    };
-    let label = |scene: &mut Scene, x: f64, seg: &Segment| {
         let color = col(fg_of(seg.kind));
         let mut tx = x + PAD;
         if seg.icon == Some(StatusIcon::Workspace) {
-            draw_workspace_icon(scene, tx, (top + bottom) / 2.0, color);
+            draw_workspace_icon(scene, tx, y0 + STATUS / 2.0, color);
             tx += ICON;
         }
         text(
             scene,
             &seg.text,
             tx,
-            top + 17.5,
+            y0 + 17.5,
             13.0,
             Align::Left,
             color,
             seg.bold,
         );
     };
-    // An arrow from a section into the next: pointing right on the left side, left on the
-    // right side.
-    let arrow = |scene: &mut Scene, x: f64, kind: SegKind, rightwards: bool| {
-        let mut p = BezPath::new();
-        if rightwards {
-            p.move_to((x, top));
-            p.line_to((x + tip, top + STATUS / 2.0));
-            p.line_to((x, bottom));
-        } else {
-            p.move_to((x, top));
-            p.line_to((x - tip, top + STATUS / 2.0));
-            p.line_to((x, bottom));
-        }
-        p.close_path();
-        scene.fill(Fill::NonZero, Affine::IDENTITY, col(bg_of(kind)), None, &p);
-    };
 
     // Right side first, from the right edge (section x gives way when narrow).
-    let mut x = width;
-    let mut placed = Vec::new();
+    let mut x = width - GAP;
     for seg in line.right.iter().rev().filter(|s| !s.text.is_empty()) {
         let w = seg_width(seg);
-        let extra = if sep == "arrow" && seg.kind != SegKind::Plain {
-            tip
-        } else {
-            0.0
-        };
-        if x - w - extra < width * 0.45 {
+        if x - w < width * 0.45 {
             continue;
         }
         x -= w;
-        placed.push((x, w, seg));
-        x -= extra;
+        draw(scene, x, w, seg);
+        x -= GAP;
     }
     let right_x = x;
-    for &(x, w, seg) in &placed {
-        block(scene, x, x + w, seg.kind);
-        if sep == "arrow" && seg.kind != SegKind::Plain {
-            arrow(scene, x, seg.kind, false);
-        }
-        label(scene, x, seg);
-    }
 
     // Left side.
-    let mut x = 0.0;
-    for (i, seg) in line.left.iter().enumerate() {
+    let mut x = GAP;
+    for seg in &line.left {
         let w = seg_width(seg);
-        if x + w > right_x - 8.0 {
+        if x + w > right_x - GAP {
             break;
         }
-        block(scene, x, x + w, seg.kind);
-        label(scene, x, seg);
-        x += w;
-        let next = line.left.get(i + 1).map_or(SegKind::Plain, |n| n.kind);
-        if sep == "arrow" && seg.kind != SegKind::Plain && bg_of(next) != bg_of(seg.kind) {
-            arrow(scene, x, seg.kind, true);
-            x += tip;
-        }
+        draw(scene, x, w, seg);
+        x += w + GAP;
     }
 
     draw_command_line(scene, app, width, height);

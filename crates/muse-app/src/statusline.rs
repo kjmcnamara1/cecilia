@@ -74,10 +74,6 @@ pub fn progress(bar: usize, bars: usize) -> String {
     }
 }
 
-const NOTES: [&str; 12] = [
-    "C", "C#", "D", "D#", "E", "F", "F#", "G", "G#", "A", "A#", "B",
-];
-
 fn fmt_time(t: f64) -> String {
     let t = t.max(0.0) as u64;
     format!("{}:{:02}", t / 60, t % 60)
@@ -108,20 +104,8 @@ impl App {
 
         // Section x: everything else, plainly.
         let mut x: Vec<String> = Vec::new();
-        if let Some(t) = score.tracks.get(pane.cursor.track) {
-            if t.kind != muse_core::TrackKind::Drums && !t.strings.is_empty() {
-                let tuning: Vec<&str> = t
-                    .strings
-                    .iter()
-                    .rev()
-                    .map(|&p| NOTES[p as usize % 12])
-                    .collect();
-                let mut s = tuning.join(" ");
-                if t.capo > 0 {
-                    s.push_str(&format!(" capo {}", t.capo));
-                }
-                x.push(s);
-            }
+        // (Tuning and capo are shown at the top of the score.)
+        if !score.tracks.is_empty() {
             x.push(format!("{} bpm", score.tempo));
         }
         if let Some((t, total)) = play {

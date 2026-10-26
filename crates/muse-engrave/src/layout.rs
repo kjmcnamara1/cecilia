@@ -774,6 +774,17 @@ impl Ctx<'_> {
                 Align::Left,
             );
         }
+        // The tuning (low string first) and capo of a fretted track, as Guitar Pro prints it.
+        if let Some(tuning) = self.track.tuning_text() {
+            y += 3.0 * sp;
+            page.text(
+                FontKind::Text,
+                tuning,
+                (self.o.margin, y),
+                2.2 * sp,
+                Align::Left,
+            );
+        }
         y + 4.0 * sp
     }
 

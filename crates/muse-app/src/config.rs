@@ -35,7 +35,8 @@ pub struct ConfigFile {
     pub keymap: KeymapConfig,
 }
 
-/// The status line: how its sections are separated: "arrow" (default), "round" or "none".
+/// The status line: how the terminal separates its sections: "arrow" (default), "round" or
+/// "none" (the GUI draws rounded chips).
 #[derive(Debug, Clone, Deserialize)]
 #[serde(default, deny_unknown_fields)]
 pub struct StatuslineConfig {

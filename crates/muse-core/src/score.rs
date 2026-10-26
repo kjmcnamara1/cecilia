@@ -271,6 +271,27 @@ pub struct Track {
 }
 
 impl Track {
+    /// "Tuning: E A D G B E" (low string first), with ", capo N", for fretted tracks.
+    pub fn tuning_text(&self) -> Option<String> {
+        const NAMES: [&str; 12] = [
+            "C", "C#", "D", "D#", "E", "F", "F#", "G", "G#", "A", "A#", "B",
+        ];
+        if self.kind != TrackKind::Fretted || self.strings.is_empty() {
+            return None;
+        }
+        let notes: Vec<&str> = self
+            .strings
+            .iter()
+            .rev()
+            .map(|&p| NAMES[p as usize % 12])
+            .collect();
+        let mut s = format!("Tuning: {}", notes.join(" "));
+        if self.capo > 0 {
+            s.push_str(&format!(", capo {}", self.capo));
+        }
+        Some(s)
+    }
+
     /// Sounding MIDI pitch of a note.
     pub fn pitch_of(&self, note: &Note) -> u8 {
         if self.kind != TrackKind::Fretted {
@@ -631,6 +652,19 @@ impl Score {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn tuning_text_reads_low_to_high_with_capo() {
+        let mut t = Track {
+            strings: vec![64, 59, 55, 50, 45, 38],
+            ..Track::default()
+        };
+        assert_eq!(t.tuning_text().unwrap(), "Tuning: D A D G B E");
+        t.capo = 2;
+        assert_eq!(t.tuning_text().unwrap(), "Tuning: D A D G B E, capo 2");
+        t.kind = TrackKind::Drums;
+        assert!(t.tuning_text().is_none());
+    }
 
     #[test]
     fn pitch_with_capo() {

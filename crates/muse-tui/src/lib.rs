@@ -381,18 +381,25 @@ fn draw(f: &mut Frame, app: &mut App, play: Option<(usize, Location, f64, f64)>,
         let pane = app.panes[&id].clone();
         let buffer = &app.buffers[pane.buffer];
         let track = buffer.score.tracks.get(pane.cursor.track);
+        // The track, and its tuning and capo (at the top of the score).
         let title = match track {
-            Some(t) => format!(
-                " {} — {}/{} {} ",
-                buffer.name,
-                pane.cursor.track + 1,
-                buffer.score.tracks.len(),
-                if t.name.is_empty() {
-                    "Track"
-                } else {
-                    t.name.trim()
-                }
-            ),
+            Some(t) => {
+                let tuning = t
+                    .tuning_text()
+                    .map(|s| format!(" · {}", s.trim_start_matches("Tuning: ")))
+                    .unwrap_or_default();
+                format!(
+                    " {} — {}/{} {}{tuning} ",
+                    buffer.name,
+                    pane.cursor.track + 1,
+                    buffer.score.tracks.len(),
+                    if t.name.is_empty() {
+                        "Track"
+                    } else {
+                        t.name.trim()
+                    }
+                )
+            }
             None => format!(" {} ", buffer.name),
         };
         let border_style = if id == focused && app.mode != Mode::Tracks {

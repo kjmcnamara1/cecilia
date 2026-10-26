@@ -142,12 +142,14 @@ view pickers also work while a song plays.
 ## Status line
 
 As lualine.nvim: on the left the mode (in its colour), the pane's layout (in the mode's colour),
-the workspace and the file (● when changed); on the right the tuning, tempo, play time,
-play-along settings, macro recording, insert note length and zoom, then the position as
-`Top` / `NN%` / `Bot` and `bar:beat` in the mode's colour. `[statusline] separators` chooses
-`arrow` (default), `round` or `none` between sections; the terminal draws arrows and rounds
-with Nerd Font glyphs when `tabline.icons = "nerd"`, flat blocks otherwise. `theme.status_b`
-colours the second sections.
+the workspace and the file (● when changed); on the right the tempo, play time, play-along
+settings, macro recording, insert note length and zoom, then the position as `Top` / `NN%` /
+`Bot` and `bar:beat` in the mode's colour. The GUI draws coloured sections as rounded chips;
+in the terminal `[statusline] separators` chooses `arrow` (default), `round` or `none` between
+them (Nerd Font glyphs when `tabline.icons = "nerd"`, flat blocks otherwise). `theme.status_b`
+colours the second sections. The tuning and capo of a fretted track are printed under the
+track name at the top of the score (and in the pane title in the terminal and in the GUI's
+horizontal layout).
 
 ## Toolbar
 

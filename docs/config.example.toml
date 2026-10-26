@@ -61,7 +61,8 @@ preset = "dark"
 # track_colors = ["#e05050", "#e0a030", "#50b060", "#4090e0"]   # instead of the spectrum
 
 [statusline]
-separators = "arrow"     # between sections, as lualine: "arrow", "round" or "none"
+separators = "arrow"     # terminal: between sections, as lualine: "arrow", "round" or "none"
+                         # (the GUI draws rounded chips)
 
 [toolbar]
 # The toolbar's buttons: commands as typed after ":", "|" between groups (ui.toolbar shows it).
