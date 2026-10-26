@@ -143,6 +143,8 @@ pub enum Command {
     /// Show or hide the fretboard / piano panel (no argument: toggle).
     Fretboard(Option<bool>),
     Piano(Option<bool>),
+    /// Show or hide the tuner (it listens to the default audio input while shown).
+    Tuner(Option<bool>),
     /// Show or hide the toolbar (no argument: toggle).
     Toolbar(Option<bool>),
     /// Focus the tracks panel, or give the focus back to the score.
@@ -645,17 +647,17 @@ impl Command {
                 Some(a) => return Err(format!("tracks: '{a}' is not on or off")),
             }),
             "tracks-focus" => TracksFocus,
-            "fretboard" | "piano" => {
+            "fretboard" | "piano" | "tuner" => {
                 let on = match arg {
                     None => None,
                     Some("on") => Some(true),
                     Some("off") => Some(false),
                     Some(a) => return Err(format!("{name}: '{a}' is not on or off")),
                 };
-                if name == "piano" {
-                    Piano(on)
-                } else {
-                    Fretboard(on)
+                match name {
+                    "piano" => Piano(on),
+                    "tuner" => Tuner(on),
+                    _ => Fretboard(on),
                 }
             }
             "toolbar" => Toolbar(match arg {

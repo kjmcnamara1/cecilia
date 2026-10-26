@@ -75,6 +75,7 @@ separators = "arrow"     # terminal: between sections, as lualine: "arrow", "rou
 [audio]
 # soundfont = "~/soundfonts/GeneralUser-GS.sf2"
 speed = 1.0              # playback speed multiplier
+tuner_a4 = 440.0         # the tuner's reference pitch for A4 (Hz)
 
 # Bindings map key notation to a command, or a list of commands run in order.
 # Use "nop" to remove a default binding. Commands are listed in docs/keymap.md.

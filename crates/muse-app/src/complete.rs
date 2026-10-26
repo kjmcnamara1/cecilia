@@ -99,6 +99,7 @@ pub const COMMANDS: &[&str] = &[
     "toolbar",
     "fretboard",
     "piano",
+    "tuner",
     "buffer-move",
     "buffer-move-next",
     "buffer-move-prev",
@@ -228,7 +229,7 @@ fn values(command: &str) -> Option<&'static [&'static str]> {
         "track-add" => &["bass", "drums", "guitar", "piano", "voice"],
         "volume" => &["audio", "metronome", "midi"],
         "pick" => &["buffer", "keymap", "macro", "mark", "view", "workspace"],
-        "tracks" | "toolbar" | "fretboard" | "piano" => &["off", "on"],
+        "tracks" | "toolbar" | "fretboard" | "piano" | "tuner" => &["off", "on"],
         "track-color" => &["off"],
         "completion-ignore-case" | "completion-fuzzy" | "waveform-global" => {
             &["off", "on", "toggle"]
@@ -760,6 +761,7 @@ pub fn describe(command: &str) -> Option<&'static str> {
         "toolbar" => "Show or hide the toolbar",
         "fretboard" => "Show or hide the fretboard (notes at the cursor or playhead)",
         "piano" => "Show or hide the piano keys (notes at the cursor or playhead)",
+        "tuner" => "Show or hide the tuner (listens to the audio input)",
         "buffer-move" | "tab-move" => "Move this file's tab: to position N, or by +N / -N",
         "buffer-move-next" => "Move this file's tab one place right",
         "buffer-move-prev" => "Move this file's tab one place left",

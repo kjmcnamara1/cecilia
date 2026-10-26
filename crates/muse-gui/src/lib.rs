@@ -355,6 +355,14 @@ impl ApplicationHandler for Gui {
             event_loop.set_control_flow(ControlFlow::WaitUntil(
                 Instant::now() + Duration::from_millis(16),
             ));
+        } else if self.app.tuner_panel {
+            // The tuner's needle moves with what it hears.
+            if let Some(gpu) = &self.gpu {
+                gpu.window.request_redraw();
+            }
+            event_loop.set_control_flow(ControlFlow::WaitUntil(
+                Instant::now() + Duration::from_millis(33),
+            ));
         } else if self.views.tooltip_pending() {
             // A toolbar tooltip waits to show.
             if let Some(gpu) = &self.gpu {

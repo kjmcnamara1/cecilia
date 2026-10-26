@@ -126,10 +126,92 @@ impl App {
     }
 }
 
+/// What the tuner shows for a reading.
+#[derive(Debug, Clone, PartialEq)]
+pub struct TunerView {
+    pub freq: f32,
+    /// The nearest note ("A") and its octave.
+    pub note: &'static str,
+    pub octave: i32,
+    /// How far from that note, in cents (−50 to +50).
+    pub cents: f32,
+    /// The nearest open string of the track's tuning: its index (0 = highest), its note
+    /// name and octave, and how far from it in cents.
+    pub string: Option<(usize, &'static str, i32, f32)>,
+}
+
+/// Reads a frequency as a note against a reference A4, and the nearest open string.
+pub fn tuner_view(freq: f32, a4: f64, strings: &[u8]) -> TunerView {
+    let midi = 69.0 + 12.0 * (freq as f64 / a4).log2();
+    let nearest = midi.round();
+    let pc = (nearest as i64).rem_euclid(12) as usize;
+    let string = strings
+        .iter()
+        .enumerate()
+        .min_by(|a, b| {
+            (midi - *a.1 as f64)
+                .abs()
+                .total_cmp(&(midi - *b.1 as f64).abs())
+        })
+        .filter(|(_, open)| (midi - **open as f64).abs() < 6.0)
+        .map(|(i, &open)| {
+            (
+                i,
+                NOTE_NAMES[open as usize % 12],
+                open as i32 / 12 - 1,
+                ((midi - open as f64) * 100.0) as f32,
+            )
+        });
+    TunerView {
+        freq,
+        note: NOTE_NAMES[pc],
+        octave: nearest as i32 / 12 - 1,
+        cents: ((midi - nearest) * 100.0) as f32,
+        string,
+    }
+}
+
+impl App {
+    /// The tuner's reading for display, against the focused track's tuning.
+    pub fn tuner_view(&self) -> Option<TunerView> {
+        let r = self.tuner_reading?;
+        let track = self.buffer().score.tracks.get(self.pane().cursor.track);
+        let strings: Vec<u8> = track
+            .filter(|t| t.kind == TrackKind::Fretted)
+            .map(|t| t.strings.iter().map(|&p| p + t.capo).collect())
+            .unwrap_or_default();
+        Some(tuner_view(
+            r.freq,
+            self.config.file.audio.tuner_a4,
+            &strings,
+        ))
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use crate::keys::parse_keys;
     use crate::{App, Command, Config};
+
+    #[test]
+    fn the_tuner_names_the_note_and_the_nearest_string() {
+        use super::tuner_view;
+        let standard = [64, 59, 55, 50, 45, 40];
+        let v = tuner_view(110.0, 440.0, &standard);
+        assert_eq!((v.note, v.octave), ("A", 2));
+        assert!(v.cents.abs() < 0.01);
+        assert_eq!(v.string.map(|s| (s.0, s.1, s.2)), Some((4, "A", 2)));
+        // A flat low E: 81 Hz is about −30 cents from E2.
+        let v = tuner_view(81.0, 440.0, &standard);
+        assert_eq!((v.note, v.octave), ("E", 2));
+        assert!((v.cents + 30.0).abs() < 2.0, "{}", v.cents);
+        assert_eq!(v.string.unwrap().0, 5);
+        // With A4 = 432 Hz, 864 Hz is an A5 in tune, too high for any open string.
+        let v = tuner_view(864.0, 432.0, &standard);
+        assert_eq!(v.note, "A");
+        assert!(v.cents.abs() < 0.01);
+        assert!(v.string.is_none());
+    }
 
     #[test]
     fn the_panels_show_the_cursors_notes_or_the_playheads() {

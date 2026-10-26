@@ -183,6 +183,14 @@ that string in the cursor beat (clicking it again takes it off); clicking a key 
 as a chord note on a free string that can play it (the cursor's string first), or toggles that
 drum on a drum track.
 
+## Tuner
+
+`<leader>u` (`:tuner [on|off]`) shows a tuner above the other panels and listens to the default
+audio input (a microphone or an instrument input) while it is shown. It names the note it
+hears, shows how many cents off it is on a −50…+50 scale (green within 3 cents, then yellow,
+red past 15), the frequency, and the nearest open string of the focused track's tuning (capo
+included) and how far from it. `audio.tuner_a4` sets the reference pitch (440 Hz).
+
 ## Tracks panel
 
 `<leader>T` shows or hides the tracks panel at the bottom of the window (`ui.tracks_panel` sets

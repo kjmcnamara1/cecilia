@@ -107,7 +107,7 @@ fn event_loop(terminal: &mut DefaultTerminal, app: &mut App) -> Result<()> {
         }
         terminal.draw(|f| draw(f, app, play_loc, &mut ui))?;
 
-        let timeout = if app.playing {
+        let timeout = if app.playing || app.tuner_panel {
             Duration::from_millis(16)
         } else {
             Duration::from_millis(250)
@@ -398,10 +398,12 @@ fn draw(f: &mut Frame, app: &mut App, play: Option<(usize, Location, f64, f64)>,
     } else {
         0
     };
+    let tuner_h = if app.tuner_panel { 2 } else { 0 };
     let [
         toolbar,
         tabline,
         main,
+        tuner,
         fretboard,
         piano,
         tracks,
@@ -411,6 +413,7 @@ fn draw(f: &mut Frame, app: &mut App, play: Option<(usize, Location, f64, f64)>,
         Constraint::Length(u16::from(app.toolbar)),
         Constraint::Length(1),
         Constraint::Min(3),
+        Constraint::Length(tuner_h),
         Constraint::Length(fret_h),
         Constraint::Length(piano_h),
         Constraint::Length(tracks_h),
@@ -421,6 +424,9 @@ fn draw(f: &mut Frame, app: &mut App, play: Option<(usize, Location, f64, f64)>,
     ui.tracks.clear();
     if tracks_h > 0 {
         draw_tracks(f, app, tracks, play, ui);
+    }
+    if tuner_h > 0 {
+        draw_tuner(f, app, tuner);
     }
     ui.frets.clear();
     ui.keys.clear();
@@ -685,6 +691,87 @@ fn file_icon(kind: &str, style: &str) -> &'static str {
             "muse" => "\u{f025}",
             _ => "\u{f016}",
         },
+    }
+}
+
+/// The tuner: the note, cents, frequency and nearest string on one row; a cents scale from
+/// −50 to +50 with the needle (green when in tune) on the next.
+fn draw_tuner(f: &mut Frame, app: &App, area: Rect) {
+    let t = &app.config.theme;
+    let base = Style::default().bg(rc(t.panel)).fg(rc(t.chrome_text));
+    let dim = base.fg(rc(t.dim));
+    let buf = f.buffer_mut();
+    buf.set_style(area, base);
+    let view = app.tuner_view();
+    let needle_color = |cents: f32| {
+        if cents.abs() < 3.0 {
+            t.mode_command
+        } else if cents.abs() < 15.0 {
+            t.accent
+        } else {
+            t.playhead
+        }
+    };
+    match &view {
+        Some(v) => {
+            let c = needle_color(v.cents);
+            buf.set_string(
+                area.x + 1,
+                area.y,
+                format!(" {}{} ", v.note, v.octave),
+                Style::default()
+                    .fg(rc(t.text_on(c)))
+                    .bg(rc(c))
+                    .add_modifier(Modifier::BOLD),
+            );
+            let mut line = format!("  {:+.0}¢   {:.1} Hz", v.cents, v.freq);
+            if let Some((s, name, octave, cents)) = v.string {
+                line.push_str(&format!(
+                    "   string {} ({name}{octave}) {cents:+.0}¢",
+                    s + 1
+                ));
+            }
+            buf.set_string(area.x + 6, area.y, line, base);
+        }
+        None => {
+            let msg = match &app.tuner_error {
+                Some(e) => format!(" tuner: {e}"),
+                None => " tuner: play a note…".into(),
+            };
+            buf.set_string(area.x, area.y, msg, dim);
+        }
+    }
+    let a4 = format!("A4={:.0} ", app.config.file.audio.tuner_a4);
+    let ax = (area.x + area.width).saturating_sub(a4.chars().count() as u16);
+    buf.set_string(ax, area.y, a4, dim);
+    // The scale.
+    let y = area.y + 1;
+    if y >= area.y + area.height || area.width < 20 {
+        return;
+    }
+    let x0 = area.x + 5;
+    let w = area.width.saturating_sub(10).max(10);
+    buf.set_string(area.x + 1, y, "-50", dim);
+    buf.set_string(x0 + w + 1, y, "+50", dim);
+    for i in 0..w {
+        let c = -50.0 + 100.0 * i as f32 / (w - 1) as f32;
+        let ch = if i == w / 2 {
+            "┼"
+        } else if i % (w / 10).max(1) == 0 {
+            "┴"
+        } else {
+            "─"
+        };
+        let st = if c.abs() < 3.0 {
+            dim.fg(rc(t.mode_command))
+        } else {
+            dim
+        };
+        buf.set_string(x0 + i, y, ch, st);
+    }
+    if let Some(v) = &view {
+        let i = (((v.cents.clamp(-50.0, 50.0) + 50.0) / 100.0) * (w - 1) as f32).round() as u16;
+        buf.set_string(x0 + i, y, "█", base.fg(rc(needle_color(v.cents))));
     }
 }
 
@@ -1642,6 +1729,25 @@ mod render_tests {
                 .iter()
                 .any(|l| l.contains('4') && l.contains('3') && l.contains('5'))
         );
+    }
+
+    #[test]
+    fn the_tuner_panel_shows_the_reading() {
+        let mut app = App::new(muse_app::Config::default(), None);
+        app.run(muse_app::Command::New);
+        app.tuner_panel = true;
+        app.tuner_reading = Some(muse_audio::tuner::Reading {
+            freq: 109.0,
+            clarity: 0.95,
+        });
+        let screen = render(&mut app, 100, 24);
+        assert!(screen.contains(" A2 "), "{screen}");
+        assert!(
+            screen.contains("-16¢") && screen.contains("109.0 Hz"),
+            "{screen}"
+        );
+        assert!(screen.contains("string 5 (A2)"), "{screen}");
+        assert!(screen.contains('█') && screen.contains("+50"), "{screen}");
     }
 
     #[test]

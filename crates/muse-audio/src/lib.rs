@@ -5,6 +5,7 @@ mod clip;
 mod player;
 mod sequence;
 mod synth;
+pub mod tuner;
 
 pub use clip::AudioClip;
 pub use player::{

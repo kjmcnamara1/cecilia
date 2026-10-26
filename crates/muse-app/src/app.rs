@@ -181,6 +181,8 @@ pub enum Effect {
     OpenDialog {
         dir: Option<PathBuf>,
     },
+    /// Start (true) or stop listening for the tuner.
+    Tuner(bool),
     /// Mixer, loop, metronome, speed or pitch settings changed.
     PlaybackSettings,
     /// Record a sync point for the next bar at the current audio position.
@@ -248,6 +250,11 @@ pub struct App {
     /// The fretboard and piano panels are shown (`:fretboard`, `:piano`).
     pub fretboard_panel: bool,
     pub piano_panel: bool,
+    /// The tuner is shown (and listening), with its latest reading (set by the frontend).
+    pub tuner_panel: bool,
+    pub tuner_reading: Option<muse_audio::tuner::Reading>,
+    /// Why the tuner can't listen, if it can't.
+    pub tuner_error: Option<String>,
     /// Until when the hidden tracks panel shows after the track changed (`ui.tracks_peek`).
     tracks_peek_until: Option<std::time::Instant>,
     /// Tracks the tracks panel shows at once (`:tracks-resize`, or drag its top edge).
@@ -350,6 +357,9 @@ impl App {
             toolbar,
             fretboard_panel,
             piano_panel,
+            tuner_panel: false,
+            tuner_reading: None,
+            tuner_error: None,
             tracks_rows: DEFAULT_TRACKS_ROWS,
             tracks_peek_until: None,
             waveform_height: DEFAULT_WAVEFORM_HEIGHT,
@@ -1220,6 +1230,12 @@ impl App {
             Toolbar(on) => self.toolbar = on.unwrap_or(!self.toolbar),
             Fretboard(on) => self.fretboard_panel = on.unwrap_or(!self.fretboard_panel),
             Piano(on) => self.piano_panel = on.unwrap_or(!self.piano_panel),
+            Tuner(on) => {
+                self.tuner_panel = on.unwrap_or(!self.tuner_panel);
+                self.tuner_reading = None;
+                self.tuner_error = None;
+                self.effects.push(Effect::Tuner(self.tuner_panel));
+            }
             Maximize => {
                 let on = self.maximized().is_none();
                 let v = &mut self.views[self.active_view];

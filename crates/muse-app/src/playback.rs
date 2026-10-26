@@ -38,6 +38,8 @@ pub struct Playback {
     audio: HashMap<usize, AudioState>,
     /// Buffer whose audio is set on the player.
     audio_on_player: Option<usize>,
+    /// The tuner's input capture, while the tuner is shown.
+    tuner: Option<muse_audio::tuner::Tuner>,
 }
 
 impl Playback {
@@ -314,6 +316,21 @@ impl Playback {
             Effect::OpenDialog { .. } => {}
             Effect::SyncTap => self.sync_tap(app),
             Effect::SyncDetect => self.sync_detect(app),
+            Effect::Tuner(on) => {
+                self.tuner = None;
+                if on {
+                    match muse_audio::tuner::Tuner::start() {
+                        Ok(t) => {
+                            app.info(format!("tuner listening to {}", t.device));
+                            self.tuner = Some(t);
+                        }
+                        Err(e) => {
+                            app.tuner_error = Some(e.to_string());
+                            app.error(format!("tuner: {e}"));
+                        }
+                    }
+                }
+            }
         }
     }
 
@@ -420,6 +437,9 @@ impl Playback {
     pub fn sync(&mut self, app: &mut App) {
         if let Some(p) = &self.player {
             app.set_playing(p.is_playing());
+        }
+        if let Some(t) = &self.tuner {
+            app.tuner_reading = t.reading();
         }
         self.poll_audio(app);
     }

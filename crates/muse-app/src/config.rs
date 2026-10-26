@@ -185,6 +185,8 @@ pub struct AudioConfig {
     pub soundfont: Option<PathBuf>,
     /// Playback speed multiplier (1.0 = written tempo).
     pub speed: f64,
+    /// The tuner's reference pitch for A4, in Hz.
+    pub tuner_a4: f64,
 }
 
 impl Default for AudioConfig {
@@ -192,6 +194,7 @@ impl Default for AudioConfig {
         Self {
             soundfont: None,
             speed: 1.0,
+            tuner_a4: 440.0,
         }
     }
 }
@@ -266,6 +269,7 @@ const DEFAULT_NORMAL: &[(&str, &str)] = &[
     ("<leader>B", "toolbar"),
     ("<leader>F", "fretboard"),
     ("<leader>K", "piano"),
+    ("<leader>u", "tuner"),
     ("<leader>>", "buffer-move-next"),
     ("<leader><lt>", "buffer-move-prev"),
     ("<leader>?", "pick-keymap"),

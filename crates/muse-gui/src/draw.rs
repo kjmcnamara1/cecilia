@@ -619,8 +619,21 @@ pub fn build(
     };
     let top = TAB_BAR + if app.toolbar { TOOLBAR } else { 0.0 };
     views.chrome_bottom = top;
-    let panels_top = bottom - tracks_h - piano_h - fret_h;
+    let tuner_h = if app.tuner_panel && height > 300.0 {
+        TUNER_H
+    } else {
+        0.0
+    };
+    let panels_top = bottom - tracks_h - piano_h - fret_h - tuner_h;
     let main = Rect::new(0.0, top, width, panels_top);
+    if tuner_h > 0.0 {
+        draw_tuner(
+            scene,
+            app,
+            Rect::new(0.0, panels_top, width, panels_top + tuner_h),
+        );
+    }
+    let panels_top = panels_top + tuner_h;
     views.frets.clear();
     views.keys.clear();
     if let Some(v) = &instrument {
@@ -2268,6 +2281,184 @@ fn draw_speedometer(scene: &mut Scene, x: f64, cy: f64, color: Color) {
         color,
         None,
         &Circle::new((cx, cy), 1.6),
+    );
+}
+
+/// Height of the tuner panel.
+const TUNER_H: f64 = 76.0;
+
+/// The tuner: the note heard (big), a cents scale with a needle (green when in tune), the
+/// frequency, and the nearest string of the track's tuning.
+fn draw_tuner(scene: &mut Scene, app: &App, r: Rect) {
+    let th = &app.config.theme;
+    fill(scene, r, col(th.panel));
+    fill(scene, Rect::new(r.x0, r.y0, r.x1, r.y0 + 1.0), col(th.tab));
+    let view = app.tuner_view();
+    let dim = col(th.dim);
+    // The note.
+    match &view {
+        Some(v) => {
+            text(
+                scene,
+                v.note,
+                r.x0 + 44.0,
+                r.y0 + 48.0,
+                34.0,
+                Align::Center,
+                col(th.chrome_text),
+                true,
+            );
+            text(
+                scene,
+                &v.octave.to_string(),
+                r.x0 + 72.0,
+                r.y0 + 56.0,
+                14.0,
+                Align::Left,
+                dim,
+                false,
+            );
+        }
+        None => {
+            let msg = match &app.tuner_error {
+                Some(e) => format!("Tuner: {e}"),
+                None => "Play a note…".into(),
+            };
+            text(
+                scene,
+                &msg,
+                r.x0 + 16.0,
+                r.y0 + 44.0,
+                13.0,
+                Align::Left,
+                dim,
+                false,
+            );
+        }
+    }
+    // The scale, −50 to +50 cents.
+    let (x0, x1) = (r.x0 + 180.0, (r.x1 - 240.0).max(r.x0 + 300.0));
+    let mid = (x0 + x1) / 2.0;
+    let y = r.y0 + 42.0;
+    let x_of = |c: f32| mid + (c.clamp(-50.0, 50.0) as f64 / 50.0) * (x1 - x0) / 2.0;
+    fill(
+        scene,
+        Rect::new(x0, y - 0.5, x1, y + 0.5),
+        col(th.dim.with_alpha(140)),
+    );
+    for c in (-50..=50).step_by(10) {
+        let x = x_of(c as f32);
+        let h = if c == 0 {
+            14.0
+        } else if c % 50 == 0 {
+            10.0
+        } else {
+            6.0
+        };
+        fill(
+            scene,
+            Rect::new(x - 0.6, y - h, x + 0.6, y + h),
+            col(th.dim),
+        );
+        if c % 50 == 0 {
+            let label = if c > 0 {
+                format!("+{c}")
+            } else {
+                c.to_string()
+            };
+            text(
+                scene,
+                &label,
+                x,
+                r.y1 - 6.0,
+                10.0,
+                Align::Center,
+                dim,
+                false,
+            );
+        }
+    }
+    // The in-tune zone, and the needle.
+    let good = th.mode_command;
+    scene.fill(
+        Fill::NonZero,
+        Affine::IDENTITY,
+        col(good.with_alpha(45)),
+        None,
+        &RoundedRect::new(x_of(-3.0), y - 16.0, x_of(3.0), y + 16.0, 3.0),
+    );
+    if let Some(v) = &view {
+        let off = v.cents.abs();
+        let c = if off < 3.0 {
+            good
+        } else if off < 15.0 {
+            th.accent
+        } else {
+            th.playhead
+        };
+        let x = x_of(v.cents);
+        fill(
+            scene,
+            Rect::new(x - 1.5, y - 20.0, x + 1.5, y + 20.0),
+            col(c),
+        );
+        scene.fill(
+            Fill::NonZero,
+            Affine::IDENTITY,
+            col(c),
+            None,
+            &Circle::new((x, y), 5.0),
+        );
+        let sign = if v.cents >= 0.0 { "+" } else { "−" };
+        text(
+            scene,
+            &format!("{sign}{:.0} ¢", v.cents.abs()),
+            x,
+            r.y0 + 16.0,
+            12.0,
+            Align::Center,
+            col(c),
+            true,
+        );
+        // Frequency and the nearest string.
+        let rx = r.x1 - 16.0;
+        text(
+            scene,
+            &format!("{:.1} Hz", v.freq),
+            rx,
+            r.y0 + 30.0,
+            14.0,
+            Align::Right,
+            col(th.chrome_text),
+            false,
+        );
+        if let Some((s, name, octave, cents)) = v.string {
+            let sign = if cents >= 0.0 { "+" } else { "−" };
+            text(
+                scene,
+                &format!(
+                    "string {} · {name}{octave} {sign}{:.0} ¢",
+                    s + 1,
+                    cents.abs()
+                ),
+                rx,
+                r.y0 + 50.0,
+                12.0,
+                Align::Right,
+                dim,
+                false,
+            );
+        }
+    }
+    text(
+        scene,
+        &format!("A4 = {:.0} Hz", app.config.file.audio.tuner_a4),
+        r.x1 - 16.0,
+        r.y1 - 6.0,
+        10.0,
+        Align::Right,
+        dim,
+        false,
     );
 }
 
