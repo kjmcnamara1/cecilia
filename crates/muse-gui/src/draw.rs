@@ -620,10 +620,20 @@ pub fn build(
         w: main.width() as u16,
         h: main.height() as u16,
     };
-    draw_tabs(scene, app, views, width);
+    // The toolbar at the very top, the tabline under it (drawn at the origin, then moved).
     views.toolbar.clear();
     if app.toolbar {
         draw_toolbar(scene, app, views, width);
+    }
+    let tab_y = if app.toolbar { TOOLBAR } else { 0.0 };
+    let hover = views.hover;
+    views.hover.1 -= tab_y;
+    let mut tabs = Scene::new();
+    draw_tabs(&mut tabs, app, views, width);
+    views.hover = hover;
+    scene.append(&tabs, Some(Affine::translate((0.0, tab_y))));
+    for (r, _) in views.tabline.iter_mut() {
+        *r = *r + vello::kurbo::Vec2::new(0.0, tab_y);
     }
     views.geometry.clear();
     let focused = app.focused();
@@ -862,7 +872,7 @@ fn draw_tabs(scene: &mut Scene, app: &App, views: &mut Views, width: f64) {
 /// The toolbar: a button per configured command, separators between groups, and the
 /// tooltip of the button the mouse rests on.
 fn draw_toolbar(scene: &mut Scene, app: &App, views: &mut Views, width: f64) {
-    let y0 = TAB_BAR;
+    let y0 = 0.0;
     fill(
         scene,
         Rect::new(0.0, y0, width, y0 + TOOLBAR),

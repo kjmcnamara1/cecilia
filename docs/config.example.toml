@@ -12,7 +12,7 @@ completion_ignore_case = true   # Tab completion on the command line ignores let
 completion_fuzzy = true         # …and matches the typed letters in order anywhere ("sd" → sync-detect)
 global_waveform = false  # waveform bar across the window bottom for the focused file
 tracks_panel = false     # the tracks panel (mixer and bar overview) at the window bottom
-toolbar = true           # the toolbar of common commands below the tabline (:toolbar, <leader>B)
+toolbar = true           # the toolbar of common commands at the top of the window (:toolbar, <leader>B)
 tracks_peek = 1.0        # seconds the hidden tracks panel shows when the track changes (0: never)
 
 [tabline]

@@ -324,9 +324,9 @@ fn draw(f: &mut Frame, app: &mut App, play: Option<(usize, Location, f64, f64)>,
     } else {
         0
     };
-    let [tabline, toolbar, main, tracks, status, cmdline] = Layout::vertical([
-        Constraint::Length(1),
+    let [toolbar, tabline, main, tracks, status, cmdline] = Layout::vertical([
         Constraint::Length(u16::from(app.toolbar)),
+        Constraint::Length(1),
         Constraint::Min(3),
         Constraint::Length(tracks_h),
         Constraint::Length(1),
@@ -1259,7 +1259,7 @@ mod render_tests {
         let mut ui = Ui::default();
         terminal.draw(|f| draw(f, &mut app, None, &mut ui)).unwrap();
         let buf = terminal.backend().buffer().clone();
-        let row: String = (0..120).map(|x| buf[(x, 1)].symbol().to_string()).collect();
+        let row: String = (0..120).map(|x| buf[(x, 0)].symbol().to_string()).collect();
         assert!(
             row.contains(" new ") && row.contains(" save ") && row.contains(" tracks "),
             "{row}"
@@ -1270,7 +1270,7 @@ mod render_tests {
             .iter()
             .find(|(r, _)| {
                 (r.x..r.x + r.width)
-                    .map(|x| buf[(x, 1)].symbol())
+                    .map(|x| buf[(x, 0)].symbol())
                     .collect::<String>()
                     == " tracks "
             })
@@ -1283,8 +1283,8 @@ mod render_tests {
         // Hidden with :toolbar.
         app.run(muse_app::Command::Toolbar(Some(false)));
         let screen = render(&mut app, 120, 20);
-        let second = screen.lines().nth(1).unwrap();
-        assert!(!second.contains(" save "), "{screen}");
+        let first = screen.lines().next().unwrap();
+        assert!(!first.contains(" save "), "{screen}");
     }
 
     fn render(app: &mut App, w: u16, h: u16) -> String {
@@ -1391,7 +1391,7 @@ mod render_tests {
         let mut ui = Ui::default();
         terminal.draw(|f| draw(f, &mut app, None, &mut ui)).unwrap();
         let buf = terminal.backend().buffer().clone();
-        let top: String = (0..100).map(|x| buf[(x, 0)].symbol().to_string()).collect();
+        let top: String = (0..100).map(|x| buf[(x, 1)].symbol().to_string()).collect();
         // Long names lose their middle; icons come first; views sit at the right.
         assert!(top.contains("\u{f025} A very long so…t fit.muse"), "{top}");
         assert!(top.contains("\u{f001} short.gp5"), "{top}");
@@ -1404,7 +1404,7 @@ mod render_tests {
                 .unwrap();
             let buf = terminal.backend().buffer().clone();
             (0..100)
-                .map(|x| buf[(x, 0)].symbol().to_string())
+                .map(|x| buf[(x, 1)].symbol().to_string())
                 .collect::<String>()
         };
         app.run(muse_app::Command::ViewClose(false));

@@ -128,7 +128,7 @@ pub struct UiConfig {
     pub tracks_panel: bool,
     /// Seconds the hidden tracks panel shows after a key or command changes the track (0: off).
     pub tracks_peek: f64,
-    /// The toolbar of common commands below the tabline.
+    /// The toolbar of common commands at the top of the window.
     pub toolbar: bool,
     /// While playing with follow on, hide the edit cursor: only the red playhead shows.
     pub hide_cursor_while_following: bool,

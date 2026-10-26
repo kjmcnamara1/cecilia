@@ -136,7 +136,7 @@ view pickers also work while a song plays.
 
 ## Toolbar
 
-Below the tabline, a toolbar has buttons for common commands: new, open, save, undo, redo,
+At the top of the window, above the tabline, a toolbar has buttons for common commands: new, open, save, undo, redo,
 play/pause, stop, follow, loop, metronome, count-in, tracks panel, splits, the command line and
 the keymaps picker. Toggles light up while on; buttons with nothing to do are dimmed. Resting
 the mouse on a button shows what it does and its key (in the terminal, on the command line).

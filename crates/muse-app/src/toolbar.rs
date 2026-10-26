@@ -1,4 +1,4 @@
-//! The toolbar: buttons for common commands across the top of the window (`ui.toolbar`,
+//! The toolbar: buttons for common commands along the top of the window, above the tabline (`ui.toolbar`,
 //! `:toolbar`, `<leader>B`). Which buttons, in which order, is `[toolbar] items` in
 //! config.toml: command lines as typed after `:`, with `"|"` between groups.
 
