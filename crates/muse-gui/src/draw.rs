@@ -2088,7 +2088,7 @@ fn draw_status(
         fonts.text_width(font, &seg.text, 13.0)
             + 2.0 * PAD
             + match seg.icon {
-                Some(StatusIcon::Workspace) => ICON,
+                Some(StatusIcon::Workspace | StatusIcon::Zoom) => ICON,
                 Some(StatusIcon::Tempo) => TEMPO_ICON,
                 None => 0.0,
             }
@@ -2113,6 +2113,10 @@ fn draw_status(
             Some(StatusIcon::Tempo) => {
                 draw_quarter_note(scene, tx, y0 + STATUS / 2.0, color);
                 tx += TEMPO_ICON;
+            }
+            Some(StatusIcon::Zoom) => {
+                draw_magnifier(scene, tx, y0 + STATUS / 2.0, color);
+                tx += ICON;
             }
             None => {}
         }
@@ -2163,6 +2167,27 @@ fn draw_quarter_note(scene: &mut Scene, x: f64, cy: f64, color: Color) {
         scene,
         Rect::new(x + 5.6, cy - 7.0, x + 6.8, cy + 3.6),
         color,
+    );
+}
+
+/// A magnifying glass (the zoom), as the  glyph.
+fn draw_magnifier(scene: &mut Scene, x: f64, cy: f64, color: Color) {
+    scene.stroke(
+        &Stroke::new(1.6),
+        Affine::IDENTITY,
+        color,
+        None,
+        &Circle::new((x + 5.5, cy - 1.0), 4.3),
+    );
+    let mut handle = BezPath::new();
+    handle.move_to((x + 8.6, cy + 2.1));
+    handle.line_to((x + 12.5, cy + 6.0));
+    scene.stroke(
+        &Stroke::new(2.2).with_caps(vello::kurbo::Cap::Round),
+        Affine::IDENTITY,
+        color,
+        None,
+        &handle,
     );
 }
 

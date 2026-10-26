@@ -1109,6 +1109,8 @@ fn draw_status(f: &mut Frame, app: &App, play: Option<(usize, Location, f64, f64
             (Some(StatusIcon::Workspace), _) => "ws ",
             (Some(StatusIcon::Tempo), "nerd") => "\u{f038b}",
             (Some(StatusIcon::Tempo), _) => "♩",
+            (Some(StatusIcon::Zoom), "nerd") => "\u{f002} ",
+            (Some(StatusIcon::Zoom), _) => "zoom ",
             (None, _) => "",
         };
         format!(" {icon}{} ", seg.text)

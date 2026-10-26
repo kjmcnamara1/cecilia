@@ -25,6 +25,8 @@ pub enum StatusIcon {
     Workspace,
     /// A quarter note, before the tempo (`=85`).
     Tempo,
+    /// A magnifying glass, before the zoom (`95%`).
+    Zoom,
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -129,9 +131,7 @@ impl App {
                 ".".repeat(d.dots as usize)
             ));
         }
-        if zoom {
-            x.push(format!("zoom {:.0}%", self.zoom * 100.0));
-        }
+
         // The tempo as ♩=85 (tuning and capo are shown at the top of the score), then the rest.
         let mut right = Vec::new();
         if !score.tracks.is_empty() {
@@ -141,6 +141,12 @@ impl App {
             });
         }
         right.push(Segment::new(x.join("  "), SegKind::Plain));
+        if zoom {
+            right.push(Segment {
+                icon: Some(StatusIcon::Zoom),
+                ..Segment::new(format!("{:.0}%", self.zoom * 100.0), SegKind::Plain)
+            });
+        }
         if !score.tracks.is_empty() {
             right.push(Segment::new(
                 progress(pane.cursor.bar, score.master_bars.len()),
@@ -180,6 +186,8 @@ mod tests {
         assert_eq!(s.left[0].text, "INSERT");
         assert_eq!(s.right.last().unwrap().text, "4:1");
         assert!(s.right[1].text.contains("0:42/3:10"), "{}", s.right[1].text);
+        assert_eq!(s.right[2].icon, Some(StatusIcon::Zoom));
+        assert_eq!(s.right[2].text, "100%");
         assert_eq!(progress(3, 8), "50%");
         assert_eq!(progress(7, 8), "Bot");
     }
