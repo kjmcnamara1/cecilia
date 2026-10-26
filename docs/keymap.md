@@ -176,7 +176,7 @@ light `ink` for light notation on dark paper. `docs/config.example.toml` lists e
 `<leader>F` (`:fretboard [on|off]`) shows a fretboard and `<leader>K` (`:piano [on|off]`) piano
 keys above the tracks panel, for the focused pane's track: the notes at the edit cursor — or
 under the playhead while playing — as dots on the neck (named, in the track's colour; the
-cursor's string in the mode colour, a capo across its fret) and as pressed keys. The GUI's neck
+cursor's string in the mode colour, a capo across its fret in `theme.capo`) and as pressed keys. The GUI's neck
 spaces its frets as a real one, with inlays; its piano has all 88 keys. `ui.fretboard` and
 `ui.piano` set the defaults, and workspaces remember them. Clicking a fret puts that note on
 that string in the cursor beat (clicking it again takes it off); clicking a key adds that pitch
@@ -299,7 +299,9 @@ view, the window waveform bar, marks (of saved files) and recorded macros, to
 `~/.local/share/muse/workspaces/NAME.toml` (or a path). A workspace is always active, and is
 saved again whenever the session changes and when muse quits. Until you choose one, it is
 `default`. `muse` reopens the workspace used last; `muse --workspace NAME` starts with another
-(created from scratch if it doesn't exist yet), and files named on the command line open in it.
+(created from scratch if it doesn't exist yet). `muse FILE…` opens just those files, without a
+workspace, so one-off edits leave your workspaces alone — `:workspace-save NAME` keeps such a
+session if you want it (with `--workspace` too, the files open in that workspace).
 
 | command                  |                                                                                          |
 | ------------------------ | ---------------------------------------------------------------------------------------- |

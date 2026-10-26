@@ -44,7 +44,8 @@ full specification and roadmap, and [docs/keymap.md](docs/keymap.md) for key bin
 - A toolbar of common commands (configurable buttons), and themes in `[theme]`: six built-in
   presets, theme files, and every interface colour (down to the score's page and ink)
 - Workspaces: `:workspace-save NAME` / `:workspace-open NAME` / `muse --workspace NAME` keep the
-  views, their pane splits and open files, saved automatically; `muse` reopens the last one (or `default`)
+  views, their pane splits and open files, saved automatically; `muse` reopens the last one (or
+  `default`), while `muse FILE` edits files without touching any workspace
 - TOML configuration with custom keybinds, reloaded automatically when the file changes
 
 ## Usage

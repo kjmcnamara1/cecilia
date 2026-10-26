@@ -134,6 +134,8 @@ pub struct Theme {
     /// The toolbar, and a button under the mouse or switched on.
     pub toolbar: Rgba,
     pub button_hover: Rgba,
+    /// A capo on the fretboard.
+    pub capo: Rgba,
     /// The tracks panel and waveform bar.
     pub panel: Rgba,
     /// A bar without notes in the tracks panel.
@@ -191,6 +193,7 @@ pub const COLOR_NAMES: &[&str] = &[
     "status_b",
     "toolbar",
     "button_hover",
+    "capo",
     "panel",
     "empty_bar",
     "popover",
@@ -226,6 +229,7 @@ impl Theme {
             ink: Rgba::rgb(0, 0, 0),
             chrome: Rgba::rgb(40, 42, 48),
             chrome_text: Rgba::rgb(225, 225, 230),
+            capo: Rgba::rgb(225, 225, 230),
             dim: Rgba::rgb(150, 152, 160),
             accent,
             playhead: Rgba::rgb(225, 40, 40),
@@ -265,6 +269,7 @@ impl Theme {
             paper: Rgba::rgb(250, 250, 251),
             chrome: Rgba::rgb(236, 237, 241),
             chrome_text: Rgba::rgb(36, 38, 44),
+            capo: Rgba::rgb(36, 38, 44),
             dim: Rgba::rgb(110, 114, 124),
             accent,
             playhead: Rgba::rgb(215, 30, 30),
@@ -302,6 +307,7 @@ impl Theme {
             ink: hex("#2e3440"),
             chrome: hex("#2e3440"),
             chrome_text: hex("#eceff4"),
+            capo: hex("#eceff4"),
             dim: hex("#9aa5b8"),
             accent,
             playhead: hex("#bf616a"),
@@ -343,6 +349,7 @@ impl Theme {
             ink: hex("#282828"),
             chrome: hex("#282828"),
             chrome_text: hex("#ebdbb2"),
+            capo: hex("#ebdbb2"),
             dim: hex("#a89984"),
             accent,
             playhead: hex("#fb4934"),
@@ -384,6 +391,7 @@ impl Theme {
             ink: hex("#002b36"),
             chrome: hex("#002b36"),
             chrome_text: hex("#93a1a1"),
+            capo: hex("#93a1a1"),
             dim: hex("#657b83"),
             accent,
             playhead: hex("#dc322f"),
@@ -421,6 +429,7 @@ impl Theme {
         Self {
             chrome: hex("#eee8d5"),
             chrome_text: hex("#586e75"),
+            capo: hex("#586e75"),
             dim: hex("#93a1a1"),
             tab: hex("#e4ddc8"),
             tab_hover: hex("#d9d2bd"),
@@ -465,6 +474,7 @@ impl Theme {
             "status_b" => &mut self.status_b,
             "toolbar" => &mut self.toolbar,
             "button_hover" => &mut self.button_hover,
+            "capo" => &mut self.capo,
             "panel" => &mut self.panel,
             "empty_bar" => &mut self.empty_bar,
             "popover" => &mut self.popover,

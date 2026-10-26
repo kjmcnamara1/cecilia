@@ -2560,13 +2560,13 @@ fn draw_fretboard(
             );
         }
     }
-    // A capo across its fret.
+    // A capo across its fret (in the theme's capo colour).
     if v.capo > 0 && v.capo <= v.frets {
         let x = fret_x(v.capo as f64) - 4.0;
         scene.fill(
             Fill::NonZero,
             Affine::IDENTITY,
-            col(th.dim.with_alpha(180)),
+            col(th.capo),
             None,
             &RoundedRect::new(x - 3.0, top - 7.0, x + 3.0, bottom + 7.0, 3.0),
         );

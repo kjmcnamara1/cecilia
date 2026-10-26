@@ -138,11 +138,13 @@ fn main() -> Result<()> {
             if !warnings.is_empty() {
                 app.error(warnings.join("; "));
             }
-            // There is always a workspace: the one asked for, else the last one used, else
-            // "default". (Screenshots only use one when asked.)
+            // `muse` alone opens the workspace used last (else "default"); files named on the
+            // command line open on their own, so one-off edits leave the workspaces alone
+            // (`:workspace-save` keeps such a session). `--workspace` always uses that one.
+            // (Screenshots only use one when asked.)
             let interactive = cli.screenshot.is_none();
-            if interactive || cli.workspace.is_some() {
-                app.remember_workspace = interactive;
+            app.remember_workspace = interactive;
+            if (interactive && cli.files.is_empty()) || cli.workspace.is_some() {
                 let ws = cli
                     .workspace
                     .clone()

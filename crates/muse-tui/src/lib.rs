@@ -803,8 +803,10 @@ fn draw_fretboard(
     for (s, &open) in v.strings.iter().enumerate() {
         let y = area.y + s as u16;
         let cursor = v.cursor_string == Some(s);
+        // The cursor's string stands out: heavy, bold, in the mode's colour.
         let line = if cursor {
             base.fg(rc(t.mode_color(app.mode)))
+                .add_modifier(Modifier::BOLD)
         } else {
             base.fg(rc(t.chrome_text.mix(t.panel, 0.4)))
         };
@@ -821,20 +823,15 @@ fn draw_fretboard(
         for k in 1..=frets {
             ui.frets.push((cell(nut + 1 + (k - 1) * 4, 3), s, k as u8));
         }
+        let (wire, fret_style) = if cursor {
+            ("━━━", line)
+        } else {
+            ("───", base)
+        };
         for k in 1..=frets {
             let x = nut + 1 + (k - 1) * 4;
-            buf.set_string(x, y, "───", line);
-            buf.set_string(x + 3, y, "│", base);
-        }
-        // A capo: a heavy bar across its fret.
-        if v.capo > 0 && (v.capo as u16) <= frets {
-            let x = nut + v.capo as u16 * 4;
-            buf.set_string(
-                x,
-                y,
-                "┃",
-                base.fg(rc(t.chrome_text)).add_modifier(Modifier::BOLD),
-            );
+            buf.set_string(x, y, wire, line);
+            buf.set_string(x + 3, y, if cursor { "┿" } else { "│" }, fret_style);
         }
         for n in v.notes.iter().filter(|n| n.string == s) {
             let name = NOTE_NAMES[n.pitch as usize % 12];
@@ -845,6 +842,11 @@ fn draw_fretboard(
                 let x = nut + 1 + (fret - 1) * 4;
                 buf.set_string(x, y, format!("{name:^3}"), note_style);
             }
+        }
+        // A capo: a wide bar (in the theme's capo colour) across its fret, over the strings.
+        if v.capo > 0 && (v.capo as u16) <= frets {
+            let x = nut + v.capo as u16 * 4;
+            buf.set_string(x - 1, y, "▐█", base.fg(rc(t.capo)));
         }
     }
     // Fret numbers at the inlays.
@@ -1714,13 +1716,19 @@ mod render_tests {
         app.click_fret(s, k);
         let v = app.instrument_view(None).unwrap();
         assert!(v.notes.iter().any(|n| n.string == 2 && n.fret == 2));
-        // A capo shows as a heavy bar across its fret.
+        // A capo shows as a wide bar across its fret.
         let b = app.pane().buffer;
         app.buffers[b].score.tracks[0].capo = 2;
         let screen = render(&mut app, 100, 24);
         assert_eq!(
-            screen.lines().filter(|l| l.contains('┃')).count(),
+            screen.lines().filter(|l| l.contains("▐█")).count(),
             6,
+            "{screen}"
+        );
+        // The cursor's string is drawn heavy.
+        assert_eq!(
+            screen.lines().filter(|l| l.contains("━━━")).count(),
+            1,
             "{screen}"
         );
         // The piano row with octave numbers.
