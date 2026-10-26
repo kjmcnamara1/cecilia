@@ -11,10 +11,8 @@ use crate::config::Mode;
 pub enum SegKind {
     /// The mode's colour behind, text that reads on it (sections `a` and `z`).
     Mode,
-    /// The section-b colour (`status_b`) behind, the mode's colour as text.
+    /// The section-b colour (`status_b`) behind, the mode's colour as text (sections `b`, `y`).
     ModeText,
-    /// The section-b colour behind, normal text (section `y`).
-    B,
     /// The status line's own colour (sections `c` and `x`).
     Plain,
 }
@@ -198,7 +196,7 @@ impl App {
         if !score.tracks.is_empty() {
             right.push(Segment::new(
                 progress(pane.cursor.bar, score.master_bars.len()),
-                SegKind::B,
+                SegKind::ModeText,
             ));
             right.push(Segment::new(
                 format!("{}:{}", pane.cursor.bar + 1, pane.cursor.beat + 1),

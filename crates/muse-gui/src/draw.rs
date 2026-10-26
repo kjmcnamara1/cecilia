@@ -2109,13 +2109,13 @@ fn draw_status(
     let mode = th.mode_color(app.mode);
     let bg_of = |k: SegKind| match k {
         SegKind::Mode => mode,
-        SegKind::ModeText | SegKind::B => th.status_b,
+        SegKind::ModeText => th.status_b,
         SegKind::Plain => th.chrome,
     };
     let fg_of = |k: SegKind| match k {
         SegKind::Mode => th.text_on(mode),
         SegKind::ModeText => mode,
-        SegKind::B | SegKind::Plain => th.chrome_text,
+        SegKind::Plain => th.chrome_text,
     };
     let fonts = muse_engrave::fonts::fonts();
     // Chips have a little padding inside; plain sections a little more room around them.

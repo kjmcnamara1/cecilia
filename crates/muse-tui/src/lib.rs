@@ -840,7 +840,7 @@ fn draw_fretboard(
         // A capo: a solid bar (in the theme's capo colour) across its fret, over the strings.
         if v.capo > 0 && (v.capo as u16) <= frets {
             let x = nut + v.capo as u16 * 4;
-            buf.set_string(x, y, "█", base.fg(rc(t.capo)));
+            buf.set_string(x, y, "▊", base.fg(rc(t.capo)));
         }
     }
     // Fret numbers at the inlays.
@@ -1392,7 +1392,7 @@ fn draw_status(
     let mode = t.mode_color(app.mode);
     let bg_of = |k: SegKind| match k {
         SegKind::Mode => mode,
-        SegKind::ModeText | SegKind::B => t.status_b,
+        SegKind::ModeText => t.status_b,
         SegKind::Plain => t.chrome,
     };
     let style_of = |seg: &Segment| {
@@ -1400,7 +1400,7 @@ fn draw_status(
         let fg = match seg.kind {
             SegKind::Mode => t.text_on(mode),
             SegKind::ModeText => mode,
-            SegKind::B | SegKind::Plain => t.chrome_text,
+            SegKind::Plain => t.chrome_text,
         };
         let st = Style::default().fg(rc(fg)).bg(rc(bg));
         if seg.bold {
@@ -1717,7 +1717,7 @@ mod render_tests {
         assert_eq!(
             screen
                 .lines()
-                .filter(|l| l.contains('║') && l.contains('█'))
+                .filter(|l| l.contains('║') && l.contains('▊'))
                 .count(),
             6,
             "{screen}"
