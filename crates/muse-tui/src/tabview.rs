@@ -358,7 +358,10 @@ impl Widget for TabView<'_> {
                                 style.add_modifier(Modifier::BOLD),
                             );
                         }
-                        if is_cursor_beat && pane.cursor.string == s {
+                        if is_cursor_beat
+                            && pane.cursor.string == s
+                            && !self.app.cursor_hidden(pane.buffer)
+                        {
                             let text_w = beat
                                 .and_then(|b| b.notes.iter().find(|n| row_of(n, track) == s))
                                 .map_or(1, |n| note_text(n, track).len() as u16);

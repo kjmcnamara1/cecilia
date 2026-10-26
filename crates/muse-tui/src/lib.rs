@@ -1012,7 +1012,7 @@ fn draw_tracks(
                 st = st.bg(rc(t.playhead));
             }
             // The edit cursor: a black dot on its bar's block.
-            let ch = if selected && bar == cursor.bar {
+            let ch = if selected && bar == cursor.bar && !app.cursor_hidden(buffer) {
                 let block = if notes { row.color } else { t.empty_bar };
                 st = Style::default()
                     .fg(Color::Black)

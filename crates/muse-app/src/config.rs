@@ -130,6 +130,8 @@ pub struct UiConfig {
     pub tracks_peek: f64,
     /// The toolbar of common commands below the tabline.
     pub toolbar: bool,
+    /// While playing with follow on, hide the edit cursor: only the red playhead shows.
+    pub hide_cursor_while_following: bool,
     /// GUI score layout: "page", "vertical" or "horizontal".
     pub layout: String,
     /// GUI zoom factor.
@@ -147,6 +149,7 @@ impl Default for UiConfig {
             tracks_panel: false,
             tracks_peek: 1.0,
             toolbar: true,
+            hide_cursor_while_following: true,
             layout: "vertical".into(),
             zoom: 1.0,
         }

@@ -7,6 +7,7 @@ leader = "<Space>"
 [ui]
 tab_width = 2            # horizontal spacing of the tab view (1–8)
 follow_playback = true   # the cursor and view move with the playhead (red bar) while playing
+hide_cursor_while_following = true   # …and only the red bar shows then (the edit cursor hides)
 completion_ignore_case = true   # Tab completion on the command line ignores letter case
 completion_fuzzy = true         # …and matches the typed letters in order anywhere ("sd" → sync-detect)
 global_waveform = false  # waveform bar across the window bottom for the focused file

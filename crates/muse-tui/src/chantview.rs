@@ -276,7 +276,8 @@ impl Widget for ChantView<'_> {
                                         height: (TOP - BOTTOM + 2) as u16,
                                     };
                                     let here = |bb: usize| (c.bar, c.beat) == (*bar, bb);
-                                    let on_cursor = (0..*repeats as usize).any(|r| here(b + r));
+                                    let on_cursor = (0..*repeats as usize).any(|r| here(b + r))
+                                        && !self.app.cursor_hidden(pane.buffer);
                                     let on_play = (0..*repeats as usize)
                                         .any(|r| playing == Some((*bar, b + r)));
                                     if on_play {

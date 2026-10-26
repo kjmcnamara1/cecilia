@@ -453,6 +453,15 @@ impl App {
         self.view().root.dividers(self.viewport)
     }
 
+    /// Whether the edit cursor in a buffer is hidden: while it plays with follow on, only the
+    /// playhead shows (`ui.hide_cursor_while_following`).
+    pub fn cursor_hidden(&self, buffer: usize) -> bool {
+        self.config.file.ui.hide_cursor_while_following
+            && self.playing
+            && self.follow
+            && self.playing_buffer == Some(buffer)
+    }
+
     /// Whether the tracks panel is on screen: shown, or peeking after a change of track.
     pub fn tracks_shown(&self) -> bool {
         self.tracks_panel || self.tracks_peeking()
@@ -2068,6 +2077,23 @@ mod tests {
         app.run(Command::Layout(None));
         assert_eq!(app.panes[&second].layout, "horizontal");
         assert_eq!(app.panes[&first].layout, "page");
+    }
+
+    #[test]
+    fn the_edit_cursor_hides_while_following_playback() {
+        let mut app = test_app();
+        assert!(!app.cursor_hidden(0));
+        keys(&mut app, "<Space><Space>");
+        app.set_playing(true);
+        assert!(app.cursor_hidden(0));
+        // Following off: it shows (and moves on its own).
+        keys(&mut app, "<Space>f");
+        assert!(!app.cursor_hidden(0));
+        // The setting turns it off.
+        let (config, _) = Config::parse("[ui]\nhide_cursor_while_following = false\n").unwrap();
+        app.config = config;
+        keys(&mut app, "<Space>f");
+        assert!(app.follow && !app.cursor_hidden(0));
     }
 
     #[test]

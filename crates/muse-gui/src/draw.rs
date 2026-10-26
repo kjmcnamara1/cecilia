@@ -338,6 +338,7 @@ fn draw_tracks(
             );
         }
     }
+    let cursor_hidden = app.cursor_hidden(buffer);
     let rows_y0 = r.y0 + TRACK_HEAD;
     let rows_y1 = rows_y0 + visible as f64 * TRACK_ROW;
     scene.pop_layer();
@@ -480,7 +481,7 @@ fn draw_tracks(
                 &block.to_rounded_rect(2.0),
             );
             // The edit cursor: a black dot in its bar.
-            if row.index == cursor.track && b == cursor.bar {
+            if row.index == cursor.track && b == cursor.bar && !cursor_hidden {
                 scene.fill(
                     Fill::NonZero,
                     Affine::IDENTITY,
@@ -1562,7 +1563,12 @@ fn draw_pane(
         }
     }
     // Cursor.
-    if let Some(pos) = cached.layout.beats.get(&cursor_ref) {
+    if let Some(pos) = cached
+        .layout
+        .beats
+        .get(&cursor_ref)
+        .filter(|_| !app.cursor_hidden(pane.buffer))
+    {
         // Following playback, it slides forward along a system towards its beat (an easing that
         // settles well within a beat); moves back or to another system jump.
         let now = std::time::Instant::now();
