@@ -1111,6 +1111,12 @@ fn draw_status(f: &mut Frame, app: &App, play: Option<(usize, Location, f64, f64
             (Some(StatusIcon::Tempo), _) => "♩",
             (Some(StatusIcon::Zoom), "nerd") => "\u{f002} ",
             (Some(StatusIcon::Zoom), _) => "zoom ",
+            (Some(StatusIcon::Synth), "nerd") => "\u{f08f1}",
+            (Some(StatusIcon::Audio), "nerd") => "\u{f075a}",
+            (Some(StatusIcon::SynthAndAudio), "nerd") => "\u{f08f1} +\u{f075a}",
+            (Some(StatusIcon::Synth), _) => "synth",
+            (Some(StatusIcon::Audio), _) => "audio",
+            (Some(StatusIcon::SynthAndAudio), _) => "synth+audio",
             (None, _) => "",
         };
         format!(" {icon}{} ", seg.text)
@@ -1127,7 +1133,11 @@ fn draw_status(f: &mut Frame, app: &App, play: Option<(usize, Location, f64, f64
     // Right side first (it keeps its place; the left gives way when narrow).
     let mut right_x = end;
     let mut prev_bg = t.chrome;
-    let right: Vec<&Segment> = line.right.iter().filter(|s| !s.text.is_empty()).collect();
+    let right: Vec<&Segment> = line
+        .right
+        .iter()
+        .filter(|s| !s.text.is_empty() || s.icon.is_some())
+        .collect();
     let mut placed = Vec::new();
     for seg in right.iter().rev() {
         let text = text_of(seg);

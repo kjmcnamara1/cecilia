@@ -51,19 +51,18 @@ impl Default for PlayAlong {
 impl PlayAlong {
     /// Status-line summary: speed, mix, metronome, count-in, loop, pitch and sync tapping.
     pub fn status(&self, speed: f64, has_audio: bool) -> String {
-        format!("{:.0}%{}", speed * 100.0, self.flags(has_audio))
+        let mix = if has_audio {
+            format!("  mix:{}", format!("{:?}", self.mode).to_lowercase())
+        } else {
+            String::new()
+        };
+        format!("{:.0}%{mix}{}", speed * 100.0, self.flags())
     }
 
-    /// The play-along settings that are on (mix, click, count-in, loop, pitch, sync tap), each
+    /// The play-along settings that are on (click, count-in, loop, pitch, sync tap), each
     /// after two spaces.
-    pub fn flags(&self, has_audio: bool) -> String {
+    pub fn flags(&self) -> String {
         let mut s = String::new();
-        if has_audio {
-            s.push_str(&format!(
-                "  mix:{}",
-                format!("{:?}", self.mode).to_lowercase()
-            ));
-        }
         if self.metronome {
             s.push_str("  click");
         }

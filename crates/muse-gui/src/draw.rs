@@ -2089,6 +2089,8 @@ fn draw_status(
             + 2.0 * PAD
             + match seg.icon {
                 Some(StatusIcon::Workspace | StatusIcon::Zoom) => ICON,
+                Some(StatusIcon::Synth | StatusIcon::Audio) => ICON - 4.0,
+                Some(StatusIcon::SynthAndAudio) => 2.0 * ICON + 8.0,
                 Some(StatusIcon::Tempo) => TEMPO_ICON,
                 None => 0.0,
             }
@@ -2118,6 +2120,23 @@ fn draw_status(
                 draw_magnifier(scene, tx, y0 + STATUS / 2.0, color);
                 tx += ICON;
             }
+            Some(StatusIcon::Synth) => draw_piano(scene, tx, y0 + STATUS / 2.0, color),
+            Some(StatusIcon::Audio) => draw_music(scene, tx, y0 + STATUS / 2.0, color),
+            Some(StatusIcon::SynthAndAudio) => {
+                let cy = y0 + STATUS / 2.0;
+                draw_piano(scene, tx, cy, color);
+                text(
+                    scene,
+                    "+",
+                    tx + ICON + 1.0,
+                    y0 + 17.5,
+                    13.0,
+                    Align::Left,
+                    color,
+                    false,
+                );
+                draw_music(scene, tx + ICON + 12.0, cy, color);
+            }
             None => {}
         }
         text(
@@ -2134,7 +2153,12 @@ fn draw_status(
 
     // Right side first, from the right edge (section x gives way when narrow).
     let mut x = width - GAP;
-    for seg in line.right.iter().rev().filter(|s| !s.text.is_empty()) {
+    for seg in line
+        .right
+        .iter()
+        .rev()
+        .filter(|s| !s.text.is_empty() || s.icon.is_some())
+    {
         let w = seg_width(seg);
         if x - w < width * 0.45 {
             continue;
@@ -2168,6 +2192,51 @@ fn draw_quarter_note(scene: &mut Scene, x: f64, cy: f64, color: Color) {
         Rect::new(x + 5.6, cy - 7.0, x + 6.8, cy + 3.6),
         color,
     );
+}
+
+/// A piano keyboard (the synth plays), as the 󰣱 glyph.
+fn draw_piano(scene: &mut Scene, x: f64, cy: f64, color: Color) {
+    let body = RoundedRect::new(x, cy - 6.0, x + 14.0, cy + 6.0, 1.5);
+    scene.stroke(&Stroke::new(1.4), Affine::IDENTITY, color, None, &body);
+    for k in [3.5, 7.0, 10.5] {
+        fill(
+            scene,
+            Rect::new(x + k - 0.5, cy - 6.0, x + k + 0.5, cy + 6.0),
+            color,
+        );
+    }
+    for k in [3.5, 10.5] {
+        fill(
+            scene,
+            Rect::new(x + k - 1.6, cy - 6.0, x + k + 1.6, cy + 1.0),
+            color,
+        );
+    }
+}
+
+/// Two beamed notes (the recording plays), as the 󰝚 glyph.
+fn draw_music(scene: &mut Scene, x: f64, cy: f64, color: Color) {
+    for (hx, hy) in [(x + 2.8, cy + 4.5), (x + 10.8, cy + 3.0)] {
+        let head = vello::kurbo::Ellipse::new((hx, hy), (2.8, 2.1), -0.35);
+        scene.fill(Fill::NonZero, Affine::IDENTITY, color, None, &head);
+    }
+    fill(
+        scene,
+        Rect::new(x + 4.7, cy - 5.0, x + 5.9, cy + 4.0),
+        color,
+    );
+    fill(
+        scene,
+        Rect::new(x + 12.7, cy - 6.5, x + 13.9, cy + 2.5),
+        color,
+    );
+    let mut beam = BezPath::new();
+    beam.move_to((x + 4.7, cy - 5.0));
+    beam.line_to((x + 13.9, cy - 6.5));
+    beam.line_to((x + 13.9, cy - 3.8));
+    beam.line_to((x + 4.7, cy - 2.3));
+    beam.close_path();
+    scene.fill(Fill::NonZero, Affine::IDENTITY, color, None, &beam);
 }
 
 /// A magnifying glass (the zoom), as the  glyph.

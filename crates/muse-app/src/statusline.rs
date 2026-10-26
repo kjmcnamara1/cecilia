@@ -27,6 +27,10 @@ pub enum StatusIcon {
     Tempo,
     /// A magnifying glass, before the zoom (`95%`).
     Zoom,
+    /// What plays with an audio track: the synth (MIDI), the recording, or both.
+    Synth,
+    Audio,
+    SynthAndAudio,
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -116,7 +120,7 @@ impl App {
         if (speed - 1.0).abs() > 1e-6 {
             x.push(format!("speed {:.0}%", speed * 100.0));
         }
-        let flags = self.pa.flags(score.audio.is_some());
+        let flags = self.pa.flags();
         if !flags.is_empty() {
             x.push(flags.trim_start().to_string());
         }
@@ -138,6 +142,17 @@ impl App {
             right.push(Segment {
                 icon: Some(StatusIcon::Tempo),
                 ..Segment::new(format!("={}", score.tempo), SegKind::Plain)
+            });
+        }
+        // With an audio track: what plays (synth, recording or both), as an icon.
+        if score.audio.is_some() {
+            right.push(Segment {
+                icon: Some(match self.pa.mode {
+                    crate::playalong::MixMode::Midi => StatusIcon::Synth,
+                    crate::playalong::MixMode::Audio => StatusIcon::Audio,
+                    crate::playalong::MixMode::Both => StatusIcon::SynthAndAudio,
+                }),
+                ..Segment::new("", SegKind::Plain)
             });
         }
         right.push(Segment::new(x.join("  "), SegKind::Plain));
@@ -188,6 +203,20 @@ mod tests {
         assert!(s.right[1].text.contains("0:42/3:10"), "{}", s.right[1].text);
         assert_eq!(s.right[2].icon, Some(StatusIcon::Zoom));
         assert_eq!(s.right[2].text, "100%");
+        // With an audio track, what plays shows as icons.
+        let b = app.pane().buffer;
+        app.buffers[b].score.audio = Some(Default::default());
+        let mix = |app: &App| {
+            app.statusline(None, false)
+                .right
+                .iter()
+                .find_map(|s| s.icon.filter(|i| *i != StatusIcon::Tempo))
+        };
+        assert_eq!(mix(&app), Some(StatusIcon::SynthAndAudio));
+        app.run(Command::MixMode(Some("audio".into())));
+        assert_eq!(mix(&app), Some(StatusIcon::Audio));
+        app.run(Command::MixMode(Some("midi".into())));
+        assert_eq!(mix(&app), Some(StatusIcon::Synth));
         assert_eq!(progress(3, 8), "50%");
         assert_eq!(progress(7, 8), "Bot");
     }
