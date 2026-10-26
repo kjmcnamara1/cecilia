@@ -840,7 +840,7 @@ fn draw_fretboard(
         // A capo: a solid bar (in the theme's capo colour) across its fret, over the strings.
         if v.capo > 0 && (v.capo as u16) <= frets {
             let x = nut + v.capo as u16 * 4;
-            buf.set_string(x, y, "▊", base.fg(rc(t.capo)));
+            buf.set_string(x, y, "▌", base.fg(rc(t.capo)));
         }
     }
     // Fret numbers at the inlays.
@@ -1717,7 +1717,7 @@ mod render_tests {
         assert_eq!(
             screen
                 .lines()
-                .filter(|l| l.contains('║') && l.contains('▊'))
+                .filter(|l| l.contains('║') && l.contains('▌'))
                 .count(),
             6,
             "{screen}"
