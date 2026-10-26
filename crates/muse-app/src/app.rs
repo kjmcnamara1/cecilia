@@ -473,6 +473,30 @@ impl App {
         out
     }
 
+    /// Jumps `n` sections on or back (as far as there are), remembered for `''`.
+    fn section_jump(&mut self, forward: bool, n: usize) {
+        let bars = &self.buffer().score.master_bars;
+        let at = self.pane().cursor.bar;
+        let starts: Vec<usize> = if forward {
+            (at + 1..bars.len())
+                .filter(|&b| bars[b].marker.is_some())
+                .collect()
+        } else {
+            (0..at)
+                .rev()
+                .filter(|&b| bars[b].marker.is_some())
+                .collect()
+        };
+        match starts.get(n.max(1) - 1).or(starts.last()) {
+            Some(&b) => self.run(Command::GotoBar(b + 1)),
+            None => self.info(if forward {
+                "no section after this bar"
+            } else {
+                "no section before this bar"
+            }),
+        }
+    }
+
     /// The borders between panes of the active view, for resizing with the mouse.
     pub fn dividers(&self) -> Vec<crate::layout::Divider> {
         if self.maximized().is_some() {
@@ -1053,6 +1077,10 @@ impl App {
     pub(crate) fn run_counted(&mut self, cmd: Command, count: Option<usize>) {
         match (&cmd, count) {
             (Command::GotoFirst | Command::GotoLast, Some(n)) => self.run(Command::GotoBar(n)),
+            // A counted section motion is one jump (for `''`), n sections away.
+            (Command::SectionNext | Command::SectionPrev, Some(n)) => {
+                self.section_jump(matches!(cmd, Command::SectionNext), n)
+            }
             (c, Some(n)) if c.repeatable() => {
                 for _ in 0..n.min(10_000) {
                     self.run(cmd.clone());
@@ -1090,6 +1118,9 @@ impl App {
             BarPrev => self.move_cursor(|s, c| set_bar(s, c, c.bar.saturating_sub(1))),
             BarStart => self.move_cursor(|_, c| c.beat = 0),
             BarEnd => self.move_cursor(|s, c| c.beat = beats(s, c).len().saturating_sub(1)),
+            // To the next / previous section's first bar (a jump, remembered for `''`).
+            SectionNext => self.section_jump(true, 1),
+            SectionPrev => self.section_jump(false, 1),
             // Jumps (remembered for `''`).
             GotoFirst | GotoLast | GotoBar(_) => {
                 let here = (self.pane().buffer, self.pane().cursor);

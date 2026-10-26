@@ -16,7 +16,8 @@ Items marked _(M1)_ are implemented in the first milestone; the rest are the pla
 | `0` / `$`                 | first / last beat of bar                                                                                                                                 | _(M1)_ |
 | `gg` / `G`                | first bar / last bar (`[count]G` = bar _count_)                                                                                                          | _(M1)_ |
 | `J` / `K`                 | next / previous track                                                                                                                                    | _(M1)_ |
-| `]s` / `[s`               | next / previous section marker                                                                                                                           |        |
+| `]s` / `[s`         | next / previous section (`[count]` sections away; `''` goes back) |        |
+| `<leader>S`         | sections picker: every section of the file with its bars; Enter jumps there (`:sections`) | |
 | `m{a-z}` / `m{A-Z}`       | set a mark in this file / a global mark (any file)                                                                                                       |        |
 | `'{mark}` / `` `{mark} `` | jump to the mark's bar / exact position (a popup lists the marks and where they are); a global mark reopens its file if it was closed. `''` jumps back to before the last jump (also after `gg`, `G`) |        |
 | `<C-d>` / `<C-u>`         | half page down / up                                                                                                                                      | _(M1)_ |

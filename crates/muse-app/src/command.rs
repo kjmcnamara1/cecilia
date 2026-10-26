@@ -95,6 +95,9 @@ pub enum Command {
     RepeatStart,
     RepeatEnd(Option<u8>),
     Section(Option<String>),
+    /// Move to the next / previous bar that starts a section (`]s`, `[s`).
+    SectionNext,
+    SectionPrev,
     Text(Option<String>),
     Tuning(String),
     Capo(u8),
@@ -478,6 +481,9 @@ impl Command {
             "repeat-start" => RepeatStart,
             "repeat-end" => RepeatEnd(arg.and_then(|a| a.parse().ok())),
             "section" => Section(arg.map(String::from)),
+            "section-next" => SectionNext,
+            "section-prev" => SectionPrev,
+            "pick-section" | "sections" => Pick(crate::picker::PickerKind::Section),
             "text" => Text(arg.map(String::from)),
             "tuning" => Tuning(
                 arg.ok_or("tuning: missing tuning (e.g. drop-d or 'D A D G B E')")?

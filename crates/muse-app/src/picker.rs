@@ -15,6 +15,8 @@ pub enum PickerKind {
     Macro,
     /// Every key binding of every mode, found by keys, command or description.
     Keymap,
+    /// The sections (markers) of the file shown.
+    Section,
 }
 
 impl PickerKind {
@@ -26,6 +28,7 @@ impl PickerKind {
             "mark" | "marks" => PickerKind::Mark,
             "macro" | "macros" => PickerKind::Macro,
             "keymap" | "keymaps" | "keys" => PickerKind::Keymap,
+            "section" | "sections" => PickerKind::Section,
             _ => return None,
         })
     }
@@ -38,6 +41,7 @@ impl PickerKind {
             PickerKind::Mark => "Marks",
             PickerKind::Macro => "Macros",
             PickerKind::Keymap => "Keymaps",
+            PickerKind::Section => "Sections",
         }
     }
 }
@@ -167,6 +171,46 @@ impl App {
                         description: crate::keys::format_keys(keys),
                         action: Command::RunMacro(*r),
                         search_description: false,
+                    })
+                    .collect()
+            }
+            PickerKind::Section => {
+                let bars = &self.buffer().score.master_bars;
+                let at = self.pane().cursor.bar;
+                // The section the cursor is in.
+                let current = (0..=at.min(bars.len().saturating_sub(1)))
+                    .rev()
+                    .find(|&b| bars[b].marker.is_some());
+                bars.iter()
+                    .enumerate()
+                    .filter_map(|(b, m)| {
+                        let title = m.marker.as_ref()?.title.trim().to_string();
+                        // Its length: up to the next section (or the end).
+                        let end = (b + 1..bars.len())
+                            .find(|&n| bars[n].marker.is_some())
+                            .unwrap_or(bars.len());
+                        let mut description = format!(
+                            "bar {}{}",
+                            b + 1,
+                            if end - b > 1 {
+                                format!("–{}", end)
+                            } else {
+                                String::new()
+                            }
+                        );
+                        if current == Some(b) {
+                            description.push_str("  (here)");
+                        }
+                        Some(Entry {
+                            label: if title.is_empty() {
+                                format!("Section at bar {}", b + 1)
+                            } else {
+                                title
+                            },
+                            description,
+                            action: Command::GotoBar(b + 1),
+                            search_description: false,
+                        })
                     })
                     .collect()
             }
@@ -435,6 +479,45 @@ mod tests {
         // Other modes' bindings are listed with the mode.
         keys(&mut app, "<Space>?tracks s");
         assert_eq!(app.palette().unwrap().items[0].text, "tracks s");
+    }
+
+    #[test]
+    fn sections_by_motion_and_by_picker() {
+        let mut app = App::new(Config::default(), None);
+        app.run(Command::New);
+        app.run(Command::Section(Some("Intro".into())));
+        keys(&mut app, "}}");
+        app.run(Command::Section(Some("Verse".into())));
+        keys(&mut app, "}}");
+        app.run(Command::Section(Some("Chorus".into())));
+        keys(&mut app, "gg");
+        // ]s / [s, with a count; '' goes back.
+        keys(&mut app, "]s");
+        assert_eq!(app.pane().cursor.bar, 2);
+        keys(&mut app, "]s");
+        assert_eq!(app.pane().cursor.bar, 4);
+        keys(&mut app, "]s");
+        assert_eq!(app.pane().cursor.bar, 4);
+        keys(&mut app, "2[s");
+        assert_eq!(app.pane().cursor.bar, 0);
+        keys(&mut app, "''");
+        assert_eq!(app.pane().cursor.bar, 4);
+        // The picker lists them, with their bars; choosing one jumps there.
+        keys(&mut app, "<Space>S");
+        let p = app.palette().unwrap();
+        assert_eq!(p.title, "Sections");
+        let names: Vec<&str> = p.items.iter().map(|i| i.text.as_str()).collect();
+        assert_eq!(names, ["Intro", "Verse", "Chorus"]);
+        assert_eq!(p.items[1].description.as_deref(), Some("bar 3–4"));
+        assert!(
+            p.items[2]
+                .description
+                .as_deref()
+                .unwrap()
+                .ends_with("(here)")
+        );
+        keys(&mut app, "vers<CR>");
+        assert_eq!(app.pane().cursor.bar, 2);
     }
 
     #[test]
