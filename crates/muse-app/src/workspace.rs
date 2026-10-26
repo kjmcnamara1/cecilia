@@ -31,6 +31,10 @@ pub struct Workspace {
     pub tracks_panel: bool,
     #[serde(default = "default_true")]
     pub toolbar: bool,
+    #[serde(default)]
+    pub fretboard: bool,
+    #[serde(default)]
+    pub piano: bool,
     /// Tracks the tracks panel shows at once.
     #[serde(default = "default_tracks_rows")]
     pub tracks_rows: usize,
@@ -363,6 +367,8 @@ impl App {
             global_waveform: self.global_waveform,
             tracks_panel: self.tracks_panel,
             toolbar: self.toolbar,
+            fretboard: self.fretboard_panel,
+            piano: self.piano_panel,
             tracks_rows: self.tracks_rows,
             waveform_height: self.waveform_height,
         }
@@ -644,6 +650,8 @@ impl App {
         self.global_waveform = ws.global_waveform;
         self.tracks_panel = ws.tracks_panel;
         self.toolbar = ws.toolbar;
+        self.fretboard_panel = ws.fretboard;
+        self.piano_panel = ws.piano;
         self.tracks_rows = ws.tracks_rows.clamp(1, crate::app::MAX_TRACKS_ROWS);
         self.waveform_height = ws.waveform_height.clamp(
             crate::app::MIN_WAVEFORM_HEIGHT,

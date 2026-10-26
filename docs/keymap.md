@@ -171,6 +171,15 @@ name: the window chrome, toolbar, tabs, panels, palette, cursor, playhead, wavef
 labels, file icons, the track palette, and the score's page and ink — set a dark `page` and a
 light `ink` for light notation on dark paper. `docs/config.example.toml` lists every name.
 
+## Fretboard and piano
+
+`<leader>F` (`:fretboard [on|off]`) shows a fretboard and `<leader>K` (`:piano [on|off]`) piano
+keys above the tracks panel, for the focused pane's track: the notes at the edit cursor — or
+under the playhead while playing — as dots on the neck (named, in the track's colour; the
+cursor's string in the mode colour, a capo across its fret) and as pressed keys. The GUI's neck
+spaces its frets as a real one, with inlays; its piano has all 88 keys. `ui.fretboard` and
+`ui.piano` set the defaults, and workspaces remember them.
+
 ## Tracks panel
 
 `<leader>T` shows or hides the tracks panel at the bottom of the window (`ui.tracks_panel` sets

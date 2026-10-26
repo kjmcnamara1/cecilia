@@ -361,10 +361,38 @@ fn draw(f: &mut Frame, app: &mut App, play: Option<(usize, Location, f64, f64)>,
     } else {
         0
     };
-    let [toolbar, tabline, main, tracks, status, cmdline] = Layout::vertical([
+    // The fretboard and piano panels, above the tracks panel.
+    let instrument = app.instrument_view(play.map(|(b, loc, ..)| (b, loc.bar, loc.tick)));
+    let fret_h = match &instrument {
+        Some(v) if app.fretboard_panel => {
+            if v.fretted {
+                v.strings.len() as u16 + 1
+            } else {
+                1
+            }
+        }
+        _ => 0,
+    };
+    let piano_h = if app.piano_panel && instrument.is_some() {
+        2
+    } else {
+        0
+    };
+    let [
+        toolbar,
+        tabline,
+        main,
+        fretboard,
+        piano,
+        tracks,
+        status,
+        cmdline,
+    ] = Layout::vertical([
         Constraint::Length(u16::from(app.toolbar)),
         Constraint::Length(1),
         Constraint::Min(3),
+        Constraint::Length(fret_h),
+        Constraint::Length(piano_h),
         Constraint::Length(tracks_h),
         Constraint::Length(1),
         Constraint::Length(1),
@@ -373,6 +401,14 @@ fn draw(f: &mut Frame, app: &mut App, play: Option<(usize, Location, f64, f64)>,
     ui.tracks.clear();
     if tracks_h > 0 {
         draw_tracks(f, app, tracks, play, ui);
+    }
+    if let Some(v) = &instrument {
+        if fret_h > 0 {
+            draw_fretboard(f, app, v, fretboard);
+        }
+        if piano_h > 0 {
+            draw_piano(f, app, v, piano);
+        }
     }
 
     app.viewport = muse_app::layout::Rect {
@@ -627,6 +663,110 @@ fn file_icon(kind: &str, style: &str) -> &'static str {
             "muse" => "\u{f025}",
             _ => "\u{f016}",
         },
+    }
+}
+
+/// The fretboard: a row per string (open note, nut, a cell per fret) and the fret numbers
+/// under it; the notes at the cursor or playhead are named in the track's colour.
+fn draw_fretboard(f: &mut Frame, app: &App, v: &muse_app::instrument::InstrumentView, area: Rect) {
+    use muse_app::instrument::NOTE_NAMES;
+    let t = &app.config.theme;
+    let base = Style::default().bg(rc(t.panel)).fg(rc(t.dim));
+    let buf = f.buffer_mut();
+    buf.set_style(area, base);
+    if !v.fretted {
+        buf.set_string(area.x + 1, area.y, "fretboard: not a fretted track", base);
+        return;
+    }
+    // Label (2), open note (2), nut (1), then 4 columns a fret.
+    let nut = area.x + 4;
+    let frets = (v.frets as u16).min(area.width.saturating_sub(6) / 4);
+    let note_style = Style::default()
+        .fg(rc(t.text_on(v.color)))
+        .bg(rc(v.color))
+        .add_modifier(Modifier::BOLD);
+    for (s, &open) in v.strings.iter().enumerate() {
+        let y = area.y + s as u16;
+        let cursor = v.cursor_string == Some(s);
+        let line = if cursor {
+            base.fg(rc(t.mode_color(app.mode)))
+        } else {
+            base.fg(rc(t.chrome_text.mix(t.panel, 0.4)))
+        };
+        buf.set_string(area.x, y, NOTE_NAMES[open as usize % 12], line);
+        buf.set_string(nut, y, "║", base.fg(rc(t.chrome_text)));
+        for k in 1..=frets {
+            let x = nut + 1 + (k - 1) * 4;
+            buf.set_string(x, y, "───", line);
+            buf.set_string(x + 3, y, "│", base);
+        }
+        for n in v.notes.iter().filter(|n| n.string == s) {
+            let name = NOTE_NAMES[n.pitch as usize % 12];
+            let fret = n.fret as u16 + v.capo as u16;
+            if fret == 0 {
+                buf.set_string(area.x + 2, y, format!("{name:<2}"), note_style);
+            } else if fret <= frets {
+                let x = nut + 1 + (fret - 1) * 4;
+                buf.set_string(x, y, format!("{name:^3}"), note_style);
+            }
+        }
+    }
+    // Fret numbers at the inlays.
+    let y = area.y + v.strings.len() as u16;
+    if y < area.y + area.height {
+        for k in [3u16, 5, 7, 9, 12, 15, 17, 19, 21, 24] {
+            if k <= frets {
+                buf.set_string(nut + 1 + (k - 1) * 4 + 1, y, k.to_string(), base);
+            }
+        }
+    }
+}
+
+/// The piano: a column per key around the notes (C4 in the middle when there are none); the
+/// notes at the cursor or playhead are in the track's colour.
+fn draw_piano(f: &mut Frame, app: &App, v: &muse_app::instrument::InstrumentView, area: Rect) {
+    let t = &app.config.theme;
+    let buf = f.buffer_mut();
+    buf.set_style(area, Style::default().bg(rc(t.panel)));
+    let is_black = |p: u8| matches!(p % 12, 1 | 3 | 6 | 8 | 10);
+    let keys = area.width.min(88) as i32;
+    // Centre the range on the notes (or middle C), within A0..C8.
+    let centre = if v.notes.is_empty() {
+        60
+    } else {
+        let (lo, hi) = v
+            .notes
+            .iter()
+            .fold((127u8, 0u8), |(a, b), n| (a.min(n.pitch), b.max(n.pitch)));
+        (lo as i32 + hi as i32) / 2
+    };
+    let start = (centre - keys / 2).clamp(21, 109 - keys) as u8;
+    let x0 = area.x + (area.width - keys as u16) / 2;
+    for i in 0..keys as u16 {
+        let p = start + i as u8;
+        let x = x0 + i;
+        let pressed = v.notes.iter().any(|n| n.pitch == p);
+        let key = if pressed {
+            v.color
+        } else if is_black(p) {
+            t.ink.mix(t.page, 0.15)
+        } else {
+            t.page
+        };
+        buf.set_string(x, area.y, "█", Style::default().fg(rc(key)).bg(rc(t.panel)));
+        // The lower row: white keys only (black keys are short); C octaves numbered.
+        let low = if is_black(p) { t.page } else { key };
+        let label = if p % 12 == 0 {
+            ((p / 12) as i32 - 1).to_string()
+        } else {
+            " ".into()
+        };
+        buf.set_string(
+            x,
+            area.y + 1,
+            label,
+            Style::default().fg(rc(t.text_on(low))).bg(rc(low)),
+        );
     }
 }
 
@@ -1393,6 +1533,30 @@ mod render_tests {
         let screen = render(&mut app, 120, 20);
         let first = screen.lines().next().unwrap();
         assert!(!first.contains(" save "), "{screen}");
+    }
+
+    #[test]
+    fn fretboard_and_piano_panels_show_the_cursors_notes() {
+        let mut app = App::new(muse_app::Config::default(), None);
+        app.run(muse_app::Command::New);
+        for k in muse_app::keys::parse_keys("i3<Down>5<Esc>", &[]).unwrap() {
+            app.handle_key(k);
+        }
+        app.run(muse_app::Command::Fretboard(Some(true)));
+        app.run(muse_app::Command::Piano(Some(true)));
+        let screen = render(&mut app, 100, 24);
+        let lines: Vec<&str> = screen.lines().collect();
+        // High E fret 3 is a G, B fret 5 an E; the open strings are named.
+        let fretboard: Vec<&&str> = lines.iter().filter(|l| l.contains('║')).collect();
+        assert_eq!(fretboard.len(), 6, "{screen}");
+        assert!(fretboard[0].contains(" G "), "{screen}");
+        assert!(fretboard[1].contains(" E "), "{screen}");
+        // The piano row with octave numbers.
+        assert!(
+            lines
+                .iter()
+                .any(|l| l.contains('4') && l.contains('3') && l.contains('5'))
+        );
     }
 
     #[test]

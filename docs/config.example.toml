@@ -14,6 +14,8 @@ global_waveform = false  # waveform bar across the window bottom for the focused
                          # per-pane strips; :waveform then toggles it)
 tracks_panel = false     # the tracks panel (mixer and bar overview) at the window bottom
 toolbar = true           # the toolbar of common commands at the top of the window (:toolbar, <leader>B)
+fretboard = false        # a fretboard panel with the notes at the cursor or playhead (<leader>F)
+piano = false            # piano keys likewise (<leader>K)
 tracks_peek = 1.0        # seconds the hidden tracks panel shows when the track changes (0: never)
 
 [tabline]

@@ -602,9 +602,35 @@ pub fn build(
     } else {
         0.0
     };
+    // The fretboard and piano panels sit above the tracks panel.
+    let instrument = app.instrument_view(play.map(|(b, loc, ..)| (b, loc.bar, loc.tick)));
+    let fret_h = match &instrument {
+        Some(v) if app.fretboard_panel && height > 300.0 => fretboard_height(v),
+        _ => 0.0,
+    };
+    let piano_h = if app.piano_panel && height > 300.0 && instrument.is_some() {
+        PIANO_H
+    } else {
+        0.0
+    };
     let top = TAB_BAR + if app.toolbar { TOOLBAR } else { 0.0 };
     views.chrome_bottom = top;
-    let main = Rect::new(0.0, top, width, bottom - tracks_h);
+    let panels_top = bottom - tracks_h - piano_h - fret_h;
+    let main = Rect::new(0.0, top, width, panels_top);
+    if let Some(v) = &instrument {
+        if fret_h > 0.0 {
+            draw_fretboard(
+                scene,
+                app,
+                v,
+                Rect::new(0.0, panels_top, width, panels_top + fret_h),
+            );
+        }
+        if piano_h > 0.0 {
+            let y = panels_top + fret_h;
+            draw_piano_panel(scene, app, v, Rect::new(0.0, y, width, y + piano_h));
+        }
+    }
     views.tracks.clear();
     views.edges.clear();
     views.wave_rects.clear();
@@ -2241,6 +2267,230 @@ fn draw_speedometer(scene: &mut Scene, x: f64, cy: f64, color: Color) {
         None,
         &Circle::new((cx, cy), 1.6),
     );
+}
+
+/// Height of the piano panel.
+const PIANO_H: f64 = 74.0;
+/// The lowest and highest keys of the piano panel (A0 to C8, 88 keys).
+const PIANO_KEYS: (u8, u8) = (21, 108);
+
+fn fretboard_height(v: &muse_app::instrument::InstrumentView) -> f64 {
+    if v.fretted {
+        v.strings.len() as f64 * 15.0 + 36.0
+    } else {
+        34.0
+    }
+}
+
+/// The fretboard: the track's strings and frets (spaced as on a real neck), inlays, and the
+/// notes at the cursor or playhead as dots in the track's colour with their names.
+fn draw_fretboard(scene: &mut Scene, app: &App, v: &muse_app::instrument::InstrumentView, r: Rect) {
+    use muse_app::instrument::NOTE_NAMES;
+    let th = &app.config.theme;
+    fill(scene, r, col(th.panel));
+    fill(scene, Rect::new(r.x0, r.y0, r.x1, r.y0 + 1.0), col(th.tab));
+    if !v.fretted {
+        text(
+            scene,
+            "Fretboard: not a fretted track",
+            r.x0 + 12.0,
+            r.center().y + 5.0,
+            12.0,
+            Align::Left,
+            col(th.dim),
+            false,
+        );
+        return;
+    }
+    let n = v.strings.len();
+    let (left, right) = (r.x0 + 44.0, r.x1 - 16.0);
+    let (top, bottom) = (r.y0 + 14.0, r.y1 - 20.0);
+    let string_y = |s: usize| top + (bottom - top) * s as f64 / (n.max(2) - 1) as f64;
+    let frets = v.frets.max(1) as f64;
+    // Fret k sits where it would on a neck: frets get closer up the neck.
+    let span = 1.0 - 2f64.powf(-frets / 12.0);
+    let fret_x = |k: f64| left + (right - left) * (1.0 - 2f64.powf(-k / 12.0)) / span;
+    let wood = th.panel.mix(th.chrome_text, 0.05);
+    fill(
+        scene,
+        Rect::new(left, top - 6.0, right, bottom + 6.0),
+        col(wood),
+    );
+    // Inlays.
+    let mid_y = (top + bottom) / 2.0;
+    for k in [3u8, 5, 7, 9, 12, 15, 17, 19, 21, 24] {
+        if k > v.frets {
+            continue;
+        }
+        let x = (fret_x(k as f64 - 1.0) + fret_x(k as f64)) / 2.0;
+        let ys: Vec<f64> = if k % 12 == 0 {
+            vec![(top + mid_y) / 2.0, (mid_y + bottom) / 2.0]
+        } else {
+            vec![mid_y]
+        };
+        for y in ys {
+            scene.fill(
+                Fill::NonZero,
+                Affine::IDENTITY,
+                col(th.dim.with_alpha(90)),
+                None,
+                &Circle::new((x, y), 3.5),
+            );
+        }
+    }
+    // Frets (the nut thicker), and their numbers under the neck.
+    for k in 0..=v.frets {
+        let x = fret_x(k as f64);
+        let w = if k == 0 { 3.0 } else { 1.0 };
+        fill(
+            scene,
+            Rect::new(x - w / 2.0, top - 6.0, x + w / 2.0, bottom + 6.0),
+            col(th.dim.with_alpha(if k == 0 { 255 } else { 150 })),
+        );
+        if [3u8, 5, 7, 9, 12, 15, 17, 19, 21, 24].contains(&k) {
+            let cx = (fret_x(k as f64 - 1.0) + x) / 2.0;
+            text(
+                scene,
+                &k.to_string(),
+                cx,
+                r.y1 - 3.0,
+                9.0,
+                Align::Center,
+                col(th.dim),
+                false,
+            );
+        }
+    }
+    // A capo across its fret.
+    if v.capo > 0 && v.capo <= v.frets {
+        let x = fret_x(v.capo as f64) - 4.0;
+        scene.fill(
+            Fill::NonZero,
+            Affine::IDENTITY,
+            col(th.dim.with_alpha(180)),
+            None,
+            &RoundedRect::new(x - 3.0, top - 7.0, x + 3.0, bottom + 7.0, 3.0),
+        );
+    }
+    // Strings (thicker going down), with their open notes on the left.
+    for (s, &open) in v.strings.iter().enumerate() {
+        let y = string_y(s);
+        let w = 0.8 + s as f64 * 0.25;
+        let cursor = v.cursor_string == Some(s);
+        let c = if cursor {
+            th.mode_color(app.mode)
+        } else {
+            th.chrome_text.mix(th.panel, 0.35)
+        };
+        fill(
+            scene,
+            Rect::new(left, y - w / 2.0, right, y + w / 2.0),
+            col(c),
+        );
+        text(
+            scene,
+            NOTE_NAMES[open as usize % 12],
+            r.x0 + 12.0,
+            y + 4.0,
+            11.0,
+            Align::Center,
+            col(if cursor { c } else { th.dim }),
+            cursor,
+        );
+    }
+    // The notes.
+    for note in &v.notes {
+        if note.string >= n {
+            continue;
+        }
+        let y = string_y(note.string);
+        let fret = note.fret as f64 + v.capo as f64;
+        let x = if note.fret == 0 && v.capo == 0 {
+            left - 12.0
+        } else {
+            (fret_x(fret - 1.0) + fret_x(fret)) / 2.0
+        };
+        scene.fill(
+            Fill::NonZero,
+            Affine::IDENTITY,
+            col(v.color),
+            None,
+            &Circle::new((x, y), 7.0),
+        );
+        text(
+            scene,
+            NOTE_NAMES[note.pitch as usize % 12],
+            x,
+            y + 3.5,
+            9.5,
+            Align::Center,
+            col(th.text_on(v.color)),
+            true,
+        );
+    }
+}
+
+/// The piano: 88 keys with the notes at the cursor or playhead pressed in the track's colour.
+fn draw_piano_panel(
+    scene: &mut Scene,
+    app: &App,
+    v: &muse_app::instrument::InstrumentView,
+    r: Rect,
+) {
+    let th = &app.config.theme;
+    fill(scene, r, col(th.panel));
+    fill(scene, Rect::new(r.x0, r.y0, r.x1, r.y0 + 1.0), col(th.tab));
+    let is_black = |p: u8| matches!(p % 12, 1 | 3 | 6 | 8 | 10);
+    let (lo, hi) = PIANO_KEYS;
+    let whites = (lo..=hi).filter(|&p| !is_black(p)).count() as f64;
+    let (x0, x1) = (r.x0 + 8.0, r.x1 - 8.0);
+    let (top, bottom) = (r.y0 + 6.0, r.y1 - 6.0);
+    let kw = (x1 - x0) / whites;
+    let pressed = |p: u8| v.notes.iter().any(|n| n.pitch == p);
+    let white = th.page;
+    let black = th.ink.mix(th.page, 0.15);
+    // White keys, with C names under middle C's octave marks.
+    let mut x = x0;
+    let mut white_x = std::collections::HashMap::new();
+    for p in (lo..=hi).filter(|&p| !is_black(p)) {
+        white_x.insert(p, x);
+        let c = if pressed(p) { v.color } else { white };
+        scene.fill(
+            Fill::NonZero,
+            Affine::IDENTITY,
+            col(c),
+            None,
+            &RoundedRect::new(x + 0.5, top, x + kw - 0.5, bottom, 2.0),
+        );
+        if p % 12 == 0 {
+            text(
+                scene,
+                &format!("C{}", p / 12 - 1),
+                x + kw / 2.0,
+                bottom - 4.0,
+                8.0,
+                Align::Center,
+                col(th.text_on(c).with_alpha(160)),
+                p == 60,
+            );
+        }
+        x += kw;
+    }
+    // Black keys over them.
+    for p in (lo..=hi).filter(|&p| is_black(p)) {
+        let Some(&wx) = white_x.get(&(p - 1)) else {
+            continue;
+        };
+        let bx = wx + kw * 0.68;
+        let c = if pressed(p) { v.color } else { black };
+        scene.fill(
+            Fill::NonZero,
+            Affine::IDENTITY,
+            col(c),
+            None,
+            &RoundedRect::new(bx, top, bx + kw * 0.64, top + (bottom - top) * 0.62, 1.5),
+        );
+    }
 }
 
 /// A piano keyboard (the synth plays), as the 󰣱 glyph.

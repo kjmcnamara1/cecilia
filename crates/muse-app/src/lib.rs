@@ -11,6 +11,7 @@ pub mod dialog;
 pub mod edit;
 mod editor;
 pub mod history;
+pub mod instrument;
 pub mod keys;
 pub mod layout;
 pub mod marks;

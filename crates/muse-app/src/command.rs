@@ -140,6 +140,9 @@ pub enum Command {
     Tracks(Option<bool>),
     /// Move the shown file's tab in the tabline: to position N, or by +N / -N.
     BufferMove(Amount),
+    /// Show or hide the fretboard / piano panel (no argument: toggle).
+    Fretboard(Option<bool>),
+    Piano(Option<bool>),
     /// Show or hide the toolbar (no argument: toggle).
     Toolbar(Option<bool>),
     /// Focus the tracks panel, or give the focus back to the score.
@@ -642,6 +645,19 @@ impl Command {
                 Some(a) => return Err(format!("tracks: '{a}' is not on or off")),
             }),
             "tracks-focus" => TracksFocus,
+            "fretboard" | "piano" => {
+                let on = match arg {
+                    None => None,
+                    Some("on") => Some(true),
+                    Some("off") => Some(false),
+                    Some(a) => return Err(format!("{name}: '{a}' is not on or off")),
+                };
+                if name == "piano" {
+                    Piano(on)
+                } else {
+                    Fretboard(on)
+                }
+            }
             "toolbar" => Toolbar(match arg {
                 None => None,
                 Some("on") => Some(true),

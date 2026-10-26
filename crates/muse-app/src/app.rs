@@ -245,6 +245,9 @@ pub struct App {
     pub tracks_panel: bool,
     /// The toolbar is shown (`ui.toolbar`, `:toolbar`).
     pub toolbar: bool,
+    /// The fretboard and piano panels are shown (`:fretboard`, `:piano`).
+    pub fretboard_panel: bool,
+    pub piano_panel: bool,
     /// Until when the hidden tracks panel shows after the track changed (`ui.tracks_peek`).
     tracks_peek_until: Option<std::time::Instant>,
     /// Tracks the tracks panel shows at once (`:tracks-resize`, or drag its top edge).
@@ -283,6 +286,7 @@ impl App {
         let global_waveform = config.file.ui.global_waveform;
         let tracks_panel = config.file.ui.tracks_panel;
         let toolbar = config.file.ui.toolbar;
+        let (fretboard_panel, piano_panel) = (config.file.ui.fretboard, config.file.ui.piano);
         let (score_layout, zoom) = (config.file.ui.layout.clone(), config.file.ui.zoom);
         let config_mtime = config_path.as_deref().and_then(mtime);
         let theme_mtime = config
@@ -344,6 +348,8 @@ impl App {
             global_waveform,
             tracks_panel,
             toolbar,
+            fretboard_panel,
+            piano_panel,
             tracks_rows: DEFAULT_TRACKS_ROWS,
             tracks_peek_until: None,
             waveform_height: DEFAULT_WAVEFORM_HEIGHT,
@@ -1212,6 +1218,8 @@ impl App {
             }
             ResizeEqual => self.views[self.active_view].root.equalize(),
             Toolbar(on) => self.toolbar = on.unwrap_or(!self.toolbar),
+            Fretboard(on) => self.fretboard_panel = on.unwrap_or(!self.fretboard_panel),
+            Piano(on) => self.piano_panel = on.unwrap_or(!self.piano_panel),
             Maximize => {
                 let on = self.maximized().is_none();
                 let v = &mut self.views[self.active_view];
