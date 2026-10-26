@@ -1046,14 +1046,15 @@ fn fmt_time(t: f64) -> String {
 
 fn draw_status(f: &mut Frame, app: &App, play: Option<(usize, Location, f64, f64)>, area: Rect) {
     let t = &app.config.theme;
-    let (mode, color) = match app.mode {
-        Mode::Normal => (" NORMAL ", t.mode_normal),
-        Mode::Insert => (" INSERT ", t.mode_insert),
-        Mode::Visual => (" VISUAL ", t.mode_visual),
-        Mode::Command => (" COMMAND ", t.mode_command),
-        Mode::Picker => (" PICK ", t.mode_picker),
-        Mode::Tracks => (" TRACKS ", t.mode_tracks),
+    let mode = match app.mode {
+        Mode::Normal => " NORMAL ",
+        Mode::Insert => " INSERT ",
+        Mode::Visual => " VISUAL ",
+        Mode::Command => " COMMAND ",
+        Mode::Picker => " PICK ",
+        Mode::Tracks => " TRACKS ",
     };
+    let color = t.mode_color(app.mode);
     let mode_style = on(app, color);
     let pane = app.pane();
     let score = &app.buffer().score;

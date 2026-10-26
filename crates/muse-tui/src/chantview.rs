@@ -221,11 +221,10 @@ impl Widget for ChantView<'_> {
             .add_modifier(Modifier::BOLD);
         let on = |bg| Style::default().fg(rc(th.text_on(bg))).bg(rc(bg));
         let cursor_style = if self.focused {
-            on(th.cursor)
+            on(th.mode_color(self.app.mode))
         } else {
             on(th.dim)
         };
-        let column_style = Style::default().bg(rc(th.tab));
         let play_style = Style::default().bg(rc(th.playhead));
         let mut clef = chant.initial_clef();
         for (li, line) in lines.iter().enumerate() {
@@ -282,8 +281,6 @@ impl Widget for ChantView<'_> {
                                         .any(|r| playing == Some((*bar, b + r)));
                                     if on_play {
                                         buf.set_style(column, play_style);
-                                    } else if on_cursor {
-                                        buf.set_style(column, column_style);
                                     }
                                     self.hits.push(Hit {
                                         area: column,

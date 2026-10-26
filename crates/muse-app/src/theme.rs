@@ -123,9 +123,6 @@ pub struct Theme {
     pub dim: Rgba,
     /// Highlights: the active tab, focus borders.
     pub accent: Rgba,
-    /// Edit cursor (filled translucently) and its outline.
-    pub cursor: Rgba,
-    pub cursor_outline: Rgba,
     /// The playhead (red bar).
     pub playhead: Rgba,
     pub selection: Rgba,
@@ -185,8 +182,6 @@ pub const COLOR_NAMES: &[&str] = &[
     "chrome_text",
     "dim",
     "accent",
-    "cursor",
-    "cursor_outline",
     "playhead",
     "selection",
     "tab",
@@ -230,8 +225,6 @@ impl Theme {
             chrome_text: Rgba::rgb(225, 225, 230),
             dim: Rgba::rgb(150, 152, 160),
             accent,
-            cursor: Rgba::rgb(250, 190, 40),
-            cursor_outline: Rgba::rgb(230, 140, 0),
             playhead: Rgba::rgb(225, 40, 40),
             selection: Rgba::rgb(150, 90, 220),
             tab: Rgba::rgb(52, 55, 63),
@@ -270,7 +263,6 @@ impl Theme {
             chrome_text: Rgba::rgb(36, 38, 44),
             dim: Rgba::rgb(110, 114, 124),
             accent,
-            cursor_outline: Rgba::rgb(200, 120, 0),
             playhead: Rgba::rgb(215, 30, 30),
             selection: Rgba::rgb(140, 80, 210),
             tab: Rgba::rgb(220, 221, 227),
@@ -307,8 +299,6 @@ impl Theme {
             chrome_text: hex("#eceff4"),
             dim: hex("#9aa5b8"),
             accent,
-            cursor: hex("#ebcb8b"),
-            cursor_outline: hex("#d08770"),
             playhead: hex("#bf616a"),
             selection: hex("#b48ead"),
             tab: hex("#3b4252"),
@@ -349,8 +339,6 @@ impl Theme {
             chrome_text: hex("#ebdbb2"),
             dim: hex("#a89984"),
             accent,
-            cursor: hex("#fabd2f"),
-            cursor_outline: hex("#d79921"),
             playhead: hex("#fb4934"),
             selection: hex("#d3869b"),
             tab: hex("#3c3836"),
@@ -391,8 +379,6 @@ impl Theme {
             chrome_text: hex("#93a1a1"),
             dim: hex("#657b83"),
             accent,
-            cursor: hex("#b58900"),
-            cursor_outline: hex("#cb4b16"),
             playhead: hex("#dc322f"),
             selection: hex("#6c71c4"),
             tab: hex("#073642"),
@@ -463,8 +449,6 @@ impl Theme {
             "chrome_text" => &mut self.chrome_text,
             "dim" => &mut self.dim,
             "accent" => &mut self.accent,
-            "cursor" => &mut self.cursor,
-            "cursor_outline" => &mut self.cursor_outline,
             "playhead" => &mut self.playhead,
             "selection" => &mut self.selection,
             "tab" => &mut self.tab,
@@ -493,6 +477,19 @@ impl Theme {
             "icon_muse" => &mut self.icon_muse,
             _ => return None,
         })
+    }
+
+    /// The colour of a mode: its status-line label, and the edit cursor while in it.
+    pub fn mode_color(&self, mode: crate::config::Mode) -> Rgba {
+        use crate::config::Mode;
+        match mode {
+            Mode::Normal => self.mode_normal,
+            Mode::Insert => self.mode_insert,
+            Mode::Visual => self.mode_visual,
+            Mode::Command => self.mode_command,
+            Mode::Picker => self.mode_picker,
+            Mode::Tracks => self.mode_tracks,
+        }
     }
 
     /// The colour of track `i` without a colour of its own.

@@ -229,11 +229,10 @@ impl Widget for TabView<'_> {
         let line_style = Style::default().fg(rc(th.chrome_text.mix(th.dim, 0.6)));
         let on = |bg| Style::default().fg(rc(th.text_on(bg))).bg(rc(bg));
         let cursor_style = if self.focused {
-            on(th.cursor)
+            on(th.mode_color(self.app.mode))
         } else {
             on(th.dim)
         };
-        let column_style = Style::default().bg(rc(th.tab));
         let playhead_style = on(th.playhead);
 
         for (row, system) in systems.iter().enumerate().skip(scroll).take(visible) {
@@ -343,8 +342,6 @@ impl Widget for TabView<'_> {
                                 cell,
                                 Style::default().bg(rc(th.selection.mix(th.chrome, 0.5))),
                             );
-                        } else if is_cursor_beat {
-                            buf.set_style(cell, column_style);
                         }
                         if let Some(n) =
                             beat.and_then(|b| b.notes.iter().find(|n| row_of(n, track) == s))

@@ -1577,25 +1577,28 @@ fn draw_pane(
             _ => (pos.x, pos.width),
         };
         views.glide.insert(id, (pos.page, pos.top, x, w, now));
-        let alpha = if focused { 60 } else { 30 };
-        let r = Rect::new(x, pos.top, x + w, pos.bottom);
-        scene.fill(
-            Fill::NonZero,
-            to_screen(pos.page),
-            tc(|t| t.cursor.with_alpha(alpha)),
-            None,
-            &r,
-        );
-        if let Some(&y) = pos.strings.get(pane.cursor.string) {
-            let r = RoundedRect::new(x, y - 4.5, x + w.min(16.0), y + 4.5, 2.0);
-            scene.stroke(
-                &Stroke::new(1.2 / scale),
-                to_screen(pos.page),
-                tc(|t| t.cursor_outline),
-                None,
-                &r,
-            );
-        }
+        // A translucent shade in the mode's colour over just what an edit changes: the note
+        // place on the cursor's string, or the whole beat on staves without strings.
+        let alpha = if focused { 110 } else { 45 };
+        let color = tc(|t| t.mode_color(app.mode).with_alpha(alpha));
+        let r = match pos.strings.get(pane.cursor.string) {
+            Some(&y) => {
+                let gap = match pos.strings.as_slice() {
+                    [a, b, ..] => (b - a).abs(),
+                    _ => 9.0,
+                };
+                let h = (gap * 0.9).clamp(6.0, 14.0);
+                RoundedRect::new(
+                    x - 1.0,
+                    y - h / 2.0,
+                    x + w.min(16.0) + 1.0,
+                    y + h / 2.0,
+                    2.0,
+                )
+            }
+            None => RoundedRect::new(x, pos.top, x + w, pos.bottom, 2.0),
+        };
+        scene.fill(Fill::NonZero, to_screen(pos.page), color, None, &r);
     }
     // Playhead: a red bar at the exact playback position, drawn over the cursor.
     if let Some((page, x, top, bottom)) = playhead {
@@ -2028,14 +2031,15 @@ fn draw_status(
 ) {
     let y0 = height - STATUS - CMDLINE;
     fill(scene, Rect::new(0.0, y0, width, height), chrome());
-    let (label, color) = match app.mode {
-        Mode::Normal => (" NORMAL ", tc(|t| t.mode_normal)),
-        Mode::Command => (" COMMAND ", tc(|t| t.mode_command)),
-        Mode::Insert => (" INSERT ", tc(|t| t.mode_insert)),
-        Mode::Visual => (" VISUAL ", tc(|t| t.mode_visual)),
-        Mode::Picker => (" PICK ", tc(|t| t.mode_picker)),
-        Mode::Tracks => (" TRACKS ", tc(|t| t.mode_tracks)),
+    let label = match app.mode {
+        Mode::Normal => " NORMAL ",
+        Mode::Command => " COMMAND ",
+        Mode::Insert => " INSERT ",
+        Mode::Visual => " VISUAL ",
+        Mode::Picker => " PICK ",
+        Mode::Tracks => " TRACKS ",
     };
+    let color = tc(|t| t.mode_color(app.mode));
     let w = muse_engrave::fonts::fonts().text_width(FontKind::Bold, label, 13.0) + 8.0;
     scene.fill(
         Fill::NonZero,
