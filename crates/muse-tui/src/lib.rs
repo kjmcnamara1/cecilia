@@ -62,6 +62,8 @@ enum Drag {
     Divider(muse_app::layout::Divider, i32),
     /// The tracks panel's header: the row grabbed and the rows shown then.
     Tracks(u16, usize),
+    /// A buffer tab being dragged along the tabline (its position now).
+    Tab(usize),
 }
 
 /// A pane border under a cell: the divider and how far the cell is from its position.
@@ -114,11 +116,29 @@ fn event_loop(terminal: &mut DefaultTerminal, app: &mut App) -> Result<()> {
                 }
                 Event::Mouse(m) => match m.kind {
                     MouseEventKind::Moved => ui.hover = Some((m.column, m.row)),
-                    // Dragging a pane border or the tracks panel's header resizes them.
+                    // Dragging a pane border or the tracks panel's header resizes them; a
+                    // tab moves along the tabline.
                     MouseEventKind::Drag(MouseButton::Left)
-                        if matches!(ui.drag, Some(Drag::Divider(..) | Drag::Tracks(..))) =>
+                        if matches!(
+                            ui.drag,
+                            Some(Drag::Divider(..) | Drag::Tracks(..) | Drag::Tab(_))
+                        ) =>
                     {
                         match ui.drag.clone() {
+                            Some(Drag::Tab(n)) => {
+                                let target = ui.tabline.iter().find_map(|(r, hit)| match hit {
+                                    TablineHit::Buffer(t)
+                                        if m.column >= r.x && m.column < r.x + r.width =>
+                                    {
+                                        Some(*t)
+                                    }
+                                    _ => None,
+                                });
+                                if let Some(t) = target.filter(|&t| t != n) {
+                                    app.move_tab(n, t);
+                                    ui.drag = Some(Drag::Tab(t));
+                                }
+                            }
                             Some(Drag::Divider(d, off)) => {
                                 let along = match d.axis {
                                     muse_app::layout::Axis::SideBySide => m.column,
@@ -207,6 +227,9 @@ fn event_loop(terminal: &mut DefaultTerminal, app: &mut App) -> Result<()> {
                             .find(|(r, _)| contains(*r, m.column, m.row))
                             .map(|(_, h)| *h);
                         if let Some(hit) = tab_hit {
+                            if let (TablineHit::Buffer(n), MouseButton::Left) = (hit, button) {
+                                ui.drag = Some(Drag::Tab(n));
+                            }
                             app.run(match (hit, button) {
                                 (
                                     TablineHit::Buffer(n) | TablineHit::Close(n),

@@ -138,6 +138,8 @@ pub enum Command {
     Solo(Option<usize>),
     /// Show or hide the tracks panel (no argument: toggle).
     Tracks(Option<bool>),
+    /// Move the shown file's tab in the tabline: to position N, or by +N / -N.
+    BufferMove(Amount),
     /// Show or hide the toolbar (no argument: toggle).
     Toolbar(Option<bool>),
     /// Focus the tracks panel, or give the focus back to the score.
@@ -229,6 +231,12 @@ pub enum Command {
     WaveformResize(Amount),
     VSplit,
     Focus(Direction),
+    /// Move the focused pane to the far side of the view, spanning it (`<C-w>H J K L`).
+    PaneMove(Direction),
+    /// Swap the focused pane with the next one of its split (`<C-w>x`).
+    PaneExchange,
+    /// Rotate the panes of the focused pane's split on, or back (`<C-w>r`, `<C-w>R`).
+    PaneRotate(bool),
     ClosePane,
     ViewNext,
     ViewPrev,
@@ -336,12 +344,25 @@ impl Command {
                 }
             }
             "resize-equal" => ResizeEqual,
+            "buffer-move" | "tab-move" => BufferMove(
+                arg.and_then(Amount::parse)
+                    .ok_or("buffer-move: give a position: N, +N or -N")?,
+            ),
+            "buffer-move-next" => BufferMove(Amount::By(1)),
+            "buffer-move-prev" => BufferMove(Amount::By(-1)),
             "maximize" | "max" | "zoom-pane" => Maximize,
             "vsplit" | "vs" => VSplit,
             "focus-left" => Focus(Direction::Left),
             "focus-down" => Focus(Direction::Down),
             "focus-up" => Focus(Direction::Up),
             "focus-right" => Focus(Direction::Right),
+            "pane-move-left" => PaneMove(Direction::Left),
+            "pane-move-down" => PaneMove(Direction::Down),
+            "pane-move-up" => PaneMove(Direction::Up),
+            "pane-move-right" => PaneMove(Direction::Right),
+            "pane-exchange" => PaneExchange,
+            "pane-rotate" => PaneRotate(true),
+            "pane-rotate-back" => PaneRotate(false),
             "close-pane" | "close" | "clo" => ClosePane,
             "view-next" => ViewNext,
             "view-prev" => ViewPrev,

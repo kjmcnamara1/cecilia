@@ -69,9 +69,14 @@ unless forced (`:bdelete!`).
 | `<C-w>+` / `<C-w>-` | pane taller / shorter by 5% (`:resize +N`, `:resize N` in percent of its split) | |
 | `<C-w>>` / `<C-w><` | pane wider / narrower by 5% (`:vertical-resize`) | |
 | `<C-w>=`            | all panes the same size (`:resize-equal`) | |
+| `<C-w>H` `J` `K` `L` | move the pane to the far left / bottom / top / right, spanning the view (`:pane-move-left` …) | |
+| `<C-w>x`            | swap the pane with the next one (`:pane-exchange`) | |
+| `<C-w>r` / `<C-w>R` | rotate the panes of this split forwards / backwards (`:pane-rotate`, `:pane-rotate-back`) | |
+| `<leader>>` / `<leader><` | move this file's tab right / left in the tabline (`:buffer-move-next`, `:buffer-move-prev`; `:buffer-move N`, `+N`, `-N`) | |
 | `<C-m>` / `<C-w>z`  | maximize the pane / restore the others (`:maximize`); focusing another pane restores them too. Terminals often send `<C-m>` as Enter, so in the TUI use `<C-w>z` | |
 
-Drag the border between two panes with the mouse to resize them, and the top edge of the
+Drag a tab along the tabline to reorder the files. Drag the border between two panes with the
+mouse to resize them, and the top edge of the
 tracks panel or of a waveform to make it taller or shorter (`:tracks-resize N` sets the tracks
 it shows, `:waveform-resize N` the waveform height in pixels). Pane sizes, the tracks panel's
 rows and the waveform height are saved in workspaces. Over the tracks panel the mouse wheel

@@ -400,6 +400,18 @@ impl App {
             .collect()
     }
 
+    /// Moves the tab at position `from` of the active view's tabline to position `to`
+    /// (0-based; clamped).
+    pub fn move_tab(&mut self, from: usize, to: usize) {
+        let tabs = &mut self.views[self.active_view].buffers;
+        if from >= tabs.len() {
+            return;
+        }
+        let to = to.min(tabs.len() - 1);
+        let b = tabs.remove(from);
+        tabs.insert(to, b);
+    }
+
     /// The view labels the tabline shows: none for a lone view with `tabline.hide_single_view`.
     pub fn tabline_views(&self) -> Vec<String> {
         if self.views.len() == 1 && self.config.file.tabline.hide_single_view {
@@ -1223,6 +1235,25 @@ impl App {
                     self.views[self.active_view].focus = id;
                 }
             }
+            PaneMove(dir) => {
+                let (id, v) = (self.focused(), self.active_view);
+                self.views[v].maximized = None;
+                if !self.views[v].root.move_to_edge(id, dir) {
+                    self.info("only one pane in this view");
+                }
+            }
+            PaneExchange | PaneRotate(_) => {
+                let (id, v) = (self.focused(), self.active_view);
+                self.views[v].maximized = None;
+                let root = &mut self.views[v].root;
+                let moved = match cmd {
+                    PaneExchange => root.exchange(id),
+                    _ => root.rotate(id, matches!(cmd, PaneRotate(true))),
+                };
+                if !moved {
+                    self.info("only one pane in this view");
+                }
+            }
             ClosePane => self.close_pane(false),
             Quit { force } => self.close_pane(force),
             QuitAll { force } => {
@@ -1269,6 +1300,18 @@ impl App {
             }
             BufferNext => self.cycle_buffer(1),
             BufferPrev => self.cycle_buffer(-1),
+            BufferMove(amount) => {
+                let b = self.pane().buffer;
+                let tabs = &self.view().buffers;
+                let Some(from) = tabs.iter().position(|&t| t == b) else {
+                    return self.error("this file has no tab here");
+                };
+                let to = match amount {
+                    crate::command::Amount::To(n) => n as i64 - 1,
+                    crate::command::Amount::By(d) => from as i64 + d as i64,
+                };
+                self.move_tab(from, to.clamp(0, tabs.len() as i64 - 1) as usize);
+            }
             BufferGoto(n) => match n.checked_sub(1).and_then(|i| self.view().buffers.get(i)) {
                 Some(&b) => self.show_buffer(b),
                 None => self.error(format!("no buffer tab {n}")),
@@ -2039,6 +2082,78 @@ mod tests {
         app.run(Command::WriteQuitAll);
         assert!(!app.quit);
         std::fs::remove_dir_all(dir).ok();
+    }
+
+    #[test]
+    fn panes_move_like_vim_windows() {
+        let mut app = App::new(Config::default(), None);
+        app.viewport = Rect {
+            x: 0,
+            y: 0,
+            w: 90,
+            h: 40,
+        };
+        keys(&mut app, "<C-w>v<C-w>v");
+        let ids = app.view().root.panes();
+        let me = app.focused();
+        // <C-w>J: across the bottom.
+        keys(&mut app, "<C-w>J");
+        let r = app
+            .layout()
+            .into_iter()
+            .find(|(id, _)| *id == me)
+            .unwrap()
+            .1;
+        assert_eq!((r.y, r.w), (20, 90));
+        // <C-w>L: down the right side.
+        keys(&mut app, "<C-w>L");
+        let r = app
+            .layout()
+            .into_iter()
+            .find(|(id, _)| *id == me)
+            .unwrap()
+            .1;
+        assert_eq!((r.x + r.w, r.h), (90, 40));
+        // <C-w>x and <C-w>r keep the panes, in another order.
+        let before = app.view().root.panes();
+        keys(&mut app, "<C-w>x");
+        assert_ne!(app.view().root.panes(), before);
+        keys(&mut app, "<C-w>r<C-w>R");
+        let mut after = app.view().root.panes();
+        after.sort();
+        let mut all = ids.clone();
+        all.sort();
+        assert_eq!(after, all);
+        assert_eq!(app.focused(), me);
+    }
+
+    #[test]
+    fn tabs_move_by_command_and_key() {
+        let mut app = App::new(Config::default(), None);
+        app.run(Command::New);
+        app.run(Command::New);
+        app.run(Command::New);
+        let order = |app: &App| {
+            app.bufferline()
+                .iter()
+                .map(|t| t.buffer)
+                .collect::<Vec<_>>()
+        };
+        let start = order(&app);
+        let shown = app.pane().buffer;
+        assert_eq!(*start.last().unwrap(), shown);
+        // To the front, then one right with the key, then back to the end.
+        app.run(Command::BufferMove(crate::command::Amount::To(1)));
+        assert_eq!(order(&app)[0], shown);
+        keys(&mut app, "<Space>>");
+        assert_eq!(order(&app)[1], shown);
+        app.run(Command::BufferMove(crate::command::Amount::By(99)));
+        assert_eq!(order(&app), start);
+        keys(&mut app, "<Space><lt>");
+        assert_eq!(order(&app)[start.len() - 2], shown);
+        // Dragging uses move_tab directly.
+        app.move_tab(0, 5);
+        assert_eq!(*order(&app).last().unwrap(), start[0]);
     }
 
     #[test]

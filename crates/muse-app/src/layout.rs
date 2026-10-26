@@ -226,6 +226,79 @@ impl Node {
         true
     }
 
+    /// The split directly holding pane `target`, and its index there.
+    fn parent_of(&mut self, target: PaneId) -> Option<(&mut Vec<Node>, usize)> {
+        let Node::Split { children, .. } = self else {
+            return None;
+        };
+        if let Some(i) = children.iter().position(|c| *c == Node::Leaf(target)) {
+            return Some((children, i));
+        }
+        children.iter_mut().find_map(|c| c.parent_of(target))
+    }
+
+    /// `<C-w>x`: swaps a pane with the next one of its split (the previous one for the last).
+    pub fn exchange(&mut self, target: PaneId) -> bool {
+        let Some((children, i)) = self.parent_of(target) else {
+            return false;
+        };
+        let j = if i + 1 < children.len() { i + 1 } else { i - 1 };
+        children.swap(i, j);
+        true
+    }
+
+    /// `<C-w>r` / `<C-w>R`: rotates the panes of a pane's split one place on (the last one
+    /// becomes the first), or back.
+    pub fn rotate(&mut self, target: PaneId, forward: bool) -> bool {
+        let Some((children, _)) = self.parent_of(target) else {
+            return false;
+        };
+        if forward {
+            children.rotate_right(1);
+        } else {
+            children.rotate_left(1);
+        }
+        true
+    }
+
+    /// `<C-w>H` `J` `K` `L`: moves a pane to the far left, bottom, top or right of the whole
+    /// view, spanning its full height or width.
+    pub fn move_to_edge(&mut self, target: PaneId, dir: Direction) -> bool {
+        if !self.panes().contains(&target) || matches!(self, Node::Leaf(_)) {
+            return false;
+        }
+        self.remove(target);
+        let axis = match dir {
+            Direction::Left | Direction::Right => Axis::SideBySide,
+            Direction::Up | Direction::Down => Axis::Stacked,
+        };
+        let first = matches!(dir, Direction::Left | Direction::Up);
+        match self {
+            Node::Split {
+                axis: a,
+                children,
+                weights,
+            } if *a == axis => {
+                // Another pane along the same line: an equal share.
+                let share = weights.iter().sum::<f32>() / weights.len().max(1) as f32;
+                let at = if first { 0 } else { children.len() };
+                children.insert(at, Node::Leaf(target));
+                weights.insert(at, share);
+            }
+            _ => {
+                let old = std::mem::replace(self, Node::Leaf(target));
+                let mut children = vec![old];
+                children.insert(if first { 0 } else { 1 }, Node::Leaf(target));
+                *self = Node::Split {
+                    axis,
+                    children,
+                    weights: vec![1.0, 1.0],
+                };
+            }
+        }
+        true
+    }
+
     /// Gives every pane of every split an equal share.
     pub fn equalize(&mut self) {
         if let Node::Split {
@@ -386,6 +459,36 @@ mod tests {
         root.split(1, 2, Axis::SideBySide);
         root.split(1, 3, Axis::SideBySide);
         assert_eq!(root.panes(), vec![1, 3, 2]);
+    }
+
+    #[test]
+    fn panes_exchange_rotate_and_move_to_an_edge() {
+        let mut root = Node::Leaf(1);
+        root.split(1, 2, Axis::SideBySide);
+        root.split(2, 3, Axis::SideBySide);
+        assert_eq!(root.panes(), [1, 2, 3]);
+        assert!(root.exchange(1));
+        assert_eq!(root.panes(), [2, 1, 3]);
+        assert!(root.exchange(3));
+        assert_eq!(root.panes(), [2, 3, 1]);
+        assert!(root.rotate(1, true));
+        assert_eq!(root.panes(), [1, 2, 3]);
+        assert!(root.rotate(1, false));
+        assert_eq!(root.panes(), [2, 3, 1]);
+        // To the bottom: under all the others, across the whole width.
+        assert!(root.move_to_edge(2, Direction::Down));
+        let Node::Split { axis, children, .. } = &root else {
+            panic!()
+        };
+        assert_eq!((*axis, children.len()), (Axis::Stacked, 2));
+        assert_eq!(children[1], Node::Leaf(2));
+        assert_eq!(root.panes(), [3, 1, 2]);
+        // To the left: beside everything.
+        assert!(root.move_to_edge(2, Direction::Left));
+        assert_eq!(root.panes(), [2, 3, 1]);
+        // Alone, nothing moves.
+        let mut one = Node::Leaf(1);
+        assert!(!one.move_to_edge(1, Direction::Up) && !one.exchange(1));
     }
 
     #[test]

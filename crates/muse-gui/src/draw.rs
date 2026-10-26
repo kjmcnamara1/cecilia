@@ -172,6 +172,8 @@ enum Drag {
     Tracks(f64, usize),
     /// A waveform's top edge: where the drag began and the height then.
     Wave(f64, u16),
+    /// A buffer tab: its position now, and where the press was (it moves past a few pixels).
+    Tab(usize, f64),
 }
 
 /// The pointer shape over something draggable.
@@ -2343,6 +2345,21 @@ impl Views {
                     muse_app::command::Amount::To(rows.max(1.0) as u32),
                 ));
             }
+            Some(Drag::Tab(n, x0)) => {
+                if (x - x0).abs() < 4.0 {
+                    return true;
+                }
+                // The tab under the mouse (anywhere along its width) takes this one's place.
+                let target = self.tabline.iter().find_map(|(r, hit)| match hit {
+                    TablineHit::Buffer(m) if x >= r.x0 && x < r.x1 => Some(*m),
+                    _ => None,
+                });
+                if let Some(m) = target.filter(|&m| m != n) {
+                    app.move_tab(n, m);
+                    // Once moving, it keeps following the mouse (no threshold any more).
+                    self.drag = Some(Drag::Tab(m, f64::NEG_INFINITY));
+                }
+            }
             Some(Drag::Wave(y0, h0)) => {
                 let h = h0 as f64 + (y0 - y);
                 app.run(muse_app::Command::WaveformResize(
@@ -2461,6 +2478,10 @@ impl Views {
             return;
         }
         if let Some(&(_, hit)) = self.tabline.iter().rev().find(|(r, _)| r.contains((x, y))) {
+            // A tab can be dragged along the tabline to reorder it.
+            if let TablineHit::Buffer(n) = hit {
+                self.drag = Some(Drag::Tab(n, x));
+            }
             app.run(match hit {
                 TablineHit::Buffer(n) => muse_app::Command::BufferGoto(n + 1),
                 TablineHit::Close(n) => muse_app::Command::BufferClose(Some(n + 1), false),
