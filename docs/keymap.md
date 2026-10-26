@@ -18,7 +18,7 @@ Items marked _(M1)_ are implemented in the first milestone; the rest are the pla
 | `J` / `K`                 | next / previous track                                                                                                                                    | _(M1)_ |
 | `]s` / `[s`               | next / previous section marker                                                                                                                           |        |
 | `m{a-z}` / `m{A-Z}`       | set a mark in this file / a global mark (any file)                                                                                                       |        |
-| `'{mark}` / `` `{mark} `` | jump to the mark's bar / exact position; a global mark reopens its file if it was closed. `''` jumps back to before the last jump (also after `gg`, `G`) |        |
+| `'{mark}` / `` `{mark} `` | jump to the mark's bar / exact position (a popup lists the marks and where they are); a global mark reopens its file if it was closed. `''` jumps back to before the last jump (also after `gg`, `G`) |        |
 | `<C-d>` / `<C-u>`         | half page down / up                                                                                                                                      | _(M1)_ |
 
 ### Playback

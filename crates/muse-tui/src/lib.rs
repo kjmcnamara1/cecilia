@@ -543,8 +543,9 @@ fn draw(f: &mut Frame, app: &mut App, play: Option<(usize, Location, f64, f64)>,
             cmdline,
         );
     }
-    if !app.pending.is_empty() {
-        draw_which_key(f, app, main);
+    // Keys that can follow the ones typed, or the marks while ' ` m wait for one.
+    if let Some((title, rows)) = app.which_key() {
+        draw_which_key(f, app, &title, &rows, main);
     }
     if app.show_help {
         draw_help(f, app, main);
@@ -1552,26 +1553,26 @@ fn command_name(cmd: &muse_app::Command) -> String {
     out
 }
 
-fn draw_which_key(f: &mut Frame, app: &App, main: Rect) {
-    let items = app.config.keymap(Mode::Normal).continuations(&app.pending);
-    if items.is_empty() {
-        return;
-    }
-    let lines: Vec<Line> = items
+fn draw_which_key(f: &mut Frame, app: &App, title: &str, rows: &[(String, String)], main: Rect) {
+    let lines: Vec<Line> = rows
         .iter()
-        .map(|(keys, cmds)| {
-            let names: Vec<String> = cmds.iter().map(command_name).collect();
+        .map(|(keys, desc)| {
             Line::from(vec![
                 Span::styled(
-                    format!("{:>8} ", muse_app::keys::format_keys(keys)),
-                    Style::default().fg(Color::Yellow),
+                    format!("{keys:>8} "),
+                    Style::default().fg(rc(app.config.theme.accent)),
                 ),
-                Span::raw(names.join(", ")),
+                Span::raw(desc.clone()),
             ])
         })
         .collect();
+    let widest = rows
+        .iter()
+        .map(|(_, d)| d.chars().count())
+        .max()
+        .unwrap_or(0) as u16;
     let h = (lines.len() as u16 + 2).min(main.height);
-    let w = 40.min(main.width);
+    let w = (widest + 12).clamp(40, main.width);
     let area = Rect {
         x: main.x + main.width - w,
         y: main.y + main.height - h,
@@ -1579,9 +1580,8 @@ fn draw_which_key(f: &mut Frame, app: &App, main: Rect) {
         height: h,
     };
     f.render_widget(Clear, area);
-    let title = format!(" {} ", muse_app::keys::format_keys(&app.pending));
     f.render_widget(
-        Paragraph::new(lines).block(Block::bordered().title(title)),
+        Paragraph::new(lines).block(Block::bordered().title(format!(" {title} "))),
         area,
     );
 }

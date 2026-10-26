@@ -731,8 +731,9 @@ pub fn build(
         }
     }
     draw_status(scene, app, views, play, width, height);
-    if !app.pending.is_empty() {
-        draw_which_key(scene, app, main);
+    // Keys that can follow the ones typed, or the marks while ' ` m wait for one.
+    if let Some((title, rows)) = app.which_key() {
+        draw_which_key(scene, &title, &rows, main);
     }
     if app.show_help {
         draw_help(scene, app, main);
@@ -2826,24 +2827,26 @@ fn panel(scene: &mut Scene, r: Rect, title: &str) {
     );
 }
 
-fn draw_which_key(scene: &mut Scene, app: &App, main: Rect) {
-    let items = app.config.keymap(Mode::Normal).continuations(&app.pending);
-    if items.is_empty() {
-        return;
-    }
-    let h = 36.0 + items.len() as f64 * 20.0;
+fn draw_which_key(scene: &mut Scene, title: &str, rows: &[(String, String)], main: Rect) {
+    let fonts = muse_engrave::fonts::fonts();
+    let desc_w = rows
+        .iter()
+        .map(|(_, d)| fonts.text_width(FontKind::Text, d, 14.0))
+        .fold(180.0, f64::max);
+    let w = (desc_w + 130.0).min(main.width() - 20.0);
+    let h = 36.0 + rows.len() as f64 * 20.0;
     let r = Rect::new(
-        main.x1 - 300.0,
+        main.x1 - w - 10.0,
         main.y1 - h - 10.0,
         main.x1 - 10.0,
         main.y1 - 10.0,
     );
-    panel(scene, r, &muse_app::keys::format_keys(&app.pending));
-    for (i, (keys, cmds)) in items.iter().enumerate() {
+    panel(scene, r, title);
+    for (i, (keys, desc)) in rows.iter().enumerate() {
         let y = r.y0 + 44.0 + i as f64 * 20.0;
         text(
             scene,
-            &muse_app::keys::format_keys(keys),
+            keys,
             r.x0 + 90.0,
             y,
             14.0,
@@ -2851,10 +2854,9 @@ fn draw_which_key(scene: &mut Scene, app: &App, main: Rect) {
             accent(),
             false,
         );
-        let names: Vec<String> = cmds.iter().map(command_name).collect();
         text(
             scene,
-            &names.join(", "),
+            desc,
             r.x0 + 104.0,
             y,
             14.0,

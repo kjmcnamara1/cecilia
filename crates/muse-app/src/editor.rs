@@ -41,7 +41,7 @@ pub(crate) struct EditorState {
     pub visual_bars: bool,
     registers: HashMap<char, Clip>,
     register: Option<char>,
-    awaiting: Option<Awaiting>,
+    pub(crate) awaiting: Option<Awaiting>,
     pub recording: Option<(char, Vec<Key>)>,
     pub(crate) macros: HashMap<char, Vec<Key>>,
     last_macro: Option<char>,

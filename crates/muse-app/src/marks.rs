@@ -177,6 +177,71 @@ impl App {
         out
     }
 
+    /// The which-key popup: its title and rows (keys, what they do). While `'`, `` ` `` or `m`
+    /// waits for a mark letter, the saved marks and where they are; otherwise the keys that can
+    /// follow the ones typed so far. `None` when there is nothing to show.
+    pub fn which_key(&self) -> Option<(String, Vec<(String, String)>)> {
+        use crate::editor::Awaiting;
+        let place =
+            |file: &str, c: &Cursor| format!("{file} · bar {}, beat {}", c.bar + 1, c.beat + 1);
+        match self.ed.awaiting {
+            Some(Awaiting::Jump { exact }) => {
+                let mut rows = Vec::new();
+                if let Some((b, c)) = self.pane().jump_back {
+                    let file = self.buffers.get(b).map_or("", |b| b.name.as_str());
+                    rows.push(("'".to_string(), format!("back · {}", place(file, &c))));
+                }
+                rows.extend(
+                    self.mark_list()
+                        .iter()
+                        .map(|m| (m.name.to_string(), place(&m.file, &m.cursor))),
+                );
+                if rows.is_empty() {
+                    rows.push(("".into(), "no marks yet (m{a-z} sets one)".into()));
+                }
+                Some(((if exact { "`" } else { "'" }).to_string(), rows))
+            }
+            Some(Awaiting::Mark) => {
+                let mut rows: Vec<(String, String)> = self
+                    .mark_list()
+                    .iter()
+                    .map(|m| {
+                        (
+                            m.name.to_string(),
+                            format!("(set) {}", place(&m.file, &m.cursor)),
+                        )
+                    })
+                    .collect();
+                rows.insert(
+                    0,
+                    (
+                        "a-z / A-Z".into(),
+                        "mark here (this file / any file)".into(),
+                    ),
+                );
+                Some(("m".to_string(), rows))
+            }
+            _ if !self.pending.is_empty() => {
+                let map = self.config.keymap(match self.mode {
+                    crate::config::Mode::Tracks => crate::config::Mode::Tracks,
+                    _ => crate::config::Mode::Normal,
+                });
+                let rows: Vec<(String, String)> = map
+                    .continuations(&self.pending)
+                    .into_iter()
+                    .map(|(keys, _)| {
+                        let mut full = self.pending.clone();
+                        full.extend(keys.iter().copied());
+                        let names = map.names.get(&full).cloned().unwrap_or_default();
+                        (crate::keys::format_keys(&keys), names.join(", "))
+                    })
+                    .collect();
+                (!rows.is_empty()).then(|| (crate::keys::format_keys(&self.pending), rows))
+            }
+            _ => None,
+        }
+    }
+
     /// Forgets the marks of an unloaded buffer.
     pub(crate) fn forget_marks(&mut self, buffer: usize) {
         self.marks.local.remove(&buffer);
@@ -229,6 +294,24 @@ mod tests {
             (app.buffer().name.as_str(), app.pane().cursor.bar),
             ("a.muse", 6)
         );
+        // ' and ` open the which-key popup with the marks (and the way back).
+        keys(&mut app, "'");
+        let (title, rows) = app.which_key().unwrap();
+        assert_eq!(title, "'");
+        assert!(
+            rows.iter()
+                .any(|(k, d)| k == "B" && d.contains("a.muse · bar 7")),
+            "{rows:?}"
+        );
+        assert!(
+            rows.iter().any(|(k, d)| k == "'" && d.starts_with("back")),
+            "{rows:?}"
+        );
+        keys(&mut app, "<Esc>");
+        assert!(app.which_key().is_none());
+        keys(&mut app, "`");
+        assert_eq!(app.which_key().unwrap().0, "`");
+        keys(&mut app, "<Esc>");
         // Listing and deleting.
         let names: Vec<char> = app.mark_list().iter().map(|m| m.name).collect();
         assert_eq!(names, ['B']);
