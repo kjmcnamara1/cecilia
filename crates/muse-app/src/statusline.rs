@@ -23,6 +23,8 @@ pub enum SegKind {
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum StatusIcon {
     Workspace,
+    /// A quarter note, before the tempo (`=85`).
+    Tempo,
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -104,10 +106,6 @@ impl App {
 
         // Section x: everything else, plainly.
         let mut x: Vec<String> = Vec::new();
-        // (Tuning and capo are shown at the top of the score.)
-        if !score.tracks.is_empty() {
-            x.push(format!("{} bpm", score.tempo));
-        }
         if let Some((t, total)) = play {
             let icon = if self.playing { "▶" } else { "⏸" };
             x.push(format!("{icon} {}/{}", fmt_time(t), fmt_time(total)));
@@ -134,7 +132,15 @@ impl App {
         if zoom {
             x.push(format!("zoom {:.0}%", self.zoom * 100.0));
         }
-        let mut right = vec![Segment::new(x.join("  "), SegKind::Plain)];
+        // The tempo as ♩=85 (tuning and capo are shown at the top of the score), then the rest.
+        let mut right = Vec::new();
+        if !score.tracks.is_empty() {
+            right.push(Segment {
+                icon: Some(StatusIcon::Tempo),
+                ..Segment::new(format!("={}", score.tempo), SegKind::Plain)
+            });
+        }
+        right.push(Segment::new(x.join("  "), SegKind::Plain));
         if !score.tracks.is_empty() {
             right.push(Segment::new(
                 progress(pane.cursor.bar, score.master_bars.len()),
@@ -164,15 +170,16 @@ mod tests {
         assert_eq!(texts(&s.left)[..2], ["NORMAL", "vertical"]);
         assert_eq!(s.left[0].kind, SegKind::Mode);
         assert_eq!(s.left[1].kind, SegKind::ModeText);
-        assert_eq!(texts(&s.right)[1..], ["Top", "1:1"]);
-        assert!(s.right[0].text.contains(" bpm"));
+        assert_eq!(texts(&s.right)[2..], ["Top", "1:1"]);
+        assert_eq!(s.right[0].icon, Some(StatusIcon::Tempo));
+        assert!(s.right[0].text.starts_with('='));
         for k in parse_keys("}}}i", &[]).unwrap() {
             app.handle_key(k);
         }
         let s = app.statusline(Some((42.0, 190.0)), true);
         assert_eq!(s.left[0].text, "INSERT");
         assert_eq!(s.right.last().unwrap().text, "4:1");
-        assert!(s.right[0].text.contains("0:42/3:10"), "{}", s.right[0].text);
+        assert!(s.right[1].text.contains("0:42/3:10"), "{}", s.right[1].text);
         assert_eq!(progress(3, 8), "50%");
         assert_eq!(progress(7, 8), "Bot");
     }

@@ -2078,6 +2078,7 @@ fn draw_status(
     const PAD: f64 = 5.0;
     const GAP: f64 = 6.0;
     const ICON: f64 = 18.0;
+    const TEMPO_ICON: f64 = 9.0;
     let seg_width = |seg: &Segment| {
         let font = if seg.bold {
             FontKind::Bold
@@ -2086,7 +2087,11 @@ fn draw_status(
         };
         fonts.text_width(font, &seg.text, 13.0)
             + 2.0 * PAD
-            + if seg.icon.is_some() { ICON } else { 0.0 }
+            + match seg.icon {
+                Some(StatusIcon::Workspace) => ICON,
+                Some(StatusIcon::Tempo) => TEMPO_ICON,
+                None => 0.0,
+            }
     };
     let draw = |scene: &mut Scene, x: f64, w: f64, seg: &Segment| {
         if seg.kind != SegKind::Plain {
@@ -2100,9 +2105,16 @@ fn draw_status(
         }
         let color = col(fg_of(seg.kind));
         let mut tx = x + PAD;
-        if seg.icon == Some(StatusIcon::Workspace) {
-            draw_workspace_icon(scene, tx, y0 + STATUS / 2.0, color);
-            tx += ICON;
+        match seg.icon {
+            Some(StatusIcon::Workspace) => {
+                draw_workspace_icon(scene, tx, y0 + STATUS / 2.0, color);
+                tx += ICON;
+            }
+            Some(StatusIcon::Tempo) => {
+                draw_quarter_note(scene, tx, y0 + STATUS / 2.0, color);
+                tx += TEMPO_ICON;
+            }
+            None => {}
         }
         text(
             scene,
@@ -2141,6 +2153,17 @@ fn draw_status(
     }
 
     draw_command_line(scene, app, width, height);
+}
+
+/// A quarter note (the tempo): a slanted head and a stem, as the 󰎋 glyph.
+fn draw_quarter_note(scene: &mut Scene, x: f64, cy: f64, color: Color) {
+    let head = vello::kurbo::Ellipse::new((x + 3.2, cy + 4.0), (3.4, 2.4), -0.35);
+    scene.fill(Fill::NonZero, Affine::IDENTITY, color, None, &head);
+    fill(
+        scene,
+        Rect::new(x + 5.6, cy - 7.0, x + 6.8, cy + 3.6),
+        color,
+    );
 }
 
 /// A small briefcase: the workspace.

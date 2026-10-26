@@ -1107,6 +1107,8 @@ fn draw_status(f: &mut Frame, app: &App, play: Option<(usize, Location, f64, f64
             (Some(StatusIcon::Workspace), "nerd") => "\u{f0b1} ",
             (Some(StatusIcon::Workspace), "unicode") => "⌂ ",
             (Some(StatusIcon::Workspace), _) => "ws ",
+            (Some(StatusIcon::Tempo), "nerd") => "\u{f038b}",
+            (Some(StatusIcon::Tempo), _) => "♩",
             (None, _) => "",
         };
         format!(" {icon}{} ", seg.text)
@@ -1360,6 +1362,8 @@ mod render_tests {
         assert!(row.trim_end().ends_with("1:1"), "{row}");
         assert_eq!(buf[(98, y)].bg, mode);
         assert!(row.contains("Top"), "{row}");
+        // The tempo as a quarter note (Nerd Font glyph) and its value.
+        assert!(row.contains("\u{f038b}=120"), "{row}");
     }
 
     fn render(app: &mut App, w: u16, h: u16) -> String {
