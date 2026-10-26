@@ -954,7 +954,8 @@ impl App {
             });
         };
         buffer.version += 1;
-        buffer.modified = true;
+        // Back at the saved state, the file is unchanged (a score never written stays changed).
+        buffer.modified = !buffer.history.at_saved() || buffer.path.is_none();
         clamp_cursor(&buffer.score, &mut c);
         let seq = buffer.history.current_seq();
         self.panes.get_mut(&id).unwrap().cursor = c;

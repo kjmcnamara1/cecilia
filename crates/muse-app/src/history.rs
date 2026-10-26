@@ -101,6 +101,9 @@ pub struct History {
     current: usize,
     /// Sequence number of the most recent change (0 = the original state).
     seq: u64,
+    /// The state last written to (or read from) the file, if it is still one of the nodes:
+    /// undoing or redoing back to it means the file is unchanged.
+    saved: Option<usize>,
 }
 
 impl Default for History {
@@ -117,6 +120,7 @@ impl Default for History {
             nodes: vec![root],
             current: 0,
             seq: 0,
+            saved: Some(0),
         }
     }
 }
@@ -140,6 +144,10 @@ impl History {
 
     /// Folds a change into the current node (one undo step for a whole insert session).
     pub fn amend(&mut self, change: Change, cursor_after: Cursor) {
+        // The saved state is about to change in place: it no longer matches the file.
+        if self.saved == Some(self.current) {
+            self.saved = None;
+        }
         let node = &mut self.nodes[self.current];
         let Some(old) = node.change.take() else {
             // Nothing to amend at the root: record normally.
@@ -152,6 +160,16 @@ impl History {
 
     pub fn current_seq(&self) -> u64 {
         self.nodes[self.current].seq
+    }
+
+    /// Records that the current state is what the file now holds.
+    pub fn mark_saved(&mut self) {
+        self.saved = Some(self.current);
+    }
+
+    /// Whether the score is in the state last saved (or opened).
+    pub fn at_saved(&self) -> bool {
+        self.saved == Some(self.current)
     }
 
     pub fn can_undo(&self) -> bool {

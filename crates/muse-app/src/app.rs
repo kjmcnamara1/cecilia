@@ -1496,6 +1496,7 @@ impl App {
                 let size = std::fs::metadata(&target).map(|m| m.len()).unwrap_or(0);
                 if buffer.path.as_deref() == Some(target.as_path()) {
                     self.buffers[index].modified = false;
+                    self.buffers[index].history.mark_saved();
                 }
                 self.info(format!("\"{}\" written, {size} bytes", target.display()));
             }
@@ -2067,6 +2068,41 @@ mod tests {
         app.set_playing(false);
         assert!(!tab(&app, 2).playing && !tab(&app, 2).paused);
         assert_eq!(app.mode, Mode::Normal);
+    }
+
+    #[test]
+    fn undoing_back_to_the_saved_state_is_unchanged() {
+        let dir = std::env::temp_dir().join(format!("muse-undo-saved-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let file = dir.join("a.muse");
+        let mut app = App::new(Config::default(), None);
+        app.run(Command::New);
+        app.run(Command::Write(Some(file.clone())));
+        let mut app = App::new(Config::default(), None);
+        app.run(Command::Edit(file.clone()));
+        // Edit, then undo back to where it was opened: unchanged; redo: changed again.
+        keys(&mut app, "i5<Esc>");
+        assert!(app.buffer().modified);
+        keys(&mut app, "u");
+        assert!(!app.buffer().modified);
+        keys(&mut app, "U");
+        assert!(app.buffer().modified);
+        // Save, edit, undo: unchanged; one more undo goes before the save: changed.
+        app.run(Command::Write(None));
+        assert!(!app.buffer().modified);
+        keys(&mut app, "l");
+        keys(&mut app, "i7<Esc>");
+        assert!(app.buffer().modified);
+        keys(&mut app, "u");
+        assert!(!app.buffer().modified);
+        keys(&mut app, "u");
+        assert!(app.buffer().modified);
+        // A new score never written stays changed, even undone to the start.
+        let mut app = App::new(Config::default(), None);
+        app.run(Command::New);
+        keys(&mut app, "i5<Esc>u");
+        assert!(app.buffer().modified);
+        std::fs::remove_dir_all(dir).ok();
     }
 
     #[test]
