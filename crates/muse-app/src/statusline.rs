@@ -27,6 +27,8 @@ pub enum StatusIcon {
     Tempo,
     /// A magnifying glass, before the zoom (`95%`).
     Zoom,
+    /// A speedometer, before the playback speed (`95%`).
+    Speed,
     /// What plays with an audio track: the synth (MIDI), the recording, or both.
     Synth,
     Audio,
@@ -116,10 +118,6 @@ impl App {
             let icon = if self.playing { "▶" } else { "⏸" };
             x.push(format!("{icon} {}/{}", fmt_time(t), fmt_time(total)));
         }
-        let speed = self.config.file.audio.speed;
-        if (speed - 1.0).abs() > 1e-6 {
-            x.push(format!("speed {:.0}%", speed * 100.0));
-        }
         let flags = self.pa.flags();
         if !flags.is_empty() {
             x.push(flags.trim_start().to_string());
@@ -142,6 +140,14 @@ impl App {
             right.push(Segment {
                 icon: Some(StatusIcon::Tempo),
                 ..Segment::new(format!("={}", score.tempo), SegKind::Plain)
+            });
+        }
+        // The playback speed, when it isn't the written tempo.
+        let speed = self.config.file.audio.speed;
+        if (speed - 1.0).abs() > 1e-6 {
+            right.push(Segment {
+                icon: Some(StatusIcon::Speed),
+                ..Segment::new(format!("{:.0}%", speed * 100.0), SegKind::Plain)
             });
         }
         // With an audio track: what plays (synth, recording or both), as an icon.
@@ -217,6 +223,15 @@ mod tests {
         assert_eq!(mix(&app), Some(StatusIcon::Audio));
         app.run(Command::MixMode(Some("midi".into())));
         assert_eq!(mix(&app), Some(StatusIcon::Synth));
+        // A changed speed shows with its icon.
+        app.config.file.audio.speed = 0.95;
+        let s = app.statusline(None, false);
+        let speed = s
+            .right
+            .iter()
+            .find(|s| s.icon == Some(StatusIcon::Speed))
+            .unwrap();
+        assert_eq!(speed.text, "95%");
         assert_eq!(progress(3, 8), "50%");
         assert_eq!(progress(7, 8), "Bot");
     }

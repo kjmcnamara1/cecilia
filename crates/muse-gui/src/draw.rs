@@ -2088,7 +2088,7 @@ fn draw_status(
         fonts.text_width(font, &seg.text, 13.0)
             + 2.0 * PAD
             + match seg.icon {
-                Some(StatusIcon::Workspace | StatusIcon::Zoom) => ICON,
+                Some(StatusIcon::Workspace | StatusIcon::Zoom | StatusIcon::Speed) => ICON,
                 Some(StatusIcon::Synth | StatusIcon::Audio) => ICON - 4.0,
                 Some(StatusIcon::SynthAndAudio) => 2.0 * ICON + 8.0,
                 Some(StatusIcon::Tempo) => TEMPO_ICON,
@@ -2118,6 +2118,10 @@ fn draw_status(
             }
             Some(StatusIcon::Zoom) => {
                 draw_magnifier(scene, tx, y0 + STATUS / 2.0, color);
+                tx += ICON;
+            }
+            Some(StatusIcon::Speed) => {
+                draw_speedometer(scene, tx, y0 + STATUS / 2.0, color);
                 tx += ICON;
             }
             Some(StatusIcon::Synth) => draw_piano(scene, tx, y0 + STATUS / 2.0, color),
@@ -2191,6 +2195,38 @@ fn draw_quarter_note(scene: &mut Scene, x: f64, cy: f64, color: Color) {
         scene,
         Rect::new(x + 5.6, cy - 7.0, x + 6.8, cy + 3.6),
         color,
+    );
+}
+
+/// A speedometer (the playback speed), as the 󰓅 glyph.
+fn draw_speedometer(scene: &mut Scene, x: f64, cy: f64, color: Color) {
+    let (cx, cy) = (x + 7.0, cy + 3.0);
+    let mut dial = BezPath::new();
+    dial.move_to((cx - 6.5, cy));
+    dial.curve_to((cx - 6.5, cy - 8.7), (cx + 6.5, cy - 8.7), (cx + 6.5, cy));
+    scene.stroke(
+        &Stroke::new(1.6).with_caps(vello::kurbo::Cap::Round),
+        Affine::IDENTITY,
+        color,
+        None,
+        &dial,
+    );
+    let mut needle = BezPath::new();
+    needle.move_to((cx, cy));
+    needle.line_to((cx + 3.2, cy - 4.2));
+    scene.stroke(
+        &Stroke::new(1.8).with_caps(vello::kurbo::Cap::Round),
+        Affine::IDENTITY,
+        color,
+        None,
+        &needle,
+    );
+    scene.fill(
+        Fill::NonZero,
+        Affine::IDENTITY,
+        color,
+        None,
+        &Circle::new((cx, cy), 1.6),
     );
 }
 

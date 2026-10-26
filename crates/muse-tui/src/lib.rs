@@ -1111,6 +1111,8 @@ fn draw_status(f: &mut Frame, app: &App, play: Option<(usize, Location, f64, f64
             (Some(StatusIcon::Tempo), _) => "♩",
             (Some(StatusIcon::Zoom), "nerd") => "\u{f002} ",
             (Some(StatusIcon::Zoom), _) => "zoom ",
+            (Some(StatusIcon::Speed), "nerd") => "\u{f04c5} ",
+            (Some(StatusIcon::Speed), _) => "speed ",
             (Some(StatusIcon::Synth), "nerd") => "\u{f08f1}",
             (Some(StatusIcon::Audio), "nerd") => "\u{f075a}",
             (Some(StatusIcon::SynthAndAudio), "nerd") => "\u{f08f1} +\u{f075a}",
