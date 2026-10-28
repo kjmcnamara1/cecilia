@@ -6,7 +6,7 @@ use std::collections::HashMap;
 use muse_app::layout::PaneId;
 use muse_app::playback::Playback;
 use muse_app::theme::Rgba;
-use muse_app::{App, Mode};
+use muse_app::{App, Mode, PaneKind, Strip};
 use muse_audio::Location;
 use muse_engrave::display::{Align, BeatRef, FontKind};
 use muse_engrave::output::{Paint, outlines};
@@ -30,8 +30,9 @@ fn col(c: Rgba) -> Color {
 }
 
 /// Behind the score (the theme's paper).
+/// The window's background, behind the panes and around the scores' pages.
 pub fn background() -> Color {
-    tc(|t| t.paper)
+    tc(|t| t.chrome)
 }
 
 fn chrome() -> Color {
@@ -125,6 +126,10 @@ pub struct Views {
     tracks_anchor: Option<(usize, usize)>,
     /// The tracks panel's area drawn last frame.
     tracks_rect: Option<Rect>,
+    /// Tool panes on screen: clicking one focuses it.
+    tool_rects: Vec<(Rect, PaneId)>,
+    /// The last click: when and where, to tell a double click.
+    last_click: Option<(std::time::Instant, f64, f64)>,
     /// The waveforms drawn last frame (`None`: the window bar, else a pane's strip).
     wave_rects: Vec<(Rect, Option<PaneId>)>,
     /// Scroll and zoom of each waveform.
@@ -161,21 +166,17 @@ impl Default for WaveView {
 /// An edge that resizes something.
 #[derive(Debug, Clone, Copy, PartialEq)]
 enum Edge {
-    /// The top of the tracks panel.
-    Tracks,
-    /// The top of a waveform strip or of the window's waveform bar.
+    /// The top of a pane's waveform strip.
     Wave,
 }
 
 /// A mouse drag in progress.
 #[derive(Debug, Clone, PartialEq)]
 enum Drag {
-    /// A track's volume slider (track, left, right).
-    Volume(usize, f64, f64),
+    /// A row's volume slider (row, left, right).
+    Volume(Strip, f64, f64),
     /// A border between panes.
     Divider(muse_app::layout::Divider),
-    /// The tracks panel's top edge: where the drag began and the rows shown then.
-    Tracks(f64, usize),
     /// A waveform's top edge: where the drag began and the height then.
     Wave(f64, u16),
     /// A buffer tab: its position now, and where the press was (it moves past a few pixels).
@@ -195,10 +196,13 @@ pub enum Pointer {
 /// What a click on the tracks panel does.
 #[derive(Debug, Clone, Copy, PartialEq)]
 enum TracksHit {
-    /// A track's volume slider (left and right ends).
-    Volume(usize, f64, f64),
-    Solo(usize),
-    Mute(usize),
+    /// A row's volume slider (left and right ends).
+    Volume(Strip, f64, f64),
+    Solo(Strip),
+    Mute(Strip),
+    /// A track's name and instrument cells.
+    Name(usize),
+    Instrument(usize),
     /// A track's row outside the bar grid.
     Row(usize),
     /// A bar of a track.
@@ -229,16 +233,6 @@ const COL_NAME: f64 = 154.0;
 const COL_INSTR: f64 = 290.0;
 const COL_GRID: f64 = 430.0;
 
-fn tracks_panel_height(app: &App) -> f64 {
-    let n = app
-        .buffer()
-        .score
-        .tracks
-        .len()
-        .clamp(1, app.tracks_rows.max(1));
-    TRACK_HEAD + n as f64 * TRACK_ROW + 6.0
-}
-
 /// Shortens text to `max` characters with an ellipsis.
 fn clip_text(s: &str, max: usize) -> String {
     if s.chars().count() <= max {
@@ -256,12 +250,13 @@ fn draw_tracks(
     scene: &mut Scene,
     app: &App,
     views: &mut Views,
+    mut playback: Option<&mut Playback>,
     r: Rect,
     play: Option<(usize, Location, f64, f64)>,
 ) {
     let theme = app.config.theme.clone();
     fill(scene, r, col(theme.panel));
-    let focused = app.mode == Mode::Tracks;
+    let focused = app.focused_kind() == PaneKind::Tracks;
     if focused {
         fill(
             scene,
@@ -279,11 +274,10 @@ fn draw_tracks(
     let buffer = app.pane().buffer;
     let score = &app.buffers[buffer].score;
     let cursor = app.pane().cursor;
-    let visible = rows.len().clamp(1, app.tracks_rows.max(1));
+    // As many rows as fit.
+    let fit = ((r.height() - TRACK_HEAD) / TRACK_ROW).floor().max(1.0) as usize;
+    let visible = rows.len().clamp(1, fit);
     views.tracks_rect = Some(r);
-    views
-        .edges
-        .push((Rect::new(r.x0, r.y0 - 3.0, r.x1, r.y0 + 3.0), Edge::Tracks));
     // Scroll so the cursor's track and bar are in view, when they move (the wheel scrolls
     // freely in between).
     let (mut first, mut hs) = views.tracks_scroll;
@@ -294,12 +288,19 @@ fn draw_tracks(
         Some((_, loc, ..)) if app.follow && app.playing => loc.bar,
         _ => cursor.bar,
     };
-    if views.tracks_anchor != Some((cursor.track, follow_bar)) {
-        views.tracks_anchor = Some((cursor.track, follow_bar));
-        if cursor.track < first {
-            first = cursor.track;
-        } else if cursor.track >= first + visible {
-            first = cursor.track + 1 - visible;
+    // The row to keep in view: the panel's selection while it has the focus, else the
+    // pane's track.
+    let sel_row = if focused {
+        app.tracks_selected
+    } else {
+        cursor.track
+    };
+    if views.tracks_anchor != Some((sel_row, follow_bar)) {
+        views.tracks_anchor = Some((sel_row, follow_bar));
+        if sel_row < first {
+            first = sel_row;
+        } else if sel_row >= first + visible {
+            first = sel_row + 1 - visible;
         }
         let bx = follow_bar as f64 * BLOCK_STEP;
         if bx < hs {
@@ -356,12 +357,17 @@ fn draw_tracks(
         let y = rows_y0 + (k - first) as f64 * TRACK_ROW;
         let cy = y + TRACK_ROW / 2.0;
         let row_rect = Rect::new(r.x0, y, gx - 6.0, y + TRACK_ROW);
-        if row.index == cursor.track {
+        let track = matches!(row.strip, Strip::Track(_));
+        // The selected row is shaded; the track the pane shows has its colour at the edge.
+        let shown = track && row.index == cursor.track;
+        if (focused && k == sel_row) || (!focused && shown) {
             fill(
                 scene,
                 Rect::new(r.x0, y, r.x1, y + TRACK_ROW),
                 col(theme.tab.with_alpha(160)),
             );
+        }
+        if shown {
             fill(
                 scene,
                 Rect::new(r.x0, y + 2.0, r.x0 + 3.0, y + TRACK_ROW - 2.0),
@@ -369,9 +375,14 @@ fn draw_tracks(
             );
         }
         let fg = if row.audible { text_c } else { head };
+        let number = if track {
+            (row.index + 1).to_string()
+        } else {
+            String::new()
+        };
         text(
             scene,
-            &(row.index + 1).to_string(),
+            &number,
             r.x0 + COL_NUM,
             cy + 4.5,
             12.0,
@@ -412,14 +423,14 @@ fn draw_tracks(
                 row.solo,
                 "S",
                 theme.mode_insert,
-                TracksHit::Solo(row.index),
+                TracksHit::Solo(row.strip),
             ),
             (
                 COL_MUTE,
                 row.mute,
                 "M",
                 theme.playhead,
-                TracksHit::Mute(row.index),
+                TracksHit::Mute(row.strip),
             ),
         ] {
             let b = Rect::new(r.x0 + x, cy - 7.0, r.x0 + x + 15.0, cy + 7.0);
@@ -446,15 +457,40 @@ fn draw_tracks(
             );
             views.tracks.push((b, hit));
         }
+        // The name, or the name being typed with a caret while it is renamed.
+        let renaming = app
+            .renaming
+            .as_ref()
+            .filter(|(t, _)| track && *t == row.index);
+        let name = match renaming {
+            Some((_, typed)) => format!("{typed}|"),
+            None => clip_text(&row.name, 18),
+        };
+        if renaming.is_some() {
+            fill(
+                scene,
+                Rect::new(
+                    r.x0 + COL_NAME - 3.0,
+                    y + 2.0,
+                    r.x0 + COL_INSTR - 6.0,
+                    y + TRACK_ROW - 2.0,
+                ),
+                col(theme.page),
+            );
+        }
         text(
             scene,
-            &clip_text(&row.name, 18),
+            &name,
             r.x0 + COL_NAME,
             cy + 4.5,
             12.0,
             Align::Left,
-            fg,
-            row.index == cursor.track,
+            if renaming.is_some() {
+                col(theme.ink)
+            } else {
+                fg
+            },
+            track && row.index == cursor.track,
         );
         text(
             scene,
@@ -468,11 +504,85 @@ fn draw_tracks(
         );
         views.tracks.push((
             Rect::new(v0 - 6.0, y, v1 + 6.0, y + TRACK_ROW),
-            TracksHit::Volume(row.index, v0, v1),
+            TracksHit::Volume(row.strip, v0, v1),
+        ));
+        scene.push_layer(Mix::Clip, 1.0, Affine::IDENTITY, &grid_clip);
+        let bar_x = |b: usize| gx + b as f64 * BLOCK_STEP - hs;
+        match row.strip {
+            // The audio: a simplified waveform along the bars it plays under.
+            Strip::Audio => {
+                if let Some(pb) = playback.as_deref_mut() {
+                    draw_track_waveform(
+                        scene,
+                        app,
+                        pb,
+                        buffer,
+                        (first_bar, last_bar),
+                        &bar_x,
+                        (y + 3.0, y + TRACK_ROW - 3.0),
+                        row.color.with_alpha(if row.audible { 230 } else { 90 }),
+                    );
+                }
+                scene.pop_layer();
+                continue;
+            }
+            // The master: the section markers, a flag or the boxed letter, then the title.
+            Strip::Master => {
+                for (b, letter, title) in &row.markers {
+                    let x = bar_x(*b);
+                    if x > gx + gw || x + 160.0 < gx {
+                        continue;
+                    }
+                    let mut tx = x + 2.0;
+                    if letter.is_empty() {
+                        let mut flag = BezPath::new();
+                        flag.move_to((x + 2.0, cy + 6.0));
+                        flag.line_to((x + 2.0, cy - 6.0));
+                        flag.line_to((x + 10.0, cy - 6.0));
+                        flag.line_to((x + 10.0, cy + 1.0));
+                        flag.line_to((x + 6.0, cy - 2.0));
+                        flag.line_to((x + 2.0, cy + 1.0));
+                        scene.fill(Fill::NonZero, Affine::IDENTITY, text_c, None, &flag);
+                        tx += 14.0;
+                    } else {
+                        let w = (letter.chars().count() as f64 * 7.5).max(13.0);
+                        let b = Rect::new(tx, cy - 7.0, tx + w, cy + 7.0).to_rounded_rect(2.0);
+                        scene.stroke(&Stroke::new(1.0), Affine::IDENTITY, text_c, None, &b);
+                        text(
+                            scene,
+                            letter,
+                            tx + w / 2.0,
+                            cy + 4.0,
+                            10.0,
+                            Align::Center,
+                            text_c,
+                            true,
+                        );
+                        tx += w + 6.0;
+                    }
+                    text(scene, title, tx, cy + 4.5, 12.0, Align::Left, text_c, false);
+                }
+                scene.pop_layer();
+                continue;
+            }
+            Strip::Track(_) => {}
+        }
+        // The name and instrument cells: double-click renames / picks an instrument.
+        views.tracks.push((
+            Rect::new(
+                r.x0 + COL_NAME - 3.0,
+                y,
+                r.x0 + COL_INSTR - 6.0,
+                y + TRACK_ROW,
+            ),
+            TracksHit::Name(row.index),
+        ));
+        views.tracks.push((
+            Rect::new(r.x0 + COL_INSTR - 3.0, y, gx - 6.0, y + TRACK_ROW),
+            TracksHit::Instrument(row.index),
         ));
         views.tracks.push((row_rect, TracksHit::Row(row.index)));
         // Bars.
-        scene.push_layer(Mix::Clip, 1.0, Affine::IDENTITY, &grid_clip);
         for b in first_bar..last_bar {
             let x = gx + b as f64 * BLOCK_STEP - hs;
             let block = Rect::new(x, y + 3.0, x + BLOCK_W, y + TRACK_ROW - 3.0);
@@ -515,6 +625,63 @@ fn draw_tracks(
                 Rect::new(x - 1.0, rows_y0 - 2.0, x + 1.0, rows_y1 + 2.0),
                 col(theme.playhead),
             );
+        }
+    }
+}
+
+/// The audio track's row: under each bar, a few bars of the audio's loudness there, mirrored
+/// about the row's middle (blank until the audio has loaded).
+#[allow(clippy::too_many_arguments)]
+fn draw_track_waveform(
+    scene: &mut Scene,
+    app: &App,
+    pb: &mut Playback,
+    buffer: usize,
+    (first_bar, last_bar): (usize, usize),
+    bar_x: &dyn Fn(usize) -> f64,
+    (top, bottom): (f64, f64),
+    color: Rgba,
+) {
+    let Some(peaks) = pb.loaded_audio(buffer).map(|a| a.peaks.clone()) else {
+        return;
+    };
+    let bars = app.buffers[buffer].score.master_bars.len();
+    let mid = (top + bottom) / 2.0;
+    let half = (bottom - top) / 2.0;
+    const COLUMNS: usize = 4;
+    for b in first_bar..last_bar {
+        let (Some(t0), Some(t1)) = (
+            pb.time_of(app, buffer, b, 0),
+            if b + 1 < bars {
+                pb.time_of(app, buffer, b + 1, 0)
+            } else {
+                pb.time_of(
+                    app,
+                    buffer,
+                    b,
+                    muse_app::tracks::bar_ticks(&app.buffers[buffer].score, b),
+                )
+            },
+        ) else {
+            continue;
+        };
+        let (x0, x1) = (bar_x(b), bar_x(b) + BLOCK_W);
+        for k in 0..COLUMNS {
+            let (a, z) = (k as f64 / COLUMNS as f64, (k + 1) as f64 / COLUMNS as f64);
+            let (s0, s1) = (
+                ((t0 + (t1 - t0) * a) * 100.0).max(0.0) as usize,
+                ((t0 + (t1 - t0) * z) * 100.0).max(0.0) as usize,
+            );
+            let amp = peaks
+                .get(s0.min(peaks.len())..s1.max(s0 + 1).min(peaks.len()))
+                .unwrap_or_default()
+                .iter()
+                .map(|&(lo, hi)| lo.abs().max(hi.abs()))
+                .fold(0.0f32, f32::max) as f64;
+            let h = (amp.min(1.0) * half).max(0.5);
+            let cx0 = x0 + (x1 - x0) * a + 0.5;
+            let cx1 = x0 + (x1 - x0) * z - 0.5;
+            fill(scene, Rect::new(cx0, mid - h, cx1, mid + h), col(color));
         }
     }
 }
@@ -596,75 +763,44 @@ pub fn build(
     height: f64,
 ) {
     THEME.with(|t| *t.borrow_mut() = app.config.theme.clone());
-    // The window-wide waveform bar sits between the panes and the status line, the tracks
-    // panel above it.
-    let global_wave = app.global_waveform && height > 300.0;
-    let wave_h = app.waveform_height as f64;
-    let bottom = height - STATUS - CMDLINE - if global_wave { wave_h + 4.0 } else { 0.0 };
-    let tracks_h = if app.tracks_shown() && height > 300.0 {
-        tracks_panel_height(app)
-    } else {
-        0.0
-    };
-    // The fretboard and piano panels sit above the tracks panel.
-    let instrument = app.instrument_view(play.map(|(b, loc, ..)| (b, loc.bar, loc.tick)));
-    let fret_h = match &instrument {
-        Some(v) if app.fretboard_panel && height > 300.0 => fretboard_height(v),
-        _ => 0.0,
-    };
-    let piano_h = if app.piano_panel && height > 300.0 && instrument.is_some() {
-        PIANO_H
-    } else {
-        0.0
-    };
+    // Panes fill the window between the tab bar and the status line; tool panes are among
+    // them.
+    let bottom = height - STATUS - CMDLINE;
     let top = TAB_BAR + if app.toolbar { TOOLBAR } else { 0.0 };
     views.chrome_bottom = top;
-    let tuner_h = if app.tuner_panel && height > 300.0 {
-        TUNER_H
+    // The tracks peeking after a change of track (no tracks pane shown) take the bottom.
+    let peek = if app.tracks_peeking() && height > 300.0 {
+        app.peek_height() as f64
     } else {
         0.0
     };
-    let panels_top = bottom - tracks_h - piano_h - fret_h - tuner_h;
-    let main = Rect::new(0.0, top, width, panels_top);
-    if tuner_h > 0.0 {
-        draw_tuner(
-            scene,
-            app,
-            Rect::new(0.0, panels_top, width, panels_top + tuner_h),
-        );
-    }
-    let panels_top = panels_top + tuner_h;
+    let main = Rect::new(0.0, top, width, bottom - peek);
     views.frets.clear();
     views.keys.clear();
-    if let Some(v) = &instrument {
-        if fret_h > 0.0 {
-            let r = Rect::new(0.0, panels_top, width, panels_top + fret_h);
-            draw_fretboard(scene, app, views, v, r);
-        }
-        if piano_h > 0.0 {
-            let y = panels_top + fret_h;
-            draw_piano_panel(scene, app, views, v, Rect::new(0.0, y, width, y + piano_h));
-        }
-    }
     views.tracks.clear();
     views.edges.clear();
     views.wave_rects.clear();
     views.tracks_rect = None;
-    if tracks_h > 0.0 {
+    views.tool_rects.clear();
+    app.row_height = TRACK_ROW as u16;
+    app.pane_frame = 12;
+    app.col_width = 8;
+    if peek > 0.0 {
         draw_tracks(
             scene,
             app,
             views,
-            Rect::new(0.0, bottom - tracks_h, width, bottom),
+            playback.as_deref_mut(),
+            Rect::new(3.0, bottom - peek + 3.0, width - 3.0, bottom - 3.0),
             play,
         );
     }
-    app.viewport = muse_app::layout::Rect {
+    app.set_viewport(muse_app::layout::Rect {
         x: main.x0 as u16,
         y: main.y0 as u16,
         w: main.width() as u16,
         h: main.height() as u16,
-    };
+    });
     // The toolbar at the very top, the tabline under it (drawn at the origin, then moved).
     views.toolbar.clear();
     if app.toolbar {
@@ -681,7 +817,7 @@ pub fn build(
         *r = *r + vello::kurbo::Vec2::new(0.0, tab_y);
     }
     views.geometry.clear();
-    let focused = app.focused();
+    let focused = app.window_focus();
     let layout = app.layout();
     for (id, r) in layout {
         let rect = Rect::new(
@@ -690,44 +826,87 @@ pub fn build(
             (r.x + r.w) as f64 - 3.0,
             (r.y + r.h) as f64 - 3.0,
         );
-        draw_pane(
-            scene,
-            app,
-            views,
-            playback.as_deref_mut(),
-            id,
-            rect,
-            id == focused,
-            play,
-        );
-    }
-    if global_wave {
-        let r = Rect::new(4.0, bottom + 2.0, width - 4.0, bottom + 2.0 + wave_h);
-        views
-            .edges
-            .push((Rect::new(0.0, r.y0 - 3.0, width, r.y0 + 3.0), Edge::Wave));
-        views.wave_rects.push((r, None));
-        let buffer = app.pane().buffer;
-        match playback {
-            Some(pb) if app.buffers[buffer].score.audio.is_some() => {
-                pb.ensure_audio(app, buffer);
-                let view = views.waves.entry(None).or_default();
-                draw_waveform(scene, app, pb, buffer, r, play, view);
+        let kind = app.panes.get(&id).map_or(PaneKind::Score, |p| p.kind);
+        if kind == PaneKind::Score {
+            draw_pane(
+                scene,
+                app,
+                views,
+                playback.as_deref_mut(),
+                id,
+                rect,
+                id == focused,
+                play,
+            );
+            continue;
+        }
+        views.tool_rects.push((rect, id));
+        scene.push_layer(Mix::Clip, 1.0, Affine::IDENTITY, &rect);
+        // Drawn for its score pane (its own for a local tool), as if that were the view's.
+        let view_score = app.view().score;
+        let active = app.active_view;
+        app.views[active].score = app.tool_score(id);
+        let instrument = app.instrument_view(play.map(|(b, loc, ..)| (b, loc.bar, loc.tick)));
+        match kind {
+            PaneKind::Tracks => draw_tracks(scene, app, views, playback.as_deref_mut(), rect, play),
+            PaneKind::Audio => {
+                let buffer = app.pane().buffer;
+                views.wave_rects.push((rect, None));
+                match playback.as_deref_mut() {
+                    Some(pb) if app.buffers[buffer].score.audio.is_some() => {
+                        pb.ensure_audio(app, buffer);
+                        let view = views.waves.entry(None).or_default();
+                        draw_waveform(scene, app, pb, buffer, rect, play, view);
+                    }
+                    _ => {
+                        fill(scene, rect, tc(|t| t.panel));
+                        let name = &app.buffers[buffer].name;
+                        text(
+                            scene,
+                            &format!("{name}: no audio attached (:audio FILE)"),
+                            rect.x0 + 10.0,
+                            rect.center().y + 5.0,
+                            13.0,
+                            Align::Left,
+                            dim(),
+                            false,
+                        );
+                    }
+                }
             }
-            _ => {
-                fill(scene, r, tc(|t| t.panel));
-                let name = &app.buffers[buffer].name;
-                text(
-                    scene,
-                    &format!("{name}: no audio attached (:audio FILE)"),
-                    r.x0 + 10.0,
-                    r.center().y + 5.0,
-                    13.0,
-                    Align::Left,
-                    dim(),
-                    false,
-                );
-            }
+            PaneKind::Fretboard | PaneKind::Piano => match &instrument {
+                Some(v) if kind == PaneKind::Fretboard => {
+                    draw_fretboard(scene, app, views, v, rect)
+                }
+                Some(v) => draw_piano_panel(scene, app, views, v, rect),
+                None => {
+                    fill(scene, rect, tc(|t| t.panel));
+                    text(
+                        scene,
+                        "no instrument on this track",
+                        rect.x0 + 10.0,
+                        rect.center().y + 5.0,
+                        13.0,
+                        Align::Left,
+                        dim(),
+                        false,
+                    );
+                }
+            },
+            PaneKind::Tuner => draw_tuner(scene, app, rect),
+            PaneKind::Score => {}
+        }
+        app.views[active].score = view_score;
+        scene.pop_layer();
+        // The focused tool pane is outlined in the mode's colour.
+        if id == focused {
+            scene.stroke(
+                &Stroke::new(2.0),
+                Affine::IDENTITY,
+                tc(|t| t.mode_color(app.mode)),
+                None,
+                &rect.to_rounded_rect(3.0),
+            );
         }
     }
     draw_status(scene, app, views, play, width, height);
@@ -1383,18 +1562,24 @@ fn draw_pane(
     let pane = app.panes[&id].clone();
     let buffer = &app.buffers[pane.buffer];
     let score = &buffer.score;
-    // Frame and title strip.
+    // Frame and title strip, on the score's background: the page in the vertical and
+    // horizontal layouts, the window's background behind the pages of the page layout.
+    let ground = if mode_tag(&pane) == "page" {
+        background()
+    } else {
+        tc(|t| t.page)
+    };
     scene.fill(
         Fill::NonZero,
         Affine::IDENTITY,
-        tc(|t| t.page),
+        ground,
         None,
         &RoundedRect::from_rect(rect, 6.0),
     );
-    let border = if focused && app.mode != Mode::Tracks {
+    let border = if focused {
         accent()
     } else {
-        tc(|t| t.page.mix(t.ink, 0.25))
+        tc(|t| t.chrome.mix(t.chrome_text, 0.25))
     };
     scene.stroke(
         &Stroke::new(if focused { 2.0 } else { 1.0 }),
@@ -1565,6 +1750,13 @@ fn draw_pane(
     let total_h = cached.offsets.last().copied().unwrap_or(0.0)
         + cached.layout.pages.last().map_or(0.0, |p| p.height);
     scroll.1 = scroll.1.clamp(0.0, (total_h - view_h * 0.5).max(0.0));
+    // Scores scroll only along their flow: down the vertical and page layouts, across the
+    // horizontal one.
+    if mode_name == "horizontal" {
+        scroll.1 = 0.0;
+    } else {
+        scroll.0 = 0.0;
+    }
     views.scroll.insert(id, scroll);
     views.geometry.push(Geometry {
         pane: id,
@@ -1651,22 +1843,53 @@ fn draw_pane(
         // place on the cursor's string, or the whole beat on staves without strings.
         let alpha = if focused { 110 } else { 45 };
         let color = tc(|t| t.mode_color(app.mode).with_alpha(alpha));
-        let r = match pos.strings.get(pane.cursor.string) {
-            Some(&y) => {
-                let gap = match pos.strings.as_slice() {
-                    [a, b, ..] => (b - a).abs(),
-                    _ => 9.0,
-                };
-                let h = (gap * 0.9).clamp(6.0, 14.0);
-                RoundedRect::new(
-                    x - 1.0,
-                    y - h / 2.0,
-                    x + w.min(16.0) + 1.0,
-                    y + h / 2.0,
-                    2.0,
-                )
+        // A square over the cursor's string or staff position. Chant positions only match
+        // the square-notation layout (a chant track whose one staff is chant).
+        let c = pane.cursor;
+        let track = score.tracks.get(c.track);
+        let c = muse_app::Cursor {
+            staff: track.map_or(0, |t| muse_app::staff_index(t, c.staff)),
+            ..c
+        };
+        let staff = track.and_then(|t| t.staves().get(c.staff).copied());
+        let chant_layout = track.is_some_and(|t| {
+            t.chant.is_some() && app.chant_view && t.staves() == [muse_core::Staff::Chant]
+        });
+        let square = |cx: f64, y: f64, side: f64| {
+            RoundedRect::new(
+                cx - side / 2.0,
+                y - side / 2.0,
+                cx + side / 2.0,
+                y + side / 2.0,
+                2.0,
+            )
+        };
+        let whole = RoundedRect::new(x, pos.top, x + w, pos.bottom, 2.0);
+        let r = if let Some(ys) = pos.strings(c.staff) {
+            match ys.get(c.string) {
+                Some(&y) => {
+                    let gap = match ys {
+                        [a, b, ..] => (b - a).abs(),
+                        _ => 9.0,
+                    };
+                    // Centred where the engraver centres the fret number (0.4 staff spaces in
+                    // from the beat's left, plus half a notehead; a string gap is 1.5 spaces).
+                    square(x + gap * 0.66, y, (gap * 1.2).clamp(8.0, 18.0))
+                }
+                None => whole,
             }
-            None => RoundedRect::new(x, pos.top, x + w, pos.bottom, 2.0),
+        } else if staff == Some(muse_core::Staff::Chant) && !chant_layout {
+            whole
+        } else if let Some((y, step)) = pos.line_y(c.staff, c.line) {
+            // Chant beats are the neume glyph itself; others start 0.4 spaces before the head.
+            let cx = if chant_layout {
+                x + w / 2.0
+            } else {
+                x + step * 2.0
+            };
+            square(cx, y, (step * 2.4).clamp(8.0, 18.0))
+        } else {
+            whole
         };
         scene.fill(Fill::NonZero, to_screen(pos.page), color, None, &r);
     }
@@ -2285,9 +2508,6 @@ fn draw_speedometer(scene: &mut Scene, x: f64, cy: f64, color: Color) {
     );
 }
 
-/// Height of the tuner panel.
-const TUNER_H: f64 = 76.0;
-
 /// The tuner: the note heard (big), a cents scale with a needle (green when in tune), the
 /// frequency, and the nearest string of the track's tuning.
 fn draw_tuner(scene: &mut Scene, app: &App, r: Rect) {
@@ -2464,17 +2684,8 @@ fn draw_tuner(scene: &mut Scene, app: &App, r: Rect) {
 }
 
 /// Height of the piano panel.
-const PIANO_H: f64 = 74.0;
 /// The lowest and highest keys of the piano panel (A0 to C8, 88 keys).
 const PIANO_KEYS: (u8, u8) = (21, 108);
-
-fn fretboard_height(v: &muse_app::instrument::InstrumentView) -> f64 {
-    if v.fretted {
-        v.strings.len() as f64 * 15.0 + 36.0
-    } else {
-        34.0
-    }
-}
 
 /// The fretboard: the track's strings and frets (spaced as on a real neck), inlays, and the
 /// notes at the cursor or playhead as dots in the track's colour with their names.
@@ -2944,20 +3155,34 @@ impl Views {
 
     /// Mouse down over the tracks panel: select, solo, mute, or start dragging a volume.
     /// True when the panel took the click.
-    fn click_tracks(&mut self, app: &mut App, x: f64, y: f64) -> bool {
+    fn click_tracks(&mut self, app: &mut App, x: f64, y: f64, double: bool) -> bool {
         let Some(&(_, hit)) = self.tracks.iter().find(|(r, _)| r.contains((x, y))) else {
             return false;
         };
         match hit {
-            TracksHit::Volume(t, x0, x1) => {
-                app.select_track_bar(t, None);
+            TracksHit::Volume(strip, x0, x1) => {
+                if let Strip::Track(t) = strip {
+                    app.select_track_bar(t, None);
+                }
                 app.group_edits(true);
-                self.drag = Some(Drag::Volume(t, x0, x1));
+                self.drag = Some(Drag::Volume(strip, x0, x1));
                 self.drag_to(app, x, y);
             }
-            TracksHit::Solo(t) => app.run(muse_app::Command::Solo(Some(t + 1))),
-            TracksHit::Mute(t) => app.run(muse_app::Command::Mute(Some(t + 1))),
-            TracksHit::Row(t) => app.select_track_bar(t, None),
+            TracksHit::Solo(strip) => app.run(muse_app::Command::Solo(Some(strip))),
+            TracksHit::Mute(strip) => app.run(muse_app::Command::Mute(Some(strip))),
+            // A double click on a name renames the track in place, on an instrument picks one.
+            TracksHit::Name(t) | TracksHit::Instrument(t) if double => {
+                app.tracks_selected = t;
+                app.run(if matches!(hit, TracksHit::Name(_)) {
+                    muse_app::Command::TrackRenameStart
+                } else {
+                    muse_app::Command::TrackInstrument(None)
+                });
+            }
+            TracksHit::Row(t) | TracksHit::Name(t) | TracksHit::Instrument(t) => {
+                app.tracks_selected = t;
+                app.select_track_bar(t, None)
+            }
             TracksHit::Bar(t, b) => app.select_track_bar(t, Some(b)),
         }
         true
@@ -2966,9 +3191,8 @@ impl Views {
     /// Mouse moved with the button down: drags a slider, a pane border or a panel's edge.
     pub fn drag_to(&mut self, app: &mut App, x: f64, y: f64) -> bool {
         match self.drag.clone() {
-            Some(Drag::Volume(t, x0, x1)) => {
-                let v = ((x - x0) / (x1 - x0)).clamp(0.0, 1.0) * 127.0;
-                app.set_track_volume(t, v.round() as u8);
+            Some(Drag::Volume(strip, x0, x1)) => {
+                app.set_strip_volume(strip, (x - x0) / (x1 - x0));
             }
             Some(Drag::Divider(d)) => {
                 let pos = match d.axis {
@@ -2976,12 +3200,6 @@ impl Views {
                     muse_app::layout::Axis::Stacked => y,
                 };
                 app.drag_divider(&d, pos.max(0.0).round() as u16);
-            }
-            Some(Drag::Tracks(y0, rows0)) => {
-                let rows = rows0 as f64 + ((y0 - y) / TRACK_ROW).round();
-                app.run(muse_app::Command::TracksResize(
-                    muse_app::command::Amount::To(rows.max(1.0) as u32),
-                ));
             }
             Some(Drag::Tab(n, x0)) => {
                 if (x - x0).abs() < 4.0 {
@@ -3040,7 +3258,7 @@ impl Views {
                 muse_app::layout::Axis::Stacked => Pointer::ResizeRows,
             };
         }
-        if matches!(self.drag, Some(Drag::Tracks(..) | Drag::Wave(..))) {
+        if matches!(self.drag, Some(Drag::Wave(..))) {
             return Pointer::ResizeRows;
         }
         if self.edges.iter().any(|(r, _)| r.contains((x, y))) {
@@ -3072,8 +3290,11 @@ impl Views {
             return false;
         }
         if self.tracks_rect.is_some_and(|r| r.contains((x, y))) {
-            let n = app.buffer().score.tracks.len();
-            let visible = n.clamp(1, app.tracks_rows.max(1));
+            let n = app.track_rows().len();
+            let fit = self.tracks_rect.map_or(1, |r| {
+                ((r.height() - TRACK_HEAD) / TRACK_ROW).floor().max(1.0) as usize
+            });
+            let visible = n.clamp(1, fit);
             let (first, hs) = self.tracks_scroll;
             let rows = (dy / TRACK_ROW).round() as i64;
             let rows = if rows == 0 && dy != 0.0 {
@@ -3097,6 +3318,17 @@ impl Views {
             app.run(cmd.clone());
             return;
         }
+        let now = std::time::Instant::now();
+        let double = self.last_click.is_some_and(|(t, x0, y0)| {
+            now.duration_since(t) < std::time::Duration::from_millis(400)
+                && (x - x0).abs() < 4.0
+                && (y - y0).abs() < 4.0
+        });
+        self.last_click = Some((now, x, y));
+        // A click in a tool pane focuses it.
+        if let Some(&(_, id)) = self.tool_rects.iter().find(|(r, _)| r.contains((x, y))) {
+            app.set_focus(id);
+        }
         // A fret or a piano key enters (or removes) that note at the cursor.
         if let Some(&(_, string, fret)) = self.frets.iter().find(|(r, ..)| r.contains((x, y))) {
             app.click_fret(string, fret);
@@ -3106,20 +3338,12 @@ impl Views {
             app.click_key(pitch);
             return;
         }
-        if self.click_tracks(app, x, y) {
+        if self.click_tracks(app, x, y, double) {
             return;
         }
         // Edges and pane borders start a resize.
         if let Some(&(_, edge)) = self.edges.iter().find(|(r, _)| r.contains((x, y))) {
             self.drag = Some(match edge {
-                Edge::Tracks => Drag::Tracks(
-                    y,
-                    app.buffer()
-                        .score
-                        .tracks
-                        .len()
-                        .clamp(1, app.tracks_rows.max(1)),
-                ),
                 Edge::Wave => Drag::Wave(y, app.waveform_height),
             });
             return;
@@ -3143,7 +3367,7 @@ impl Views {
         let Some((g, px, py)) = self.locate(x, y) else {
             return;
         };
-        app.views[app.active_view].focus = g.pane;
+        app.set_focus(g.pane);
         let Some(cached) = self.cache.get(&g.pane) else {
             return;
         };
@@ -3171,8 +3395,16 @@ impl Views {
             if h.beat.voice == 0 {
                 p.cursor.beat = h.beat.beat;
             }
+            p.cursor.staff = h.staff;
             if let Some(s) = h.string {
                 p.cursor.string = s as usize;
+            } else if let Some(line) = cached
+                .layout
+                .beats
+                .get(&h.beat)
+                .and_then(|pos| pos.position_at(h.staff, local.1))
+            {
+                p.cursor.line = line;
             }
         }
     }
@@ -3186,12 +3418,11 @@ impl Views {
             .get(&g.pane)
             .is_some_and(|p| p.layout == "horizontal");
         let entry = self.scroll.entry(g.pane).or_insert((0.0, 0.0));
-        // The vertical wheel scrolls along the score's flow; the horizontal one sideways.
+        // Both wheels scroll along the score's flow (the only way it scrolls).
         if horizontal {
             entry.0 = (entry.0 + (dy + dx) / g.scale).max(0.0);
         } else {
-            entry.0 = (entry.0 + dx / g.scale).max(0.0);
-            entry.1 = (entry.1 + dy / g.scale).max(0.0);
+            entry.1 = (entry.1 + (dy + dx) / g.scale).max(0.0);
         }
     }
 }

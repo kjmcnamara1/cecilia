@@ -8,7 +8,7 @@ use std::path::{Path, PathBuf};
 
 use serde::{Deserialize, Serialize};
 
-use crate::app::{App, Buffer, Cursor, Pane, View};
+use crate::app::{App, Buffer, Cursor, Pane, PaneKind, View};
 use crate::layout::{Axis, Node, PaneId};
 
 /// The saved form of a session.
@@ -63,6 +63,9 @@ pub struct MarkState {
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct ViewState {
     pub focus: PaneId,
+    /// The score pane tool panes work on (the focused pane when absent).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub score: Option<PaneId>,
     pub split: Split,
     /// The bufferline, as indices into `files` (absent in version 1: the files shown).
     #[serde(default)]
@@ -89,6 +92,18 @@ pub struct Split {
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct PaneState {
     pub id: PaneId,
+    /// What the pane shows: "score" (left out), "tracks", "audio", "piano", "fretboard" or
+    /// "tuner".
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub kind: Option<String>,
+    /// A tool pane's own height and width.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub height: Option<u16>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub width: Option<u16>,
+    /// A local tool pane's score pane.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub owner: Option<PaneId>,
     /// Index into `files`; none for a pane on an unsaved score.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub file: Option<usize>,
@@ -256,6 +271,8 @@ fn cursor_of(r: &RecentState) -> Cursor {
         beat: r.beat,
         string: r.string,
         voice: r.voice,
+        staff: Cursor::HOME,
+        line: 0,
     }
 }
 
@@ -281,6 +298,7 @@ impl App {
                 .collect();
             views.push(ViewState {
                 focus: v.focus,
+                score: Some(v.score),
                 split: split_of(&v.root),
                 buffers,
                 name: v.name.clone(),
@@ -294,6 +312,10 @@ impl App {
                 let p = &self.panes[id];
                 PaneState {
                     id: *id,
+                    kind: (p.kind != PaneKind::Score).then(|| p.kind.name().to_string()),
+                    height: p.size.0,
+                    width: p.size.1,
+                    owner: p.owner,
                     file: add(p.buffer, &mut files, self),
                     track: p.cursor.track,
                     bar: p.cursor.bar,
@@ -364,12 +386,13 @@ impl App {
             zoom: self.zoom,
             follow: self.follow,
             chant_view: self.chant_view,
-            global_waveform: self.global_waveform,
-            tracks_panel: self.tracks_panel,
+            // Tool panes are saved as panes; these older switches stay off.
+            global_waveform: false,
+            tracks_panel: false,
             toolbar: self.toolbar,
-            fretboard: self.fretboard_panel,
-            piano: self.piano_panel,
-            tracks_rows: self.tracks_rows,
+            fretboard: false,
+            piano: false,
+            tracks_rows: default_tracks_rows(),
             waveform_height: self.waveform_height,
         }
     }
@@ -529,6 +552,8 @@ impl App {
                 beat: p.beat,
                 string: p.string,
                 voice: p.voice,
+                staff: Cursor::HOME,
+                line: 0,
             };
             crate::app::clamp_cursor(&self.buffers[buffer].score, &mut cursor);
             let recent = p
@@ -539,6 +564,13 @@ impl App {
             self.panes.insert(
                 p.id,
                 Pane {
+                    kind: p
+                        .kind
+                        .as_deref()
+                        .and_then(PaneKind::parse)
+                        .unwrap_or_default(),
+                    size: (p.height, p.width),
+                    owner: p.owner,
                     buffer,
                     cursor,
                     scroll: 0,
@@ -559,6 +591,16 @@ impl App {
             } else {
                 ids[0]
             };
+            let is_score = |id: &PaneId| self.panes[id].kind == PaneKind::Score;
+            // A view needs a score pane for its tools to work on.
+            let Some(first_score) = ids.iter().copied().find(is_score) else {
+                continue;
+            };
+            let score = v
+                .score
+                .filter(|id| ids.contains(id) && is_score(id))
+                .or(Some(focus).filter(is_score))
+                .unwrap_or(first_score);
             let mut buffers: Vec<usize> = v
                 .buffers
                 .iter()
@@ -575,6 +617,7 @@ impl App {
                 maximized: None,
                 root,
                 focus,
+                score,
                 buffers,
                 name: v.name.clone(),
             });
@@ -587,6 +630,9 @@ impl App {
             self.panes.insert(
                 1,
                 Pane {
+                    kind: PaneKind::Score,
+                    size: (None, None),
+                    owner: None,
                     buffer: 0,
                     cursor: Cursor::default(),
                     scroll: 0,
@@ -600,6 +646,7 @@ impl App {
                 maximized: None,
                 root: Node::Leaf(1),
                 focus: 1,
+                score: 1,
                 buffers: vec![0],
                 name: None,
             });
@@ -616,6 +663,8 @@ impl App {
                 beat: m.beat,
                 string: m.string,
                 voice: m.voice,
+                staff: Cursor::HOME,
+                line: 0,
             };
             if name.is_ascii_uppercase() {
                 self.marks.global.insert(
@@ -647,12 +696,19 @@ impl App {
         self.zoom = ws.zoom;
         self.follow = ws.follow;
         self.chant_view = ws.chant_view;
-        self.global_waveform = ws.global_waveform;
-        self.tracks_panel = ws.tracks_panel;
         self.toolbar = ws.toolbar;
-        self.fretboard_panel = ws.fretboard;
-        self.piano_panel = ws.piano;
-        self.tracks_rows = ws.tracks_rows.clamp(1, crate::app::MAX_TRACKS_ROWS);
+        self.size_tools();
+        // Workspaces from before tool panes switched the panels on: they become panes.
+        for (kind, on) in [
+            (PaneKind::Tracks, ws.tracks_panel),
+            (PaneKind::Fretboard, ws.fretboard),
+            (PaneKind::Piano, ws.piano),
+            (PaneKind::Audio, ws.global_waveform),
+        ] {
+            if on {
+                self.set_tool(kind, Some(true));
+            }
+        }
         self.waveform_height = ws.waveform_height.clamp(
             crate::app::MIN_WAVEFORM_HEIGHT,
             crate::app::MAX_WAVEFORM_HEIGHT,
@@ -762,7 +818,6 @@ mod tests {
             crate::layout::Axis::SideBySide,
             crate::command::Amount::By(20),
         ));
-        app.run(Command::TracksResize(crate::command::Amount::To(3)));
         app.run(Command::WaveformResize(crate::command::Amount::By(36)));
         let widths = |app: &App| app.layout().iter().map(|(_, r)| r.w).collect::<Vec<_>>();
         assert_eq!(widths(&app), [30, 70]);
@@ -771,12 +826,38 @@ mod tests {
         other.viewport = app.viewport;
         other.restore(&toml::from_str(&text).unwrap());
         assert_eq!(widths(&other), [30, 70]);
-        assert_eq!((other.tracks_rows, other.waveform_height), (3, 100));
+        assert_eq!(other.waveform_height, 100);
         // <C-w>= evens them out again.
         for k in crate::keys::parse_keys("<C-w>=", &[]).unwrap() {
             other.handle_key(k);
         }
         assert_eq!(widths(&other), [50, 50]);
+    }
+
+    #[test]
+    fn tool_panes_are_saved_and_old_switches_become_panes() {
+        use crate::app::PaneKind;
+        let mut app = App::new(Config::default(), None);
+        app.run(Command::Tracks(Some(true)));
+        app.run(Command::Fretboard(Some(true)));
+        let text = toml::to_string_pretty(&app.workspace()).unwrap();
+        let mut other = App::new(Config::default(), None);
+        other.restore(&toml::from_str(&text).unwrap());
+        assert!(other.has_tool(PaneKind::Tracks) && other.has_tool(PaneKind::Fretboard));
+        assert_eq!(other.focused_kind(), PaneKind::Score);
+        // A workspace from before tool panes, with the tracks panel switched on.
+        let mut old: Workspace = toml::from_str(&text).unwrap();
+        old.panes.retain(|p| p.kind.is_none());
+        old.views[0].split = Split {
+            pane: Some(old.panes[0].id),
+            axis: None,
+            children: Vec::new(),
+            weights: Vec::new(),
+        };
+        old.tracks_panel = true;
+        let mut third = App::new(Config::default(), None);
+        third.restore(&old);
+        assert!(third.has_tool(PaneKind::Tracks) && !third.has_tool(PaneKind::Fretboard));
     }
 
     #[test]

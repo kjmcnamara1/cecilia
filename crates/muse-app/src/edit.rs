@@ -6,6 +6,7 @@ use std::collections::BTreeMap;
 use muse_core::*;
 
 use crate::Cursor;
+use crate::app::uses_strings;
 use crate::history::{BarChange, Change};
 
 pub struct EditCx<'a> {
@@ -124,9 +125,256 @@ impl<'a> EditCx<'a> {
         &mut beats[i]
     }
 
+    /// String (or note index) of the note the cursor is on: on a staff, the note at the
+    /// cursor's position (the beat's note on a slash staff), none if there is no note there;
+    /// on a tab, the cursor's string.
     fn string(&self) -> u8 {
-        self.cursor.string as u8
+        if self.on_lines() {
+            self.note_at_staff(self.cursor.line).unwrap_or(u8::MAX)
+        } else {
+            self.cursor.string as u8
+        }
     }
+
+    /// The cursor's staff.
+    fn staff(&self) -> Option<Staff> {
+        let track = self.score.tracks.get(self.cursor.track)?;
+        track
+            .staves()
+            .get(crate::app::staff_index(track, self.cursor.staff))
+            .copied()
+    }
+
+    /// Whether the cursor is on a staff's lines (not a tab's strings).
+    fn on_lines(&self) -> bool {
+        let track = &self.score.tracks[self.cursor.track];
+        self.staff().is_some_and(|s| !uses_strings(track, s))
+    }
+
+    /// Key signature of the cursor bar.
+    fn key(&self) -> i8 {
+        self.score
+            .master_bars
+            .get(self.cursor.bar)
+            .map_or(0, |m| m.key_signature.accidentals)
+    }
+
+    /// Diatonic staff position of a note on the cursor track.
+    fn staff_position(&self, n: &Note) -> i32 {
+        let track = &self.score.tracks[self.cursor.track];
+        let written = track.pitch_of(n) as i32 + track.staff_clef().transpose();
+        staff::diatonic(written, self.key())
+    }
+
+    /// String of the cursor beat's note at a staff position.
+    fn note_at_staff(&self, p: i32) -> Option<u8> {
+        let track = self.score.tracks.get(self.cursor.track)?;
+        let beat = track
+            .bars
+            .get(self.cursor.bar)?
+            .voices
+            .get(self.cursor.voice)?
+            .beats
+            .get(self.cursor.beat)?;
+        // Slashes and chant show one note per beat.
+        if matches!(self.staff(), Some(Staff::Slash | Staff::Chant)) {
+            return beat.notes.first().map(|n| n.string);
+        }
+        beat.notes
+            .iter()
+            .find(|n| self.staff_position(n) == p)
+            .map(|n| n.string)
+    }
+}
+
+/// Gives the notes of a beat on a non-fretted track distinct strings, highest pitch first.
+fn renumber_pitched(beat: &mut Beat) {
+    beat.notes.sort_by_key(|n| std::cmp::Reverse(n.fret));
+    for (i, n) in beat.notes.iter_mut().enumerate() {
+        n.string = i as u8;
+    }
+}
+
+/// Puts the note at a written staff position (diatonic) and alteration into the cursor beat:
+/// replacing the note the cursor is on, or added to the chord. The cursor moves onto it.
+fn put_staff_note(cx: &mut EditCx, d: i32, alter: i32, duration: Duration) -> Result<(), String> {
+    let track = cx.track().clone();
+    let written = staff::letter_midi(d, 0) + alter;
+    let pitch = written - track.staff_clef().transpose();
+    let pitch = u8::try_from(pitch)
+        .ok()
+        .filter(|p| *p <= 127)
+        .ok_or("note out of range")?;
+    let under = if cx.on_lines() {
+        cx.note_at_staff(cx.cursor.line)
+    } else {
+        None
+    };
+    ensure_real(cx.beat(), duration);
+    if track.kind == TrackKind::Fretted {
+        // set_pitch replaces the note on the cursor string: that of the note under the
+        // cursor, or a free string for a new one.
+        let string = match under {
+            Some(s) => s,
+            None => {
+                let used: Vec<u8> = cx.beat().notes.iter().map(|n| n.string).collect();
+                (0..track.strings.len() as u8)
+                    .find(|s| !used.contains(s))
+                    .ok_or("no free string for another note")?
+            }
+        };
+        set_pitch_on(cx, pitch, string)?;
+    } else {
+        let beat = cx.beat();
+        match under.and_then(|s| beat.notes.iter_mut().find(|n| n.string == s)) {
+            Some(n) => {
+                n.fret = pitch;
+                n.tie = false;
+            }
+            None => beat.notes.push(Note::new(u8::MAX, pitch)),
+        }
+        renumber_pitched(beat);
+    }
+    cx.cursor.line = d;
+    Ok(())
+}
+
+/// The note of a letter (step 0 = C) nearest the cursor's staff position, in the key.
+pub fn put_letter(cx: &mut EditCx, step: i32, duration: Duration) -> Result<(), String> {
+    let track = cx.track();
+    let from = if cx.on_lines() {
+        cx.cursor.line
+    } else {
+        track.staff_clef().bottom_line() + 4
+    };
+    let d = staff::nearest(step, from);
+    let alter = staff::key_alters(cx.key())[step as usize];
+    put_staff_note(cx, d, alter, duration)
+}
+
+/// Makes the cursor note sharp (+1), flat (-1) or natural (0) on its staff position.
+pub fn set_accidental(cx: &mut EditCx, alter: i32) -> Result<(), String> {
+    if !cx.on_lines() {
+        return Err("accidental: the cursor is not on a staff".into());
+    }
+    let d = cx.cursor.line;
+    if cx.note_at_staff(d).is_none() {
+        return Err("accidental: no note under the cursor".into());
+    }
+    put_staff_note(cx, d, alter, Duration::default())
+}
+
+/// The chant clef and octave shift a chant staff of the cursor track shows its notes in
+/// (as the engraver chooses them).
+pub fn chant_clef_of(track: &Track) -> (chant::ChantClef, i32) {
+    let pitches: Vec<u8> = track
+        .bars
+        .iter()
+        .flat_map(|b| &b.voices)
+        .flat_map(|v| &v.beats)
+        .flat_map(|b| &b.notes)
+        .map(|n| track.pitch_of(n))
+        .collect();
+    chant::ChantClef::fitting(&pitches)
+}
+
+/// On a chant staff of an ordinary track: the cursor beat's note at a GABC position (its
+/// first note, added if the beat has none), as an inclinatum or not.
+pub fn put_chant_note(
+    cx: &mut EditCx,
+    position: u8,
+    inclinatum: bool,
+    duration: Duration,
+) -> Result<(), String> {
+    let track = cx.track().clone();
+    let (clef, octave) = chant_clef_of(&track);
+    let pitch = (clef.midi(position as i32, 0) as i32 - octave).clamp(0, 127) as u8;
+    ensure_real(cx.beat(), duration);
+    let first = cx.beat().notes.first().map(|n| n.string);
+    if track.kind == TrackKind::Fretted {
+        set_pitch_on(cx, pitch, first.unwrap_or(0))?;
+    } else {
+        let beat = cx.beat();
+        match beat.notes.first_mut() {
+            Some(n) => n.fret = pitch,
+            None => beat.notes.push(Note::new(0, pitch)),
+        }
+        renumber_pitched(beat);
+    }
+    // The note that now has the pitch carries the marks.
+    let beat = cx.beat();
+    if let Some(n) = beat.notes.iter_mut().find(|n| track.pitch_of(n) == pitch) {
+        let marks = n.chant.get_or_insert_with(Default::default);
+        marks.inclinatum = inclinatum;
+    }
+    cx.cursor.line = position as i32;
+    Ok(())
+}
+
+/// On a chant staff of an ordinary track: toggles a chant sign of the cursor beat's note
+/// (`-` is the initio debilis, others GABC modifiers).
+pub fn toggle_chant_mark(cx: &mut EditCx, mark: &str) -> Result<(), String> {
+    let beat = cx.beat();
+    let n = beat.notes.first_mut().ok_or("no note under the cursor")?;
+    let marks = n.chant.get_or_insert_with(Default::default);
+    if mark == "-" {
+        marks.initio_debilis = !marks.initio_debilis;
+    } else if let Some(i) = marks.mods.iter().position(|m| m == mark) {
+        marks.mods.remove(i);
+    } else {
+        marks.mods.push(mark.to_string());
+    }
+    if **marks == ChantMarks::default() {
+        n.chant = None;
+    }
+    Ok(())
+}
+
+/// On a chant staff of an ordinary track: a division after the cursor beat (`:` on `:`
+/// makes `::`; the same sign again removes it).
+pub fn set_chant_division(cx: &mut EditCx, sign: &str) {
+    let beat = cx.beat();
+    beat.chant_division = match (beat.chant_division.as_deref(), sign) {
+        (Some(":"), ":") => Some("::".into()),
+        (Some(d), s) if d == s => None,
+        _ => Some(sign.to_string()),
+    };
+}
+
+/// On a chant staff of an ordinary track: a new beat after the cursor with the same pitch,
+/// starting a new neume when `neume` is set.
+pub fn append_chant_note(cx: &mut EditCx, neume: bool, duration: Duration) -> Result<(), String> {
+    let track = cx.track().clone();
+    let (clef, octave) = chant_clef_of(&track);
+    let position = cx
+        .beat()
+        .notes
+        .first()
+        .map_or(6, |n| clef.place(track.pitch_of(n), octave).0);
+    insert_beat(cx, true, duration);
+    put_chant_note(cx, position.clamp(0, 13) as u8, false, duration)?;
+    if neume {
+        if let Some(n) = cx.beat().notes.first_mut() {
+            n.chant.get_or_insert_with(Default::default).neume_start = true;
+        }
+    }
+    Ok(())
+}
+
+/// A slash on a slash staff: the beat gets a note (kept if it has one).
+pub fn put_slash(cx: &mut EditCx, duration: Duration) -> Result<(), String> {
+    let track = cx.track().clone();
+    let beat = cx.beat();
+    ensure_real(beat, duration);
+    if beat.notes.is_empty() {
+        let middle = staff::letter_midi(track.staff_clef().bottom_line() + 4, 0)
+            - track.staff_clef().transpose();
+        beat.notes.push(match track.kind {
+            TrackKind::Fretted => Note::new(0, 0),
+            _ => Note::new(0, middle.clamp(0, 127) as u8),
+        });
+    }
+    Ok(())
 }
 
 /// Adds a drum instrument to the cursor beat of a drum track, or removes it if present.
@@ -368,6 +616,7 @@ pub fn toggle(cx: &mut EditCx, technique: &str, duration: Duration) -> Result<()
                 _ => Some(Stroke {
                     direction: d,
                     duration: DurationValue::Sixteenth,
+                    arpeggio: false,
                 }),
             };
             return Ok(());
@@ -522,8 +771,13 @@ pub fn shift_pitch(cx: &mut EditCx, semitones: i32) -> Result<(), String> {
 
 /// Sets the pitch of the cursor note (or adds a note) on a fretted track, choosing the string.
 pub fn set_pitch(cx: &mut EditCx, pitch: u8) -> Result<(), String> {
-    let track = cx.track().clone();
     let string = cx.string();
+    set_pitch_on(cx, pitch, string)
+}
+
+/// Sets the pitch of the note on a string (or adds it there), as [`set_pitch`].
+fn set_pitch_on(cx: &mut EditCx, pitch: u8, string: u8) -> Result<(), String> {
+    let track = cx.track().clone();
     if track.kind != TrackKind::Fretted {
         return set_fret(cx, pitch, Duration::default());
     }

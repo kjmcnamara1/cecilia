@@ -321,7 +321,11 @@ impl<'a> GpReader<'a> {
         if flags & 0x20 != 0 {
             let title = self.int_byte_size_string()?;
             let color = self.read_color()?;
-            mb.marker = Some(Marker { title, color });
+            mb.marker = Some(Marker {
+                title,
+                color,
+                letter: String::new(),
+            });
         }
         if flags & 0x40 != 0 {
             let accidentals = self.r.i8()?;
@@ -661,11 +665,13 @@ impl<'a> GpReader<'a> {
                 Some(Stroke {
                     direction: StrokeDirection::Up,
                     duration: stroke_value(up),
+                    arpeggio: false,
                 })
             } else if down > 0 {
                 Some(Stroke {
                     direction: StrokeDirection::Down,
                     duration: stroke_value(down),
+                    arpeggio: false,
                 })
             } else {
                 None

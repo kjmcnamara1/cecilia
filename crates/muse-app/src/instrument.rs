@@ -262,6 +262,9 @@ mod tests {
         // Toggles.
         app.run(Command::Fretboard(None));
         app.run(Command::Piano(Some(true)));
-        assert!(app.fretboard_panel && app.piano_panel);
+        assert!(
+            app.has_tool(crate::app::PaneKind::Fretboard)
+                && app.has_tool(crate::app::PaneKind::Piano)
+        );
     }
 }

@@ -30,6 +30,8 @@ struct Gpu {
 }
 
 struct Gui {
+    /// The peeking tracks were drawn last frame (one more redraw hides them).
+    tracks_peek_drawn: bool,
     cx: RenderContext,
     gpu: Option<Gpu>,
     app: App,
@@ -43,7 +45,6 @@ struct Gui {
     /// The pointer shape shown (resize arrows over draggable edges).
     pointer: draw::Pointer,
     /// The tracks panel was peeking when last drawn (redraw once it hides).
-    tracks_peek_drawn: bool,
     last_config_check: Instant,
     error: Option<anyhow::Error>,
 }
@@ -61,6 +62,7 @@ fn renderer_options() -> RendererOptions {
 pub fn run(app: App) -> Result<()> {
     let event_loop = EventLoop::new().context("cannot open a window (no display?)")?;
     let mut gui = Gui {
+        tracks_peek_drawn: false,
         cx: RenderContext::new(),
         gpu: None,
         app,
@@ -71,7 +73,6 @@ pub fn run(app: App) -> Result<()> {
         mods: ModifiersState::empty(),
         mouse: (0.0, 0.0),
         pointer: draw::Pointer::Default,
-        tracks_peek_drawn: false,
         last_config_check: Instant::now(),
         error: None,
     };
@@ -355,13 +356,22 @@ impl ApplicationHandler for Gui {
             event_loop.set_control_flow(ControlFlow::WaitUntil(
                 Instant::now() + Duration::from_millis(16),
             ));
-        } else if self.app.tuner_panel {
+        } else if self.app.has_tool(muse_app::PaneKind::Tuner) {
             // The tuner's needle moves with what it hears.
             if let Some(gpu) = &self.gpu {
                 gpu.window.request_redraw();
             }
             event_loop.set_control_flow(ControlFlow::WaitUntil(
                 Instant::now() + Duration::from_millis(33),
+            ));
+        } else if self.app.tracks_peeking() || self.tracks_peek_drawn {
+            // The tracks peeking after a change of track: redraw until they hide again.
+            self.tracks_peek_drawn = self.app.tracks_peeking();
+            if let Some(gpu) = &self.gpu {
+                gpu.window.request_redraw();
+            }
+            event_loop.set_control_flow(ControlFlow::WaitUntil(
+                Instant::now() + Duration::from_millis(100),
             ));
         } else if self.views.tooltip_pending() {
             // A toolbar tooltip waits to show.
@@ -370,15 +380,6 @@ impl ApplicationHandler for Gui {
             }
             event_loop.set_control_flow(ControlFlow::WaitUntil(
                 Instant::now() + Duration::from_millis(100),
-            ));
-        } else if self.app.tracks_peeking() || self.tracks_peek_drawn {
-            // The tracks panel peeking after a change of track: redraw until it hides again.
-            self.tracks_peek_drawn = self.app.tracks_peeking();
-            if let Some(gpu) = &self.gpu {
-                gpu.window.request_redraw();
-            }
-            event_loop.set_control_flow(ControlFlow::WaitUntil(
-                Instant::now() + Duration::from_millis(50),
             ));
         } else {
             event_loop.set_control_flow(ControlFlow::WaitUntil(

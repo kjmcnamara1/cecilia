@@ -279,8 +279,9 @@ fn gpif_files_convert_to_gp5() {
         let bytes = muse_formats::gp_write::write_gp5(&original).unwrap();
         match muse_formats::gp::read_with_trailing(&bytes) {
             Ok((back, 0)) => {
+                // GP5 has a track per staff: a grand staff comes back as two tracks.
                 if back.master_bars.len() != original.master_bars.len()
-                    || back.tracks.len() != original.tracks.len()
+                    || back.tracks.len() != original.split_grand().tracks.len()
                 {
                     failures.push(format!("{}: structure changed", f.display()));
                 }
@@ -301,15 +302,17 @@ fn gpif_files_convert_to_gp5() {
 fn corpus_survives_gp7_round_trip() {
     let mut failures = Vec::new();
     for f in corpus_files(&["gp3", "gp4", "gp5", "gpx", "gp"]) {
-        let mut original = muse_formats::read_file(&f).unwrap();
+        let original = muse_formats::read_file(&f).unwrap();
         let bytes = muse_formats::gpif_write::write_gp7(&original).unwrap();
-        let mut back = match muse_formats::gpif::read_gp7(&bytes) {
+        let back = match muse_formats::gpif::read_gp7(&bytes) {
             Ok(s) => s,
             Err(e) => {
                 failures.push(format!("{}: {e}", f.display()));
                 continue;
             }
         };
+        // Grand staves compare as their two staves (hands split at the grand staff's split).
+        let (mut original, mut back) = (original.split_grand(), back.split_grand());
         normalize_gpif(&mut original);
         normalize_gpif(&mut back);
         if original != back {
@@ -332,15 +335,17 @@ fn corpus_survives_gp7_round_trip() {
 fn corpus_survives_gpx_round_trip() {
     let mut failures = Vec::new();
     for f in corpus_files(&["gp3", "gp4", "gp5", "gpx", "gp"]) {
-        let mut original = muse_formats::read_file(&f).unwrap();
+        let original = muse_formats::read_file(&f).unwrap();
         let bytes = muse_formats::gpif_write::write_gpx(&original).unwrap();
-        let mut back = match muse_formats::gpif::read_gpx(&bytes) {
+        let back = match muse_formats::gpif::read_gpx(&bytes) {
             Ok(s) => s,
             Err(e) => {
                 failures.push(format!("{}: {e}", f.display()));
                 continue;
             }
         };
+        // Grand staves compare as their two staves (hands split at the grand staff's split).
+        let (mut original, mut back) = (original.split_grand(), back.split_grand());
         normalize_gpif(&mut original);
         normalize_gpif(&mut back);
         // GP6 has no sound bank selection.
@@ -478,6 +483,8 @@ fn corpus_survives_musicxml_round_trip() {
                 continue;
             }
         };
+        // Grand staves compare as their two staves (hands split at the grand staff's split).
+        let (original, back) = (original.split_grand(), back.split_grand());
         let structure = |s: &Score| -> Vec<_> {
             s.master_bars
                 .iter()

@@ -10,6 +10,7 @@ mod duration;
 pub mod lyrics;
 pub mod performance;
 mod score;
+pub mod staff;
 
 pub use duration::{Duration, DurationValue, Tuplet};
 pub use performance::{Performance, play_order};

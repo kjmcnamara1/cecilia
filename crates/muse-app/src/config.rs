@@ -18,7 +18,8 @@ pub enum Mode {
     Visual,
     /// Choosing a buffer, view or workspace from a filtered list.
     Picker,
-    /// The tracks panel has the focus: keys select tracks and bars, mute, solo, volume.
+    /// Names the tracks pane's keymap (`[keymap.tracks]`), used while that pane has the
+    /// focus in Normal mode; never the current mode.
     Tracks,
 }
 
@@ -32,7 +33,24 @@ pub struct ConfigFile {
     pub theme: crate::theme::ThemeConfig,
     pub toolbar: ToolbarConfig,
     pub statusline: StatuslineConfig,
+    pub score: ScoreConfig,
     pub keymap: KeymapConfig,
+}
+
+/// Score defaults (`[score]`).
+#[derive(Debug, Clone, Deserialize)]
+#[serde(default, deny_unknown_fields)]
+pub struct ScoreConfig {
+    /// Clef of a standard staff added without one: "treble", "bass" or "grand".
+    pub clef: String,
+}
+
+impl Default for ScoreConfig {
+    fn default() -> Self {
+        Self {
+            clef: "treble".into(),
+        }
+    }
 }
 
 /// The status line: how the terminal separates its sections: "arrow" (default), "round" or
@@ -143,7 +161,12 @@ pub struct UiConfig {
     pub global_waveform: bool,
     /// The tracks panel (tracks with mixer and a bar overview) at the bottom of the window.
     pub tracks_panel: bool,
-    /// Seconds the hidden tracks panel shows after a key or command changes the track (0: off).
+    /// Tool panes that dock along the bottom of the whole view, at its full width, and show
+    /// the last active score pane ("tracks", "audio", "fretboard", "piano", "tuner"); the
+    /// others dock under the score pane they open from, as wide as it, and always show it.
+    pub global_tools: Vec<String>,
+    /// Seconds the tracks show along the bottom after a key or command changes the track,
+    /// while no tracks pane is shown (0: off).
     pub tracks_peek: f64,
     /// The toolbar of common commands at the top of the window.
     pub toolbar: bool,
@@ -167,6 +190,9 @@ impl Default for UiConfig {
             completion_fuzzy: true,
             global_waveform: false,
             tracks_panel: false,
+            global_tools: ["tracks", "audio", "fretboard", "piano", "tuner"]
+                .map(String::from)
+                .to_vec(),
             tracks_peek: 1.0,
             toolbar: true,
             fretboard: false,
@@ -213,6 +239,15 @@ pub struct KeymapConfig {
     pub normal: HashMap<String, Binding>,
     pub command: HashMap<String, Binding>,
     pub insert: HashMap<String, Binding>,
+    /// Insert-mode keys for the notation under the cursor, looked up before `insert`.
+    #[serde(rename = "insert-tab")]
+    pub insert_tab: HashMap<String, Binding>,
+    #[serde(rename = "insert-standard")]
+    pub insert_standard: HashMap<String, Binding>,
+    #[serde(rename = "insert-slash")]
+    pub insert_slash: HashMap<String, Binding>,
+    #[serde(rename = "insert-chant")]
+    pub insert_chant: HashMap<String, Binding>,
     pub visual: HashMap<String, Binding>,
     pub tracks: HashMap<String, Binding>,
     /// No longer used (Play mode was removed); kept so old configs still load, with a warning.
@@ -362,17 +397,6 @@ const DEFAULT_INSERT: &[(&str, &str)] = &[
     ("<BS>", "delete-note"),
     ("<Del>", "delete-note"),
     ("<CR>", "beat-new"),
-    ("h", "toggle hammer"),
-    ("b", "toggle bend"),
-    ("s", "toggle slide"),
-    ("~", "toggle vibrato"),
-    ("x", "toggle dead"),
-    ("m", "toggle palm-mute"),
-    ("l", "toggle let-ring"),
-    ("g", "toggle ghost"),
-    ("a", "toggle accent"),
-    ("n", "toggle harmonic"),
-    ("t", "toggle tie"),
     ("r", "rest"),
     (".", "dot"),
     ("+", "duration-longer"),
@@ -389,12 +413,99 @@ const DEFAULT_INSERT: &[(&str, &str)] = &[
     ("<C-x>", "pitch-down"),
 ];
 
+/// Insert mode on a tab (and drum lanes): digits type frets, letters toggle effects.
+const DEFAULT_INSERT_TAB: &[(&str, &str)] = &[
+    ("h", "toggle hammer"),
+    ("b", "toggle bend"),
+    ("s", "toggle slide"),
+    ("~", "toggle vibrato"),
+    ("x", "toggle dead"),
+    ("m", "toggle palm-mute"),
+    ("l", "toggle let-ring"),
+    ("g", "toggle ghost"),
+    ("a", "toggle accent"),
+    ("n", "toggle harmonic"),
+    ("t", "toggle tie"),
+];
+
+/// Insert mode on a standard staff: letters enter notes nearest the cursor.
+const DEFAULT_INSERT_STANDARD: &[(&str, &str)] = &[
+    ("a", "note-letter a"),
+    ("b", "note-letter b"),
+    ("c", "note-letter c"),
+    ("d", "note-letter d"),
+    ("e", "note-letter e"),
+    ("f", "note-letter f"),
+    ("g", "note-letter g"),
+    ("#", "accidental sharp"),
+    ("&", "accidental flat"),
+    ("=", "accidental natural"),
+    ("t", "toggle tie"),
+    ("h", "toggle hammer"),
+    ("s", "toggle slide"),
+    ("~", "toggle vibrato"),
+    (">", "toggle accent"),
+    ("(", "toggle ghost"),
+    ("x", "toggle dead"),
+];
+
+/// Insert mode on a slash staff: rhythm only.
+const DEFAULT_INSERT_SLASH: &[(&str, &str)] =
+    &[("/", "slash"), ("t", "toggle tie"), (">", "toggle accent")];
+
+/// Insert mode on chant: GABC pitch letters and signs.
+const DEFAULT_INSERT_CHANT: &[(&str, &str)] = &[
+    ("a", "chant-note a"),
+    ("b", "chant-note b"),
+    ("c", "chant-note c"),
+    ("d", "chant-note d"),
+    ("e", "chant-note e"),
+    ("f", "chant-note f"),
+    ("g", "chant-note g"),
+    ("h", "chant-note h"),
+    ("i", "chant-note i"),
+    ("j", "chant-note j"),
+    ("k", "chant-note k"),
+    ("l", "chant-note l"),
+    ("m", "chant-note m"),
+    ("A", "chant-note A"),
+    ("B", "chant-note B"),
+    ("C", "chant-note C"),
+    ("D", "chant-note D"),
+    ("E", "chant-note E"),
+    ("F", "chant-note F"),
+    ("G", "chant-note G"),
+    ("H", "chant-note H"),
+    ("I", "chant-note I"),
+    ("J", "chant-note J"),
+    ("K", "chant-note K"),
+    ("L", "chant-note L"),
+    ("M", "chant-note M"),
+    ("v", "chant-mod v"),
+    ("s", "chant-mod s"),
+    ("o", "chant-mod o"),
+    ("q", "chant-mod q"),
+    ("w", "chant-mod w"),
+    ("~", "chant-mod ~"),
+    (".", "chant-mod ."),
+    ("_", "chant-mod _"),
+    ("'", "chant-mod '"),
+    ("-", "chant-mod -"),
+    (",", "chant-bar ,"),
+    (";", "chant-bar ;"),
+    (":", "chant-bar :"),
+    ("<Space>", "chant-append"),
+    ("<Right>", "beat-next"),
+    ("/", "chant-break"),
+    ("<CR>", "chant-syllable"),
+];
+
 /// The tracks panel, while it has the focus.
 const DEFAULT_TRACKS: &[(&str, &str)] = &[
-    ("j", "track-next"),
-    ("<Down>", "track-next"),
-    ("k", "track-prev"),
-    ("<Up>", "track-prev"),
+    ("j", "tracks-down"),
+    ("<Down>", "tracks-down"),
+    ("k", "tracks-up"),
+    ("<Up>", "tracks-up"),
     ("l", "bar-next"),
     ("<Right>", "bar-next"),
     ("h", "bar-prev"),
@@ -407,12 +518,11 @@ const DEFAULT_TRACKS: &[(&str, &str)] = &[
     ("=", "track-volume-up"),
     ("-", "track-volume-down"),
     ("c", "track-color"),
-    ("<CR>", "tracks-focus"),
+    ("t", "track-rename-start"),
+    ("i", "track-instrument"),
+    ("<CR>", "tracks-open"),
     ("<Esc>", "tracks-focus"),
     ("q", "tracks-focus"),
-    ("<C-w>k", "tracks-focus"),
-    ("<C-w>+", "tracks-resize +1"),
-    ("<C-w>-", "tracks-resize -1"),
     ("<leader><leader>", "play-toggle"),
     ("<leader>s", "stop"),
     ("<leader>f", "follow-toggle"),
@@ -482,10 +592,21 @@ impl Keymap {
 }
 
 /// Effective configuration: parsed file plus resolved keymaps.
+/// Which insert-mode keymap applies: the notation under the cursor.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub enum InsertKind {
+    Tab,
+    Standard,
+    Slash,
+    Chant,
+}
+
 #[derive(Debug, Clone)]
 pub struct Config {
     pub file: ConfigFile,
     pub keymaps: HashMap<Mode, Keymap>,
+    /// Insert-mode keys per notation, looked up before the shared insert keymap.
+    pub insert_keymaps: HashMap<InsertKind, Keymap>,
     pub leader: Vec<Key>,
     /// Interface colours (`[theme]`).
     pub theme: crate::theme::Theme,
@@ -553,6 +674,41 @@ impl Config {
             &mut errors,
         );
         keymaps.insert(Mode::Tracks, tracks);
+        let mut insert_keymaps = HashMap::new();
+        for (kind, defaults, user, name) in [
+            (
+                InsertKind::Tab,
+                DEFAULT_INSERT_TAB,
+                &file.keymap.insert_tab,
+                "keymap.insert-tab",
+            ),
+            (
+                InsertKind::Standard,
+                DEFAULT_INSERT_STANDARD,
+                &file.keymap.insert_standard,
+                "keymap.insert-standard",
+            ),
+            (
+                InsertKind::Slash,
+                DEFAULT_INSERT_SLASH,
+                &file.keymap.insert_slash,
+                "keymap.insert-slash",
+            ),
+            (
+                InsertKind::Chant,
+                DEFAULT_INSERT_CHANT,
+                &file.keymap.insert_chant,
+                "keymap.insert-chant",
+            ),
+        ] {
+            let mut map = Keymap::default();
+            for (keys, cmd) in defaults {
+                let keys = parse_keys(keys, &leader).expect("valid default key");
+                map.bind_default(keys, cmd);
+            }
+            apply_user(&mut map, user, &leader, name, &mut errors);
+            insert_keymaps.insert(kind, map);
+        }
         keymaps.insert(Mode::Insert, insert);
         keymaps.insert(Mode::Visual, visual);
         let mut command = Keymap::default();
@@ -572,6 +728,12 @@ impl Config {
         keymaps.insert(Mode::Command, command);
         let (theme, theme_errors) = crate::theme::Theme::from_config(&file.theme);
         errors.extend(theme_errors);
+        if !["treble", "bass", "grand"].contains(&file.score.clef.as_str()) {
+            errors.push(format!(
+                "score.clef: '{}' is not treble, bass or grand",
+                file.score.clef
+            ));
+        }
         if !["arrow", "round", "none"].contains(&file.statusline.separators.as_str()) {
             errors.push(format!(
                 "statusline.separators: '{}' is not arrow, round or none",
@@ -589,6 +751,7 @@ impl Config {
             Self {
                 file,
                 keymaps,
+                insert_keymaps,
                 leader,
                 theme,
             },
@@ -613,6 +776,21 @@ impl Config {
 
     pub fn keymap(&self, mode: Mode) -> &Keymap {
         &self.keymaps[&mode]
+    }
+
+    /// Clef of a standard staff added without one (`score.clef`).
+    pub fn default_clef(&self) -> muse_core::Clef {
+        match self.file.score.clef.as_str() {
+            "bass" => muse_core::Clef::Bass,
+            "grand" => muse_core::Clef::Grand {
+                split: muse_core::GRAND_SPLIT,
+            },
+            _ => muse_core::Clef::Treble,
+        }
+    }
+
+    pub fn insert_keymap(&self, kind: InsertKind) -> &Keymap {
+        &self.insert_keymaps[&kind]
     }
 }
 
@@ -714,6 +892,33 @@ mod tests {
         assert!(matches!(n.lookup(&[Key::char('h')]), Lookup::None));
         // Default leader bindings moved to the new leader.
         assert!(matches!(n.lookup(&[Key::char(',')]), Lookup::Prefix));
+    }
+
+    #[test]
+    fn insert_keymaps_per_notation() {
+        let (cfg, errors) = Config::parse(
+            r#"
+            [keymap.insert-standard]
+            "a" = "accidental sharp"
+            "#,
+        )
+        .unwrap();
+        assert!(errors.is_empty(), "{errors:?}");
+        let a = [Key::char('a')];
+        assert!(matches!(
+            cfg.insert_keymap(InsertKind::Standard).lookup(&a),
+            Lookup::Exact([Command::Accidental(1)])
+        ));
+        // Other notations keep their own defaults for the same key.
+        assert!(matches!(
+            cfg.insert_keymap(InsertKind::Chant).lookup(&a),
+            Lookup::Exact([Command::ChantNote('a')])
+        ));
+        assert!(matches!(
+            cfg.insert_keymap(InsertKind::Standard)
+                .lookup(&[Key::char('c')]),
+            Lookup::Exact([Command::NoteLetter('c')])
+        ));
     }
 
     #[test]

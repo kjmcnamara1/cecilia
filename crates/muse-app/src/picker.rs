@@ -17,6 +17,8 @@ pub enum PickerKind {
     Keymap,
     /// The sections (markers) of the file shown.
     Section,
+    /// General MIDI instruments (and the drum kit) for a track.
+    Instrument(usize),
 }
 
 impl PickerKind {
@@ -42,6 +44,7 @@ impl PickerKind {
             PickerKind::Macro => "Macros",
             PickerKind::Keymap => "Keymaps",
             PickerKind::Section => "Sections",
+            PickerKind::Instrument(_) => "Instruments",
         }
     }
 }
@@ -174,6 +177,33 @@ impl App {
                     })
                     .collect()
             }
+            PickerKind::Instrument(t) => {
+                let n = t + 1;
+                let current = self.buffer().score.tracks.get(t).map(|t| {
+                    if t.kind == muse_core::TrackKind::Drums {
+                        usize::MAX
+                    } else {
+                        t.midi.program as usize
+                    }
+                });
+                let mark = |on: bool| if on { "current" } else { "" }.to_string();
+                crate::tracks::GM_PROGRAMS
+                    .iter()
+                    .enumerate()
+                    .map(|(p, name)| Entry {
+                        label: format!("{:>3} {name}", p + 1),
+                        description: mark(current == Some(p)),
+                        action: Command::TrackInstrument(Some(format!("{} {n}", p + 1))),
+                        search_description: false,
+                    })
+                    .chain(std::iter::once(Entry {
+                        label: "    Drum Kit".into(),
+                        description: mark(current == Some(usize::MAX)),
+                        action: Command::TrackInstrument(Some(format!("drums {n}"))),
+                        search_description: false,
+                    }))
+                    .collect()
+            }
             PickerKind::Section => {
                 let bars = &self.buffer().score.master_bars;
                 let at = self.pane().cursor.bar;
@@ -215,16 +245,25 @@ impl App {
                     .collect()
             }
             PickerKind::Keymap => {
-                let modes = [
-                    (Mode::Normal, ""),
-                    (Mode::Visual, "visual "),
-                    (Mode::Insert, "insert "),
-                    (Mode::Tracks, "tracks "),
-                    (Mode::Command, "command "),
+                use crate::config::InsertKind;
+                let c = &self.config;
+                let maps = [
+                    (c.keymap(Mode::Normal), "", true),
+                    (c.keymap(Mode::Visual), "visual ", false),
+                    (c.keymap(Mode::Insert), "insert ", false),
+                    (c.insert_keymap(InsertKind::Tab), "insert (tab) ", false),
+                    (
+                        c.insert_keymap(InsertKind::Standard),
+                        "insert (standard) ",
+                        false,
+                    ),
+                    (c.insert_keymap(InsertKind::Slash), "insert (slash) ", false),
+                    (c.insert_keymap(InsertKind::Chant), "insert (chant) ", false),
+                    (c.keymap(Mode::Tracks), "tracks ", false),
+                    (c.keymap(Mode::Command), "command ", false),
                 ];
                 let mut out = Vec::new();
-                for (mode, prefix) in modes {
-                    let map = self.config.keymap(mode);
+                for (map, prefix, normal) in maps {
                     let mut keys: Vec<_> = map.bindings.iter().collect();
                     keys.sort_by_key(|(k, _)| crate::keys::format_keys(k));
                     for (k, cmds) in keys {
@@ -240,8 +279,8 @@ impl App {
                             })
                             .collect();
                         // Choosing a Normal-mode binding runs it.
-                        let action = match (mode, cmds.as_slice()) {
-                            (Mode::Normal, [c]) => c.clone(),
+                        let action = match cmds.as_slice() {
+                            [c] if normal => c.clone(),
                             _ => Command::Nop,
                         };
                         out.push(Entry {

@@ -105,6 +105,33 @@ pub enum Command {
     Transpose(i32),
     TrackAdd(String),
     TrackDelete,
+    /// Show the cursor's staff another way: `standard [treble|bass|grand [split]]`, `tab`,
+    /// `tab+`, `slash` or `chant`. The notes stay the same.
+    Staff(String),
+    /// Add a staff at the bottom of the cursor's track (standard when not given).
+    StaffAdd(Option<String>),
+    /// Remove a staff of the cursor's track (1 = top; the cursor's when not given).
+    StaffRemove(Option<usize>),
+    /// Move the cursor's staff to a position (1 = top) or by `+N` / `-N`.
+    StaffMove(String),
+    /// On a standard staff: the note of this letter (`c` … `b`) nearest the cursor.
+    NoteLetter(char),
+    /// On a standard staff: the cursor note sharp (+1), flat (-1) or natural (0).
+    Accidental(i32),
+    /// On a slash staff: a slash at the cursor beat.
+    Slash,
+    /// On chant: the cursor note's GABC pitch letter (upper case: punctum inclinatum).
+    ChantNote(char),
+    /// On chant: toggles a GABC modifier of the cursor note (`v`, `s`, `~`, `.`, `_`, `'`, `-` …).
+    ChantMod(String),
+    /// On chant: a division (`,` `;` `:`; `:` again makes `::`) after the cursor syllable.
+    ChantBar(String),
+    /// On chant: a new note after the cursor note, in the same neume.
+    ChantAppend,
+    /// On chant: a new note after the cursor note, starting a new neume.
+    ChantBreak,
+    /// On chant: a new syllable after the cursor syllable.
+    ChantSyllable,
     New,
     Voice(usize),
     /// Playback speed in percent.
@@ -137,8 +164,10 @@ pub enum Command {
     WaveformGlobal(Option<bool>),
     /// Level of "midi", "audio" or "metronome" in percent.
     Volume(String, u32),
-    Mute(Option<usize>),
-    Solo(Option<usize>),
+    /// Mute / solo a track (the cursor's when not given), the audio track or the synth master
+    /// (all synth tracks).
+    Mute(Option<Strip>),
+    Solo(Option<Strip>),
     /// Show or hide the tracks panel (no argument: toggle).
     Tracks(Option<bool>),
     /// Move the shown file's tab in the tabline: to position N, or by +N / -N.
@@ -152,6 +181,18 @@ pub enum Command {
     Toolbar(Option<bool>),
     /// Focus the tracks panel, or give the focus back to the score.
     TracksFocus,
+    /// In the tracks panel: select the row below / above (tracks, the audio track, the master).
+    TracksDown,
+    TracksUp,
+    /// In the tracks panel: show the selected track in the pane.
+    TracksOpen,
+    /// Rename a track: `NAME [n]` (the cursor's track without a number).
+    TrackRename(String),
+    /// Rename the tracks pane's selected track (or the cursor's) in place.
+    TrackRenameStart,
+    /// Set a track's instrument: `PROGRAM [n]` (General MIDI 1–128, or `drums`); without an
+    /// argument, a picker of instruments.
+    TrackInstrument(Option<String>),
     /// Volume of the cursor's track.
     TrackVolume(crate::tracks::VolumeChange),
     /// Colour of the cursor's track in the tracks panel: `#rrggbb`, `off`, or none for the
@@ -287,6 +328,30 @@ pub enum Command {
     ZoomOut,
     ZoomReset,
     Nop,
+}
+
+/// A row of the mixer: a track (0-based), the audio track or the synth master.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Strip {
+    Track(usize),
+    Audio,
+    Master,
+}
+
+impl Strip {
+    /// `3` (a track number), `audio` or `master`.
+    pub fn parse(s: &str) -> Result<Strip, String> {
+        match s.trim() {
+            "audio" => Ok(Strip::Audio),
+            "master" => Ok(Strip::Master),
+            n => n
+                .parse::<usize>()
+                .ok()
+                .filter(|&n| n > 0)
+                .map(|n| Strip::Track(n - 1))
+                .ok_or_else(|| format!("'{n}' is not a track number, audio or master")),
+        }
+    }
 }
 
 impl Command {
@@ -497,6 +562,49 @@ impl Command {
             ),
             "track-add" => TrackAdd(arg.unwrap_or("guitar").to_string()),
             "track-delete" => TrackDelete,
+            "staff" => Staff(
+                arg.ok_or("staff: expected standard [treble|bass|grand [split]], tab, tab+, slash or chant")?
+                    .to_string(),
+            ),
+            "staff-add" => StaffAdd(arg.map(String::from)),
+            "staff-remove" => StaffRemove(match arg {
+                None => None,
+                Some(a) => Some(a.parse().map_err(|_| "staff-remove: expected a staff number")?),
+            }),
+            "staff-move" => StaffMove(
+                arg.ok_or("staff-move: expected a position, +N or -N")?
+                    .to_string(),
+            ),
+            "note-letter" => NoteLetter(
+                arg.and_then(|a| a.chars().next())
+                    .filter(|c| "abcdefgABCDEFG".contains(*c))
+                    .ok_or("note-letter: expected a letter a-g")?
+                    .to_ascii_lowercase(),
+            ),
+            "accidental" => Accidental(match arg {
+                Some("sharp") | Some("#") => 1,
+                Some("flat") | Some("b") => -1,
+                Some("natural") | Some("=") => 0,
+                _ => return Err("accidental: expected sharp, flat or natural".into()),
+            }),
+            "slash" => Slash,
+            "chant-note" => ChantNote(
+                arg.and_then(|a| a.chars().next())
+                    .filter(|c| muse_core::chant::letter_position(*c).is_some_and(|p| p <= 12))
+                    .ok_or("chant-note: expected a GABC pitch letter a-m")?,
+            ),
+            "chant-mod" => ChantMod(
+                arg.ok_or("chant-mod: expected a GABC modifier (v s o q w ~ . _ ' -)")?
+                    .to_string(),
+            ),
+            "chant-bar" => ChantBar(
+                arg.filter(|a| [",", ";", ":", "::"].contains(a))
+                    .ok_or("chant-bar: expected , ; : or ::")?
+                    .to_string(),
+            ),
+            "chant-append" => ChantAppend,
+            "chant-break" => ChantBreak,
+            "chant-syllable" => ChantSyllable,
             "new" | "enew" => New,
             "voice" => Voice(number("voice")?),
             "speed" => Speed(number("percent")? as u32),
@@ -645,7 +753,7 @@ impl Command {
             "chant-to-modern" => ChantToModern,
             "modern-to-chant" => ModernToChant,
             "chant-view" => ChantView,
-            "mute" => Mute(arg.and_then(|a| a.parse().ok())),
+            "mute" => Mute(arg.map(Strip::parse).transpose()?),
             "tracks" => Tracks(match arg {
                 None => None,
                 Some("on") => Some(true),
@@ -653,6 +761,15 @@ impl Command {
                 Some(a) => return Err(format!("tracks: '{a}' is not on or off")),
             }),
             "tracks-focus" => TracksFocus,
+            "tracks-down" => TracksDown,
+            "tracks-up" => TracksUp,
+            "tracks-open" => TracksOpen,
+            "track-rename" => TrackRename(
+                arg.ok_or("track-rename: expected NAME [track number]")?
+                    .to_string(),
+            ),
+            "track-rename-start" => TrackRenameStart,
+            "track-instrument" => TrackInstrument(arg.map(String::from)),
             "fretboard" | "piano" | "tuner" => {
                 let on = match arg {
                     None => None,
@@ -679,7 +796,7 @@ impl Command {
             "track-volume-up" => TrackVolume(crate::tracks::VolumeChange::Up),
             "track-volume-down" => TrackVolume(crate::tracks::VolumeChange::Down),
             "track-color" | "track-colour" => TrackColor(arg.map(String::from)),
-            "solo" => Solo(arg.and_then(|a| a.parse().ok())),
+            "solo" => Solo(arg.map(Strip::parse).transpose()?),
             _ => return Err(format!("unknown command: {name}")),
         })
     }
@@ -690,6 +807,8 @@ impl Command {
         matches!(
             self,
             BeatNext
+                | TracksDown
+                | TracksUp
                 | BeatPrev
                 | StringDown
                 | StringUp
@@ -738,6 +857,15 @@ impl Command {
                 | Rest
                 | Toggle(_)
                 | Note(_)
+                | NoteLetter(_)
+                | Accidental(_)
+                | Slash
+                | ChantNote(_)
+                | ChantMod(_)
+                | ChantBar(_)
+                | ChantAppend
+                | ChantBreak
+                | ChantSyllable
         )
     }
 }

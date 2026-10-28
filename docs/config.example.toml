@@ -10,13 +10,17 @@ follow_playback = true   # the cursor and view move with the playhead (red bar) 
 hide_cursor_while_following = true   # …and only the red bar shows then (the edit cursor hides)
 completion_ignore_case = true   # Tab completion on the command line ignores letter case
 completion_fuzzy = true         # …and matches the typed letters in order anywhere ("sd" → sync-detect)
-global_waveform = false  # waveform bar across the window bottom for the focused file (replaces the
+global_waveform = false  # start with an audio (waveform) pane docked at the bottom (replaces the
                          # per-pane strips; :waveform then toggles it)
-tracks_panel = false     # the tracks panel (mixer and bar overview) at the window bottom
+tracks_panel = false     # start with the tracks pane (mixer and bar overview) docked at the bottom
 toolbar = true           # the toolbar of common commands at the top of the window (:toolbar, <leader>B)
-fretboard = false        # a fretboard panel with the notes at the cursor or playhead (<leader>F)
+fretboard = false        # start with a fretboard pane: the notes at the cursor or playhead (<leader>F)
 piano = false            # piano keys likewise (<leader>K)
-tracks_peek = 1.0        # seconds the hidden tracks panel shows when the track changes (0: never)
+global_tools = ["tracks", "audio", "fretboard", "piano", "tuner"]   # tool panes docked along the
+                         # bottom of the window at full width (showing the last active score);
+                         # others open under their score pane and always show it
+tracks_peek = 1.0        # seconds the tracks show when the track changes, while no tracks pane is
+                         # shown (0: never)
 
 [tabline]
 new_view = "copy"        # a new view starts with: "copy" (this view's buffers), "current", "empty"
@@ -78,12 +82,24 @@ separators = "arrow"     # terminal: between sections, as lualine: "arrow", "rou
 speed = 1.0              # playback speed multiplier
 tuner_a4 = 440.0         # the tuner's reference pitch for A4 (Hz)
 
+[score]
+clef = "treble"          # clef of a standard staff added without one: treble, bass or grand
+
 # Bindings map key notation to a command, or a list of commands run in order.
 # Use "nop" to remove a default binding. Commands are listed in docs/keymap.md.
 [keymap.normal]
 # "<C-n>" = "track-next"
 # "<leader>p" = "play-toggle"
 # "gb" = ["goto-first", "play"]
+
+[keymap.insert]
+# Insert-mode keys on every staff, e.g. durations.
+# "<A-8>" = "duration 128"
+
+# Insert-mode keys for the notation under the cursor, looked up before [keymap.insert]:
+# [keymap.insert-tab], [keymap.insert-standard], [keymap.insert-slash], [keymap.insert-chant].
+[keymap.insert-standard]
+# "%" = "accidental flat"
 
 [keymap.tracks]
 # Keys while the tracks panel has the focus (<C-w>t).

@@ -101,6 +101,8 @@ fn drum_display(key: u8) -> (&'static str, i32) {
 
 /// Encodes a score as uncompressed MusicXML 4.0.
 pub fn write_musicxml(score: &Score) -> Result<Vec<u8>> {
+    // A grand staff is written as one part with two staves.
+    let score = &score.split_grand();
     let mut x = String::with_capacity(1 << 16);
     x.push_str("<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n");
     x.push_str("<!DOCTYPE score-partwise PUBLIC \"-//Recordare//DTD MusicXML 4.0 Partwise//EN\" \"http://www.musicxml.org/dtds/partwise.dtd\">\n");
@@ -1041,6 +1043,7 @@ pub fn read_musicxml(bytes: &[u8]) -> Result<Score> {
     if score.tracks.is_empty() {
         return Err(err("no parts"));
     }
+    score.merge_staves();
     Ok(score)
 }
 
@@ -1146,6 +1149,7 @@ fn read_part(score: &mut Score, part: Node, index: usize, info: PartInfo) {
                             mb.marker = Some(Marker {
                                 title,
                                 color: Color::default(),
+                                letter: String::new(),
                             });
                         }
                         if let Some(w) = child(dt, "words") {

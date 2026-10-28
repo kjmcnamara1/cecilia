@@ -335,6 +335,8 @@ impl Widget for TabView<'_> {
                                 beat: i,
                                 string: s,
                                 voice: 0,
+                                staff: Cursor::HOME,
+                                line: 0,
                             },
                         });
                         if selected {

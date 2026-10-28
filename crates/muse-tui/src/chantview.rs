@@ -292,6 +292,8 @@ impl Widget for ChantView<'_> {
                                             beat: *b,
                                             string: 0,
                                             voice: 0,
+                                            staff: Cursor::HOME,
+                                            line: 0,
                                         },
                                     });
                                     buf.set_string(

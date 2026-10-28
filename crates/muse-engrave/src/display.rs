@@ -89,6 +89,8 @@ pub struct Hit {
     pub beat: BeatRef,
     /// String (tab line) under this rect, for tablature hits.
     pub string: Option<u8>,
+    /// Which of the track's staves the rect belongs to.
+    pub staff: usize,
 }
 
 /// One page (or the single canvas of a continuous layout).

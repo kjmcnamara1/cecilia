@@ -6,7 +6,7 @@ use std::path::{Path, PathBuf};
 
 use muse_core::*;
 
-use crate::command::Command;
+use crate::command::{Command, Strip};
 use crate::{App, Effect};
 
 #[derive(Debug, Clone)]
@@ -24,6 +24,9 @@ pub struct PlayAlong {
     pub trainer: Option<(f64, f64)>,
     /// Played-bar index the next sync tap assigns, while tapping.
     pub sync_next: Option<usize>,
+    /// The audio track is muted / soloed (a track at most one of the two).
+    pub audio_mute: bool,
+    pub audio_solo: bool,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -44,6 +47,8 @@ impl Default for PlayAlong {
             loop_bars: None,
             trainer: None,
             sync_next: None,
+            audio_mute: false,
+            audio_solo: false,
         }
     }
 }
@@ -84,9 +89,21 @@ impl PlayAlong {
         s
     }
 
-    /// Levels sent to the player, after the mix mode.
-    pub fn levels(&self, has_audio: bool) -> muse_audio::Mix {
+    /// Levels sent to the player, after the mix mode and the audio track's mute and solo: a
+    /// solo anywhere silences what is not soloed (the synth tracks' own solos are applied by
+    /// the sequence).
+    pub fn levels(&self, score: &Score) -> muse_audio::Mix {
+        let has_audio = score.audio.is_some();
         let mut m = self.mix;
+        if has_audio {
+            let synth_solo = score.tracks.iter().any(|t| t.solo);
+            if self.audio_mute || (synth_solo && !self.audio_solo) {
+                m.audio = 0.0;
+            }
+            if self.audio_solo && !synth_solo {
+                m.midi = 0.0;
+            }
+        }
         match self.mode {
             MixMode::Audio if has_audio => m.midi = 0.0,
             MixMode::Midi => m.audio = 0.0,
@@ -332,12 +349,7 @@ impl App {
                 });
             }
             WaveformGlobal(on) => {
-                self.global_waveform = on.unwrap_or(!self.global_waveform);
-                self.info(if self.global_waveform {
-                    "window waveform bar on"
-                } else {
-                    "window waveform bar off"
-                });
+                self.set_tool(crate::app::PaneKind::Audio, *on);
             }
             Volume(src, pct) => {
                 let v = (*pct as f32 / 100.0).clamp(0.0, 1.5);
@@ -345,29 +357,74 @@ impl App {
                     "midi" => self.pa.mix.midi = v,
                     "audio" => self.pa.mix.audio = v,
                     "metronome" | "click" => self.pa.mix.metronome = v,
+                    "master" => self.pa.mix.master = v,
                     other => {
                         self.error(format!(
-                            "volume: unknown source '{other}' (midi, audio, metronome)"
+                            "volume: unknown source '{other}' (midi, audio, metronome, master)"
                         ));
                         return true;
                     }
                 }
                 self.effects.push(Effect::PlaybackSettings);
             }
-            Mute(n) | Solo(n) => {
+            Mute(target) | Solo(target) => {
+                // A row is soloed, muted or neither: turning one on turns the other off.
                 let solo = matches!(cmd, Solo(_));
-                let t = n
-                    .map(|n| n.saturating_sub(1))
-                    .unwrap_or(self.pane().cursor.track);
-                self.edit(|cx| {
-                    let track = cx.whole().tracks.get_mut(t).ok_or("no such track")?;
-                    if solo {
-                        track.solo = !track.solo;
-                    } else {
-                        track.mute = !track.mute;
+                // In the tracks panel, the selected row; else the cursor's track.
+                let target = target
+                    .or_else(|| self.selected_strip())
+                    .unwrap_or(Strip::Track(self.pane().cursor.track));
+                match target {
+                    Strip::Audio => {
+                        if self.buffer().score.audio.is_none() {
+                            self.error("no audio track (attach one with :audio)");
+                            return true;
+                        }
+                        let pa = &mut self.pa;
+                        if solo {
+                            pa.audio_solo = !pa.audio_solo;
+                            pa.audio_mute &= !pa.audio_solo;
+                        } else {
+                            pa.audio_mute = !pa.audio_mute;
+                            pa.audio_solo &= !pa.audio_mute;
+                        }
                     }
-                    Ok(())
-                });
+                    Strip::Track(t) => {
+                        self.edit(|cx| {
+                            let track = cx.whole().tracks.get_mut(t).ok_or("no such track")?;
+                            if solo {
+                                track.solo = !track.solo;
+                                track.mute &= !track.solo;
+                            } else {
+                                track.mute = !track.mute;
+                                track.solo &= !track.mute;
+                            }
+                            Ok(())
+                        });
+                    }
+                    // The master: mute all synth tracks unless all are muted (then unmute
+                    // them); solo all unless any is soloed (then clear the solos).
+                    Strip::Master => {
+                        self.edit(|cx| {
+                            let tracks = &mut cx.whole().tracks;
+                            if solo {
+                                let on = !tracks.iter().any(|t| t.solo);
+                                for t in tracks.iter_mut() {
+                                    t.solo = on;
+                                    t.mute &= !on;
+                                }
+                            } else {
+                                let on = !tracks.iter().all(|t| t.mute);
+                                for t in tracks.iter_mut() {
+                                    t.mute = on;
+                                    t.solo &= !on;
+                                }
+                            }
+                            Ok(())
+                        });
+                    }
+                }
+                self.effects.push(Effect::PlaybackSettings);
             }
             _ => return false,
         }

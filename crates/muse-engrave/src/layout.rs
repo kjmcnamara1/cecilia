@@ -2,7 +2,7 @@
 
 use std::collections::HashMap;
 
-use kurbo::{BezPath, Point, Rect};
+use kurbo::{BezPath, Point, Rect, Shape as _};
 use muse_core::*;
 
 use crate::display::{Align, BeatRef, Color, FontKind, Hit, Item, Page};
@@ -57,8 +57,65 @@ pub struct BeatPos {
     pub width: f64,
     pub top: f64,
     pub bottom: f64,
-    /// Y of each tab line (model string order), empty without tablature.
-    pub strings: Vec<f64>,
+    /// Where the beat lies on each of the track's staves, for a cursor on any of them.
+    pub staves: Vec<StaffPos>,
+}
+
+/// A beat's place on one staff of its track.
+#[derive(Debug, Clone, PartialEq)]
+pub enum StaffPos {
+    /// Lines and spaces: positions are diatonic numbers on a standard or slash staff and GABC
+    /// positions on chant, at `y0 - position * step`. A grand staff gives one per half, each
+    /// for the positions in `range`.
+    Lines {
+        staff: usize,
+        y0: f64,
+        step: f64,
+        range: (i32, i32),
+    },
+    /// A tablature: the y of each string (model string order).
+    Strings { staff: usize, ys: Vec<f64> },
+}
+
+impl BeatPos {
+    /// Y of each string of the given staff, if it is a tab.
+    pub fn strings(&self, staff: usize) -> Option<&[f64]> {
+        self.staves.iter().find_map(|p| match p {
+            StaffPos::Strings { staff: s, ys } if *s == staff => Some(ys.as_slice()),
+            _ => None,
+        })
+    }
+
+    /// Y of a position on the given staff (the half of a grand staff that shows it).
+    pub fn line_y(&self, staff: usize, position: i32) -> Option<(f64, f64)> {
+        self.staves.iter().find_map(|p| match p {
+            StaffPos::Lines {
+                staff: s,
+                y0,
+                step,
+                range,
+            } if *s == staff && (range.0..=range.1).contains(&position) => {
+                Some((y0 - position as f64 * step, *step))
+            }
+            _ => None,
+        })
+    }
+
+    /// The staff position under a y on the given staff.
+    pub fn position_at(&self, staff: usize, y: f64) -> Option<i32> {
+        self.staves.iter().find_map(|p| match p {
+            StaffPos::Lines {
+                staff: s,
+                y0,
+                step,
+                range,
+            } if *s == staff => {
+                let pos = ((y0 - y) / step).round() as i32;
+                (range.0..=range.1).contains(&pos).then_some(pos)
+            }
+            _ => None,
+        })
+    }
 }
 
 #[derive(Debug, Clone, Default)]
@@ -87,6 +144,14 @@ const DOT: char = '\u{E1E7}';
 const METRONOME_QUARTER: char = '\u{E1D5}';
 const BRACE: char = '\u{E000}';
 const OPEN: char = '\u{E5E7}';
+const VIBRATO: char = '\u{EAB3}';
+const TIME_PAREN_LEFT: char = '\u{E094}';
+const TIME_PAREN_RIGHT: char = '\u{E095}';
+const SLASH_BLACK: char = '\u{E101}';
+const SLASH_HALF: char = '\u{E103}';
+const SLASH_WHOLE: char = '\u{E102}';
+const PAREN_LEFT: char = '\u{E0F5}';
+const PAREN_RIGHT: char = '\u{E0F6}';
 
 fn time_digit(d: u32) -> char {
     char::from_u32(0xE080 + d).unwrap_or('0')
@@ -120,6 +185,15 @@ enum Clef {
 }
 
 impl Clef {
+    fn from_staff(c: StaffClef) -> Clef {
+        match c {
+            StaffClef::Bass => Clef::Bass,
+            StaffClef::Treble => Clef::Treble,
+            StaffClef::Bass8vb => Clef::Bass8vb,
+            StaffClef::Treble8vb => Clef::Treble8vb,
+        }
+    }
+
     fn for_track(t: &Track) -> Clef {
         match t.kind {
             TrackKind::Drums => Clef::Percussion,
@@ -167,61 +241,8 @@ impl Clef {
     }
 }
 
-/// Step (0 = C) and alteration of a pitch, spelled for a key.
-fn spell(midi: i32, key: i8) -> (i32, i32, i32) {
-    const SHARPS: [(i32, i32); 12] = [
-        (0, 0),
-        (0, 1),
-        (1, 0),
-        (1, 1),
-        (2, 0),
-        (3, 0),
-        (3, 1),
-        (4, 0),
-        (4, 1),
-        (5, 0),
-        (5, 1),
-        (6, 0),
-    ];
-    const FLATS: [(i32, i32); 12] = [
-        (0, 0),
-        (1, -1),
-        (1, 0),
-        (2, -1),
-        (2, 0),
-        (3, 0),
-        (4, -1),
-        (4, 0),
-        (5, -1),
-        (5, 0),
-        (6, -1),
-        (6, 0),
-    ];
-    let pc = midi.rem_euclid(12) as usize;
-    let octave = midi.div_euclid(12) - 1;
-    // Flat keys use flats; in C, B♭ is far commoner than A♯.
-    let (step, alter) = if key < 0 || (key == 0 && pc == 10) {
-        FLATS[pc]
-    } else {
-        SHARPS[pc]
-    };
-    (step, alter, octave)
-}
-
-/// Alteration each step letter gets from a key signature.
-fn key_alters(key: i8) -> [i32; 7] {
-    let mut out = [0; 7];
-    const SHARP_ORDER: [usize; 7] = [3, 0, 4, 1, 5, 2, 6];
-    const FLAT_ORDER: [usize; 7] = [6, 2, 5, 1, 4, 0, 3];
-    for i in 0..key.unsigned_abs().min(7) as usize {
-        if key > 0 {
-            out[SHARP_ORDER[i]] = 1;
-        } else {
-            out[FLAT_ORDER[i]] = -1;
-        }
-    }
-    out
-}
+use muse_core::chant::{ChantClef, ClefKind};
+use muse_core::staff::{key_alters, spell};
 
 fn drum_position(key: u8) -> (i32, bool) {
     // (staff position on the percussion staff, x notehead)
@@ -266,11 +287,88 @@ struct Ctx<'a> {
     sp: f64,
     standard: bool,
     tab: bool,
+    /// Rhythm stems below the tab.
+    rhythm: bool,
+    /// The standard staff shows rhythm slashes instead of pitches.
+    slash: bool,
+    /// A four-line chant staff: its clef and the octave shift (semitones) of the notes on it.
+    chant: Option<(ChantClef, i32)>,
+    /// Index of this staff among the track's staves.
+    staff_index: usize,
+    /// The half of a grand staff this is: split pitch, treble half.
+    half: Option<(u8, bool)>,
+    /// The bottom staff of the track: dynamics and hairpins go under it.
+    last_staff: bool,
+    /// Vibrato marks are drawn over this staff.
+    vibrato: bool,
+    /// A brace joins this staff to the next (a grand staff).
+    brace_next: bool,
+    /// Some staff of the track shows key signatures.
+    keyed: bool,
+    /// Beats left out of this staff (the other half's notes on a grand staff).
+    hidden: HiddenBeats,
     lyrics: usize,
     nh_width: f64,
     /// Syllables drawn so far, for hyphens: (page, verse y, left, right, continues).
     syllables: std::cell::RefCell<Vec<Syllable>>,
+    /// Whether the track has dynamics or hairpins to show below the staves.
+    dynamics: bool,
+    /// Beats under a hairpin, drawn once the layout is done.
+    wedges: std::cell::RefCell<Vec<Wedge>>,
+    /// Extra room above the tab in the system being drawn, to clear the standard staff.
+    extra: std::cell::Cell<f64>,
+    /// Lowest point reached by the standard notation drawn so far.
+    low: std::cell::Cell<f64>,
+    /// Stems drawn in the current voice: x, end and whether up, for tuplet brackets.
+    stems: std::cell::RefCell<Vec<(f64, f64, bool)>>,
 }
+
+/// A beat under a hairpin: its kind, (bar, beat) in the first voice, page, system, the beat's
+/// left and right x, and the hairpin's centre line.
+type Wedge = (Hairpin, (usize, usize), usize, usize, f64, f64, f64);
+
+/// Two consecutive notes on one string: positions (bar, voice, beat), frets, and whether
+/// they are tied, slurred (hammer, pull or legato slide) and joined by a slide line.
+#[derive(Clone)]
+struct Link {
+    string: u8,
+    from: (usize, usize, usize),
+    to: (usize, usize, usize),
+    frets: (u8, u8),
+    tie: bool,
+    legato: bool,
+    slide: bool,
+}
+
+/// A filled slur from p0 to p1 whose middle reaches the height `peak`, `thick` at its middle.
+fn slur(page: &mut Page, p0: (f64, f64), p1: (f64, f64), peak: f64, thick: f64) {
+    let (x0, x1) = (p0.0, p1.0);
+    // The middle of a cubic with both controls at height cy lies at (y0 + 6 cy + y1) / 8.
+    let control = |peak: f64| (8.0 * peak - p0.1 - p1.1) / 6.0;
+    let inner = peak
+        + if peak < (p0.1 + p1.1) / 2.0 {
+            thick
+        } else {
+            -thick
+        };
+    let (q0, q1) = (x0 + (x1 - x0) * 0.25, x0 + (x1 - x0) * 0.75);
+    let mut p = BezPath::new();
+    p.move_to(p0);
+    p.curve_to((q0, control(peak)), (q1, control(peak)), p1);
+    p.curve_to((q1, control(inner)), (q0, control(inner)), p0);
+    page.items.push(Item::Path {
+        path: p,
+        color: Color::BLACK,
+        stroke: None,
+    });
+}
+
+/// A beat on a tab+ staff waiting for its beam: start tick, stem x, value and dots.
+type RhythmBeat = (usize, f64, DurationValue, u8);
+
+/// A note in a tuplet: its left and right x, and the heights of its noteheads with its stem
+/// direction (none for a rest).
+type TupletNote = (f64, f64, Option<(Vec<f64>, bool)>);
 
 /// A drawn lyric syllable: page, baseline y, left and right x, and whether a hyphen follows.
 type Syllable = (usize, f64, f64, f64, bool);
@@ -284,28 +382,185 @@ struct Placed {
     y: f64,
     tab_y: Option<f64>,
     above: bool,
+    /// Tops of the standard and tab staves of the note's system.
+    std_top: f64,
+    tab_top: f64,
+    /// Width of the fret label on the tab staff.
+    tab_w: f64,
+}
+
+/// How one staff of a track is drawn.
+struct StaffSpec {
+    /// Index among the track's staves.
+    index: usize,
+    standard: bool,
+    tab: bool,
+    /// Rhythm stems below the tab.
+    rhythm: bool,
+    slash: bool,
+    /// Square notation on a four-line staff.
+    chant: bool,
+    clef: Option<StaffClef>,
+    /// The half of a grand staff: its split pitch and whether it is the treble half.
+    half: Option<(u8, bool)>,
 }
 
 pub fn engrave(score: &Score, track_index: usize, options: &Options) -> Layout {
     let Some(track) = score.tracks.get(track_index) else {
         return Layout::default();
     };
+    let staves = track.staves();
     if let Some(chant) = track.chant.as_deref().filter(|_| options.chant) {
-        return crate::chant::engrave_chant(score, track_index, track, chant, options);
+        if staves == [Staff::Chant] {
+            return crate::chant::engrave_chant(score, track_index, track, chant, options);
+        }
     }
-    // All staves of the part, drum tracks split into hands and feet.
-    let part = score.part_tracks(track_index);
-    let display: Vec<std::borrow::Cow<Track>> = part
-        .clone()
-        .map(|t| display_track(&score.tracks[t]))
+    // Drum tracks split into hands and feet.
+    let shown = display_track(track);
+    let fretted = track.kind == TrackKind::Fretted && !track.strings.is_empty();
+    let mut specs: Vec<StaffSpec> = Vec::new();
+    for (index, staff) in staves.iter().enumerate() {
+        let spec = |standard, tab, rhythm, slash, clef, half| StaffSpec {
+            index,
+            standard,
+            tab,
+            rhythm,
+            slash,
+            chant: false,
+            clef,
+            half,
+        };
+        match *staff {
+            Staff::Standard(muse_core::Clef::Grand { split }) if track.kind != TrackKind::Drums => {
+                let clef = muse_core::Clef::Grand { split };
+                specs.push(spec(
+                    true,
+                    false,
+                    false,
+                    false,
+                    Some(track.written_clef(clef, false)),
+                    Some((split, true)),
+                ));
+                specs.push(spec(
+                    true,
+                    false,
+                    false,
+                    false,
+                    Some(track.written_clef(clef, true)),
+                    Some((split, false)),
+                ));
+            }
+            Staff::Tab | Staff::TabRhythm if fretted => specs.push(spec(
+                false,
+                true,
+                *staff == Staff::TabRhythm,
+                false,
+                None,
+                None,
+            )),
+            Staff::Slash => specs.push(spec(
+                true,
+                false,
+                false,
+                true,
+                Some(track.written_clef(muse_core::Clef::Treble, false)),
+                None,
+            )),
+            Staff::Standard(clef) => specs.push(spec(
+                true,
+                false,
+                false,
+                false,
+                Some(track.written_clef(clef, false)),
+                None,
+            )),
+            Staff::Chant => specs.push(StaffSpec {
+                chant: true,
+                ..spec(true, false, false, false, None, None)
+            }),
+            // Tab without strings shows standard notation.
+            _ => specs.push(spec(true, false, false, false, None, None)),
+        }
+    }
+    if !options.tab && specs.iter().any(|s| s.standard) {
+        specs.retain(|s| !s.tab);
+    }
+    if !options.standard && specs.iter().any(|s| s.tab) {
+        specs.retain(|s| !s.standard);
+    }
+    // The halves of grand staves, with only their notes.
+    let halves: Vec<Option<(Track, HiddenBeats)>> = specs
+        .iter()
+        .map(|s| s.half.map(|(split, high)| grand_half(&shown, split, high)))
         .collect();
-    let refs: Vec<&Track> = display.iter().map(|t| t.as_ref()).collect();
-    let ctxs: Vec<Ctx> = part
-        .zip(&refs)
+    let tracks: Vec<&Track> = halves
+        .iter()
+        .map(|h| h.as_ref().map_or(shown.as_ref(), |(t, _)| t))
+        .collect();
+    let keyed = specs
+        .iter()
+        .any(|s| s.standard && !s.slash && !s.chant && track.kind != TrackKind::Drums);
+    // Vibrato marks go over the tab if there is one, else over the top staff.
+    let vibrato = specs.iter().position(|s| s.tab).unwrap_or(0);
+    let n = specs.len();
+    let ctxs: Vec<Ctx> = specs
+        .iter()
         .enumerate()
-        .map(|(k, (ti, t))| make_ctx(score, t, ti, options, refs.clone(), k == 0))
+        .map(|(k, spec)| {
+            let mut c = make_ctx(
+                score,
+                tracks[k],
+                track_index,
+                options,
+                tracks.clone(),
+                spec,
+                k == 0,
+            );
+            c.last_staff = k + 1 == n;
+            c.keyed = keyed;
+            c.vibrato = k == vibrato;
+            c.brace_next = spec.half == Some((spec.half.map_or(0, |h| h.0), true));
+            if let Some((_, hidden)) = &halves[k] {
+                c.hidden = hidden.clone();
+            }
+            c
+        })
         .collect();
     run_part(&ctxs)
+}
+
+/// Beats a staff leaves out: (bar, voice, beat).
+type HiddenBeats = std::collections::HashSet<(usize, usize, usize)>;
+
+/// One half of a grand staff: the notes from `split` up (treble) or below it (bass). Beats
+/// whose notes are all on the other half are hidden, and a rest shows on the half where its
+/// voice has most notes in the bar.
+fn grand_half(track: &Track, split: u8, high: bool) -> (Track, HiddenBeats) {
+    let mut half = track.clone();
+    let mut hidden = HiddenBeats::new();
+    let side = |n: &Note| track.pitch_of(n) >= split;
+    for (bi, bar) in half.bars.iter_mut().enumerate() {
+        for (vi, voice) in bar.voices.iter_mut().enumerate() {
+            let notes = voice.beats.iter().flat_map(|b| &b.notes);
+            let (up, down) = notes.fold(
+                (0, 0),
+                |(u, d), n| if side(n) { (u + 1, d) } else { (u, d + 1) },
+            );
+            // Rests belong with the voice: the first voice above when it has no notes.
+            let home = if up == down { vi == 0 } else { up > down };
+            for (i, beat) in voice.beats.iter_mut().enumerate() {
+                if beat.empty {
+                    continue;
+                }
+                let had = !beat.notes.is_empty();
+                beat.notes.retain(|n| side(n) == high);
+                if (had && beat.notes.is_empty()) || (!had && home != high) {
+                    hidden.insert((bi, vi, i));
+                }
+            }
+        }
+    }
+    (half, hidden)
 }
 
 fn make_ctx<'a>(
@@ -314,20 +569,25 @@ fn make_ctx<'a>(
     track_index: usize,
     options: &Options,
     part: Vec<&'a Track>,
+    spec: &StaffSpec,
     first_staff: bool,
 ) -> Ctx<'a> {
     let sp = options.sp;
-    let standard = options.standard || !matches!(track.kind, TrackKind::Fretted);
-    let tab = options.tab && track.kind == TrackKind::Fretted && !track.strings.is_empty();
-    let lyrics = track
-        .bars
-        .iter()
-        .flat_map(|b| &b.voices)
-        .flat_map(|v| &v.beats)
-        .map(|b| b.lyrics.len())
-        .max()
-        .unwrap_or(0);
-    let nh_width = fonts().bbox(FontKind::Music, HEAD_BLACK, 4.0 * sp).width();
+    // Lyrics are written under the top staff only.
+    let lyrics = if first_staff {
+        track
+            .bars
+            .iter()
+            .flat_map(|b| &b.voices)
+            .flat_map(|v| &v.beats)
+            .map(|b| b.lyrics.len())
+            .max()
+            .unwrap_or(0)
+    } else {
+        0
+    };
+    let head = if spec.slash { SLASH_BLACK } else { HEAD_BLACK };
+    let nh_width = fonts().bbox(FontKind::Music, head, 4.0 * sp).width();
     Ctx {
         score,
         track,
@@ -335,13 +595,49 @@ fn make_ctx<'a>(
         part,
         first_staff,
         o: *options,
-        clef: Clef::for_track(track),
+        clef: match spec.clef {
+            Some(c) if track.kind != TrackKind::Drums => Clef::from_staff(c),
+            _ => Clef::for_track(track),
+        },
         sp,
-        standard: standard || !tab,
-        tab,
+        standard: spec.standard,
+        tab: spec.tab,
+        rhythm: spec.rhythm,
+        slash: spec.slash,
+        chant: spec.chant.then(|| {
+            let pitches: Vec<u8> = track
+                .bars
+                .iter()
+                .flat_map(|b| &b.voices)
+                .flat_map(|v| &v.beats)
+                .flat_map(|b| &b.notes)
+                .map(|n| track.pitch_of(n))
+                .collect();
+            ChantClef::fitting(&pitches)
+        }),
+        staff_index: spec.index,
+        half: spec.half,
+        last_staff: true,
+        vibrato: true,
+        brace_next: false,
+        keyed: true,
+        hidden: HiddenBeats::new(),
         lyrics,
         nh_width,
         syllables: Default::default(),
+        dynamics: track
+            .bars
+            .iter()
+            .filter_map(|b| b.voices.first())
+            .flat_map(|v| &v.beats)
+            .any(|b| {
+                b.effects.hairpin.is_some()
+                    || b.notes.iter().any(|n| n.velocity != DEFAULT_VELOCITY)
+            }),
+        wedges: Default::default(),
+        extra: Default::default(),
+        low: std::cell::Cell::new(f64::MIN),
+        stems: Default::default(),
     }
 }
 
@@ -430,7 +726,8 @@ fn run_part(ctxs: &[Ctx]) -> Layout {
     let multi = ctxs.len() > 1;
     // Room for the brace of a multi-staff part.
     let margin = main.o.margin;
-    let left = margin + if multi { 2.2 * sp } else { 0.0 };
+    let braced = ctxs.iter().any(|c| c.brace_next);
+    let left = margin + if braced { 2.2 * sp } else { 0.0 };
     let header_width = ctxs.iter().map(|c| c.header_width()).fold(0.0, f64::max);
     let width = match main.o.mode {
         Mode::Page { width, .. } | Mode::Vertical { width } => width,
@@ -456,8 +753,6 @@ fn run_part(ctxs: &[Ctx]) -> Layout {
         systems.push(current);
     }
 
-    let heights: Vec<f64> = ctxs.iter().map(|c| c.metrics().2).collect();
-    let system_height: f64 = heights.iter().sum();
     let mut layout = Layout {
         pages: Vec::new(),
         beats: HashMap::new(),
@@ -480,6 +775,18 @@ fn run_part(ctxs: &[Ctx]) -> Layout {
         vec![HashMap::new(); ctxs.len()];
     let mut system_ends: Vec<(usize, f64, f64)> = Vec::new();
     for (si, sys) in systems.iter().enumerate() {
+        let natural: f64 = sys.iter().map(|&i| plans[i].natural).sum();
+        let last = si + 1 == systems.len();
+        let stretch = if main.o.mode == Mode::Horizontal || (last && natural < avail * 0.75) {
+            1.0
+        } else {
+            avail / natural
+        };
+        for c in ctxs {
+            c.fit_tab(si, sys, &plans, stretch, left, &layout);
+        }
+        let heights: Vec<f64> = ctxs.iter().map(|c| c.metrics().2).collect();
+        let system_height: f64 = heights.iter().sum();
         if let Mode::Page { height, .. } = main.o.mode {
             if y + system_height > height - margin && y > margin + 1.0 {
                 main.draw_page_number(&mut page, layout.pages.len());
@@ -494,13 +801,6 @@ fn run_part(ctxs: &[Ctx]) -> Layout {
                 y = margin;
             }
         }
-        let natural: f64 = sys.iter().map(|&i| plans[i].natural).sum();
-        let last = si + 1 == systems.len();
-        let stretch = if main.o.mode == Mode::Horizontal || (last && natural < avail * 0.75) {
-            1.0
-        } else {
-            avail / natural
-        };
         let page_index = layout.pages.len();
         let mut x_end = left;
         let mut top = y;
@@ -522,9 +822,13 @@ fn run_part(ctxs: &[Ctx]) -> Layout {
             top += heights[k];
         }
         if multi {
-            // Brace, and lines joining the staves at the start and at every barline.
+            // A line joining the staves at the start of the system.
             let (a, b) = (spans[0].0, spans[spans.len() - 1].1);
             page.line((left, a), (left, b), 0.16 * sp);
+        }
+        // A grand staff: a brace, and barlines through both halves.
+        for k in (0..ctxs.len().saturating_sub(1)).filter(|&k| ctxs[k].brace_next) {
+            let (a, b) = (spans[k].0, spans[k + 1].1);
             for &bi in sys {
                 let end = layout.bars[bi].2;
                 page.line((end, a), (end, b), 0.16 * sp);
@@ -547,11 +851,249 @@ fn run_part(ctxs: &[Ctx]) -> Layout {
     for (k, c) in ctxs.iter().enumerate() {
         c.draw_ties(&mut layout, &placed[k], &system_ends);
         c.draw_hyphens(&mut layout);
+        c.draw_wedges(&mut layout);
     }
     layout
 }
 
 impl Ctx<'_> {
+    /// Moves the tab of a system down far enough to clear the stems, beams and brackets of
+    /// the standard staff above it, found by laying the system out once on a scratch page.
+    #[allow(clippy::too_many_arguments)]
+    fn fit_tab(
+        &self,
+        si: usize,
+        sys: &[usize],
+        plans: &[MeasurePlan],
+        stretch: f64,
+        left: f64,
+        layout: &Layout,
+    ) {
+        self.extra.set(0.0);
+        if !self.standard || self.last_staff {
+            return;
+        }
+        let (syllables, wedges) = (self.syllables.borrow().len(), self.wedges.borrow().len());
+        let mut scratch = Layout {
+            pages: Vec::new(),
+            beats: HashMap::new(),
+            bars: layout.bars.clone(),
+        };
+        self.low.set(f64::MIN);
+        self.draw_system(
+            &mut Page::default(),
+            0,
+            si,
+            sys,
+            plans,
+            0.0,
+            left,
+            stretch,
+            &mut scratch,
+            &mut HashMap::new(),
+        );
+        self.syllables.borrow_mut().truncate(syllables);
+        self.wedges.borrow_mut().truncate(wedges);
+        // The next staff of the track starts 3 spaces below this one's height.
+        let (_, _, height) = self.metrics();
+        self.extra
+            .set((self.low.get() + 2.5 * self.sp - (height + 3.0 * self.sp)).max(0.0));
+    }
+
+    /// Width of a time signature's digits, and of one of the parentheses (with its gap) around
+    /// it on the tallest staff.
+    fn time_widths(&self, ts: TimeSignature) -> (f64, f64) {
+        let sp = self.sp;
+        let width = |n: u32| -> f64 {
+            n.to_string()
+                .chars()
+                .filter_map(|c| c.to_digit(10))
+                .map(|d| fonts().advance(FontKind::Music, time_digit(d), 4.0 * sp))
+                .sum()
+        };
+        let w = width(ts.numerator as u32).max(width(ts.denominator as u32));
+        let height = if self.tab {
+            (self.track.strings.len().max(2) - 1) as f64 * 1.5 * sp
+        } else {
+            4.0 * sp
+        }
+        .max(4.0 * sp);
+        let unit = fonts().bbox(FontKind::Music, TIME_PAREN_LEFT, 4.0 * sp);
+        (w, unit.width() * height / unit.height().max(1.0) + 0.2 * sp)
+    }
+
+    /// An arpeggio (a wavy line) or brush stroke (a straight one) from top to bottom at x,
+    /// with an arrowhead at the end the stroke goes towards.
+    fn draw_stroke(&self, page: &mut Page, st: Stroke, x: f64, top: f64, bottom: f64) {
+        let sp = self.sp;
+        let up = st.direction == StrokeDirection::Up;
+        let head = 0.8 * sp;
+        // The line stops where the arrowhead starts.
+        let (a, b) = if up {
+            (top + head, bottom)
+        } else {
+            (top, bottom - head)
+        };
+        let mut path = BezPath::new();
+        path.move_to((x, b));
+        if st.arpeggio {
+            let step = 0.4 * sp;
+            let mut y = b;
+            let mut side = 1.0;
+            while y - 2.0 * step >= a {
+                path.quad_to((x + side * 0.5 * sp, y - step), (x, y - 2.0 * step));
+                y -= 2.0 * step;
+                side = -side;
+            }
+            path.line_to((x, a));
+        } else {
+            path.line_to((x, a));
+        }
+        page.items.push(Item::Path {
+            path,
+            color: Color::BLACK,
+            stroke: Some(0.12 * sp),
+        });
+        let (tip, base) = if up {
+            (top, top + head)
+        } else {
+            (bottom, bottom - head)
+        };
+        let mut arrow = BezPath::new();
+        arrow.move_to((x, tip));
+        arrow.line_to((x - 0.4 * sp, base));
+        arrow.line_to((x + 0.4 * sp, base));
+        arrow.close_path();
+        page.items.push(Item::Path {
+            path: arrow,
+            color: Color::BLACK,
+            stroke: None,
+        });
+    }
+
+    /// A chant clef (do or fa) on its line of a four-line staff whose bottom line is at
+    /// `bottom`.
+    fn draw_chant_clef(&self, page: &mut Page, x: f64, clef: ChantClef, bottom: f64) {
+        let sp = self.sp;
+        let ly = bottom - (clef.position() - 3) as f64 * sp / 2.0;
+        let mut block =
+            |x0: f64, y0: f64, x1: f64, y1: f64| page.rect(Rect::new(x0, y0, x1, y1), Color::BLACK);
+        block(x, ly - 0.95 * sp, x + 0.22 * sp, ly + 0.95 * sp);
+        block(x, ly - 0.95 * sp, x + 0.75 * sp, ly - 0.2 * sp);
+        block(x, ly + 0.2 * sp, x + 0.75 * sp, ly + 0.95 * sp);
+        if clef.kind == ClefKind::Fa {
+            block(x + 0.95 * sp, ly - 0.75 * sp, x + 1.55 * sp, ly - 0.15 * sp);
+            block(x + 0.95 * sp, ly + 0.15 * sp, x + 1.55 * sp, ly + 0.75 * sp);
+        }
+    }
+
+    /// A beat on a chant staff: a square note per pitch (a diamond for an inclinatum, with a
+    /// stem for a virga), its signs (mora, episema, ictus, a flat or sharp), and the division
+    /// after it.
+    fn draw_chant_beat(
+        &self,
+        page: &mut Page,
+        beat: &Beat,
+        x: f64,
+        bottom: f64,
+        clef: ChantClef,
+        octave: i32,
+    ) {
+        let sp = self.sp;
+        let y_of = |pos: i32| bottom - (pos - 3) as f64 * sp / 2.0;
+        let h = 0.42 * sp;
+        let cx = x + self.nh_width / 2.0;
+        for n in &beat.notes {
+            let (pos, alter) = clef.place(self.track.pitch_of(n), octave);
+            let y = y_of(pos);
+            let marks = n.chant.as_deref().cloned().unwrap_or_default();
+            let has = |m: &str| marks.mods.iter().any(|x| x == m);
+            let small = has("~") || marks.initio_debilis;
+            let h = if small { h * 0.7 } else { h };
+            if marks.inclinatum {
+                let mut d = BezPath::new();
+                d.move_to((cx, y - h));
+                d.line_to((cx + h, y));
+                d.line_to((cx, y + h));
+                d.line_to((cx - h, y));
+                d.close_path();
+                page.items.push(Item::Path {
+                    path: d,
+                    color: Color::BLACK,
+                    stroke: None,
+                });
+            } else {
+                page.rect(Rect::new(cx - h, y - h, cx + h, y + h), Color::BLACK);
+            }
+            if has("v") {
+                page.line(
+                    (cx + h - 0.06 * sp, y),
+                    (cx + h - 0.06 * sp, y + 1.6 * sp),
+                    0.12 * sp,
+                );
+            }
+            if has(".") {
+                page.rect(
+                    Rect::new(
+                        cx + h + 0.25 * sp,
+                        y - 0.12 * sp,
+                        cx + h + 0.49 * sp,
+                        y + 0.12 * sp,
+                    ),
+                    Color::BLACK,
+                );
+            }
+            if has("_") {
+                page.line(
+                    (cx - h, y - h - 0.3 * sp),
+                    (cx + h, y - h - 0.3 * sp),
+                    0.12 * sp,
+                );
+            }
+            if has("'") {
+                page.line((cx, y + h + 0.2 * sp), (cx, y + h + 0.7 * sp), 0.12 * sp);
+            }
+            if alter != 0 {
+                let sign = if alter < 0 { FLAT } else { SHARP };
+                page.glyph(sign, (cx - h - 1.1 * sp, y), 3.0 * sp);
+            }
+        }
+        if let Some(d) = &beat.chant_division {
+            // Divisions after the beat: a short stroke, a half or full one, a double bar.
+            let x = x + self.nh_width + 0.6 * sp;
+            let (top, low) = (y_of(9), y_of(3));
+            match d.as_str() {
+                "," => page.line((x, top - 0.5 * sp), (x, top + 0.5 * sp), 0.1 * sp),
+                ";" => page.line((x, top + 0.5 * sp), (x, low - 0.5 * sp), 0.1 * sp),
+                "::" => {
+                    page.line((x, top), (x, low), 0.1 * sp);
+                    page.line((x + 0.4 * sp, top), (x + 0.4 * sp, low), 0.2 * sp);
+                }
+                _ => page.line((x, top), (x, low), 0.1 * sp),
+            }
+        }
+    }
+
+    /// Staff positions this staff shows: all, or one side of a grand staff's split.
+    fn position_range(&self) -> (i32, i32) {
+        match self.half {
+            Some((split, high)) => {
+                let d = muse_core::staff::diatonic(split as i32 + self.clef.transpose(), 0);
+                if high {
+                    (d, i32::MAX)
+                } else {
+                    (i32::MIN, d - 1)
+                }
+            }
+            None => (i32::MIN, i32::MAX),
+        }
+    }
+
+    /// Notes that standard notation reaches down to y.
+    fn reach(&self, y: f64) {
+        self.low.set(self.low.get().max(y));
+    }
+
     fn staff_y(&self, bottom: f64, p: i32) -> f64 {
         bottom - p as f64 * self.sp / 2.0
     }
@@ -559,26 +1101,28 @@ impl Ctx<'_> {
     /// Vertical metrics of a system relative to its top: (standard top, tab top, height).
     fn metrics(&self) -> (f64, f64, f64) {
         let sp = self.sp;
-        let std_top = if self.first_staff { 10.0 } else { 3.0 } * sp;
-        let std_height = if self.standard { 4.0 * sp } else { 0.0 };
+        // Room above the top staff for markers, tempo and chord names; a further staff of the
+        // track sits closer.
+        let top = if self.first_staff { 10.0 } else { 3.0 } * sp;
         let lyric_space =
             self.lyrics as f64 * 1.8 * sp + if self.lyrics > 0 { 1.5 * sp } else { 0.0 };
-        let tab_top = if self.standard {
-            std_top + std_height + 6.0 * sp + lyric_space
+        let staff = if self.tab {
+            (self.track.strings.len().max(1) - 1) as f64 * 1.5 * sp
+                + if self.rhythm { 6.0 * sp } else { 0.0 }
         } else {
             4.0 * sp
         };
-        let tab_height = if self.tab {
-            (self.track.strings.len().max(1) - 1) as f64 * 1.5 * sp
+        let below = if self.last_staff { 5.0 } else { 3.0 } * sp;
+        let dynamics = if self.dynamics && self.last_staff {
+            2.0 * sp
         } else {
             0.0
         };
-        let bottom = if self.tab {
-            tab_top + tab_height
-        } else {
-            std_top + std_height + lyric_space
-        };
-        (std_top, tab_top, bottom + 5.0 * sp)
+        (
+            top,
+            top,
+            top + staff + lyric_space + below + dynamics + self.extra.get(),
+        )
     }
 
     fn header_width(&self) -> f64 {
@@ -592,8 +1136,10 @@ impl Ctx<'_> {
             )
     }
 
+    /// Room for a key signature: on every staff of a track that shows one anywhere, so the
+    /// staves' columns line up.
     fn key_width(&self, key: i8) -> f64 {
-        if self.standard {
+        if self.keyed {
             key.unsigned_abs() as f64 * 1.0 * self.sp
         } else {
             0.0
@@ -647,8 +1193,15 @@ impl Ctx<'_> {
         if prev.is_some_and(|p| p.key_signature.accidentals != mb.key_signature.accidentals) {
             lead += self.key_width(mb.key_signature.accidentals) + 0.5 * sp;
         }
-        if !mb.free_time && prev.is_none_or(|p| p.time_signature != mb.time_signature) {
-            lead += 2.5 * sp;
+        // Free-time bars still show their time signature (bracketed), as Guitar Pro stores one
+        // for them.
+        if prev.is_none_or(|p| p.time_signature != mb.time_signature) {
+            lead += if mb.free_time {
+                let (w, paren) = self.time_widths(mb.time_signature);
+                w + 2.0 * paren + 1.4 * sp
+            } else {
+                2.5 * sp
+            };
         }
         if mb.repeat_start {
             lead += 1.0 * sp;
@@ -676,10 +1229,143 @@ impl Ctx<'_> {
                 v.beats.iter().any(|b| {
                     let here = t == tick;
                     t += b.ticks();
-                    here && b.notes.iter().any(|n| n.fret >= 10 || n.tie || n.ghost)
+                    here && (b.effects.stroke.is_some()
+                        || b.notes.iter().any(|n| n.fret >= 10 || n.tie || n.ghost))
                 })
             })
         })
+    }
+
+    /// Centre line of dynamics and hairpins: below the bottom staff, clear of the rhythm stems
+    /// under a lone tab staff and of lyrics.
+    /// Baseline of the first verse of lyrics: under the staff (and a tab+ staff's stems).
+    fn lyrics_top(&self, std_bottom: f64, tab_top: f64) -> f64 {
+        let sp = self.sp;
+        if self.tab {
+            let tab_bottom = tab_top + (self.track.strings.len().max(1) - 1) as f64 * 1.5 * sp;
+            tab_bottom + if self.rhythm { 8.0 } else { 3.0 } * sp
+        } else {
+            std_bottom + 5.0 * sp
+        }
+    }
+
+    fn dynamics_y(&self, std_bottom: f64, tab_top: f64) -> f64 {
+        let sp = self.sp;
+        if self.tab {
+            let tab_bottom = tab_top + (self.track.strings.len().max(1) - 1) as f64 * 1.5 * sp;
+            tab_bottom + if self.rhythm { 7.5 } else { 3.0 } * sp
+        } else {
+            let lyrics =
+                self.lyrics as f64 * 1.8 * sp + if self.lyrics > 0 { 1.5 * sp } else { 0.0 };
+            std_bottom + lyrics + 3.0 * sp
+        }
+    }
+
+    /// Velocity of the last beat with notes before (bar, beat) in the first voice.
+    fn previous_velocity(&self, bar: usize, beat: usize) -> Option<u8> {
+        let first_voice = |b: usize| self.track.bars.get(b).and_then(|b| b.voices.first());
+        let earlier = first_voice(bar)
+            .map(|v| &v.beats[..beat.min(v.beats.len())])
+            .into_iter()
+            .chain(
+                (0..bar)
+                    .rev()
+                    .filter_map(|b| first_voice(b).map(|v| &v.beats[..])),
+            );
+        earlier
+            .flat_map(|beats| beats.iter().rev())
+            .find_map(|b| b.notes.first())
+            .map(|n| n.velocity)
+    }
+
+    /// A dynamic marking (p, mf, ff...) centred on x, its letters sitting on the line y.
+    fn draw_dynamic(&self, page: &mut Page, velocity: u8, x: f64, y: f64) {
+        let size = 4.0 * self.sp;
+        let glyphs: Vec<char> = dynamic_name(velocity)
+            .chars()
+            .map(|c| match c {
+                'P' => '\u{E520}',
+                'M' => '\u{E521}',
+                _ => '\u{E522}',
+            })
+            .collect();
+        let w: f64 = glyphs
+            .iter()
+            .map(|&g| fonts().advance(FontKind::Music, g, size))
+            .sum();
+        let mut cx = x - w / 2.0;
+        for g in glyphs {
+            page.glyph(g, (cx, y + 0.5 * self.sp), size);
+            cx += fonts().advance(FontKind::Music, g, size);
+        }
+    }
+
+    /// A vibrato wiggle from x0 towards x1 (whole waves only) along the line y.
+    fn draw_vibrato(&self, page: &mut Page, x0: f64, x1: f64, y: f64) {
+        let size = 3.0 * self.sp;
+        let step = fonts().advance(FontKind::Music, VIBRATO, size);
+        if step <= 0.0 {
+            return;
+        }
+        let mut x = x0;
+        loop {
+            page.glyph(VIBRATO, (x, y), size);
+            x += step;
+            if x + step > x1 {
+                break;
+            }
+        }
+    }
+
+    /// Hairpins over runs of consecutive beats of the same kind, split across systems.
+    fn draw_wedges(&self, layout: &mut Layout) {
+        let sp = self.sp;
+        let wedges = self.wedges.borrow();
+        let beats_in = |bar: usize| {
+            self.track
+                .bars
+                .get(bar)
+                .and_then(|b| b.voices.first())
+                .map_or(0, |v| v.beats.len())
+        };
+        let follows = |a: &Wedge, b: &Wedge| {
+            let ((ab, ai), (bb, bi)) = (a.1, b.1);
+            a.0 == b.0
+                && ((ab == bb && bi == ai + 1)
+                    || (bb == ab + 1 && bi == 0 && ai + 1 == beats_in(ab)))
+        };
+        let mut start = 0;
+        while start < wedges.len() {
+            let mut end = start + 1;
+            while end < wedges.len() && follows(&wedges[end - 1], &wedges[end]) {
+                end += 1;
+            }
+            let run = &wedges[start..end];
+            let n = run.len() as f64;
+            let open = 0.7 * sp;
+            // Half-opening at a fraction of the way through the run.
+            let half = |f: f64| match run[0].0 {
+                Hairpin::Crescendo => open * f,
+                Hairpin::Decrescendo => open * (1.0 - f),
+            };
+            let mut a = 0;
+            while a < run.len() {
+                let mut b = a + 1;
+                while b < run.len() && (run[b].2, run[b].3) == (run[a].2, run[a].3) {
+                    b += 1;
+                }
+                let (f0, f1) = (a as f64 / n, b as f64 / n);
+                let x0 = run[a].4;
+                let x1 = run[b - 1].5 - if b == run.len() { 1.5 * sp } else { 0.0 };
+                let y = run[a].6;
+                if let Some(page) = layout.pages.get_mut(run[a].2) {
+                    page.line((x0, y - half(f0)), (x1, y - half(f1)), 0.12 * sp);
+                    page.line((x0, y + half(f0)), (x1, y + half(f1)), 0.12 * sp);
+                }
+                a = b;
+            }
+            start = end;
+        }
     }
 
     /// Hyphens between the syllables of a word: centred in the gap to the next syllable on the
@@ -710,20 +1396,13 @@ impl Ctx<'_> {
 
     /// Top and bottom y of this staff (standard staff, or tablature) in a system at `top`.
     fn staff_span(&self, top: f64) -> (f64, f64) {
-        let (std_rel, tab_rel, _) = self.metrics();
-        let tab_bottom =
-            top + tab_rel + (self.track.strings.len().max(1) - 1) as f64 * 1.5 * self.sp;
-        let first = if self.standard {
-            top + std_rel
+        let (first, _, _) = self.metrics();
+        let height = if self.tab {
+            (self.track.strings.len().max(1) - 1) as f64 * 1.5 * self.sp
         } else {
-            top + tab_rel
+            4.0 * self.sp
         };
-        let last = if self.tab {
-            tab_bottom
-        } else {
-            top + std_rel + 4.0 * self.sp
-        };
-        (first, last)
+        (top + first, top + first + height)
     }
 
     fn draw_header(&self, page: &mut Page, width: f64, y: f64) -> f64 {
@@ -826,10 +1505,11 @@ impl Ctx<'_> {
         let total: f64 = bars.iter().map(|&i| plans[i].natural * stretch).sum();
         let x1 = x0 + header + total;
 
-        // Staff lines.
+        // Staff lines: four for chant, five otherwise.
         if self.standard {
-            for l in 0..5 {
-                let y = std_top + l as f64 * sp;
+            let lines = if self.chant.is_some() { 4 } else { 5 };
+            for l in 0..lines {
+                let y = std_bottom - l as f64 * sp;
                 page.line((x0, y), (x1, y), 0.13 * sp);
             }
         }
@@ -848,7 +1528,11 @@ impl Ctx<'_> {
         let last_bottom = if self.tab { tab_bottom } else { std_bottom };
         page.line((x0, first_top), (x0, last_bottom), 0.16 * sp);
         let first_bar = bars[0];
-        if self.standard {
+        if let Some((clef, _)) = self.chant {
+            self.draw_chant_clef(page, x0 + 0.8 * sp, clef, std_bottom);
+        }
+        // A slash staff has neither clef nor key: it shows rhythm only.
+        if self.standard && !self.slash && self.chant.is_none() {
             let (g, p) = self.clef.glyph();
             page.glyph(g, (x0 + 0.8 * sp, self.staff_y(std_bottom, p)), 4.0 * sp);
             let key = self.score.master_bars[first_bar].key_signature.accidentals;
@@ -1004,19 +1688,58 @@ impl Ctx<'_> {
         if self.first_staff {
             let mut above = top - 7.5 * sp;
             if let Some(m) = &mb.marker {
-                if !m.title.trim().is_empty() {
-                    let label = m.title.trim().to_string();
-                    let w = fonts().text_width(FontKind::Bold, &label, 2.2 * sp);
-                    page.items.push(Item::Rect {
-                        rect: Rect::new(
+                let (letter, title) = (m.letter.trim(), m.title.trim());
+                if !letter.is_empty() || !title.is_empty() {
+                    // The section letter in a box, then the title on a grey ground.
+                    let mut tx = x;
+                    if !letter.is_empty() {
+                        let lw = fonts().text_width(FontKind::Bold, letter, 2.2 * sp);
+                        let side = (lw + 0.8 * sp).max(2.6 * sp);
+                        let r = Rect::new(
                             x - 0.3 * sp,
                             above - 2.0 * sp,
-                            x + w + 0.3 * sp,
-                            above + 0.5 * sp,
-                        ),
-                        color: Color::rgb(235, 235, 235),
-                    });
-                    page.text(FontKind::Bold, label, (x, above), 2.2 * sp, Align::Left);
+                            x - 0.3 * sp + side,
+                            above + 0.6 * sp,
+                        );
+                        let mut b = BezPath::new();
+                        b.move_to((r.x0, r.y0));
+                        b.line_to((r.x1, r.y0));
+                        b.line_to((r.x1, r.y1));
+                        b.line_to((r.x0, r.y1));
+                        b.close_path();
+                        page.items.push(Item::Path {
+                            path: b,
+                            color: Color::BLACK,
+                            stroke: Some(0.15 * sp),
+                        });
+                        page.text(
+                            FontKind::Bold,
+                            letter.to_string(),
+                            ((r.x0 + r.x1) / 2.0, above),
+                            2.2 * sp,
+                            Align::Center,
+                        );
+                        tx = r.x1 + 0.8 * sp;
+                    }
+                    if !title.is_empty() {
+                        let w = fonts().text_width(FontKind::Bold, title, 2.2 * sp);
+                        page.items.push(Item::Rect {
+                            rect: Rect::new(
+                                tx - 0.3 * sp,
+                                above - 2.0 * sp,
+                                tx + w + 0.3 * sp,
+                                above + 0.5 * sp,
+                            ),
+                            color: Color::rgb(235, 235, 235),
+                        });
+                        page.text(
+                            FontKind::Bold,
+                            title.to_string(),
+                            (tx, above),
+                            2.2 * sp,
+                            Align::Left,
+                        );
+                    }
                     above -= 3.0 * sp;
                 }
             }
@@ -1052,15 +1775,48 @@ impl Ctx<'_> {
         // Key and time signature changes.
         let mut lead_x = x + 0.6 * sp;
         if self.standard
+            && !self.slash
+            && self.chant.is_none()
             && prev.is_some_and(|p| p.key_signature.accidentals != mb.key_signature.accidentals)
         {
             self.draw_key(page, mb.key_signature.accidentals, lead_x, std_bottom);
             lead_x += self.key_width(mb.key_signature.accidentals) + 0.5 * sp;
         }
-        if !mb.free_time && prev.is_none_or(|p| p.time_signature != mb.time_signature) {
+        // Free-time bars still show their time signature, in parentheses (chant has none).
+        if self.chant.is_none() && prev.is_none_or(|p| p.time_signature != mb.time_signature) {
             let ts = mb.time_signature;
+            let (w, paren) = self.time_widths(ts);
+            let centre = lead_x
+                + if mb.free_time {
+                    0.4 * sp + paren + w / 2.0
+                } else {
+                    1.0 * sp
+                };
             for &(a, b) in &staves {
                 let mid = (a + b) / 2.0;
+                if mb.free_time {
+                    // Parentheses as tall as the staff.
+                    let unit = fonts().bbox(FontKind::Music, TIME_PAREN_LEFT, 4.0 * sp);
+                    let size = 4.0 * sp * (b - a) / unit.height().max(1.0);
+                    let l = fonts().bbox(FontKind::Music, TIME_PAREN_LEFT, size);
+                    let r = fonts().bbox(FontKind::Music, TIME_PAREN_RIGHT, size);
+                    page.glyph(
+                        TIME_PAREN_LEFT,
+                        (
+                            centre - w / 2.0 - 0.2 * sp - l.x1,
+                            mid - (l.y0 + l.y1) / 2.0,
+                        ),
+                        size,
+                    );
+                    page.glyph(
+                        TIME_PAREN_RIGHT,
+                        (
+                            centre + w / 2.0 + 0.2 * sp - r.x0,
+                            mid - (r.y0 + r.y1) / 2.0,
+                        ),
+                        size,
+                    );
+                }
                 let draw = |page: &mut Page, n: u32, y: f64| {
                     let s = n.to_string();
                     let digits: Vec<u32> = s.chars().filter_map(|c| c.to_digit(10)).collect();
@@ -1068,7 +1824,7 @@ impl Ctx<'_> {
                         .iter()
                         .map(|d| fonts().advance(FontKind::Music, time_digit(*d), 4.0 * sp))
                         .sum();
-                    let mut cx = lead_x + 1.0 * sp - w / 2.0;
+                    let mut cx = centre - w / 2.0;
                     for d in digits {
                         page.glyph(time_digit(d), (cx, y), 4.0 * sp);
                         cx += fonts().advance(FontKind::Music, time_digit(d), 4.0 * sp);
@@ -1097,17 +1853,35 @@ impl Ctx<'_> {
             .count();
         let key_alter = key_alters(mb.key_signature.accidentals);
         let mut alters: HashMap<i32, i32> = HashMap::new();
+        let mut shown = false;
         for (vi, voice) in bar.voices.iter().enumerate() {
             let mut t = 0;
             let mut beamable: Vec<(usize, f64, Vec<f64>, DurationValue, u32)> = Vec::new();
+            // Beats of a tab+ staff waiting for their beam: start tick, stem x, value, dots.
+            let mut rhythm: Vec<RhythmBeat> = Vec::new();
+            let mut rhythm_beat = 0;
             let up_voice = if voices > 1 { Some(vi % 2 == 0) } else { None };
-            let mut tuplet_group: Vec<(f64, f64)> = Vec::new();
+            let mut tuplet_group: Vec<TupletNote> = Vec::new();
+            // The beat (of the time signature) the open beam group lies in.
+            let mut beam_beat = 0;
             let mut tuplet_ratio: Option<Tuplet> = None;
             let mut tuplet_fill = 0;
+            // Complete tuplets, drawn once the voice's beams are in place.
+            let mut tuplets: Vec<(Vec<TupletNote>, Option<Tuplet>)> = Vec::new();
+            self.stems.borrow_mut().clear();
             for (i, beat) in voice.beats.iter().enumerate() {
                 let start = t;
                 t += beat.ticks();
                 if beat.empty {
+                    continue;
+                }
+                // A beat shown on the other half of a grand staff.
+                let hidden = self.hidden.contains(&(bi, vi, i));
+                shown |= !hidden;
+                if hidden {
+                    if self.standard {
+                        self.flush_beams(page, &mut beamable, std_bottom);
+                    }
                     continue;
                 }
                 let Some(&(bx, bw)) = col_x.get(&start) else {
@@ -1126,17 +1900,39 @@ impl Ctx<'_> {
                 } else {
                     vec![]
                 };
-                layout.beats.insert(
-                    beat_ref,
-                    BeatPos {
-                        page: page_index,
-                        x: bx - 0.4 * sp,
-                        width: bw,
-                        top: top - 2.0 * sp,
-                        bottom: bottom + 2.0 * sp,
-                        strings: string_ys.clone(),
-                    },
-                );
+                // The beat's place on this staff, joined to its places on the track's others.
+                let entry = layout.beats.entry(beat_ref).or_insert_with(|| BeatPos {
+                    page: page_index,
+                    x: bx - 0.4 * sp,
+                    width: bw,
+                    top: top - 2.0 * sp,
+                    bottom: bottom + 2.0 * sp,
+                    staves: Vec::new(),
+                });
+                entry.top = entry.top.min(top - 2.0 * sp);
+                entry.bottom = entry.bottom.max(bottom + 2.0 * sp);
+                if self.tab {
+                    entry.staves.push(StaffPos::Strings {
+                        staff: self.staff_index,
+                        ys: string_ys.clone(),
+                    });
+                }
+                if self.chant.is_some() {
+                    // GABC positions: d (3) on the bottom line.
+                    entry.staves.push(StaffPos::Lines {
+                        staff: self.staff_index,
+                        y0: std_bottom + 1.5 * sp,
+                        step: sp / 2.0,
+                        range: (i32::MIN, i32::MAX),
+                    });
+                } else if self.standard && self.clef != Clef::Percussion {
+                    entry.staves.push(StaffPos::Lines {
+                        staff: self.staff_index,
+                        y0: std_bottom + self.clef.bottom() as f64 * sp / 2.0,
+                        step: sp / 2.0,
+                        range: self.position_range(),
+                    });
+                }
                 page.hits.push(Hit {
                     rect: Rect::new(
                         bx - 0.4 * sp,
@@ -1146,6 +1942,7 @@ impl Ctx<'_> {
                     ),
                     beat: beat_ref,
                     string: None,
+                    staff: self.staff_index,
                 });
                 for (s, &sy) in string_ys.iter().enumerate() {
                     page.hits.push(Hit {
@@ -1157,11 +1954,15 @@ impl Ctx<'_> {
                         ),
                         beat: beat_ref,
                         string: Some(s as u8),
+                        staff: self.staff_index,
                     });
                 }
 
                 // Standard notation.
-                if self.standard {
+                let mut chord: Option<(Vec<f64>, bool)> = None;
+                if let Some((clef, octave)) = self.chant {
+                    self.draw_chant_beat(page, beat, bx, std_bottom, clef, octave);
+                } else if self.standard {
                     if beat.notes.is_empty() {
                         let off = match up_voice {
                             Some(true) => 2,
@@ -1192,12 +1993,26 @@ impl Ctx<'_> {
                             system,
                             placed,
                         );
+                        chord = Some((ys.clone(), up));
                         let level = beam_count(beat.duration.value);
-                        if level > 0 && self.beam_breaks(mb, start) {
+                        // Beams group the notes of each beat; a note across a beat stands alone.
+                        let unit = self.beam_unit(mb);
+                        let (first, last) = (start / unit, (t - 1) / unit);
+                        if level > 0 && (first != beam_beat || first != last) {
                             self.flush_beams(page, &mut beamable, std_bottom);
                         }
                         if level > 0 {
-                            beamable.push((i, stem_x, ys, beat.duration.value, u32::from(up)));
+                            beamable.push((
+                                start as usize,
+                                stem_x,
+                                ys,
+                                beat.duration.value,
+                                u32::from(up),
+                            ));
+                            beam_beat = first;
+                            if first != last {
+                                self.flush_beams(page, &mut beamable, std_bottom);
+                            }
                         } else {
                             self.flush_beams(page, &mut beamable, std_bottom);
                             if beat.duration.value != DurationValue::Whole {
@@ -1206,77 +2021,181 @@ impl Ctx<'_> {
                         }
                     }
                 }
-                // Tuplet groups.
-                if let Some(tp) = beat.duration.tuplet {
+                // On a tab+ staff the stems below mark the tuplet.
+                if self.rhythm && !beat.notes.is_empty() {
+                    chord = Some((Vec::new(), false));
+                }
+                // Tuplet groups (chant has none).
+                if let Some(tp) = beat.duration.tuplet.filter(|_| self.chant.is_none()) {
                     if tuplet_ratio != Some(tp) {
-                        self.flush_tuplet(page, &mut tuplet_group, tuplet_ratio, std_top);
+                        tuplets.push((std::mem::take(&mut tuplet_group), tuplet_ratio));
                         tuplet_ratio = Some(tp);
                         tuplet_fill = 0;
                     }
-                    tuplet_group.push((bx, bx + self.nh_width));
+                    tuplet_group.push((bx, bx + self.nh_width, chord.clone()));
                     tuplet_fill += beat.duration.ticks();
                     if tuplet_fill + 2 >= tp.times as u32 * beat.duration.value.ticks() {
-                        self.flush_tuplet(page, &mut tuplet_group, tuplet_ratio, std_top);
+                        tuplets.push((std::mem::take(&mut tuplet_group), tuplet_ratio));
                         tuplet_ratio = None;
                     }
                 } else if tuplet_ratio.is_some() {
-                    self.flush_tuplet(page, &mut tuplet_group, tuplet_ratio, std_top);
+                    tuplets.push((std::mem::take(&mut tuplet_group), tuplet_ratio));
                     tuplet_ratio = None;
                 }
-                // Text, chord names, lyrics.
-                if let Some(text) = &beat.text {
-                    page.text(
-                        FontKind::Italic,
-                        text.clone(),
-                        (bx, top - 3.2 * sp),
-                        1.8 * sp,
-                        Align::Left,
-                    );
+                // Dynamics where the first voice's loudness changes, and hairpins.
+                if vi == 0 && self.last_staff {
+                    let dyn_y = self.dynamics_y(std_bottom, tab_top);
+                    if let Some(n) = beat.notes.first() {
+                        let before = self.previous_velocity(bi, i);
+                        if before.map_or(n.velocity != DEFAULT_VELOCITY, |v| {
+                            dynamic_name(v) != dynamic_name(n.velocity)
+                        }) {
+                            self.draw_dynamic(page, n.velocity, bx + self.nh_width / 2.0, dyn_y);
+                        }
+                    }
+                    if let Some(h) = beat.effects.hairpin {
+                        self.wedges.borrow_mut().push((
+                            h,
+                            (bi, i),
+                            page_index,
+                            system,
+                            bx,
+                            bx + bw,
+                            dyn_y,
+                        ));
+                    }
                 }
-                if let Some(c) = &beat.chord {
-                    if !c.name.is_empty() {
+                // Vibrato: a wavy line through the beat, over the tab (or the lone staff).
+                if self.vibrato
+                    && (beat.effects.vibrato || beat.notes.iter().any(|n| n.effects.vibrato))
+                {
+                    let y = if self.tab {
+                        tab_top - 1.0 * sp
+                    } else {
+                        top - 1.5 * sp
+                    };
+                    let len = (bw - 0.5 * sp).clamp(self.nh_width, 3.0 * sp);
+                    self.draw_vibrato(page, bx, bx + len, y);
+                }
+                // Text, chord names, lyrics: once, on the track's top staff.
+                if self.first_staff {
+                    if let Some(text) = &beat.text {
                         page.text(
-                            FontKind::Bold,
-                            c.name.clone(),
-                            (bx, top - 5.2 * sp),
-                            2.0 * sp,
+                            FontKind::Italic,
+                            text.clone(),
+                            (bx, top - 3.2 * sp),
+                            1.8 * sp,
                             Align::Left,
                         );
                     }
-                }
-                for (li, syl) in beat.lyrics.iter().enumerate() {
-                    // A trailing hyphen is drawn between this syllable and the next.
-                    let continues = syl.ends_with('-');
-                    let text = syl.trim_end_matches('-');
-                    if !text.is_empty() {
-                        let y = std_bottom + 5.0 * sp + li as f64 * 1.8 * sp;
-                        let cx = bx + self.nh_width / 2.0;
-                        let w = fonts().text_width(FontKind::Text, text, 1.9 * sp);
+                    if beat.effects.rasgueado {
+                        // Above the staff and clear of an up stem.
+                        let rasg_y = chord.as_ref().map_or(top, |(ys, up)| {
+                            let high = ys.iter().cloned().fold(top, f64::min);
+                            high - if *up { 3.6 * sp } else { 1.0 * sp }
+                        }) - 0.6 * sp;
                         page.text(
-                            FontKind::Text,
-                            text.to_string(),
-                            (cx, y),
-                            1.9 * sp,
-                            Align::Center,
+                            FontKind::Italic,
+                            "rasg.",
+                            (bx, rasg_y),
+                            1.6 * sp,
+                            Align::Left,
                         );
-                        self.syllables.borrow_mut().push((
-                            page_index,
-                            y,
-                            cx - w / 2.0,
-                            cx + w / 2.0,
-                            continues,
-                        ));
+                    }
+                    if let Some(c) = &beat.chord {
+                        if !c.name.is_empty() {
+                            page.text(
+                                FontKind::Bold,
+                                c.name.clone(),
+                                (bx, top - 5.2 * sp),
+                                2.0 * sp,
+                                Align::Left,
+                            );
+                        }
+                    }
+                    for (li, syl) in beat.lyrics.iter().enumerate() {
+                        // A trailing hyphen is drawn between this syllable and the next.
+                        let continues = syl.ends_with('-');
+                        let text = syl.trim_end_matches('-');
+                        if !text.is_empty() {
+                            let y = self.lyrics_top(std_bottom, tab_top) + li as f64 * 1.8 * sp;
+                            let cx = bx + self.nh_width / 2.0;
+                            let w = fonts().text_width(FontKind::Text, text, 1.9 * sp);
+                            page.text(
+                                FontKind::Text,
+                                text.to_string(),
+                                (cx, y),
+                                1.9 * sp,
+                                Align::Center,
+                            );
+                            self.syllables.borrow_mut().push((
+                                page_index,
+                                y,
+                                cx - w / 2.0,
+                                cx + w / 2.0,
+                                continues,
+                            ));
+                        }
                     }
                 }
                 // Tablature.
                 if self.tab {
-                    self.draw_tab_beat(page, beat, bx, tab_top, (bi, vi, i), placed);
+                    self.draw_tab_beat(
+                        page,
+                        beat,
+                        bx,
+                        tab_top,
+                        (bi, vi, i),
+                        (page_index, system),
+                        placed,
+                    );
+                }
+                // Rhythm below a tab+ staff, beamed by beat like standard notation; rests and
+                // whole notes break the beams.
+                if self.rhythm {
+                    let value = beat.duration.value;
+                    let unit = self.beam_unit(mb);
+                    let (first, last) = (start / unit, (t - 1) / unit);
+                    let level = beam_count(value);
+                    if beat.notes.is_empty() || level == 0 || first != rhythm_beat || first != last
+                    {
+                        self.flush_rhythm(page, &mut rhythm, tab_top);
+                    }
+                    if !beat.notes.is_empty() && value == DurationValue::Whole {
+                        // A whole note: an open circle where a stem would be.
+                        let tab_bottom = tab_top + (strings - 1) as f64 * 1.5 * sp;
+                        let centre = (bx + self.nh_width / 2.0, tab_bottom + 2.9 * sp);
+                        page.items.push(Item::Path {
+                            path: kurbo::Circle::new(centre, 0.55 * sp).to_path(0.01),
+                            color: Color::BLACK,
+                            stroke: Some(0.14 * sp),
+                        });
+                    } else if !beat.notes.is_empty() {
+                        let x = bx + self.nh_width / 2.0;
+                        rhythm.push((start as usize, x, value, beat.duration.dots));
+                        rhythm_beat = first;
+                        if level == 0 || first != last {
+                            self.flush_rhythm(page, &mut rhythm, tab_top);
+                        }
+                    }
                 }
             }
             if self.standard {
                 self.flush_beams(page, &mut beamable, std_bottom);
             }
-            self.flush_tuplet(page, &mut tuplet_group, tuplet_ratio, std_top);
+            self.flush_rhythm(page, &mut rhythm, tab_top);
+            tuplets.push((std::mem::take(&mut tuplet_group), tuplet_ratio));
+            for (group, ratio) in tuplets {
+                self.draw_tuplet(page, &group, ratio, std_top);
+            }
+        }
+        // A grand staff's half with nothing in the bar shows a whole-bar rest.
+        if self.half.is_some() && !shown {
+            page.glyph(
+                rest_glyph(DurationValue::Whole),
+                (x + width / 2.0 - 0.7 * sp, self.staff_y(std_bottom, 6)),
+                4.0 * sp,
+            );
         }
     }
 
@@ -1293,16 +2212,16 @@ impl Ctx<'_> {
     }
 
     /// Beams break at each beat (quarter, or dotted quarter in compound meters).
-    fn beam_breaks(&self, mb: &MasterBar, tick: u32) -> bool {
+    /// Length of the beats that beams group, in ticks.
+    fn beam_unit(&self, mb: &MasterBar) -> u32 {
         let ts = mb.time_signature;
-        let unit = if ts.denominator == 8 && ts.numerator % 3 == 0 {
+        if ts.denominator == 8 && ts.numerator % 3 == 0 {
             1440
         } else if ts.denominator == 2 {
             1920
         } else {
             960
-        };
-        tick % unit == 0
+        }
     }
 
     fn draw_dots(&self, page: &mut Page, beat: &Beat, x: f64, bottom: f64, p: i32) {
@@ -1333,17 +2252,22 @@ impl Ctx<'_> {
     ) -> (f64, Vec<f64>, bool) {
         let sp = self.sp;
         let key = self.score.master_bars[pos.0].key_signature.accidentals;
-        // (staff position, accidental, x notehead, string)
-        let mut heads: Vec<(i32, Option<char>, bool, u8, bool)> = Vec::new();
+        // (staff position, accidental, x notehead, string, tie, ghost)
+        let mut heads: Vec<(i32, Option<char>, bool, u8, bool, bool)> = Vec::new();
         // Open hi-hats are marked with a small circle.
         let mut open: Vec<i32> = Vec::new();
         for n in &beat.notes {
+            // Slashes sit on the middle line, one per beat whatever its pitches.
+            if self.slash {
+                heads.push((4, None, false, n.string, n.tie, false));
+                continue;
+            }
             if self.clef == Clef::Percussion {
                 let (p, xhead) = drum_position(n.fret);
                 if n.fret == 46 {
                     open.push(p);
                 }
-                heads.push((p, None, xhead, n.string, n.tie));
+                heads.push((p, None, xhead, n.string, n.tie, n.ghost));
                 continue;
             }
             let written = self.track.pitch_of(n) as i32 + self.clef.transpose();
@@ -1363,20 +2287,32 @@ impl Ctx<'_> {
             } else {
                 None
             };
-            heads.push((p, acc, n.dead, n.string, n.tie));
+            heads.push((p, acc, n.dead, n.string, n.tie, n.ghost));
         }
         heads.sort_by_key(|h| h.0);
         let avg = heads.iter().map(|h| h.0).sum::<i32>() as f64 / heads.len().max(1) as f64;
         let up = up_voice.unwrap_or(avg < 4.0);
-        let head = match beat.duration.value {
-            DurationValue::Whole => HEAD_WHOLE,
-            DurationValue::Half => HEAD_HALF,
-            _ => HEAD_BLACK,
+        let head = match (self.slash, beat.duration.value) {
+            (false, DurationValue::Whole) => HEAD_WHOLE,
+            (false, DurationValue::Half) => HEAD_HALF,
+            (false, _) => HEAD_BLACK,
+            (true, DurationValue::Whole) => SLASH_WHOLE,
+            (true, DurationValue::Half) => SLASH_HALF,
+            (true, _) => SLASH_BLACK,
         };
         let mut ys = Vec::new();
+        // Left edge of the noteheads and their accidentals, for an arpeggio sign.
+        let mut left = x;
+        let paren_w = |ghost: bool| {
+            if ghost {
+                fonts().bbox(FontKind::Music, PAREN_LEFT, 4.0 * sp).width() + 0.1 * sp
+            } else {
+                0.0
+            }
+        };
         let mut prev_p: Option<i32> = None;
         let mut shifted = false;
-        for (k, &(p, acc, xhead, string, _)) in heads.iter().enumerate() {
+        for (k, &(p, acc, xhead, string, _, ghost)) in heads.iter().enumerate() {
             // Seconds sit on the other side of the stem.
             let second = prev_p.is_some_and(|q| p - q == 1) && !shifted;
             shifted = second;
@@ -1393,7 +2329,21 @@ impl Ctx<'_> {
             let y = self.staff_y(bottom, p);
             ys.push(y);
             let g = if xhead { HEAD_X } else { head };
-            page.glyph(g, (hx, y), 4.0 * sp);
+            // A slash beat's notes share one slash.
+            if !(self.slash && k > 0) {
+                page.glyph(g, (hx, y), 4.0 * sp);
+            }
+            self.reach(y + 0.6 * sp);
+            left = left.min(hx - paren_w(ghost));
+            // Ghost notes are bracketed.
+            let paren = if ghost {
+                let left = fonts().bbox(FontKind::Music, PAREN_LEFT, 4.0 * sp);
+                page.glyph(PAREN_LEFT, (hx - left.x1 - 0.1 * sp, y), 4.0 * sp);
+                page.glyph(PAREN_RIGHT, (hx + self.nh_width + 0.1 * sp, y), 4.0 * sp);
+                left.width() + 0.2 * sp
+            } else {
+                0.0
+            };
             if open.contains(&p) {
                 page.glyph(OPEN, (hx, self.staff_y(bottom, p.max(9) + 3)), 4.0 * sp);
             }
@@ -1420,7 +2370,8 @@ impl Ctx<'_> {
             }
             if let Some(a) = acc {
                 let stagger = (k % 2) as f64 * 0.9 * sp;
-                page.glyph(a, (x - 1.2 * sp - stagger, y), 4.0 * sp);
+                page.glyph(a, (x - 1.2 * sp - stagger - paren, y), 4.0 * sp);
+                left = left.min(x - 1.2 * sp - stagger - paren);
             }
             self.draw_dots(
                 page,
@@ -1437,9 +2388,25 @@ impl Ctx<'_> {
                     x: hx,
                     y,
                     tab_y: None,
-                    above: !up,
+                    // Ties and slurs go outward from the outer notes of a chord, otherwise
+                    // away from the stem.
+                    above: if heads.len() > 1 && k + 1 == heads.len() {
+                        true
+                    } else if heads.len() > 1 && k == 0 {
+                        false
+                    } else {
+                        !up
+                    },
+                    std_top: bottom - 4.0 * sp,
+                    tab_top: 0.0,
+                    tab_w: 0.0,
                 },
             );
+        }
+        if let Some(st) = beat.effects.stroke {
+            let lo = ys.iter().cloned().fold(f64::MAX, f64::min);
+            let hi = ys.iter().cloned().fold(f64::MIN, f64::max);
+            self.draw_stroke(page, st, left - 0.7 * sp, lo - 0.6 * sp, hi + 0.6 * sp);
         }
         let stem_x = if up {
             x + self.nh_width - 0.06 * sp
@@ -1461,6 +2428,90 @@ impl Ctx<'_> {
             (lo, to.unwrap_or(hi + 3.5 * sp))
         };
         page.line((x, from), (x, end), 0.15 * sp);
+        self.reach(end.max(hi + 0.6 * sp));
+        self.stems.borrow_mut().push((x, end, up));
+    }
+
+    /// Stems below a tab+ staff for collected beats, all ending on one line, joined by flat
+    /// beams (more levels stacked upwards; a short beam for a lone note or a partial one), a
+    /// half note's stem half as long; then clears them.
+    fn flush_rhythm(&self, page: &mut Page, group: &mut Vec<RhythmBeat>, tab_top: f64) {
+        let sp = self.sp;
+        let tab_bottom = tab_top + (self.track.strings.len().max(1) - 1) as f64 * 1.5 * sp;
+        let (top, bottom) = (tab_bottom + 0.8 * sp, tab_bottom + 5.0 * sp);
+        let thick = 0.45 * sp;
+        // The beams: (left, right, level), level 0 at the stems' ends.
+        let mut beams: Vec<(f64, f64, usize)> = Vec::new();
+        if group.len() > 1 {
+            let levels = group.iter().map(|g| beam_count(g.2)).max().unwrap_or(0);
+            for level in 0..levels {
+                let mut i = 0;
+                while i < group.len() {
+                    if beam_count(group[i].2) <= level {
+                        i += 1;
+                        continue;
+                    }
+                    let mut j = i;
+                    while j + 1 < group.len() && beam_count(group[j + 1].2) > level {
+                        j += 1;
+                    }
+                    let (mut xa, mut xb) = (group[i].1, group[j].1);
+                    if i == j {
+                        // A partial beam points back when its note completes a group of its
+                        // value's length (as after a dotted note), otherwise forward.
+                        let pair = 2 * group[i].2.ticks() as usize;
+                        let back = i > 0
+                            && group
+                                .get(i + 1)
+                                .is_none_or(|next| next.0 % pair == 0 || group[i].0 % pair != 0);
+                        if back {
+                            xa -= 1.2 * sp;
+                        } else {
+                            xb += 1.2 * sp;
+                        }
+                    }
+                    beams.push((xa - 0.06 * sp, xb + 0.06 * sp, level));
+                    i = j + 1;
+                }
+            }
+        }
+        for &(xa, xb, level) in &beams {
+            let y = bottom - level as f64 * 0.75 * sp;
+            page.rect(Rect::new(xa, y - thick, xb, y), Color::BLACK);
+        }
+        for &(_, x, value, dots) in group.iter() {
+            let from = if value == DurationValue::Half {
+                (top + bottom) / 2.0
+            } else {
+                top
+            };
+            page.line((x, from), (x, bottom), 0.12 * sp);
+            self.stems.borrow_mut().push((x, bottom, false));
+            // A lone note's flag hangs from the stem's end, curving up.
+            let lone = group.len() == 1 && beam_count(value) > 0;
+            if lone {
+                page.glyph(flag_glyph(value, false), (x - 0.06 * sp, bottom), 4.0 * sp);
+            }
+            if dots == 0 {
+                continue;
+            }
+            // Dots as in standard notation: just above a beamed note's own top beam, else at
+            // the foot of the stem (past the flag of a lone note).
+            let own = beam_count(value);
+            let (x0, y) = if lone {
+                let flag = fonts().bbox(FontKind::Music, flag_glyph(value, false), 4.0 * sp);
+                (x + flag.x1 + 0.25 * sp, bottom - 0.3 * sp)
+            } else if own > 0 {
+                let top_beam = bottom - (own - 1) as f64 * 0.75 * sp - thick;
+                (x + 0.3 * sp, top_beam - 0.35 * sp)
+            } else {
+                (x + 0.3 * sp, bottom - 0.3 * sp)
+            };
+            for d in 0..dots {
+                page.glyph(DOT, (x0 + d as f64 * 0.6 * sp, y), 4.0 * sp);
+            }
+        }
+        group.clear();
     }
 
     /// Draws beams (or a flag for a lone note) for collected beats, then clears them.
@@ -1479,10 +2530,22 @@ impl Ctx<'_> {
             let hi = ys.iter().cloned().fold(f64::MIN, f64::max);
             let end = if up { lo - 3.5 * sp } else { hi + 3.5 * sp };
             page.glyph(flag_glyph(*v, up), (*x - 0.06 * sp, end), 4.0 * sp);
+            if !up {
+                self.reach(end + 0.5 * sp);
+            }
         } else if group.len() > 1 {
             // The group's stem direction follows the majority.
             let ups = group.iter().filter(|g| g.4 == 1).count();
             let up = ups * 2 >= group.len();
+            // Stems outvoted by the group move to the other side of the notehead.
+            let shift = self.nh_width - 0.12 * sp;
+            for g in group.iter_mut() {
+                match (g.4 == 1, up) {
+                    (true, false) => g.1 -= shift,
+                    (false, true) => g.1 += shift,
+                    _ => {}
+                }
+            }
             let ends: Vec<f64> = group
                 .iter()
                 .map(|(_, _, ys, _, _)| {
@@ -1529,11 +2592,17 @@ impl Ctx<'_> {
                     let (xa, mut xb) = (group[i].1, group[j].1);
                     let mut xa = xa;
                     if i == j {
-                        // A partial beam pointing at its neighbour.
-                        if i + 1 < group.len() {
-                            xb = xa + 1.2 * sp
-                        } else {
+                        // A partial beam points back when its note completes a group of its
+                        // value's length (as after a dotted note), otherwise forward.
+                        let pair = 2 * group[i].3.ticks() as usize;
+                        let back = i > 0
+                            && group
+                                .get(i + 1)
+                                .is_none_or(|next| next.0 % pair == 0 || group[i].0 % pair != 0);
+                        if back {
                             xa -= 1.2 * sp
+                        } else {
+                            xb = xa + 1.2 * sp
                         }
                     }
                     let (ya, yb) = (beam_y(xa) + off, beam_y(xb) + off);
@@ -1556,35 +2625,107 @@ impl Ctx<'_> {
         group.clear();
     }
 
-    fn flush_tuplet(
+    /// The tuplet number centred in a bracket beyond the stems of the group, parallel to its
+    /// beam (just the number above the staff for a group without stems).
+    fn draw_tuplet(
         &self,
         page: &mut Page,
-        group: &mut Vec<(f64, f64)>,
+        group: &[TupletNote],
         ratio: Option<Tuplet>,
         std_top: f64,
     ) {
-        if let (Some(tp), Some(first), Some(last)) = (ratio, group.first(), group.last()) {
-            let x = (first.0 + last.1) / 2.0;
-            let y = std_top - 0.8 * self.sp;
-            let digits: Vec<u32> = tp
-                .enters
-                .to_string()
-                .chars()
-                .filter_map(|c| c.to_digit(10))
-                .collect();
-            let w: f64 = digits
-                .iter()
-                .map(|d| fonts().advance(FontKind::Music, tuplet_digit(*d), 3.0 * self.sp))
-                .sum();
-            let mut cx = x - w / 2.0;
-            for d in digits {
-                page.glyph(tuplet_digit(d), (cx, y), 3.0 * self.sp);
-                cx += fonts().advance(FontKind::Music, tuplet_digit(d), 3.0 * self.sp);
-            }
+        let sp = self.sp;
+        let (Some(tp), Some(first), Some(last)) = (ratio, group.first(), group.last()) else {
+            return;
+        };
+        // A tab without rhythm has no tuplets to mark.
+        if self.tab && !self.rhythm {
+            return;
         }
-        group.clear();
+        let size = 3.0 * sp;
+        let digits: Vec<char> = tp
+            .enters
+            .to_string()
+            .chars()
+            .filter_map(|c| c.to_digit(10))
+            .map(tuplet_digit)
+            .collect();
+        let w: f64 = digits
+            .iter()
+            .map(|&d| fonts().advance(FontKind::Music, d, size))
+            .sum();
+        let bb = digits
+            .first()
+            .map_or(Rect::ZERO, |&d| fonts().bbox(FontKind::Music, d, size));
+        let number = |page: &mut Page, x: f64, y: f64| {
+            let mut cx = x - w / 2.0;
+            for &d in &digits {
+                page.glyph(d, (cx, y - (bb.y0 + bb.y1) / 2.0), size);
+                cx += fonts().advance(FontKind::Music, d, size);
+            }
+        };
+        // The stem of each note of the group.
+        let stems = self.stems.borrow();
+        let ends: Vec<(f64, f64, bool)> = group
+            .iter()
+            .filter(|g| g.2.is_some())
+            .filter_map(|g| {
+                stems
+                    .iter()
+                    .rev()
+                    .find(|s| s.0 > g.0 - 0.5 * sp && s.0 < g.1 + 0.5 * sp)
+                    .copied()
+            })
+            .collect();
+        let (x0, x1) = (first.0 - 0.2 * sp, last.1 + 0.2 * sp);
+        let mid = (x0 + x1) / 2.0;
+        if !(self.standard || self.rhythm) || ends.is_empty() {
+            number(page, mid, std_top - 1.4 * sp);
+            return;
+        }
+        let up = ends.iter().filter(|e| e.2).count() * 2 >= ends.len();
+        // Stems the other way in a mixed group are left out.
+        let ends: Vec<(f64, f64, bool)> = ends.into_iter().filter(|e| e.2 == up).collect();
+        // The bracket's ends stand on the first and last stems.
+        let (x0, x1) = (ends[0].0, ends[ends.len() - 1].0);
+        let mid = (x0 + x1) / 2.0;
+        let dir = if up { -1.0 } else { 1.0 };
+        let (a, b) = (ends[0], ends[ends.len() - 1]);
+        let slope = if b.0 - a.0 > 1.0 {
+            (b.1 - a.1) / (b.0 - a.0)
+        } else {
+            0.0
+        };
+        let line = |x: f64| a.1 + slope * (x - a.0);
+        // Clear every stem end, then keep the bracket off the staff.
+        let excess = ends
+            .iter()
+            .map(|e| dir * (e.1 - line(e.0)))
+            .fold(0.0, f64::max);
+        let mut off = dir * (1.0 * sp + excess);
+        let ends_y = [line(x0) + off, line(x1) + off];
+        if up {
+            let worst = ends_y[0].max(ends_y[1]);
+            off -= (worst - (std_top - 0.8 * sp)).max(0.0);
+        } else {
+            let worst = ends_y[0].min(ends_y[1]);
+            off += ((std_top + 4.8 * sp) - worst).max(0.0);
+        }
+        let y = |x: f64| line(x) + off;
+        let hook = -dir * 0.7 * sp;
+        let gap = w / 2.0 + 0.4 * sp;
+        let t = 0.1 * sp;
+        page.line((x0, y(x0) + hook), (x0, y(x0)), t);
+        page.line((x0, y(x0)), (mid - gap, y(mid - gap)), t);
+        page.line((mid + gap, y(mid + gap)), (x1, y(x1)), t);
+        page.line((x1, y(x1)), (x1, y(x1) + hook), t);
+        number(page, mid, y(mid));
+        if !up {
+            self.reach(y(x0).max(y(x1)) + 1.0 * sp);
+        }
     }
 
+    #[allow(clippy::too_many_arguments)]
     fn draw_tab_beat(
         &self,
         page: &mut Page,
@@ -1592,6 +2733,7 @@ impl Ctx<'_> {
         x: f64,
         tab_top: f64,
         pos: (usize, usize, usize),
+        (page_index, system): (usize, usize),
         placed: &mut HashMap<(usize, usize, usize, u8), Placed>,
     ) {
         let sp = self.sp;
@@ -1608,42 +2750,56 @@ impl Ctx<'_> {
             let mut label = match n.effects.harmonic {
                 Some(Harmonic::Natural) => format!("<{fret}>"),
                 Some(_) => format!("{fret}<{}>", n.fret as u32 + 12),
+                // Tied and ghost notes are bracketed.
                 None if n.tie || n.ghost => format!("({fret})"),
                 None => fret,
             };
             if n.effects.grace.is_some() {
                 label = format!("{}{label}", n.effects.grace.map(|g| g.fret).unwrap_or(0));
             }
-            let w = fonts().text_width(FontKind::Text, &label, size);
-            page.rect(
-                Rect::new(
-                    cx - w / 2.0 - 0.15 * sp,
-                    y - 0.7 * sp,
-                    cx + w / 2.0 + 0.15 * sp,
-                    y + 0.7 * sp,
-                ),
-                Color::WHITE,
-            );
-            let color = if n.tie { Color::GREY } else { Color::BLACK };
-            page.items.push(Item::Text {
-                font: FontKind::Text,
-                text: label,
-                at: Point::new(cx, y + 0.65 * sp),
-                size,
-                align: Align::Center,
-                color,
-            });
+            // A tie shows its last note, grey in brackets; the notes between are only crossed
+            // by the tie arcs.
+            let shown = !n.tie || !self.tie_continues(pos, n.string);
+            let w = if shown {
+                fonts().text_width(FontKind::Text, &label, size)
+            } else {
+                0.0
+            };
+            if shown {
+                page.rect(
+                    Rect::new(
+                        cx - w / 2.0 - 0.15 * sp,
+                        y - 0.7 * sp,
+                        cx + w / 2.0 + 0.15 * sp,
+                        y + 0.7 * sp,
+                    ),
+                    Color::WHITE,
+                );
+                page.items.push(Item::Text {
+                    font: FontKind::Text,
+                    text: label,
+                    at: Point::new(cx, y + 0.65 * sp),
+                    size,
+                    align: Align::Center,
+                    color: if n.tie { Color::GREY } else { Color::BLACK },
+                });
+            }
             let entry = placed
                 .entry((pos.0, pos.1, pos.2, n.string))
                 .or_insert(Placed {
-                    page: 0,
-                    system: 0,
+                    page: page_index,
+                    system,
                     x,
                     y: 0.0,
                     tab_y: None,
                     above: true,
+                    std_top: 0.0,
+                    tab_top,
+                    tab_w: w,
                 });
             entry.tab_y = Some(y);
+            entry.tab_top = tab_top;
+            entry.tab_w = w;
             entry.x = x;
             if let Some(b) = &n.effects.bend {
                 // Arrow from the note up above the staff, labelled with the bend amount.
@@ -1676,14 +2832,32 @@ impl Ctx<'_> {
             if n.effects.let_ring {
                 above_marks.push("let ring".into());
             }
-            if n.effects.hammer_pull {
-                above_marks.push("H/P".into());
-            }
-            if !n.effects.slides.is_empty() {
+            // Slides to the next note are drawn as lines with the ties; slides in and out here.
+            if n.effects
+                .slides
+                .iter()
+                .any(|k| !matches!(k, SlideKind::Shift | SlideKind::Legato))
+            {
                 above_marks.push("sl.".into());
             }
-            if n.effects.vibrato || beat.effects.vibrato {
-                above_marks.push("~".into());
+        }
+        if let Some(st) = beat.effects.stroke {
+            let shown: Vec<&Note> = beat.notes.iter().filter(|n| !n.tie).collect();
+            let lo = shown.iter().map(|n| n.string).min();
+            let hi = shown.iter().map(|n| n.string).max();
+            if let (Some(lo), Some(hi)) = (lo, hi) {
+                let y = |s: u8| tab_top + s as f64 * 1.5 * sp;
+                let w = shown
+                    .iter()
+                    .map(|n| fonts().text_width(FontKind::Text, &n.fret.to_string(), size))
+                    .fold(0.0, f64::max);
+                self.draw_stroke(
+                    page,
+                    st,
+                    cx - w / 2.0 - 0.7 * sp,
+                    y(lo) - 0.6 * sp,
+                    y(hi) + 0.6 * sp,
+                );
             }
         }
         above_marks.dedup();
@@ -1711,19 +2885,31 @@ impl Ctx<'_> {
                 Align::Center,
             );
         }
-        // Rhythm stems below the tab when there is no standard staff.
-        if !self.standard && !beat.notes.is_empty() && beat.duration.value != DurationValue::Whole {
-            let bottom = tab_top + (self.track.strings.len().max(1) - 1) as f64 * 1.5 * sp;
-            let (a, b) = (bottom + 1.0 * sp, bottom + 3.5 * sp);
-            page.line((cx, a), (cx, b), 0.12 * sp);
-            for k in 0..beam_count(beat.duration.value) {
-                let y = b - k as f64 * 0.6 * sp;
-                page.line((cx, y), (cx + 1.0 * sp, y), 0.3 * sp);
-            }
-        }
     }
 
-    /// Ties between consecutive notes on the same string, split across systems when needed.
+    /// Whether the tie through the note on `string` at (bar, voice, beat) goes on to the next
+    /// beat of its voice.
+    fn tie_continues(&self, (bar, voice, beat): (usize, usize, usize), string: u8) -> bool {
+        let beats_of = |b: usize| {
+            self.track
+                .bars
+                .get(b)
+                .and_then(|b| b.voices.get(voice))
+                .map(|v| v.beats.as_slice())
+                .unwrap_or_default()
+        };
+        let next = beats_of(bar)
+            .iter()
+            .skip(beat + 1)
+            .chain(beats_of(bar + 1))
+            .find(|b| !b.empty);
+        next.and_then(|b| b.note_on_string(string))
+            .is_some_and(|n| n.tie)
+    }
+
+    /// Ties between consecutive notes on the same string; slurs over runs of hammer-ons,
+    /// pull-offs and legato slides, with H or P over each hammer or pull; and slide lines.
+    /// All are split across systems when needed.
     fn draw_ties(
         &self,
         layout: &mut Layout,
@@ -1738,55 +2924,286 @@ impl Ctx<'_> {
             .map(|b| b.voices.len())
             .max()
             .unwrap_or(0);
+        let arc = |page: &mut Page, x0: f64, x1: f64, y: f64, dy: f64| {
+            let mut p = BezPath::new();
+            let mid = (x0 + x1) / 2.0;
+            p.move_to((x0, y + dy * 0.4));
+            p.quad_to((mid, y + dy * 2.2), (x1, y + dy * 0.4));
+            p.quad_to((mid, y + dy * 1.8), (x0, y + dy * 0.4));
+            page.items.push(Item::Path {
+                path: p,
+                color: Color::BLACK,
+                stroke: None,
+            });
+        };
+        // Where a system's notes start, after its clef and key.
+        let system_start = |s: usize| {
+            systems
+                .get(s)
+                .map_or(0.0, |s| s.1 + self.header_width() - sp)
+        };
+        let system_end = |s: usize| systems.get(s).map_or(0.0, |s| s.2);
         for v in 0..voices {
-            let mut last: HashMap<u8, (usize, usize, usize)> = HashMap::new();
+            // Consecutive notes on each string, in order: the earlier note's position and fret,
+            // the later's, and how they connect.
+            let mut links: Vec<Link> = Vec::new();
+            let mut last: HashMap<u8, ((usize, usize, usize), &Note)> = HashMap::new();
             for (bi, bar) in self.track.bars.iter().enumerate() {
                 let Some(voice) = bar.voices.get(v) else {
                     continue;
                 };
                 for (i, beat) in voice.beats.iter().enumerate() {
                     for n in &beat.notes {
-                        if n.tie {
-                            if let Some(&from) = last.get(&n.string) {
-                                let (Some(a), Some(b)) = (
-                                    placed.get(&(from.0, from.1, from.2, n.string)),
-                                    placed.get(&(bi, v, i, n.string)),
-                                ) else {
-                                    continue;
-                                };
-                                if a.y == 0.0 || !self.standard {
-                                    continue;
-                                }
-                                let dy = if a.above { -0.6 * sp } else { 0.6 * sp };
-                                let arc = |page: &mut Page, x0: f64, x1: f64, y: f64| {
-                                    let mut p = BezPath::new();
-                                    let mid = (x0 + x1) / 2.0;
-                                    p.move_to((x0, y + dy * 0.4));
-                                    p.quad_to((mid, y + dy * 2.2), (x1, y + dy * 0.4));
-                                    p.quad_to((mid, y + dy * 1.8), (x0, y + dy * 0.4));
-                                    page.items.push(Item::Path {
-                                        path: p,
-                                        color: Color::BLACK,
-                                        stroke: None,
-                                    });
-                                };
-                                if a.system == b.system {
-                                    arc(&mut layout.pages[a.page], a.x + self.nh_width, b.x, a.y);
-                                } else if let (Some(sa), Some(sb)) =
-                                    (systems.get(a.system), systems.get(b.system))
-                                {
-                                    arc(&mut layout.pages[a.page], a.x + self.nh_width, sa.2, a.y);
-                                    arc(
-                                        &mut layout.pages[b.page],
-                                        sb.1 + self.header_width() - sp,
-                                        b.x,
-                                        b.y,
-                                    );
-                                }
-                            }
+                        let here = (bi, v, i);
+                        if let Some((from, prev)) = last.insert(n.string, (here, n)) {
+                            let slides = &prev.effects.slides;
+                            links.push(Link {
+                                string: n.string,
+                                from,
+                                to: here,
+                                frets: (prev.fret, n.fret),
+                                tie: n.tie,
+                                legato: !n.tie
+                                    && (prev.effects.hammer_pull
+                                        || slides.contains(&SlideKind::Legato)),
+                                slide: !n.tie
+                                    && (slides.contains(&SlideKind::Legato)
+                                        || slides.contains(&SlideKind::Shift)),
+                            });
                         }
-                        last.insert(n.string, (bi, v, i));
                     }
+                }
+            }
+            let get = |pos: (usize, usize, usize), string: u8| {
+                placed.get(&(pos.0, pos.1, pos.2, string)).copied()
+            };
+
+            // Ties on the standard staff; on a tab, arcs under the string.
+            for l in links.iter().filter(|l| l.tie) {
+                let (Some(a), Some(b)) = (get(l.from, l.string), get(l.to, l.string)) else {
+                    continue;
+                };
+                if let (true, Some(ya), Some(yb)) = (self.tab, a.tab_y, b.tab_y) {
+                    let c = self.nh_width / 2.0;
+                    let (x0, dy) = (a.x + c + a.tab_w / 2.0 + 0.1 * sp, 0.4 * sp);
+                    if a.system == b.system {
+                        arc(
+                            &mut layout.pages[a.page],
+                            x0,
+                            b.x + c - b.tab_w / 2.0 - 0.1 * sp,
+                            ya + 0.3 * sp,
+                            dy,
+                        );
+                    } else {
+                        arc(
+                            &mut layout.pages[a.page],
+                            x0,
+                            system_end(a.system),
+                            ya + 0.3 * sp,
+                            dy,
+                        );
+                        arc(
+                            &mut layout.pages[b.page],
+                            system_start(b.system),
+                            b.x + c,
+                            yb + 0.3 * sp,
+                            dy,
+                        );
+                    }
+                    continue;
+                }
+                if a.y == 0.0 || !self.standard {
+                    continue;
+                }
+                let dy = if a.above { -0.6 * sp } else { 0.6 * sp };
+                if a.system == b.system {
+                    arc(&mut layout.pages[a.page], a.x + self.nh_width, b.x, a.y, dy);
+                } else {
+                    arc(
+                        &mut layout.pages[a.page],
+                        a.x + self.nh_width,
+                        system_end(a.system),
+                        a.y,
+                        dy,
+                    );
+                    arc(
+                        &mut layout.pages[b.page],
+                        system_start(b.system),
+                        b.x,
+                        b.y,
+                        dy,
+                    );
+                }
+            }
+
+            // Slide lines between the notes, marked "sl.".
+            for l in links.iter().filter(|l| l.slide) {
+                let (Some(a), Some(b)) = (get(l.from, l.string), get(l.to, l.string)) else {
+                    continue;
+                };
+                let rising = l.frets.1 > l.frets.0;
+                let mut line = |page: usize, (x0, y0): (f64, f64), (x1, y1): (f64, f64)| {
+                    let page = &mut layout.pages[page];
+                    page.line((x0, y0), (x1, y1), 0.12 * sp);
+                    page.text(
+                        FontKind::Italic,
+                        "sl.",
+                        ((x0 + x1) / 2.0, y0.min(y1) - 0.2 * sp),
+                        1.1 * sp,
+                        Align::Center,
+                    );
+                };
+                let tilt = if rising { -0.35 * sp } else { 0.35 * sp };
+                if let (Some(ya), Some(yb)) = (a.tab_y, b.tab_y) {
+                    let c = self.nh_width / 2.0;
+                    let x0 = a.x + c + a.tab_w / 2.0 + 0.2 * sp;
+                    let x1 = b.x + c - b.tab_w / 2.0 - 0.2 * sp;
+                    if a.system == b.system {
+                        line(a.page, (x0, ya - tilt), (x1, yb + tilt));
+                    } else {
+                        line(a.page, (x0, ya - tilt), (x0 + 1.5 * sp, ya + tilt));
+                    }
+                }
+                if self.standard && a.y != 0.0 && b.y != 0.0 {
+                    let x0 = a.x + self.nh_width + 0.3 * sp;
+                    let x1 = b.x - 0.3 * sp;
+                    if a.system == b.system && a.y != b.y {
+                        line(a.page, (x0, a.y), (x1, b.y));
+                    } else if a.system == b.system {
+                        line(a.page, (x0, a.y - tilt), (x1, b.y + tilt));
+                    } else {
+                        line(a.page, (x0, a.y - tilt), (x0 + 1.5 * sp, a.y + tilt));
+                    }
+                }
+            }
+
+            // Runs of legato links, one slur each.
+            let mut k = 0;
+            while k < links.len() {
+                if !links[k].legato {
+                    k += 1;
+                    continue;
+                }
+                let mut run = vec![k];
+                let mut next = k + 1;
+                while let Some(j) = links[next..].iter().position(|l| {
+                    let tail = &links[run[run.len() - 1]];
+                    l.string == tail.string && l.from == tail.to
+                }) {
+                    if !links[next + j].legato {
+                        break;
+                    }
+                    run.push(next + j);
+                    next += j + 1;
+                }
+                // Links taken into this run are skipped later.
+                for &j in &run[1..] {
+                    links[j].legato = false;
+                }
+                let run: Vec<Link> = run.iter().map(|&j| links[j].clone()).collect();
+                self.draw_legato(layout, &run, placed, &system_start, &system_end);
+                k += 1;
+            }
+        }
+    }
+
+    /// A slur over a run of hammer-ons, pull-offs and legato slides on one string, on the tab
+    /// (over the frets) and the standard staff (on the noteheads' side), with H or P over
+    /// each hammer or pull. A run across systems is slurred in pieces.
+    fn draw_legato(
+        &self,
+        layout: &mut Layout,
+        run: &[Link],
+        placed: &HashMap<(usize, usize, usize, u8), Placed>,
+        system_start: &dyn Fn(usize) -> f64,
+        system_end: &dyn Fn(usize) -> f64,
+    ) {
+        let sp = self.sp;
+        let string = run[0].string;
+        let notes: Vec<Placed> = std::iter::once(run[0].from)
+            .chain(run.iter().map(|l| l.to))
+            .filter_map(|p| placed.get(&(p.0, p.1, p.2, string)).copied())
+            .collect();
+        if notes.len() != run.len() + 1 {
+            return;
+        }
+        let c = self.nh_width / 2.0;
+        // Pieces of the run on one system each, as ranges of notes.
+        let mut pieces: Vec<(usize, usize)> = Vec::new();
+        let mut s = 0;
+        for e in 1..=notes.len() {
+            if e == notes.len() || notes[e].system != notes[s].system {
+                pieces.push((s, e - 1));
+                s = e;
+            }
+        }
+        let tab = notes.iter().all(|n| n.tab_y.is_some());
+        let standard = self.standard && notes.iter().all(|n| n.y != 0.0);
+        for (pi, &(a, b)) in pieces.iter().enumerate() {
+            let first = &notes[a];
+            let page = first.page;
+            let x0 = if pi == 0 {
+                first.x + c
+            } else {
+                system_start(first.system)
+            };
+            let x1 = if pi + 1 == pieces.len() {
+                notes[b].x + c
+            } else {
+                system_end(first.system)
+            };
+            let height = (0.5 * sp + 0.04 * (x1 - x0)).min(1.6 * sp);
+            // Letters over the hammers and pulls starting in this piece.
+            let letters: Vec<(f64, &str)> = (a..=b)
+                .filter(|&j| j < run.len() && !run[j].slide)
+                .map(|j| {
+                    let to = &notes[j + 1];
+                    let x = if to.system == notes[j].system {
+                        (notes[j].x + to.x) / 2.0 + c
+                    } else {
+                        (notes[j].x + c + x1) / 2.0
+                    };
+                    let (from, to) = run[j].frets;
+                    (x, if to < from { "P" } else { "H" })
+                })
+                .collect();
+            if tab {
+                let ys: Vec<f64> = notes[a..=b]
+                    .iter()
+                    .map(|n| n.tab_y.unwrap_or(0.0) - 0.8 * sp)
+                    .collect();
+                let (y0, y1) = (ys[0], ys[ys.len() - 1]);
+                let peak = ys.iter().cloned().fold(f64::MAX, f64::min) - height;
+                slur(&mut layout.pages[page], (x0, y0), (x1, y1), peak, 0.12 * sp);
+                for &(x, t) in &letters {
+                    layout.pages[page].text(
+                        FontKind::Text,
+                        t,
+                        (x, peak - 0.4 * sp),
+                        1.5 * sp,
+                        Align::Center,
+                    );
+                }
+            }
+            if standard {
+                let above = first.above;
+                let dir = if above { -1.0 } else { 1.0 };
+                let ys: Vec<f64> = notes[a..=b].iter().map(|n| n.y + dir * 0.8 * sp).collect();
+                let (y0, y1) = (ys[0], ys[ys.len() - 1]);
+                let peak = if above {
+                    ys.iter().cloned().fold(f64::MAX, f64::min) - height
+                } else {
+                    ys.iter().cloned().fold(f64::MIN, f64::max) + height
+                };
+                slur(&mut layout.pages[page], (x0, y0), (x1, y1), peak, 0.12 * sp);
+                let std_top = first.std_top;
+                let y = if above {
+                    (peak - 0.5 * sp).min(std_top - 1.0 * sp)
+                } else {
+                    (peak + 1.6 * sp).max(std_top + 5.6 * sp)
+                };
+                for &(x, t) in &letters {
+                    layout.pages[page].text(FontKind::Text, t, (x, y), 1.5 * sp, Align::Center);
                 }
             }
         }
@@ -1803,6 +3220,267 @@ mod tests {
         assert_eq!(spell(61, -2), (1, -1, 4)); // Db4
         assert_eq!(key_alters(2), [1, 0, 0, 1, 0, 0, 0]); // F#, C#
         assert_eq!(key_alters(-1), [0, 0, 0, 0, 0, 0, -1]); // Bb
+    }
+
+    #[test]
+    fn staff_notations() {
+        let chord = Beat {
+            duration: Duration::new(DurationValue::Quarter),
+            notes: vec![Note::new(1, 1), Note::new(2, 2)],
+            ..Beat::default()
+        };
+        let mut score = Score {
+            tempo: 100,
+            master_bars: vec![MasterBar::default()],
+            tracks: vec![Track {
+                kind: TrackKind::Fretted,
+                strings: vec![64, 59, 55, 50, 45, 40],
+                bars: vec![Bar {
+                    voices: vec![Voice {
+                        beats: vec![chord; 4],
+                    }],
+                }],
+                ..Track::default()
+            }],
+            ..Score::default()
+        };
+        let glyphs = |score: &Score| -> Vec<char> {
+            engrave(score, 0, &Options::default()).pages[0]
+                .items
+                .iter()
+                .filter_map(|i| match i {
+                    Item::Glyph { ch, .. } => Some(*ch),
+                    _ => None,
+                })
+                .collect()
+        };
+        let both = glyphs(&score);
+        assert!(both.contains(&G_CLEF_8VB) && both.contains(&TAB_CLEF));
+        // A cursor can find staff positions on the standard staff: E4 written (diatonic 30)
+        // on the bottom line, a step half a space.
+        let layout = engrave(&score, 0, &Options::default());
+        let pos = layout.beats.values().next().unwrap();
+        let (bottom_line, step) = pos.line_y(0, 30).unwrap();
+        assert_eq!(step, Options::default().sp / 2.0);
+        assert!(bottom_line < pos.strings(1).unwrap()[0]);
+        assert_eq!(pos.position_at(0, bottom_line), Some(30));
+        // Tab only: no clef, no stems.
+        score.tracks[0].staves = vec![Staff::Tab];
+        let tab = glyphs(&score);
+        assert!(!tab.contains(&G_CLEF_8VB) && tab.contains(&TAB_CLEF));
+        let layout = engrave(&score, 0, &Options::default());
+        assert!(layout.beats.values().all(|p| p.line_y(0, 30).is_none()));
+        let lines = |score: &Score| -> usize {
+            engrave(score, 0, &Options::default()).pages[0]
+                .items
+                .iter()
+                .filter(|i| matches!(i, Item::Line { .. }))
+                .count()
+        };
+        let plain = lines(&score);
+        // Tab+: the same with a stem per beat.
+        score.tracks[0].staves = vec![Staff::TabRhythm];
+        assert_eq!(lines(&score), plain + 4);
+        // Slashes: one per beat, no clef and no tab.
+        score.tracks[0].staves = vec![Staff::Slash];
+        let slash = glyphs(&score);
+        assert_eq!(slash.iter().filter(|&&c| c == SLASH_BLACK).count(), 4);
+        assert!(!slash.contains(&G_CLEF_8VB) && !slash.contains(&TAB_CLEF));
+        // Any number of staves, in order, all showing the same beats.
+        score.tracks[0].staves = vec![
+            Staff::Tab,
+            Staff::Slash,
+            Staff::Standard(muse_core::Clef::Bass),
+        ];
+        let layout = engrave(&score, 0, &Options::default());
+        let pos = layout.beats.values().next().unwrap();
+        let tab_y = pos.strings(0).unwrap()[0];
+        let (slash_y, _) = pos.line_y(1, 34).unwrap();
+        assert!(tab_y < slash_y);
+        assert!(pos.line_y(2, 20).is_some_and(|(y, _)| y > slash_y));
+    }
+
+    #[test]
+    fn staves_line_up_with_a_key_signature() {
+        let mut score = Score {
+            tempo: 100,
+            master_bars: vec![MasterBar::default()],
+            tracks: vec![Track {
+                kind: TrackKind::Fretted,
+                strings: vec![64, 59, 55, 50, 45, 40],
+                bars: vec![Bar {
+                    voices: vec![Voice {
+                        beats: vec![Beat {
+                            duration: Duration::new(DurationValue::Whole),
+                            notes: vec![Note::new(0, 3)],
+                            ..Beat::default()
+                        }],
+                    }],
+                }],
+                ..Track::default()
+            }],
+            ..Score::default()
+        };
+        score.master_bars[0].key_signature.accidentals = 4;
+        let page = &engrave(&score, 0, &Options::default()).pages[0];
+        let head = page
+            .items
+            .iter()
+            .find_map(|i| match i {
+                Item::Glyph { ch, at, .. } if *ch == HEAD_WHOLE => Some(at.x),
+                _ => None,
+            })
+            .unwrap();
+        let fret = page
+            .items
+            .iter()
+            .find_map(|i| match i {
+                Item::Text { text, at, .. } if text == "3" => Some(at.x),
+                _ => None,
+            })
+            .unwrap();
+        // The fret number is centred under the notehead.
+        let nh = fonts()
+            .bbox(FontKind::Music, HEAD_BLACK, 4.0 * Options::default().sp)
+            .width();
+        assert!((fret - (head + nh / 2.0)).abs() < 0.5, "{fret} vs {head}");
+    }
+
+    #[test]
+    fn tab_rhythm_stems_and_beams() {
+        let beat = |v: DurationValue| Beat {
+            duration: Duration::new(v),
+            notes: vec![Note::new(0, 0)],
+            ..Beat::default()
+        };
+        let e = DurationValue::Eighth;
+        let score = Score {
+            tempo: 100,
+            master_bars: vec![MasterBar::default()],
+            tracks: vec![Track {
+                kind: TrackKind::Fretted,
+                strings: vec![64, 59, 55, 50, 45, 40],
+                staves: vec![Staff::TabRhythm],
+                bars: vec![Bar {
+                    voices: vec![Voice {
+                        beats: vec![
+                            beat(e),
+                            beat(e),
+                            beat(DurationValue::Quarter),
+                            beat(DurationValue::Half),
+                        ],
+                    }],
+                }],
+                ..Track::default()
+            }],
+            ..Score::default()
+        };
+        let page = &engrave(&score, 0, &Options::default()).pages[0];
+        // Stems: vertical lines, all ending on one line; the half note's is half as long.
+        let stems: Vec<(f64, f64)> = page
+            .items
+            .iter()
+            .filter_map(|i| match i {
+                Item::Line { from, to, .. } if from.x == to.x && to.y > from.y => {
+                    Some((from.y, to.y))
+                }
+                _ => None,
+            })
+            .collect();
+        let stems = &stems[stems.len() - 4..];
+        assert!(stems.iter().all(|s| s.1 == stems[0].1));
+        let len = |s: (f64, f64)| s.1 - s.0;
+        assert!((len(stems[3]) * 2.0 - len(stems[0])).abs() < 1.0);
+        // One beam joins the eighths, at the stems' ends.
+        let beams = page
+            .items
+            .iter()
+            .filter(|i| matches!(i, Item::Rect { rect, .. } if rect.y1 == stems[0].1))
+            .count();
+        assert_eq!(beams, 1);
+
+        // A whole note: no stem, an open circle.
+        let mut whole = score.clone();
+        whole.tracks[0].bars[0].voices[0].beats = vec![beat(DurationValue::Whole)];
+        let page = &engrave(&whole, 0, &Options::default()).pages[0];
+        let circles = page
+            .items
+            .iter()
+            .filter(|i| {
+                matches!(
+                    i,
+                    Item::Path {
+                        stroke: Some(_),
+                        ..
+                    }
+                )
+            })
+            .count();
+        assert_eq!(circles, 1);
+    }
+
+    #[test]
+    fn grand_staff_splits_notes() {
+        let beat = |keys: &[u8]| Beat {
+            duration: Duration::new(DurationValue::Quarter),
+            notes: keys.iter().map(|&k| Note::new(0, k)).collect(),
+            ..Beat::default()
+        };
+        let score = Score {
+            tempo: 100,
+            master_bars: vec![MasterBar::default()],
+            tracks: vec![Track {
+                kind: TrackKind::Pitched,
+                staves: vec![Staff::Standard(muse_core::Clef::Grand { split: 60 })],
+                bars: vec![Bar {
+                    voices: vec![Voice {
+                        beats: vec![
+                            beat(&[72, 48]),
+                            beat(&[64]),
+                            beat(&[40]),
+                            Beat::rest(Duration::new(DurationValue::Quarter)),
+                        ],
+                    }],
+                }],
+                ..Track::default()
+            }],
+            ..Score::default()
+        };
+        let layout = engrave(&score, 0, &Options::default());
+        let heads = |layout: &Layout| -> Vec<f64> {
+            let mut ys: Vec<f64> = layout.pages[0]
+                .items
+                .iter()
+                .filter_map(|i| match i {
+                    Item::Glyph { ch, at, .. } if *ch == HEAD_BLACK => Some(at.y),
+                    _ => None,
+                })
+                .collect();
+            ys.sort_by(f64::total_cmp);
+            ys
+        };
+        // Four noteheads, one rest: C5 and E4 on the treble half, C3 and E2 on the bass half.
+        let ys = heads(&layout);
+        assert_eq!(ys.len(), 4);
+        let glyphs: Vec<char> = layout.pages[0]
+            .items
+            .iter()
+            .filter_map(|i| match i {
+                Item::Glyph { ch, .. } => Some(*ch),
+                _ => None,
+            })
+            .collect();
+        assert!(glyphs.contains(&BRACE) && glyphs.contains(&F_CLEF) && glyphs.contains(&G_CLEF));
+        assert_eq!(
+            glyphs
+                .iter()
+                .filter(|&&c| c == rest_glyph(DurationValue::Quarter))
+                .count(),
+            1
+        );
+        let pos = layout.beats.iter().find(|(b, _)| b.beat == 0).unwrap().1;
+        // The middle-C split: B3 (diatonic 27) on the bass half, C4 (28) on the treble.
+        assert!(pos.line_y(0, 27).unwrap().0 > pos.line_y(0, 28).unwrap().0 + 20.0);
     }
 
     #[test]
@@ -1840,15 +3518,20 @@ mod tests {
             tracks: vec![right, left],
             ..Score::default()
         };
-        // Both staves are in one layout whichever is engraved, on the same page.
-        let layout = engrave(&score, 1, &Options::default());
-        assert_eq!(layout.beats.keys().filter(|b| b.track == 0).count(), 4);
-        assert_eq!(layout.beats.keys().filter(|b| b.track == 1).count(), 1);
-        let top = layout.beats.iter().find(|(b, _)| b.track == 0).unwrap().1;
-        let low = layout.beats.iter().find(|(b, _)| b.track == 1).unwrap().1;
-        assert!(low.top > top.top);
-        // The lower staff takes the bass clef from its range.
-        assert_eq!(Clef::for_track(&score.tracks[1]), Clef::Bass);
+        // A file's two staves become one track on a grand staff, the left hand a second voice.
+        score.merge_staves();
+        assert_eq!(score.tracks.len(), 1);
+        let layout = engrave(&score, 0, &Options::default());
+        assert_eq!(layout.beats.keys().filter(|b| b.voice == 0).count(), 4);
+        assert_eq!(layout.beats.keys().filter(|b| b.voice == 1).count(), 1);
+        let top = layout.beats.iter().find(|(b, _)| b.voice == 0).unwrap().1;
+        let low = layout.beats.iter().find(|(b, _)| b.voice == 1).unwrap().1;
+        assert!(low.line_y(0, 23).unwrap().0 > top.line_y(0, 35).unwrap().0);
+        // Written out again, the hands are two staves of one part.
+        let split = score.split_grand();
+        assert_eq!(split.parts(), vec![0..2]);
+        assert_eq!(split.tracks[1].bars[0].voices[0].beats[0].notes[0].fret, 48);
+        assert_eq!(split.tracks[0].bars[0].voices.len(), 1);
 
         // Drums: hands and feet in one voice are shown as two.
         score.tracks = vec![Track {

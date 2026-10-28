@@ -235,6 +235,7 @@ pub fn read_gpif(xml: &str) -> Result<Score> {
     }
     score.anacrusis = path(root, &["MasterTrack", "Anacrusis"]).is_some();
     read_automations(root, &mut score);
+    score.merge_staves();
     Ok(score)
 }
 
@@ -448,15 +449,10 @@ fn read_master_bar(n: Node, previous: Option<&MasterBar>) -> MasterBar {
         }
     }
     if let Some(s) = child(n, "Section") {
-        let text = text_or_empty(s, "Text");
-        let title = if text.is_empty() {
-            text_or_empty(s, "Letter")
-        } else {
-            text
-        };
         mb.marker = Some(Marker {
-            title,
+            title: text_or_empty(s, "Text"),
             color: Color { r: 255, g: 0, b: 0 },
+            letter: text_or_empty(s, "Letter"),
         });
     }
     if let Some(d) = child(n, "Directions") {
@@ -658,18 +654,20 @@ fn read_beat(
         Some("Down") => StrokeDirection::Down,
         _ => StrokeDirection::None,
     };
-    let brush = match direction("Brush") {
-        StrokeDirection::None => match text(b, "Arpeggio") {
-            Some("Up") => StrokeDirection::Up,
-            Some("Down") => StrokeDirection::Down,
-            _ => StrokeDirection::None,
-        },
-        d => d,
+    let arpeggio = match text(b, "Arpeggio") {
+        Some("Up") => StrokeDirection::Up,
+        Some("Down") => StrokeDirection::Down,
+        _ => StrokeDirection::None,
+    };
+    let (brush, arpeggio) = match direction("Brush") {
+        StrokeDirection::None => (arpeggio, true),
+        d => (d, false),
     };
     if brush != StrokeDirection::None {
         beat.effects.stroke = Some(Stroke {
             direction: brush,
             duration: DurationValue::Sixteenth,
+            arpeggio,
         });
     }
     beat.effects.pick_stroke = direction("PickStroke");
@@ -681,6 +679,11 @@ fn read_beat(
     }
     beat.effects.vibrato = p.contains_key("VibratoWTremBar");
     beat.effects.fade_in = text(b, "Fadding") == Some("FadeIn");
+    beat.effects.hairpin = match text(b, "Hairpin") {
+        Some("Crescendo") => Some(Hairpin::Crescendo),
+        Some("Decrescendo") => Some(Hairpin::Decrescendo),
+        _ => None,
+    };
     beat.effects.ottava = match text(b, "Ottavia") {
         Some("8va") => Ottava::Ottava,
         Some("8vb") => Ottava::OttavaBassa,

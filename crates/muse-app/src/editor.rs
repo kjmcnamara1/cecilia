@@ -7,7 +7,7 @@ use muse_core::*;
 
 use crate::app::{beats, clamp_cursor};
 use crate::command::{Command, Operator};
-use crate::config::{Lookup, Mode};
+use crate::config::{InsertKind, Lookup, Mode};
 use crate::edit::{self, BarClip, EditCx, Pos};
 use crate::keys::{Key, KeyCode};
 use crate::{App, Buffer, Cursor, Effect};
@@ -121,10 +121,13 @@ impl App {
         match self.mode {
             Mode::Command => self.handle_command_key(key),
             Mode::Picker => self.handle_picker_key(key),
-            Mode::Normal => self.normal_key(key),
+            // A focused tracks pane has its own keys first.
+            Mode::Normal | Mode::Tracks if self.focused_kind() == crate::app::PaneKind::Tracks => {
+                self.tracks_key(key)
+            }
+            Mode::Normal | Mode::Tracks => self.normal_key(key),
             Mode::Insert => self.insert_key(key),
             Mode::Visual => self.visual_key(key),
-            Mode::Tracks => self.tracks_key(key),
         }
         self.seek_to_cursor(before);
         self.peek_tracks(before);
@@ -136,7 +139,7 @@ impl App {
         }
     }
 
-    fn normal_key(&mut self, key: Key) {
+    pub(crate) fn normal_key(&mut self, key: Key) {
         if let Some(a) = self.ed.awaiting.take() {
             self.ed.cmd_keys.clear();
             if let Some(c) = key.as_char() {
@@ -279,9 +282,36 @@ impl App {
         }
     }
 
+    /// The insert keymap for the cursor's staff.
+    pub fn insert_kind(&self) -> InsertKind {
+        let c = self.pane().cursor;
+        let Some(t) = self.buffer().score.tracks.get(c.track) else {
+            return InsertKind::Tab;
+        };
+        match t.staves().get(crate::app::staff_index(t, c.staff)).copied() {
+            Some(s) if crate::app::uses_strings(t, s) => InsertKind::Tab,
+            Some(Staff::Chant) => InsertKind::Chant,
+            Some(Staff::Slash) => InsertKind::Slash,
+            _ => InsertKind::Standard,
+        }
+    }
+
+    pub(crate) fn on_staff_kind(&self, kind: InsertKind) -> bool {
+        self.insert_kind() == kind
+    }
+
     fn insert_key(&mut self, key: Key) {
-        // Digits type frets; two quick digits make a two-digit fret.
-        if let Some(d) = key.as_char().and_then(|c| c.to_digit(10)) {
+        // Renaming a track in the tracks pane takes the keys.
+        if self.renaming.is_some() {
+            return self.rename_key(key);
+        }
+        let kind = self.insert_kind();
+        // On a tab, digits type frets; two quick digits make a two-digit fret.
+        if let Some(d) = key
+            .as_char()
+            .and_then(|c| c.to_digit(10))
+            .filter(|_| kind == InsertKind::Tab)
+        {
             let cursor = self.pane().cursor;
             let max: u32 = self
                 .buffer()
@@ -323,13 +353,18 @@ impl App {
             }
         }
         self.pending.push(key);
-        let cmds = match self.config.keymap(Mode::Insert).lookup(&self.pending) {
+        // The notation's own keys first, then the shared insert keys.
+        let cmds = match self.config.insert_keymap(kind).lookup(&self.pending) {
             Lookup::Exact(cmds) => cmds.to_vec(),
             Lookup::Prefix => return,
-            Lookup::None => {
-                self.pending.clear();
-                return;
-            }
+            Lookup::None => match self.config.keymap(Mode::Insert).lookup(&self.pending) {
+                Lookup::Exact(cmds) => cmds.to_vec(),
+                Lookup::Prefix => return,
+                Lookup::None => {
+                    self.pending.clear();
+                    return;
+                }
+            },
         };
         self.pending.clear();
         for cmd in cmds {
@@ -686,6 +721,22 @@ impl App {
                 let t = t.clone();
                 self.edit(|cx| edit::toggle(cx, &t, duration));
             }
+            NoteLetter(c) => {
+                let step = muse_core::staff::letter_step(*c).unwrap_or(0);
+                if self.on_staff_kind(InsertKind::Standard) {
+                    let duration = self.insert_duration();
+                    self.edit(|cx| edit::put_letter(cx, step, duration));
+                } else {
+                    self.error("note-letter: the cursor is not on a standard staff");
+                }
+            }
+            Accidental(alter) => {
+                self.edit(|cx| edit::set_accidental(cx, *alter));
+            }
+            Slash => {
+                let duration = self.insert_duration();
+                self.edit(|cx| edit::put_slash(cx, duration));
+            }
             Note(p) => match edit::parse_pitch(p) {
                 Some(pitch) => {
                     self.edit(|cx| edit::set_pitch(cx, pitch));
@@ -751,6 +802,7 @@ impl App {
                     bars[i].marker = name.map(|title| Marker {
                         title,
                         color: Color { r: 255, g: 0, b: 0 },
+                        letter: String::new(),
                     })
                 });
             }
@@ -871,6 +923,10 @@ impl App {
                 });
             }
             TrackAdd(kind) => self.add_track(kind),
+            Staff(arg) => self.set_staff(arg),
+            StaffAdd(arg) => self.add_staff(arg.as_deref()),
+            StaffRemove(n) => self.remove_staff(*n),
+            StaffMove(to) => self.move_staff(to),
             TrackDelete => {
                 self.edit(|cx| {
                     if cx.score.tracks.len() <= 1 {
@@ -878,13 +934,7 @@ impl App {
                     }
                     let t = cx.cursor.track;
                     let tracks = &mut cx.whole().tracks;
-                    let removed = tracks.remove(t);
-                    // Staves of a deleted part's first track become their own part.
-                    if !removed.extra_staff {
-                        if let Some(next) = tracks.get_mut(t) {
-                            next.extra_staff = false;
-                        }
-                    }
+                    tracks.remove(t);
                     cx.cursor.track = t.saturating_sub(1);
                     Ok(())
                 });
@@ -1032,20 +1082,120 @@ impl App {
                     };
                     bars
                 ],
-                clef: grand_staff.then_some(StaffClef::Treble),
+                // A piano gets a grand staff.
+                staves: if grand_staff {
+                    vec![Staff::Standard(Clef::Grand { split: GRAND_SPLIT })]
+                } else {
+                    Vec::new()
+                },
                 ..Track::default()
             });
-            if grand_staff {
-                // A piano gets a grand staff: a second, bass-clef staff in the same part.
-                let mut lower = s.tracks[first].clone();
-                lower.name = "Piano (2)".into();
-                lower.extra_staff = true;
-                lower.clef = Some(StaffClef::Bass);
-                s.tracks.push(lower);
-            }
             cx.cursor.track = first;
             cx.cursor.bar = 0;
             cx.cursor.beat = 0;
+            Ok(())
+        });
+    }
+
+    /// The staff `arg` names (`standard grand C4`, `tab+` …), the clef of a plain `standard`
+    /// coming from the config.
+    fn parse_staff(&mut self, arg: &str) -> Option<Staff> {
+        match Staff::parse(arg.trim(), self.config.default_clef()) {
+            Ok(s) => Some(s),
+            Err(e) => {
+                self.error(format!("staff: {e}"));
+                None
+            }
+        }
+    }
+
+    /// Shows the cursor's staff in another way. The notes stay as they are; a tab on a track
+    /// without strings first puts them on strings (refused if any would not fit).
+    fn set_staff(&mut self, arg: &str) {
+        let Some(staff) = self.parse_staff(arg) else {
+            return;
+        };
+        let done = self.edit(|cx| {
+            let (i, t) = (cx.cursor.staff, cx.cursor.track);
+            let track = &mut cx.whole().tracks[t];
+            fret_for_tab(track, staff)?;
+            let staves = track.staves_mut();
+            let i = i.min(staves.len() - 1);
+            staves[i] = staff;
+            Ok(i)
+        });
+        if let Some(i) = done {
+            self.info(format!("staff {}: {}", i + 1, staff.name()));
+        }
+    }
+
+    /// Adds a staff at the bottom of the cursor's track.
+    fn add_staff(&mut self, arg: Option<&str>) {
+        let Some(staff) = self.parse_staff(arg.unwrap_or("standard")) else {
+            return;
+        };
+        let done = self.edit(|cx| {
+            let t = cx.cursor.track;
+            let track = &mut cx.whole().tracks[t];
+            fret_for_tab(track, staff)?;
+            let staves = track.staves_mut();
+            staves.push(staff);
+            let n = staves.len();
+            cx.cursor.staff = n - 1;
+            Ok(n)
+        });
+        if let Some(n) = done {
+            self.info(format!("staff {n}: {}", staff.name()));
+        }
+    }
+
+    /// Removes a staff of the cursor's track (1 = top; the cursor's without a number). The
+    /// last one stays.
+    fn remove_staff(&mut self, n: Option<usize>) {
+        self.edit(|cx| {
+            let (t, here) = (cx.cursor.track, cx.cursor.staff);
+            let i = n.map_or(here, |n| n.saturating_sub(1));
+            let staves = cx.whole().tracks[t].staves_mut();
+            if staves.len() <= 1 {
+                return Err("staff-remove: a track keeps at least one staff".into());
+            }
+            if i >= staves.len() {
+                return Err(format!("staff-remove: there is no staff {}", i + 1));
+            }
+            staves.remove(i);
+            let left = staves.len();
+            cx.cursor.staff = here.min(left - 1);
+            Ok(())
+        });
+    }
+
+    /// Moves the cursor's staff to position `to` (1 = top), or up / down by `+N` / `-N`
+    /// (`+1` moves it down one place).
+    fn move_staff(&mut self, to: &str) {
+        let to = to.trim();
+        self.edit(|cx| {
+            let (t, from) = (cx.cursor.track, cx.cursor.staff);
+            let staves = cx.whole().tracks[t].staves_mut();
+            let n = staves.len() as i64;
+            let target = match to
+                .strip_prefix('+')
+                .or_else(|| to.starts_with('-').then_some(to))
+            {
+                Some(d) => {
+                    from as i64
+                        + d.parse::<i64>()
+                            .map_err(|_| "staff-move: expected N, +N or -N")?
+                }
+                None => {
+                    to.parse::<i64>()
+                        .map_err(|_| "staff-move: expected N, +N or -N")?
+                        - 1
+                }
+            };
+            let target = target.clamp(0, n - 1) as usize;
+            let staff = staves.remove(from.min(staves.len() - 1));
+            staves.insert(target, staff);
+            cx.cursor.staff = target;
             Ok(())
         });
     }
@@ -1116,6 +1266,27 @@ fn report(shifted: usize, dropped: usize) -> Result<(), String> {
             "{s} notes moved by an octave, {d} notes did not fit and were removed"
         )),
     }
+}
+
+/// A tab needs strings: a track without them gets a tuning for its range and its notes go
+/// on strings, keeping every pitch (refused if one would not fit).
+fn fret_for_tab(track: &mut Track, staff: Staff) -> Result<(), String> {
+    if !staff.is_tab() || track.kind == TrackKind::Fretted {
+        return Ok(());
+    }
+    if track.kind != TrackKind::Pitched {
+        return Err("staff: only pitched and fretted tracks have a tab".into());
+    }
+    let mut fretted = track.clone();
+    let dropped = muse_convert::pitched_to_fretted(&mut fretted);
+    if dropped > 0 {
+        return Err(format!("staff: {dropped} notes would not fit on a tab"));
+    }
+    // The other staves keep showing the same notes.
+    let staves = track.staves();
+    *track = fretted;
+    track.staves = staves;
+    Ok(())
 }
 
 #[cfg(test)]
@@ -1191,12 +1362,197 @@ mod tests {
         keys(&mut a, "u");
         assert_eq!(lyr(&a)[0], "Hel-");
 
-        // A piano is two staves of one part.
+        // A piano is one track on a grand staff.
         a.run(Command::TrackAdd("piano".into()));
         let s = &a.buffer().score;
-        assert_eq!(s.tracks.len(), 3);
-        assert_eq!(s.part_tracks(2), 1..3);
-        assert_eq!(s.tracks[2].clef, Some(StaffClef::Bass));
+        assert_eq!(s.tracks.len(), 2);
+        assert_eq!(
+            s.tracks[1].staves(),
+            vec![Staff::Standard(Clef::Grand { split: GRAND_SPLIT })]
+        );
+    }
+
+    #[test]
+    fn staves_of_a_track() {
+        let mut a = app();
+        keys(&mut a, "i3<Space>5<Esc>");
+        let bars = a.buffer().score.tracks[0].bars.clone();
+        let staves = |a: &App| a.buffer().score.tracks[0].staves();
+        use muse_core::Clef::{Grand, Treble};
+        assert_eq!(staves(&a), vec![Staff::Standard(Treble), Staff::Tab]);
+        // Added at the bottom; the cursor goes to the new staff, which can be changed.
+        a.run(Command::StaffAdd(Some("slash".into())));
+        a.run(Command::StaffAdd(Some("standard grand G3".into())));
+        assert_eq!(staves(&a)[3], Staff::Standard(Grand { split: 55 }));
+        assert_eq!(a.pane().cursor.staff, 3);
+        a.run(Command::Staff("tab+".into()));
+        // Reordered: to the top, then two places down.
+        a.run(Command::StaffMove("1".into()));
+        assert_eq!(
+            staves(&a),
+            vec![
+                Staff::TabRhythm,
+                Staff::Standard(Treble),
+                Staff::Tab,
+                Staff::Slash
+            ]
+        );
+        a.run(Command::StaffMove("+2".into()));
+        assert_eq!(staves(&a)[2], Staff::TabRhythm);
+        assert_eq!(a.pane().cursor.staff, 2);
+        // Removed down to one, which stays.
+        a.run(Command::StaffRemove(Some(1)));
+        assert_eq!(staves(&a), vec![Staff::Tab, Staff::TabRhythm, Staff::Slash]);
+        a.run(Command::StaffRemove(None));
+        a.run(Command::StaffRemove(None));
+        a.run(Command::StaffRemove(None));
+        assert_eq!(staves(&a).len(), 1);
+        a.run(Command::Staff("bogus".into()));
+        assert_eq!(staves(&a).len(), 1);
+        // The notes never changed; undo brings the staves back.
+        assert_eq!(a.buffer().score.tracks[0].bars, bars);
+        keys(&mut a, "uuuuuuuu");
+        assert_eq!(staves(&a), vec![Staff::Standard(Treble), Staff::Tab]);
+
+        // A piano is one track on a grand staff; a tab for it puts the same pitches on strings.
+        a.run(Command::TrackAdd("piano".into()));
+        let t = a.pane().cursor.track;
+        assert_eq!(a.buffer().score.tracks.len(), 2);
+        assert_eq!(
+            a.buffer().score.tracks[t].staves(),
+            vec![Staff::Standard(Grand { split: 60 })]
+        );
+        keys(&mut a, "ic<Esc>");
+        a.run(Command::StaffAdd(Some("tab".into())));
+        let piano = &a.buffer().score.tracks[t];
+        assert_eq!(piano.kind, TrackKind::Fretted);
+        assert_eq!(piano.staves().len(), 2);
+        let note = &piano.bars[0].voices[0].beats[0].notes[0];
+        assert_eq!(piano.pitch_of(note), 72);
+    }
+
+    #[test]
+    fn chant_staff_on_an_ordinary_track() {
+        let mut a = app();
+        a.run(Command::StaffAdd(Some("chant".into())));
+        assert_eq!(a.pane().cursor.staff, 2);
+        // h under the c4 clef is A4 (la, two steps below do = C5); the guitar plays it.
+        keys(&mut a, "ihv");
+        let t = a.buffer().score.tracks[0].clone();
+        let beat =
+            |a: &App, i: usize| a.buffer().score.tracks[0].bars[0].voices[0].beats[i].clone();
+        let n = &beat(&a, 0).notes[0];
+        assert_eq!(t.pitch_of(n), 69);
+        assert_eq!(n.chant.as_ref().unwrap().mods, vec!["v".to_string()]);
+        assert_eq!(a.pane().cursor.line, 7);
+        // A note after it, then one starting a new neume, a division after that.
+        keys(&mut a, "<Space>g/;<Esc>");
+        assert_eq!(t.pitch_of(&beat(&a, 1).notes[0]), 67);
+        let third = beat(&a, 2);
+        assert!(third.notes[0].chant.as_ref().unwrap().neume_start);
+        assert_eq!(third.chant_division.as_deref(), Some(";"));
+        // The other staves show the same notes.
+        assert_eq!(a.buffer().score.tracks[0].staves().len(), 3);
+    }
+
+    #[test]
+    fn default_clef_from_config() {
+        let (cfg, errors) = Config::parse("[score]\nclef = \"bass\"\n").unwrap();
+        assert!(errors.is_empty());
+        let mut a = App::new(cfg, None);
+        a.run(Command::New);
+        a.run(Command::StaffAdd(None));
+        assert_eq!(
+            a.buffer().score.tracks[0].staves()[2],
+            Staff::Standard(muse_core::Clef::Bass)
+        );
+    }
+
+    /// Sounding pitches of a beat of the cursor track, high first.
+    fn pitches(a: &App, beat: usize) -> Vec<u8> {
+        let c = a.pane().cursor;
+        let t = &a.buffer().score.tracks[c.track];
+        let mut p: Vec<u8> = t.bars[c.bar].voices[0].beats[beat]
+            .notes
+            .iter()
+            .map(|n| t.pitch_of(n))
+            .collect();
+        p.sort_unstable_by(|a, b| b.cmp(a));
+        p
+    }
+
+    #[test]
+    fn cursor_moves_across_staves() {
+        let mut a = app();
+        let at = |a: &App| {
+            let c = a.pane().cursor;
+            (c.track, crate::app::cursor_row(&a.buffer().score, &c))
+        };
+        use crate::app::Row::{Line, String};
+        // A guitar starts on its tab, under a treble-8vb staff (bottom line E4 written,
+        // diatonic 30): up from the tab is the space below that staff.
+        assert_eq!(at(&a), (0, String(1, 0)));
+        keys(&mut a, "k");
+        assert_eq!(at(&a), (0, Line(0, 29)));
+        keys(&mut a, "kkk");
+        assert_eq!(at(&a), (0, Line(0, 32)));
+        keys(&mut a, "jjjj");
+        assert_eq!(at(&a), (0, String(1, 0)));
+        // Past the last string: the track's next staff (a slash staff), and back.
+        a.run(Command::StaffAdd(Some("slash".into())));
+        a.pane_mut().cursor.staff = 1;
+        a.pane_mut().cursor.string = 0;
+        keys(&mut a, "jjjjjj");
+        assert_eq!(at(&a), (0, Line(2, 34)));
+        keys(&mut a, "k");
+        assert_eq!(at(&a), (0, String(1, 5)));
+        // Past the last staff: the next track.
+        a.run(Command::TrackAdd("piano".into()));
+        a.pane_mut().cursor.track = 0;
+        a.pane_mut().cursor.staff = 2;
+        keys(&mut a, "j");
+        assert!(matches!(at(&a), (1, Line(0, _))));
+    }
+
+    #[test]
+    fn standard_staff_insert() {
+        let mut a = app();
+        keys(&mut a, "kkkk");
+        assert_eq!((a.pane().cursor.staff, a.pane().cursor.line), (0, 32));
+        // Written G4 under the cursor: a is A4 written (A3 sounding on guitar), c then the
+        // nearest C (C5 written), replacing it; # sharpens it.
+        keys(&mut a, "ia");
+        assert_eq!(pitches(&a, 0), vec![57]);
+        assert_eq!(a.pane().cursor.line, 33);
+        keys(&mut a, "c");
+        assert_eq!(pitches(&a, 0), vec![60]);
+        keys(&mut a, "#");
+        assert_eq!(pitches(&a, 0), vec![61]);
+        // Off the note, a letter adds to the chord.
+        keys(&mut a, "<Up><Up>e");
+        assert_eq!(pitches(&a, 0), vec![64, 61]);
+        keys(&mut a, "<Space>g<Esc>");
+        assert_eq!(pitches(&a, 1), vec![67]);
+        keys(&mut a, "u");
+        assert_eq!(
+            beats(&a.buffer().score, &a.pane().cursor)
+                .iter()
+                .filter(|b| !b.empty)
+                .count(),
+            0
+        );
+
+        // A piano chord: notes on distinct strings, highest first.
+        a.run(Command::TrackAdd("piano".into()));
+        keys(&mut a, "ic<Up><Up>e<Up><Up>g<Esc>");
+        assert_eq!(pitches(&a, 0), vec![79, 76, 72]);
+        let strings: Vec<u8> = a.buffer().score.tracks[a.pane().cursor.track].bars[0].voices[0]
+            .beats[0]
+            .notes
+            .iter()
+            .map(|n| n.string)
+            .collect();
+        assert_eq!(strings, vec![0, 1, 2]);
     }
 
     #[test]

@@ -7,4 +7,4 @@ pub mod fonts;
 pub mod layout;
 pub mod output;
 
-pub use layout::{BeatPos, Layout, Mode, Options, engrave};
+pub use layout::{BeatPos, Layout, Mode, Options, StaffPos, engrave};

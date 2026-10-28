@@ -88,8 +88,8 @@ impl App {
                     "loop-toggle" => self.pa.loop_bars.is_some(),
                     "metronome" => self.pa.metronome,
                     "count-in" => self.pa.count_in,
-                    "tracks" => self.tracks_panel,
-                    "waveform-global" => self.global_waveform,
+                    "tracks" => self.has_tool(crate::app::PaneKind::Tracks),
+                    "waveform-global" => self.has_tool(crate::app::PaneKind::Audio),
                     "maximize" => self.maximized().is_some(),
                     _ => false,
                 };
@@ -160,7 +160,7 @@ mod tests {
         assert!(!app.follow && !button(&app.toolbar_items(), "follow-toggle").active);
         let tracks = find(&items, "tracks").unwrap();
         app.run_toolbar(tracks);
-        assert!(app.tracks_panel);
+        assert!(app.has_tool(crate::app::PaneKind::Tracks));
         // :toolbar toggles it; bad entries in the config are reported and left out.
         app.run(Command::Toolbar(None));
         assert!(!app.toolbar);

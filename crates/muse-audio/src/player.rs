@@ -25,6 +25,8 @@ pub struct Mix {
     pub midi: f32,
     pub audio: f32,
     pub metronome: f32,
+    /// Scales the whole output.
+    pub master: f32,
 }
 
 impl Default for Mix {
@@ -33,6 +35,7 @@ impl Default for Mix {
             midi: 1.0,
             audio: 1.0,
             metronome: 0.7,
+            master: 1.0,
         }
     }
 }
@@ -378,9 +381,10 @@ impl Renderer {
                         sr += s;
                     }
                 }
-                frame[0] = sl;
+                let master = self.mix.master;
+                frame[0] = sl * master;
                 if channels > 1 {
-                    frame[1] = sr;
+                    frame[1] = sr * master;
                     for s in &mut frame[2..] {
                         *s = 0.0;
                     }

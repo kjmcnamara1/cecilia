@@ -4,7 +4,7 @@ use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 use std::time::SystemTime;
 
-use muse_core::{Beat, Score};
+use muse_core::{Beat, Clef, Score, Staff, StaffClef, Track, TrackKind, staff};
 
 use crate::command::Command;
 use crate::config::{Config, Lookup, Mode};
@@ -25,7 +25,7 @@ pub struct Buffer {
 }
 
 /// A position in a score: track, bar, beat index (voice 1) and string.
-#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct Cursor {
     pub track: usize,
     pub bar: usize,
@@ -33,6 +33,53 @@ pub struct Cursor {
     pub string: usize,
     /// Voice being edited (0 = voice 1).
     pub voice: usize,
+    /// Which of the track's staves the cursor is on (0 = top); [`Cursor::HOME`] (or any staff
+    /// the track does not have) means its home staff ([`home_staff`]).
+    pub staff: usize,
+    /// Position on a staff of lines: a written diatonic number on a standard or slash staff,
+    /// a GABC position on chant. On a tab (or drum lanes) the cursor is at `string` instead.
+    pub line: i32,
+}
+
+impl Cursor {
+    /// The track's home staff: its tab if it has one, else its top staff.
+    pub const HOME: usize = usize::MAX;
+}
+
+impl Default for Cursor {
+    fn default() -> Self {
+        Self {
+            track: 0,
+            bar: 0,
+            beat: 0,
+            string: 0,
+            voice: 0,
+            staff: Cursor::HOME,
+            line: 0,
+        }
+    }
+}
+
+/// The staff the cursor is on: `staff` if the track has it, else its home staff (its first
+/// tab, or its top staff).
+pub fn staff_index(track: &Track, staff: usize) -> usize {
+    let staves = track.staves();
+    if staff < staves.len() {
+        staff
+    } else {
+        staves
+            .iter()
+            .position(|&s| uses_strings(track, s))
+            .unwrap_or(0)
+    }
+}
+
+/// A place the cursor can sit on a track: a staff and a position on its lines, or a staff and
+/// one of its strings (or drum lanes).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Row {
+    Line(usize, i32),
+    String(usize, usize),
 }
 
 /// What the command palette shows (see [`App::palette`]).
@@ -58,6 +105,14 @@ pub struct PaletteItem {
 
 #[derive(Debug, Clone)]
 pub struct Pane {
+    /// What the pane shows: a score, or a tool working on the view's score pane.
+    pub kind: PaneKind,
+    /// A tool pane's own height and width (viewport units), kept whatever other panes come
+    /// and go; score panes share the room left.
+    pub size: (Option<u16>, Option<u16>),
+    /// A local tool pane's score pane: the one it opened under and always shows. Global
+    /// tool panes (and score panes) have none and follow the view's score pane.
+    pub owner: Option<PaneId>,
     pub buffer: usize,
     pub cursor: Cursor,
     /// First visible row, maintained by the frontend.
@@ -73,11 +128,61 @@ pub struct Pane {
     pub jump_back: Option<(usize, Cursor)>,
 }
 
+/// What a pane shows. Tool panes (all but `Score`) work on their view's score pane: the score
+/// pane focused last.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Hash)]
+pub enum PaneKind {
+    #[default]
+    Score,
+    Tracks,
+    /// The audio track's waveform.
+    Audio,
+    Piano,
+    Fretboard,
+    Tuner,
+}
+
+impl PaneKind {
+    pub const TOOLS: [PaneKind; 5] = [
+        PaneKind::Tracks,
+        PaneKind::Audio,
+        PaneKind::Piano,
+        PaneKind::Fretboard,
+        PaneKind::Tuner,
+    ];
+
+    pub fn name(self) -> &'static str {
+        match self {
+            PaneKind::Score => "score",
+            PaneKind::Tracks => "tracks",
+            PaneKind::Audio => "audio",
+            PaneKind::Piano => "piano",
+            PaneKind::Fretboard => "fretboard",
+            PaneKind::Tuner => "tuner",
+        }
+    }
+
+    pub fn parse(s: &str) -> Option<PaneKind> {
+        Some(match s {
+            "score" => PaneKind::Score,
+            "tracks" => PaneKind::Tracks,
+            "audio" => PaneKind::Audio,
+            "piano" => PaneKind::Piano,
+            "fretboard" => PaneKind::Fretboard,
+            "tuner" => PaneKind::Tuner,
+            _ => return None,
+        })
+    }
+}
+
 /// A layout of panes with its own set of loaded buffers (the bufferline's tabs).
 #[derive(Debug, Clone)]
 pub struct View {
     pub root: Node,
+    /// The focused pane (a score or a tool).
     pub focus: PaneId,
+    /// The score pane focused last: the one tool panes and editing commands work on.
+    pub score: PaneId,
     /// Buffers loaded in this view, in bufferline order.
     pub buffers: Vec<usize>,
     pub name: Option<String>,
@@ -192,7 +297,6 @@ pub enum Effect {
 }
 
 pub const DEFAULT_TRACKS_ROWS: usize = 8;
-pub const MAX_TRACKS_ROWS: usize = 64;
 pub const DEFAULT_WAVEFORM_HEIGHT: u16 = 64;
 pub const MIN_WAVEFORM_HEIGHT: u16 = 24;
 pub const MAX_WAVEFORM_HEIGHT: u16 = 600;
@@ -240,25 +344,30 @@ pub struct App {
     pub completion_ignore_case: bool,
     /// Command-line completion is fuzzy (`ui.completion_fuzzy`).
     pub completion_fuzzy: bool,
-    /// GUI: a waveform bar across the whole window above the status line, for the focused
-    /// pane's file (`ui.global_waveform`).
-    pub global_waveform: bool,
-    /// The tracks panel is shown (`ui.tracks_panel`).
-    pub tracks_panel: bool,
     /// The toolbar is shown (`ui.toolbar`, `:toolbar`).
     pub toolbar: bool,
-    /// The fretboard and piano panels are shown (`:fretboard`, `:piano`).
-    pub fretboard_panel: bool,
-    pub piano_panel: bool,
-    /// The tuner is shown (and listening), with its latest reading (set by the frontend).
-    pub tuner_panel: bool,
+    /// The tuner's latest reading while a tuner pane is shown (set by the frontend).
     pub tuner_reading: Option<muse_audio::tuner::Reading>,
     /// Why the tuner can't listen, if it can't.
     pub tuner_error: Option<String>,
-    /// Until when the hidden tracks panel shows after the track changed (`ui.tracks_peek`).
+    /// The tracks panel's selected row (an index into [`App::track_rows`]), while it has the
+    /// focus.
+    pub tracks_selected: usize,
+    /// Height of a row of text in viewport units (1 in a terminal, pixels in the GUI), for
+    /// sizing new tool panes.
+    pub row_height: u16,
+    /// Until when the tracks show for a moment after the track changed, while no tracks pane
+    /// is shown (`ui.tracks_peek`).
     tracks_peek_until: Option<std::time::Instant>,
-    /// Tracks the tracks panel shows at once (`:tracks-resize`, or drag its top edge).
-    pub tracks_rows: usize,
+    /// Width of a column of text in viewport units (1 in a terminal, pixels in the GUI).
+    pub col_width: u16,
+    /// What a pane's frame adds to its height and width (viewport units).
+    pub pane_frame: u16,
+    /// Tool panes added before the frontend first set the viewport: sized again then.
+    unfitted: Vec<PaneId>,
+    viewport_known: bool,
+    /// A track being renamed in place in the tracks pane: its index and the name typed so far.
+    pub renaming: Option<(usize, String)>,
     /// Height of the GUI's waveform strips and bar in logical pixels (`:waveform-resize`).
     pub waveform_height: u16,
     /// Screen area for panes, set by the frontend.
@@ -290,10 +399,7 @@ impl App {
         let follow = config.file.ui.follow_playback;
         let completion_ignore_case = config.file.ui.completion_ignore_case;
         let completion_fuzzy = config.file.ui.completion_fuzzy;
-        let global_waveform = config.file.ui.global_waveform;
-        let tracks_panel = config.file.ui.tracks_panel;
         let toolbar = config.file.ui.toolbar;
-        let (fretboard_panel, piano_panel) = (config.file.ui.fretboard, config.file.ui.piano);
         let (score_layout, zoom) = (config.file.ui.layout.clone(), config.file.ui.zoom);
         let config_mtime = config_path.as_deref().and_then(mtime);
         let theme_mtime = config
@@ -307,6 +413,9 @@ impl App {
         panes.insert(
             1,
             Pane {
+                kind: PaneKind::Score,
+                size: (None, None),
+                owner: None,
                 buffer: 0,
                 cursor: Cursor::default(),
                 scroll: 0,
@@ -316,7 +425,7 @@ impl App {
                 jump_back: None,
             },
         );
-        Self {
+        let mut app = Self {
             config,
             config_path,
             config_mtime,
@@ -328,6 +437,7 @@ impl App {
                 maximized: None,
                 root: Node::Leaf(1),
                 focus: 1,
+                score: 1,
                 buffers: vec![0],
                 name: None,
             }],
@@ -352,16 +462,17 @@ impl App {
             seeked: None,
             completion_ignore_case,
             completion_fuzzy,
-            global_waveform,
-            tracks_panel,
             toolbar,
-            fretboard_panel,
-            piano_panel,
-            tuner_panel: false,
             tuner_reading: None,
             tuner_error: None,
-            tracks_rows: DEFAULT_TRACKS_ROWS,
+            tracks_selected: 0,
+            renaming: None,
+            row_height: 1,
+            col_width: 1,
+            pane_frame: 2,
             tracks_peek_until: None,
+            unfitted: Vec::new(),
+            viewport_known: false,
             waveform_height: DEFAULT_WAVEFORM_HEIGHT,
             viewport: Rect {
                 x: 0,
@@ -380,7 +491,22 @@ impl App {
             workspace_file: None,
             workspace_saved: None,
             remember_workspace: false,
+        };
+        // Tool panes the config shows from the start.
+        let ui = &app.config.file.ui;
+        let tools = [
+            (PaneKind::Tracks, ui.tracks_panel),
+            (PaneKind::Fretboard, ui.fretboard),
+            (PaneKind::Piano, ui.piano),
+            (PaneKind::Audio, ui.global_waveform),
+        ];
+        for (kind, on) in tools {
+            if on {
+                app.set_tool(kind, Some(true));
+            }
         }
+        app.set_focus(1);
+        app
     }
 
     pub fn take_effects(&mut self) -> Vec<Effect> {
@@ -391,8 +517,183 @@ impl App {
         &self.views[self.active_view]
     }
 
+    /// The view's score pane: the one editing, playback and the tool panes work on.
     pub fn focused(&self) -> PaneId {
+        self.view().score
+    }
+
+    /// The focused pane, a score or a tool.
+    pub fn window_focus(&self) -> PaneId {
         self.view().focus
+    }
+
+    /// What the focused pane shows.
+    pub fn focused_kind(&self) -> PaneKind {
+        self.panes
+            .get(&self.window_focus())
+            .map_or(PaneKind::Score, |p| p.kind)
+    }
+
+    /// Focuses a pane of the active view; a score pane becomes the one tools work on.
+    /// A local tool pane makes its own score pane the view's.
+    pub fn set_focus(&mut self, id: PaneId) {
+        let (kind, owner) = self
+            .panes
+            .get(&id)
+            .map_or((None, None), |p| (Some(p.kind), p.owner));
+        let v = &mut self.views[self.active_view];
+        v.focus = id;
+        if kind == Some(PaneKind::Score) {
+            v.score = id;
+        } else if let Some(o) = owner {
+            v.score = o;
+        }
+    }
+
+    /// The score pane a tool pane shows: its own for a local tool, else the view's.
+    pub fn tool_score(&self, id: PaneId) -> PaneId {
+        self.panes
+            .get(&id)
+            .and_then(|p| p.owner)
+            .filter(|o| self.panes.contains_key(o))
+            .unwrap_or_else(|| self.focused())
+    }
+
+    /// The pane of a tool kind that applies here, if shown: the view's global one, or (for a
+    /// local tool) the one under the view's score pane.
+    pub fn tool_pane(&self, kind: PaneKind) -> Option<PaneId> {
+        let owner = (!self.is_global(kind)).then(|| self.focused());
+        self.view().root.panes().into_iter().find(|id| {
+            self.panes
+                .get(id)
+                .is_some_and(|p| p.kind == kind && p.owner == owner)
+        })
+    }
+
+    /// A tool pane's natural height and width (viewport units): what its contents need, in
+    /// rows of `row_height` and columns of `col_width` (set by the frontend), frame included.
+    fn natural_size(&self, kind: PaneKind) -> (u16, u16) {
+        let strings = self
+            .buffer()
+            .score
+            .tracks
+            .get(self.pane().cursor.track)
+            .map_or(6, |t| t.strings.len().max(1));
+        let (rows, cols) = match kind {
+            PaneKind::Tracks => (self.track_rows().len() + 1, 72),
+            PaneKind::Fretboard => (strings + 1, 60),
+            PaneKind::Piano | PaneKind::Tuner => (3, 40),
+            PaneKind::Audio => (4, 40),
+            PaneKind::Score => (10, 40),
+        };
+        let frame = self.pane_frame as usize;
+        (
+            (rows * self.row_height as usize + frame).min(u16::MAX as usize) as u16,
+            (cols * self.col_width as usize + frame).min(u16::MAX as usize) as u16,
+        )
+    }
+
+    /// Whether a tool docks along the bottom of the whole view, showing the last active score
+    /// pane (`ui.global_tools`; the audio too with `ui.global_waveform`), else under its own
+    /// score pane.
+    pub fn is_global(&self, kind: PaneKind) -> bool {
+        let ui = &self.config.file.ui;
+        (kind == PaneKind::Audio && ui.global_waveform)
+            || ui.global_tools.iter().any(|t| t == kind.name())
+    }
+
+    /// A pane's fixed size along an axis: a tool pane's own height or width.
+    pub fn fixed_size(&self, id: PaneId, axis: Axis) -> Option<u16> {
+        let p = self.panes.get(&id).filter(|p| p.kind != PaneKind::Score)?;
+        match axis {
+            Axis::Stacked => p.size.0,
+            Axis::SideBySide => p.size.1,
+        }
+    }
+
+    /// Sets the area panes are laid out in (each frame, by the frontend). The first time, tool
+    /// panes added before it was known take their natural height.
+    pub fn set_viewport(&mut self, viewport: Rect) {
+        self.viewport = viewport;
+        if self.viewport_known {
+            return;
+        }
+        self.viewport_known = true;
+        for id in std::mem::take(&mut self.unfitted) {
+            let Some(kind) = self.panes.get(&id).map(|p| p.kind) else {
+                continue;
+            };
+            let (h, w) = self.natural_size(kind);
+            if let Some(p) = self.panes.get_mut(&id) {
+                p.size = (Some(h), Some(w));
+            }
+        }
+    }
+
+    /// Whether the active view shows a pane of a tool kind.
+    pub fn has_tool(&self, kind: PaneKind) -> bool {
+        self.tool_pane(kind).is_some()
+    }
+
+    /// Shows (docked along the bottom of the view) or hides a tool pane; `None` toggles.
+    pub fn set_tool(&mut self, kind: PaneKind, on: Option<bool>) {
+        let shown = self.tool_pane(kind);
+        let on = on.unwrap_or(shown.is_none());
+        match (shown, on) {
+            (Some(id), false) => {
+                if self.views[self.active_view].maximized == Some(id) {
+                    self.views[self.active_view].maximized = None;
+                }
+                self.close_pane_id(id);
+            }
+            (None, true) => {
+                let id = self.new_pane(self.pane().buffer);
+                let (h, w) = self.natural_size(kind);
+                let score = self.focused();
+                let global = self.is_global(kind);
+                let pane = self.panes.get_mut(&id).unwrap();
+                pane.kind = kind;
+                pane.size = (Some(h), Some(w));
+                pane.owner = (!global).then_some(score);
+                if !self.viewport_known {
+                    self.unfitted.push(id);
+                }
+                let view = &mut self.views[self.active_view];
+                if global {
+                    // Along the bottom of the whole view.
+                    let root = std::mem::replace(&mut view.root, Node::Leaf(0));
+                    view.root = match root {
+                        Node::Split {
+                            axis: Axis::Stacked,
+                            mut children,
+                            mut weights,
+                        } => {
+                            children.push(Node::Leaf(id));
+                            weights.push(1.0);
+                            Node::Split {
+                                axis: Axis::Stacked,
+                                children,
+                                weights,
+                            }
+                        }
+                        other => Node::Split {
+                            axis: Axis::Stacked,
+                            children: vec![other, Node::Leaf(id)],
+                            weights: vec![1.0, 1.0],
+                        },
+                    };
+                } else {
+                    // Under the score pane it works on, as wide as it.
+                    view.root.split(score, id, Axis::Stacked);
+                }
+            }
+            _ => return,
+        }
+        if kind == PaneKind::Tuner {
+            self.tuner_reading = None;
+            self.tuner_error = None;
+            self.effects.push(Effect::Tuner(on));
+        }
     }
 
     /// The active view's bufferline: its loaded buffers in order.
@@ -446,6 +747,7 @@ impl App {
             .collect()
     }
 
+    /// The view's score pane (see [`App::focused`]).
     pub fn pane(&self) -> &Pane {
         &self.panes[&self.focused()]
     }
@@ -469,7 +771,10 @@ impl App {
     /// Where every pane of the view is, maximized or not (for moving between them).
     fn pane_rects(&self) -> Vec<(PaneId, Rect)> {
         let mut out = Vec::new();
-        self.view().root.layout(self.viewport, &mut out);
+        let fixed = |id, axis| self.fixed_size(id, axis);
+        self.view()
+            .root
+            .layout_with(self.viewport, &mut out, &fixed);
         out
     }
 
@@ -502,7 +807,8 @@ impl App {
         if self.maximized().is_some() {
             return Vec::new();
         }
-        self.view().root.dividers(self.viewport)
+        let fixed = |id, axis| self.fixed_size(id, axis);
+        self.view().root.dividers(self.viewport, &fixed)
     }
 
     /// Whether the edit cursor in a buffer is hidden: while it plays with follow on, only the
@@ -520,23 +826,26 @@ impl App {
         pane.waveform && !self.config.file.ui.global_waveform
     }
 
-    /// Whether the tracks panel is on screen: shown, or peeking after a change of track.
-    pub fn tracks_shown(&self) -> bool {
-        self.tracks_panel || self.tracks_peeking()
-    }
-
-    /// The hidden tracks panel is showing for a moment after the track changed.
+    /// The tracks show for a moment after the track changed (no tracks pane being shown):
+    /// frontends draw them along the bottom of the window, `peek_height` tall.
     pub fn tracks_peeking(&self) -> bool {
-        self.tracks_peek_until
-            .is_some_and(|t| std::time::Instant::now() < t)
+        !self.has_tool(PaneKind::Tracks)
+            && self
+                .tracks_peek_until
+                .is_some_and(|t| std::time::Instant::now() < t)
     }
 
-    /// After a key: if it changed the focused pane's track (same file), the hidden tracks
-    /// panel shows for `ui.tracks_peek` seconds.
+    /// Height of the peeking tracks (viewport units).
+    pub fn peek_height(&self) -> u16 {
+        self.natural_size(PaneKind::Tracks).0
+    }
+
+    /// After a key: if it changed the score pane's track (same file) while no tracks pane is
+    /// shown, the tracks show for `ui.tracks_peek` seconds.
     pub(crate) fn peek_tracks(&mut self, before: (PaneId, usize, Cursor)) {
         let pane = self.pane();
         let secs = self.config.file.ui.tracks_peek;
-        if self.tracks_panel
+        if self.has_tool(PaneKind::Tracks)
             || secs <= 0.0
             || !secs.is_finite()
             || (self.focused(), pane.buffer) != (before.0, before.1)
@@ -546,6 +855,24 @@ impl App {
         }
         self.tracks_peek_until =
             Some(std::time::Instant::now() + std::time::Duration::from_secs_f64(secs.min(3600.0)));
+    }
+
+    /// Tool panes without a size of their own (from older workspaces) get their natural one.
+    pub(crate) fn size_tools(&mut self) {
+        let without: Vec<PaneId> = self
+            .panes
+            .iter()
+            .filter(|(_, p)| p.kind != PaneKind::Score && p.size.0.is_none())
+            .map(|(id, _)| *id)
+            .collect();
+        for id in without {
+            if self.viewport_known {
+                let (h, w) = self.natural_size(self.panes[&id].kind);
+                self.panes.get_mut(&id).unwrap().size = (Some(h), Some(w));
+            } else {
+                self.unfitted.push(id);
+            }
+        }
     }
 
     /// The pane maximized in the active view, while it has the focus.
@@ -558,7 +885,66 @@ impl App {
     /// Moves a pane border (from [`App::dividers`]) to `pos`.
     pub fn drag_divider(&mut self, d: &crate::layout::Divider, pos: u16) {
         let v = self.active_view;
+        // A tool pane on either side takes the new size itself; else the panes share anew.
+        let fixed = |id, axis| self.fixed_size(id, axis);
+        let root = &self.views[v].root;
+        let rects = root.child_rects(&d.path, d.area, &fixed);
+        let children = match root.node_at(&d.path) {
+            Some(Node::Split { children, .. }) => children.clone(),
+            _ => return,
+        };
+        // Between two tool panes: they share the border's move, the rest stays as it is.
+        let leaf = |k: usize| match children.get(k) {
+            Some(Node::Leaf(id)) if fixed(*id, d.axis).is_some() => Some(*id),
+            _ => None,
+        };
+        if let (Some(a), Some(b), Some(ra), Some(rb)) = (
+            leaf(d.index),
+            leaf(d.index + 1),
+            rects.get(d.index),
+            rects.get(d.index + 1),
+        ) {
+            let (start, end) = match d.axis {
+                Axis::Stacked => (ra.y, rb.y + rb.h),
+                Axis::SideBySide => (ra.x, rb.x + rb.w),
+            };
+            let pos = pos.clamp(start + 2, end.saturating_sub(2).max(start + 2));
+            self.set_tool_size(a, d.axis, pos - start);
+            self.set_tool_size(b, d.axis, end.saturating_sub(pos).max(2));
+            return;
+        }
+        for (k, before) in [(d.index, true), (d.index + 1, false)] {
+            let (Some(Node::Leaf(id)), Some(r)) = (children.get(k), rects.get(k)) else {
+                continue;
+            };
+            if fixed(*id, d.axis).is_none() {
+                continue;
+            }
+            let (start, end) = match d.axis {
+                Axis::Stacked => (r.y, r.y + r.h),
+                Axis::SideBySide => (r.x, r.x + r.w),
+            };
+            let size = if before {
+                pos.saturating_sub(start)
+            } else {
+                end.saturating_sub(pos)
+            }
+            .max(2);
+            let id = *id;
+            self.set_tool_size(id, d.axis, size);
+            return;
+        }
         self.views[v].root.drag_divider(d, pos);
+    }
+
+    /// Sets a tool pane's height (stacked) or width (side by side).
+    fn set_tool_size(&mut self, id: PaneId, axis: Axis, size: u16) {
+        if let Some(p) = self.panes.get_mut(&id) {
+            match axis {
+                Axis::Stacked => p.size.0 = Some(size),
+                Axis::SideBySide => p.size.1 = Some(size),
+            }
+        }
     }
 
     pub fn info(&mut self, text: impl Into<String>) {
@@ -782,6 +1168,7 @@ impl App {
                 maximized: None,
                 root: Node::Leaf(id),
                 focus: id,
+                score: id,
                 buffers,
                 name: None,
             },
@@ -865,7 +1252,6 @@ impl App {
                 self.follow = self.config.file.ui.follow_playback;
                 self.completion_ignore_case = self.config.file.ui.completion_ignore_case;
                 self.completion_fuzzy = self.config.file.ui.completion_fuzzy;
-                self.global_waveform = self.config.file.ui.global_waveform;
                 self.effects.push(Effect::ConfigReloaded);
                 if errors.is_empty() {
                     self.info(format!("config reloaded: {}", path.display()));
@@ -1093,9 +1479,10 @@ impl App {
     /// Executes a command.
     pub fn run(&mut self, cmd: Command) {
         use Command::*;
-        if self.run_edit(&cmd)
+        // Chant first: it takes over note deletion on chant staves.
+        if self.run_chant(&cmd)
+            || self.run_edit(&cmd)
             || self.run_playalong(&cmd)
-            || self.run_chant(&cmd)
             || self.run_tracks(&cmd)
         {
             return;
@@ -1109,11 +1496,8 @@ impl App {
             }),
             NoteNext => self.move_cursor(|s, c| step_note(s, c, true)),
             NotePrev => self.move_cursor(|s, c| step_note(s, c, false)),
-            StringDown => self.move_cursor(|s, c| {
-                let n = s.tracks.get(c.track).map_or(1, |t| t.strings.len().max(1));
-                c.string = (c.string + 1).min(n - 1);
-            }),
-            StringUp => self.move_cursor(|_, c| c.string = c.string.saturating_sub(1)),
+            StringDown => self.move_cursor(|s, c| move_row(s, c, true)),
+            StringUp => self.move_cursor(|s, c| move_row(s, c, false)),
             BarNext => self.move_cursor(|s, c| set_bar(s, c, c.bar + 1)),
             BarPrev => self.move_cursor(|s, c| set_bar(s, c, c.bar.saturating_sub(1))),
             BarStart => self.move_cursor(|_, c| c.beat = 0),
@@ -1239,12 +1623,22 @@ impl App {
                 });
             }
             Split => self.split(Axis::Stacked),
-            // In the tracks panel, its height is resized.
-            Resize(Axis::Stacked, amount) if self.mode == Mode::Tracks => {
-                self.run(TracksResize(amount))
+            // A tool pane changes its own size (in percent of the view's); score panes share.
+            Resize(axis, amount) if self.focused_kind() != PaneKind::Score => {
+                let id = self.window_focus();
+                let total = match axis {
+                    Axis::Stacked => self.viewport.h,
+                    Axis::SideBySide => self.viewport.w,
+                } as i64;
+                let now = self.fixed_size(id, axis).unwrap_or(0) as i64;
+                let size = match amount {
+                    crate::command::Amount::To(n) => n as i64 * total / 100,
+                    crate::command::Amount::By(d) => now + d as i64 * total / 100,
+                };
+                self.set_tool_size(id, axis, size.clamp(2, total.max(2)) as u16);
             }
             Resize(axis, amount) => {
-                let id = self.focused();
+                let id = self.window_focus();
                 let (to, by) = match amount {
                     crate::command::Amount::To(n) => (Some(n as f32), 0.0),
                     crate::command::Amount::By(d) => (None, d as f32),
@@ -1259,14 +1653,9 @@ impl App {
             }
             ResizeEqual => self.views[self.active_view].root.equalize(),
             Toolbar(on) => self.toolbar = on.unwrap_or(!self.toolbar),
-            Fretboard(on) => self.fretboard_panel = on.unwrap_or(!self.fretboard_panel),
-            Piano(on) => self.piano_panel = on.unwrap_or(!self.piano_panel),
-            Tuner(on) => {
-                self.tuner_panel = on.unwrap_or(!self.tuner_panel);
-                self.tuner_reading = None;
-                self.tuner_error = None;
-                self.effects.push(Effect::Tuner(self.tuner_panel));
-            }
+            Fretboard(on) => self.set_tool(PaneKind::Fretboard, on),
+            Piano(on) => self.set_tool(PaneKind::Piano, on),
+            Tuner(on) => self.set_tool(PaneKind::Tuner, on),
             Maximize => {
                 let on = self.maximized().is_none();
                 let v = &mut self.views[self.active_view];
@@ -1280,10 +1669,15 @@ impl App {
                     "panes restored"
                 });
             }
+            // The tracks pane taller or shorter, as `:resize` on it.
+            // The tracks pane showing N rows (or N more / fewer).
             TracksResize(amount) => {
-                let rows = amount.apply(self.tracks_rows as i64);
-                self.tracks_rows = rows.clamp(1, MAX_TRACKS_ROWS as i64) as usize;
-                self.tracks_panel = true;
+                self.set_tool(PaneKind::Tracks, Some(true));
+                let id = self.tool_pane(PaneKind::Tracks).unwrap();
+                let row = self.row_height.max(1) as i64;
+                let now = self.fixed_size(id, Axis::Stacked).unwrap_or(0) as i64 / row - 3;
+                let rows = amount.apply(now).max(1);
+                self.set_tool_size(id, Axis::Stacked, ((rows + 3) * row) as u16);
             }
             WaveformResize(amount) => {
                 let h = amount.apply(self.waveform_height as i64);
@@ -1292,19 +1686,19 @@ impl App {
             }
             VSplit => self.split(Axis::SideBySide),
             Focus(dir) => {
-                if let Some(id) = neighbour(&self.pane_rects(), self.focused(), dir) {
-                    self.views[self.active_view].focus = id;
+                if let Some(id) = neighbour(&self.pane_rects(), self.window_focus(), dir) {
+                    self.set_focus(id);
                 }
             }
             PaneMove(dir) => {
-                let (id, v) = (self.focused(), self.active_view);
+                let (id, v) = (self.window_focus(), self.active_view);
                 self.views[v].maximized = None;
                 if !self.views[v].root.move_to_edge(id, dir) {
                     self.info("only one pane in this view");
                 }
             }
             PaneExchange | PaneRotate(_) => {
-                let (id, v) = (self.focused(), self.active_view);
+                let (id, v) = (self.window_focus(), self.active_view);
                 self.views[v].maximized = None;
                 let root = &mut self.views[v].root;
                 let moved = match cmd {
@@ -1562,7 +1956,7 @@ impl App {
         clamp_cursor(score, &mut pane.cursor);
     }
 
-    /// A new pane on `buffer`, with the focused pane's layout.
+    /// A new score pane on `buffer`, with the score pane's layout.
     fn new_pane(&mut self, buffer: usize) -> PaneId {
         let id = self.next_pane;
         self.next_pane += 1;
@@ -1573,6 +1967,9 @@ impl App {
         self.panes.insert(
             id,
             Pane {
+                kind: PaneKind::Score,
+                size: (None, None),
+                owner: None,
                 buffer,
                 cursor: Cursor::default(),
                 scroll: 0,
@@ -1591,16 +1988,33 @@ impl App {
         let pane = self.panes.get_mut(&id).unwrap();
         pane.cursor = current.cursor;
         pane.recent = current.recent;
-        let focus = self.focused();
-        let view = &mut self.views[self.active_view];
-        view.root.split(focus, id, axis);
-        view.focus = id;
+        // The focused pane (a score or a tool) gives up half its room to a new score pane.
+        let focus = self.window_focus();
+        self.views[self.active_view].root.split(focus, id, axis);
+        self.set_focus(id);
+    }
+
+    /// The score panes of the active view.
+    fn score_panes(&self) -> Vec<PaneId> {
+        self.view()
+            .root
+            .panes()
+            .into_iter()
+            .filter(|id| {
+                self.panes
+                    .get(id)
+                    .is_some_and(|p| p.kind == PaneKind::Score)
+            })
+            .collect()
     }
 
     /// `:q` on the focused pane: closes it, its view with the last pane, muse with the last view.
     fn close_pane(&mut self, force: bool) {
-        let focus = self.focused();
-        if self.view().root.panes().len() > 1 {
+        let focus = self.window_focus();
+        // A tool pane, or one of several score panes, just closes; the last score pane closes
+        // the view (or muse).
+        let tool = self.focused_kind() != PaneKind::Score;
+        if tool || self.score_panes().len() > 1 {
             self.close_pane_id(focus);
         } else if self.views.len() > 1 {
             self.close_view(false);
@@ -1614,7 +2028,11 @@ impl App {
     /// closes the view; the last pane of the last view shows an empty score instead.
     fn close_pane_id(&mut self, id: PaneId) {
         let rects = self.pane_rects();
-        if self.view().root.panes().len() <= 1 {
+        let tool = self
+            .panes
+            .get(&id)
+            .is_some_and(|p| p.kind != PaneKind::Score);
+        if !tool && self.score_panes().len() <= 1 {
             if self.views.len() > 1 {
                 self.close_view(true);
             } else {
@@ -1629,13 +2047,35 @@ impl App {
             }
             return;
         }
+        // A score pane's local tools close with it.
+        let tools: Vec<PaneId> = self
+            .panes
+            .iter()
+            .filter(|(_, p)| p.owner == Some(id))
+            .map(|(t, _)| *t)
+            .collect();
+        let view = &mut self.views[self.active_view];
+        for t in &tools {
+            view.root.remove(*t);
+            if view.focus == *t {
+                view.focus = id;
+            }
+        }
+        for t in &tools {
+            self.panes.remove(t);
+        }
         let view = &mut self.views[self.active_view];
         view.root.remove(id);
+        let (focused, score) = (view.focus == id, view.score == id);
+        let remaining = view.root.panes();
         self.panes.remove(&id);
-        if view.focus == id {
-            let remaining = view.root.panes();
+        if score {
+            let other = self.score_panes()[0];
+            self.views[self.active_view].score = other;
+        }
+        if focused {
             // Focus the nearest remaining pane, as vim does.
-            view.focus = [
+            let next = [
                 crate::command::Direction::Left,
                 crate::command::Direction::Up,
                 crate::command::Direction::Right,
@@ -1644,6 +2084,7 @@ impl App {
             .into_iter()
             .find_map(|d| neighbour(&rects, id, d).filter(|n| remaining.contains(n)))
             .unwrap_or(remaining[0]);
+            self.set_focus(next);
         }
     }
 
@@ -1738,9 +2179,7 @@ pub fn beat_at_tick(score: &Score, track: usize, bar: usize, tick: u32) -> usize
     let c = Cursor {
         track,
         bar,
-        beat: 0,
-        string: 0,
-        voice: 0,
+        ..Cursor::default()
     };
     let mut t = 0;
     for (i, b) in beats(score, &c).iter().enumerate() {
@@ -1775,6 +2214,171 @@ pub(crate) fn clamp_cursor(score: &Score, c: &mut Cursor) {
         .get(c.track)
         .map_or(1, |t| t.strings.len().max(1));
     c.string = c.string.min(strings - 1);
+    // The cursor's staff exists, and a position left from another kind of staff goes back
+    // to the middle.
+    let Some(track) = score.tracks.get(c.track) else {
+        return;
+    };
+    let staves = track.staves();
+    c.staff = staff_index(track, c.staff);
+    let staff = staves[c.staff];
+    if !uses_strings(track, staff) {
+        let middle = staff_middle(track, staff);
+        if (c.line - middle).abs() > 24 {
+            c.line = middle;
+        }
+    }
+}
+
+/// Whether the cursor sits on strings on a staff: a tab, or a drum staff's lanes.
+pub(crate) fn uses_strings(track: &Track, staff: Staff) -> bool {
+    match staff {
+        Staff::Tab | Staff::TabRhythm => !track.strings.is_empty(),
+        Staff::Standard(_) => track.kind == TrackKind::Drums,
+        Staff::Slash | Staff::Chant => false,
+    }
+}
+
+/// Middle of a staff (its treble half on a grand staff; a GABC position on chant).
+fn staff_middle(track: &Track, staff: Staff) -> i32 {
+    match staff {
+        Staff::Chant => 6,
+        Staff::Standard(clef) => track.written_clef(clef, false).bottom_line() + 4,
+        _ => track.written_clef(Clef::Treble, false).bottom_line() + 4,
+    }
+}
+
+/// Rows of one staff, top first: its strings, or its lines and spaces (with those just above
+/// and below it, and as far as the notes of the cursor beat on that staff reach).
+fn staff_rows(score: &Score, c: &Cursor, track: &Track, index: usize, staff: Staff) -> Vec<Row> {
+    if uses_strings(track, staff) {
+        return (0..track.strings.len().max(1))
+            .map(|s| Row::String(index, s))
+            .collect();
+    }
+    let lines = |lo: i32, hi: i32| (lo..=hi).rev().map(move |p| Row::Line(index, p));
+    let key = score
+        .master_bars
+        .get(c.bar)
+        .map_or(0, |m| m.key_signature.accidentals);
+    let notes: Vec<u8> = beats(score, c)
+        .get(c.beat)
+        .map(|b| b.notes.iter().map(|n| track.pitch_of(n)).collect())
+        .unwrap_or_default();
+    // A staff's lines in a clef, widened to the notes it shows.
+    let range = |clef: StaffClef, shows: &dyn Fn(u8) -> bool| {
+        let bottom = clef.bottom_line();
+        let (mut lo, mut hi) = (bottom - 1, bottom + 9);
+        for &p in notes.iter().filter(|&&p| shows(p)) {
+            let d = staff::diatonic(p as i32 + clef.transpose(), key);
+            lo = lo.min(d);
+            hi = hi.max(d);
+        }
+        (lo, hi)
+    };
+    match staff {
+        Staff::Chant => lines(1, 11).collect(),
+        Staff::Slash => vec![Row::Line(index, staff_middle(track, staff))],
+        Staff::Standard(clef @ Clef::Grand { split }) => {
+            let (t_lo, t_hi) = range(track.written_clef(clef, false), &|p| p >= split);
+            let (b_lo, b_hi) = range(track.written_clef(clef, true), &|p| p < split);
+            lines(t_lo, t_hi)
+                .chain(lines(b_lo, b_hi.min(t_lo - 1)))
+                .collect()
+        }
+        Staff::Standard(clef) => {
+            let (lo, hi) = range(track.written_clef(clef, false), &|_| true);
+            lines(lo, hi).collect()
+        }
+        // A tab without strings is shown as a treble staff.
+        Staff::Tab | Staff::TabRhythm => {
+            let (lo, hi) = range(track.written_clef(Clef::Treble, false), &|_| true);
+            lines(lo, hi).collect()
+        }
+    }
+}
+
+/// Every row of the cursor's track, top first: each staff's rows in turn.
+fn rows(score: &Score, c: &Cursor) -> Vec<Row> {
+    let Some(track) = score.tracks.get(c.track) else {
+        return Vec::new();
+    };
+    track
+        .staves()
+        .into_iter()
+        .enumerate()
+        .flat_map(|(i, staff)| staff_rows(score, c, track, i, staff))
+        .collect()
+}
+
+/// The cursor's row.
+pub fn cursor_row(score: &Score, c: &Cursor) -> Row {
+    let on_strings = score
+        .tracks
+        .get(c.track)
+        .and_then(|t| {
+            t.staves()
+                .get(staff_index(t, c.staff))
+                .map(|&s| uses_strings(t, s))
+        })
+        .unwrap_or(true);
+    if on_strings {
+        Row::String(c.staff, c.string)
+    } else {
+        Row::Line(c.staff, c.line)
+    }
+}
+
+fn set_row(c: &mut Cursor, row: Row) {
+    match row {
+        Row::Line(staff, p) => {
+            c.staff = staff;
+            c.line = p;
+        }
+        Row::String(staff, s) => {
+            c.staff = staff;
+            c.string = s;
+        }
+    }
+}
+
+/// One row down or up: through the track's staves, then on to the neighbouring track.
+fn move_row(score: &Score, c: &mut Cursor, down: bool) {
+    let here = rows(score, c);
+    if let Some(t) = score.tracks.get(c.track) {
+        c.staff = staff_index(t, c.staff);
+    }
+    let row = cursor_row(score, c);
+    // A position off the list (a ledger line left by an edit) steps to its neighbour.
+    let i = here.iter().position(|r| *r == row).or_else(|| match row {
+        Row::Line(staff, p) => here
+            .iter()
+            .position(|r| matches!(r, Row::Line(s, q) if *s == staff && *q < p)),
+        Row::String(..) => None,
+    });
+    let target = match (i, down) {
+        (Some(i), true) if i + 1 < here.len() => Some(here[i + 1]),
+        (Some(i), false) if i > 0 => Some(here[i - 1]),
+        (None, _) if !here.is_empty() => Some(here[0]),
+        _ => None,
+    };
+    if let Some(r) = target {
+        return set_row(c, r);
+    }
+    let next = if down {
+        Some(c.track + 1).filter(|&t| t < score.tracks.len())
+    } else {
+        c.track.checked_sub(1)
+    };
+    if let Some(t) = next {
+        set_track(score, c, t);
+        c.staff = 0;
+        let there = rows(score, c);
+        let entry = if down { there.first() } else { there.last() };
+        if let Some(&r) = entry {
+            set_row(c, r);
+        }
+    }
 }
 
 fn set_bar(score: &Score, c: &mut Cursor, bar: usize) {
@@ -1786,6 +2390,7 @@ fn set_track(score: &Score, c: &mut Cursor, track: usize) {
     let tick = cursor_tick(score, c);
     c.track = track.min(score.tracks.len().saturating_sub(1));
     c.beat = beat_at_tick(score, c.track, c.bar, tick);
+    c.staff = Cursor::HOME;
 }
 
 fn step_beat(score: &Score, c: &mut Cursor, forward: bool) -> bool {
@@ -2028,21 +2633,21 @@ mod tests {
         app.run(Command::Waveform);
         assert!(!app.panes[&second].waveform);
         assert!(app.panes[&first].waveform);
-        assert!(!app.global_waveform);
+        assert!(!app.has_tool(PaneKind::Audio));
         app.run(Command::WaveformGlobal(None));
-        assert!(app.global_waveform);
+        assert!(app.has_tool(PaneKind::Audio));
         app.run(Command::WaveformGlobal(Some(false)));
-        assert!(!app.global_waveform);
+        assert!(!app.has_tool(PaneKind::Audio));
         let (config, _) = Config::parse("[ui]\nglobal_waveform = true\n").unwrap();
         let mut app = App::new(config, None);
-        assert!(app.global_waveform);
+        assert!(app.has_tool(PaneKind::Audio));
         // With the window bar configured, panes have no strip of their own and :waveform
         // toggles the bar.
         assert!(!app.pane_waveform(app.pane()));
         app.run(Command::Waveform);
-        assert!(!app.global_waveform && !app.pane_waveform(app.pane()));
+        assert!(!app.has_tool(PaneKind::Audio) && !app.pane_waveform(app.pane()));
         app.run(Command::Waveform);
-        assert!(app.global_waveform);
+        assert!(app.has_tool(PaneKind::Audio));
     }
 
     #[test]
