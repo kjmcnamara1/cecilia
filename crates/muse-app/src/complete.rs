@@ -18,6 +18,7 @@ pub const COMMANDS: &[&str] = &[
     "accidental",
     "append",
     "audio",
+    "audio-pane",
     "bar",
     "bar-delete",
     "bar-end",
@@ -68,6 +69,7 @@ pub const COMMANDS: &[&str] = &[
     "follow-toggle",
     "gabc",
     "goto-bar",
+    "global-tool",
     "goto-first",
     "goto-last",
     "help",
@@ -111,6 +113,7 @@ pub const COMMANDS: &[&str] = &[
     "toolbar",
     "fretboard",
     "piano",
+    "progress-bar",
     "tuner",
     "buffer-move",
     "buffer-move-next",
@@ -213,7 +216,6 @@ pub const COMMANDS: &[&str] = &[
     "vsplit",
     "w",
     "waveform",
-    "waveform-global",
     "workspace-close",
     "workspace-open",
     "workspace-open!",
@@ -246,6 +248,7 @@ fn values(command: &str) -> Option<&'static [&'static str]> {
         "clef" => &[
             "c1", "c2", "c3", "c4", "cb2", "cb3", "cb4", "f1", "f2", "f3", "f4",
         ],
+        "global-tool" => &["audio", "fretboard", "piano", "tracks", "tuner"],
         "track-add" => &["bass", "drums", "guitar", "piano", "voice"],
         "staff" | "staff-add" => &[
             "chant",
@@ -271,7 +274,7 @@ fn values(command: &str) -> Option<&'static [&'static str]> {
         ],
         "tracks" | "toolbar" | "fretboard" | "piano" | "tuner" => &["off", "on"],
         "track-color" => &["off"],
-        "completion-ignore-case" | "completion-fuzzy" | "waveform-global" => {
+        "completion-ignore-case" | "completion-fuzzy" | "audio-pane" | "progress-bar" => {
             &["off", "on", "toggle"]
         }
         "duration" => &["1", "2", "4", "8", "16", "32", "64"],
@@ -918,7 +921,11 @@ pub fn describe(command: &str) -> Option<&'static str> {
         "vsplit" => "Split the pane vertically",
         "w" | "write" => "Save (or save as / export by extension)",
         "waveform" => "Toggle this pane's waveform strip",
-        "waveform-global" => "Toggle the window waveform bar",
+        "audio-pane" => "Show or hide the audio (waveform) pane",
+        "global-tool" => {
+            "Toggle whether a tool pane (tracks, audio, fretboard, piano, tuner) is global"
+        }
+        "progress-bar" => "Show or hide the progress bar along the score panes",
         "wq" | "write-quit" => "Save and close the pane",
         "workspace-save" => "Save the views, panes and open files as a workspace",
         "workspace-open" => "Open a saved workspace",

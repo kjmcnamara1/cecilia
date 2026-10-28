@@ -333,11 +333,6 @@ impl App {
                 self.info("sync points cleared");
             }
             SyncDetect => self.effects.push(Effect::SyncDetect),
-            // With the window waveform bar configured (ui.global_waveform), :waveform toggles
-            // that bar rather than adding a second waveform in the pane.
-            Waveform if self.config.file.ui.global_waveform => {
-                self.run(WaveformGlobal(None));
-            }
             Waveform => {
                 let pane = self.pane_mut();
                 pane.waveform = !pane.waveform;
@@ -348,7 +343,7 @@ impl App {
                     "waveform off in this pane"
                 });
             }
-            WaveformGlobal(on) => {
+            AudioPane(on) => {
                 self.set_tool(crate::app::PaneKind::Audio, *on);
             }
             Volume(src, pct) => {

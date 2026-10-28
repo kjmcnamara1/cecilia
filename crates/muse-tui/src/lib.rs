@@ -480,8 +480,18 @@ fn draw(f: &mut Frame, app: &mut App, play: Option<(usize, Location, f64, f64)>,
             .border_type(BorderType::Rounded)
             .border_style(border_style)
             .title(title);
-        let inner = block.inner(area);
+        let mut inner = block.inner(area);
         f.render_widget(block, area);
+        // The progress bar on the pane's last row.
+        if app.progress_bar && inner.height > 4 {
+            let row = Rect {
+                y: inner.y + inner.height - 1,
+                height: 1,
+                ..inner
+            };
+            inner.height -= 1;
+            draw_progress(f, app, id, row, play);
+        }
         if let Some(track) = track {
             app.page_bars = page_bars(inner, track);
         }
@@ -1175,6 +1185,68 @@ fn click_tracks(app: &mut App, ui: &mut Ui, x: u16, y: u16, kind: MouseEventKind
         Some(TracksHit::Bar(t, b)) => app.select_track_bar(t, Some(b)),
         None => {}
     }
+}
+
+/// A score pane's progress bar: its sections as `[A] Title` cells, the play position (or the
+/// cursor's) shaded red, and the time on the right.
+fn draw_progress(
+    f: &mut Frame,
+    app: &App,
+    id: muse_app::layout::PaneId,
+    area: Rect,
+    play: Option<(usize, Location, f64, f64)>,
+) {
+    let play = play.map(|(b, loc, t, total)| (b, loc.bar, loc.tick, t, total));
+    let Some(p) = app.progress(id, play) else {
+        return;
+    };
+    let t = &app.config.theme;
+    let base = Style::default().bg(rc(t.panel)).fg(rc(t.chrome_text));
+    let time = format!(
+        " {} / {} ",
+        muse_app::progress::clock(p.now),
+        muse_app::progress::clock(p.total)
+    );
+    let buf = f.buffer_mut();
+    buf.set_style(area, base);
+    let tw = time.chars().count() as u16;
+    if area.width <= tw + 4 {
+        return;
+    }
+    buf.set_string(area.x + area.width - tw, area.y, &time, base);
+    let w = (area.width - tw - 1) as f64;
+    let col = |f: f64| area.x + (w * f.clamp(0.0, 1.0)).round() as u16;
+    let seg = Style::default().bg(rc(t.tab)).fg(rc(t.chrome_text));
+    for sec in &p.sections {
+        let (x0, x1) = (col(sec.start), col(sec.end));
+        if x1 <= x0 + 1 {
+            continue;
+        }
+        let width = (x1 - x0 - 1) as usize;
+        let label = match (sec.letter.is_empty(), sec.title.is_empty()) {
+            (false, false) => format!("[{}] {}", sec.letter, sec.title),
+            (false, true) => format!("[{}]", sec.letter),
+            (true, _) => sec.title.clone(),
+        };
+        let label: String = label.chars().take(width).collect();
+        buf.set_string(x0, area.y, format!("{label:<width$}"), seg);
+    }
+    // The position: a red shade under whatever character is there.
+    let x = col(p.at).min(area.x + w as u16);
+    let cell = &mut buf[(x, area.y)];
+    let under = cell.bg;
+    let shade = match under {
+        Color::Rgb(r, g, b) => {
+            let red = t.playhead;
+            Color::Rgb(
+                ((r as u16 + red.r as u16) / 2) as u8,
+                ((g as u16 + red.g as u16) / 2) as u8,
+                ((b as u16 + red.b as u16) / 2) as u8,
+            )
+        }
+        _ => rc(t.playhead),
+    };
+    cell.set_bg(shade);
 }
 
 /// The audio pane: the audio's loudness under each bar, from the cursor's bar on.

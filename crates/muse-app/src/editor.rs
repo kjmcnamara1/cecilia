@@ -121,6 +121,15 @@ impl App {
         match self.mode {
             Mode::Command => self.handle_command_key(key),
             Mode::Picker => self.handle_picker_key(key),
+            // Escape in a tool pane goes back to the score pane worked on last.
+            Mode::Normal | Mode::Tracks
+                if key.code == KeyCode::Esc
+                    && self.pending.is_empty()
+                    && self.focused_kind() != crate::app::PaneKind::Score =>
+            {
+                self.count = None;
+                self.set_focus(self.focused());
+            }
             // A focused tracks pane has its own keys first.
             Mode::Normal | Mode::Tracks if self.focused_kind() == crate::app::PaneKind::Tracks => {
                 self.tracks_key(key)

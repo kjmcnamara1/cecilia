@@ -157,8 +157,12 @@ pub struct UiConfig {
     pub completion_ignore_case: bool,
     /// Command-line completion matches the typed letters in order anywhere in a candidate.
     pub completion_fuzzy: bool,
-    /// GUI: a waveform bar across the whole window above the status line.
-    pub global_waveform: bool,
+    /// No longer used (`global_tools` lists the audio pane instead); kept so old configs
+    /// still load, with a warning.
+    #[serde(skip_serializing)]
+    pub global_waveform: Option<bool>,
+    /// A progress bar along the bottom of every score pane: sections and the play position.
+    pub progress_bar: bool,
     /// The tracks panel (tracks with mixer and a bar overview) at the bottom of the window.
     pub tracks_panel: bool,
     /// Tool panes that dock along the bottom of the whole view, at its full width, and show
@@ -188,7 +192,8 @@ impl Default for UiConfig {
             follow_playback: true,
             completion_ignore_case: true,
             completion_fuzzy: true,
-            global_waveform: false,
+            global_waveform: None,
+            progress_bar: true,
             tracks_panel: false,
             global_tools: ["tracks", "audio", "fretboard", "piano", "tuner"]
                 .map(String::from)
@@ -719,6 +724,11 @@ impl Config {
             "keymap.command",
             &mut errors,
         );
+        if file.ui.global_waveform.is_some() {
+            errors.push(
+                "ui.global_waveform: no longer used; list \"audio\" in ui.global_tools and open it with :audio-pane".into(),
+            );
+        }
         if !file.keymap.play.is_empty() {
             errors.push(
                 "keymap.play: there is no Play mode any more; bind these in [keymap.normal]".into(),

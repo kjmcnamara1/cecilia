@@ -161,7 +161,12 @@ pub enum Command {
     /// Toggle the waveform strip of the focused pane.
     Waveform,
     /// The window-wide waveform bar: on, off, or toggle (None).
-    WaveformGlobal(Option<bool>),
+    /// Show or hide the audio (waveform) pane.
+    AudioPane(Option<bool>),
+    /// Toggle whether a tool pane is global (`ui.global_tools`).
+    GlobalTool(String),
+    /// Show or hide the progress bar of the score panes.
+    ProgressBar(Option<bool>),
     /// Level of "midi", "audio" or "metronome" in percent.
     Volume(String, u32),
     /// Mute / solo a track (the cursor's when not given), the audio track or the synth master
@@ -653,16 +658,25 @@ impl Command {
             "sync-clear" => SyncClear,
             "sync-detect" => SyncDetect,
             "waveform" => Waveform,
-            "waveform-global" => WaveformGlobal(match arg {
-                None | Some("toggle") => None,
-                Some("on" | "true" | "yes") => Some(true),
-                Some("off" | "false" | "no") => Some(false),
-                Some(other) => {
-                    return Err(format!(
-                        "waveform-global: expected on, off or toggle, not '{other}'"
-                    ));
+            "audio-pane" | "progress-bar" => {
+                let on = match arg {
+                    None | Some("toggle") => None,
+                    Some("on" | "true" | "yes") => Some(true),
+                    Some("off" | "false" | "no") => Some(false),
+                    Some(other) => {
+                        return Err(format!("{name}: expected on, off or toggle, not '{other}'"));
+                    }
+                };
+                if name == "audio-pane" {
+                    AudioPane(on)
+                } else {
+                    ProgressBar(on)
                 }
-            }),
+            }
+            "global-tool" => GlobalTool(
+                arg.ok_or("global-tool: expected tracks, audio, fretboard, piano or tuner")?
+                    .to_string(),
+            ),
             "volume" => {
                 let a = arg.ok_or("volume: expected SOURCE PERCENT (midi, audio, metronome)")?;
                 let (src, pct) = a.split_once(' ').ok_or("volume: expected SOURCE PERCENT")?;

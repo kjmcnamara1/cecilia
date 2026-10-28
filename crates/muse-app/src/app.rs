@@ -346,6 +346,9 @@ pub struct App {
     pub completion_fuzzy: bool,
     /// The toolbar is shown (`ui.toolbar`, `:toolbar`).
     pub toolbar: bool,
+    /// Score panes show the progress bar along their bottom (`ui.progress_bar`,
+    /// `:progress-bar`).
+    pub progress_bar: bool,
     /// The tuner's latest reading while a tuner pane is shown (set by the frontend).
     pub tuner_reading: Option<muse_audio::tuner::Reading>,
     /// Why the tuner can't listen, if it can't.
@@ -400,6 +403,7 @@ impl App {
         let completion_ignore_case = config.file.ui.completion_ignore_case;
         let completion_fuzzy = config.file.ui.completion_fuzzy;
         let toolbar = config.file.ui.toolbar;
+        let progress_bar = config.file.ui.progress_bar;
         let (score_layout, zoom) = (config.file.ui.layout.clone(), config.file.ui.zoom);
         let config_mtime = config_path.as_deref().and_then(mtime);
         let theme_mtime = config
@@ -463,6 +467,7 @@ impl App {
             completion_ignore_case,
             completion_fuzzy,
             toolbar,
+            progress_bar,
             tuner_reading: None,
             tuner_error: None,
             tracks_selected: 0,
@@ -498,7 +503,6 @@ impl App {
             (PaneKind::Tracks, ui.tracks_panel),
             (PaneKind::Fretboard, ui.fretboard),
             (PaneKind::Piano, ui.piano),
-            (PaneKind::Audio, ui.global_waveform),
         ];
         for (kind, on) in tools {
             if on {
@@ -594,12 +598,47 @@ impl App {
     }
 
     /// Whether a tool docks along the bottom of the whole view, showing the last active score
-    /// pane (`ui.global_tools`; the audio too with `ui.global_waveform`), else under its own
-    /// score pane.
+    /// pane (`ui.global_tools`, `:global-tool`), else under its own score pane.
     pub fn is_global(&self, kind: PaneKind) -> bool {
-        let ui = &self.config.file.ui;
-        (kind == PaneKind::Audio && ui.global_waveform)
-            || ui.global_tools.iter().any(|t| t == kind.name())
+        self.config
+            .file
+            .ui
+            .global_tools
+            .iter()
+            .any(|t| t == kind.name())
+    }
+
+    /// `:global-tool`: makes a tool global or local; one open here moves to its new place.
+    fn toggle_global_tool(&mut self, name: &str) {
+        let Some(kind) = PaneKind::parse(name).filter(|k| *k != PaneKind::Score) else {
+            return self.error(format!(
+                "global-tool: '{name}' is not a tool (tracks, audio, fretboard, piano, tuner)"
+            ));
+        };
+        let open = self.tool_pane(kind);
+        if open.is_some() {
+            self.set_tool(kind, Some(false));
+        }
+        let tools = &mut self.config.file.ui.global_tools;
+        let global = if let Some(i) = tools.iter().position(|t| t == kind.name()) {
+            tools.remove(i);
+            false
+        } else {
+            tools.push(kind.name().to_string());
+            true
+        };
+        if open.is_some() {
+            self.set_tool(kind, Some(true));
+        }
+        self.info(format!(
+            "{}: {}",
+            kind.name(),
+            if global {
+                "global (along the window bottom)"
+            } else {
+                "local (under its score pane)"
+            }
+        ));
     }
 
     /// A pane's fixed size along an axis: a tool pane's own height or width.
@@ -820,10 +859,9 @@ impl App {
             && self.playing_buffer == Some(buffer)
     }
 
-    /// Whether a pane shows its own waveform strip: not when the window waveform bar is
-    /// configured (`ui.global_waveform`), which takes its place.
+    /// Whether a pane shows its own waveform strip.
     pub fn pane_waveform(&self, pane: &Pane) -> bool {
-        pane.waveform && !self.config.file.ui.global_waveform
+        pane.waveform
     }
 
     /// The tracks show for a moment after the track changed (no tracks pane being shown):
@@ -1654,6 +1692,8 @@ impl App {
             ResizeEqual => self.views[self.active_view].root.equalize(),
             Toolbar(on) => self.toolbar = on.unwrap_or(!self.toolbar),
             Fretboard(on) => self.set_tool(PaneKind::Fretboard, on),
+            GlobalTool(name) => self.toggle_global_tool(&name),
+            ProgressBar(on) => self.progress_bar = on.unwrap_or(!self.progress_bar),
             Piano(on) => self.set_tool(PaneKind::Piano, on),
             Tuner(on) => self.set_tool(PaneKind::Tuner, on),
             Maximize => {
@@ -2625,7 +2665,7 @@ mod tests {
     }
 
     #[test]
-    fn waveform_strip_is_per_pane_and_window_bar_toggles() {
+    fn waveform_strips_audio_pane_global_tools_and_escape() {
         let mut app = App::new(Config::default(), None);
         let first = app.focused();
         app.run(Command::Split);
@@ -2634,20 +2674,34 @@ mod tests {
         assert!(!app.panes[&second].waveform);
         assert!(app.panes[&first].waveform);
         assert!(!app.has_tool(PaneKind::Audio));
-        app.run(Command::WaveformGlobal(None));
+        app.run(Command::AudioPane(None));
         assert!(app.has_tool(PaneKind::Audio));
-        app.run(Command::WaveformGlobal(Some(false)));
+        // Escape in a tool pane goes back to the score pane worked on last.
+        let audio = app.tool_pane(PaneKind::Audio).unwrap();
+        app.set_focus(audio);
+        app.handle_key(crate::keys::Key::new(crate::keys::KeyCode::Esc));
+        assert_eq!(app.window_focus(), second);
+        // :global-tool moves the open pane under its score pane, and back.
+        assert!(app.is_global(PaneKind::Audio));
+        app.run(Command::GlobalTool("audio".into()));
+        assert!(!app.is_global(PaneKind::Audio));
+        let local = app.tool_pane(PaneKind::Audio).unwrap();
+        assert_eq!(app.panes[&local].owner, Some(second));
+        app.run(Command::GlobalTool("audio".into()));
+        assert!(
+            app.panes[&app.tool_pane(PaneKind::Audio).unwrap()]
+                .owner
+                .is_none()
+        );
+        app.run(Command::AudioPane(Some(false)));
         assert!(!app.has_tool(PaneKind::Audio));
-        let (config, _) = Config::parse("[ui]\nglobal_waveform = true\n").unwrap();
-        let mut app = App::new(config, None);
-        assert!(app.has_tool(PaneKind::Audio));
-        // With the window bar configured, panes have no strip of their own and :waveform
-        // toggles the bar.
-        assert!(!app.pane_waveform(app.pane()));
-        app.run(Command::Waveform);
-        assert!(!app.has_tool(PaneKind::Audio) && !app.pane_waveform(app.pane()));
-        app.run(Command::Waveform);
-        assert!(app.has_tool(PaneKind::Audio));
+        // The old setting still loads, with a warning.
+        let (_, errors) = Config::parse("[ui]\nglobal_waveform = true\n").unwrap();
+        assert!(errors[0].contains("ui.global_waveform"), "{errors:?}");
+        // The progress bar is on by default and toggles.
+        assert!(app.progress_bar);
+        app.run(Command::ProgressBar(None));
+        assert!(!app.progress_bar);
     }
 
     #[test]

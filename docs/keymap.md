@@ -35,7 +35,7 @@ Items marked _(M1)_ are implemented in the first milestone; the rest are the pla
 | `<leader>-` / `<leader>=`   | speed −5% / +5%                                                                                                                                                                                                         | _(M5)_ |
 | `<leader>a`                 | cycle mix: audio + MIDI / audio only / MIDI only                                                                                                                                                                        | _(M5)_ |
 | `<leader>t`                 | sync tap: place the next bar at the current audio time                                                                                                                                                                  | _(M5)_ |
-| `<leader>w`                 | show / hide the waveform strip of the focused pane (GUI); with `ui.global_waveform = true` panes have no strip and this toggles the window waveform bar instead | _(M5)_ |
+| `<leader>w`                 | show / hide the waveform strip of the focused pane (GUI) | _(M5)_ |
 | `<leader>v`                 | cycle the focused pane's score layout (vertical / page / horizontal); new splits and views copy it                                                                                                                      | _(M3)_ |
 | `<C-=>` / `<C-->` / `<C-0>` | zoom in / out / reset (GUI; also Ctrl+wheel)                                                                                                                                                                            | _(M3)_ |
 
@@ -77,12 +77,14 @@ unless forced (`:bdelete!`).
 | `<C-m>` / `<C-w>z`  | maximize the pane / restore the others (`:maximize`); focusing another pane restores them too. Terminals often send `<C-m>` as Enter, so in the TUI use `<C-w>z` | |
 
 Besides scores, a pane can show a **tool**: the tracks (`:tracks`), the audio waveform
-(`:waveform-global`), the piano (`:piano`), the fretboard (`:fretboard`) or the tuner
+(`:audio-pane`), the piano (`:piano`), the fretboard (`:fretboard`) or the tuner
 (`:tuner`). Each command shows its tool, or hides it. A tool listed in `ui.global_tools` (all
-of them by default) docks along the bottom of the whole view, above the status line, as wide as
+of them by default; `:global-tool TOOL` switches one between global and local, moving it if it
+is open) docks along the bottom of the whole view, above the status line, as wide as
 the window, and shows the score pane worked on last. Any other tool opens at the bottom of the
 score pane worked on last, as wide as it, and always shows that pane's score (focusing it
-makes that pane the one worked on again); it closes with its score pane. A tool
+makes that pane the one worked on again); it closes with its score pane. `<Esc>` in a tool
+pane goes back to the score pane worked on last. A tool
 pane keeps its own size — the height (or width) its contents need, until you drag its border or
 `:resize` it — while panes come and go; score panes share the room left, equally when split.
 Tool panes are panes like the others: `<C-w>h/j/k/l` focus them, `<C-w>H/J/K/L`
@@ -406,7 +408,9 @@ flat or natural when needed), `x` deletes it and `u` undoes, as on any track.
 | `:loop [a b]` / `:loop-toggle`             | loop bars a–b (1-based), or the selection / cursor bar                                                                                                                                                   |
 | `:trainer start target step`               | speed trainer: start at `start`%, add `step`% each loop up to `target`% (e.g. `:trainer 60 100 5`)                                                                                                       |
 | `:pitch {semitones}`                       | shift the recording's pitch (−12…12, keeps tempo)                                                                                                                                                        |
-| `:metronome` / `:count-in` / `:waveform`   | toggles (`:waveform`: the focused pane's strip, or the window bar when `ui.global_waveform` is set) |
-| `:waveform-global [on\|off]`               | the audio pane: the score pane's audio waveform, marking the play position (or the cursor when stopped); no argument toggles (`ui.global_waveform` shows it from the start, instead of per-pane strips) |
+| `:metronome` / `:count-in` / `:waveform`   | toggles (`:waveform`: the focused pane's strip) |
+| `:audio-pane [on\|off]`                    | the audio pane: the score pane's audio waveform, marking the play position (or the cursor when stopped); no argument toggles |
+| `:global-tool TOOL`                        | switch a tool (tracks, audio, fretboard, piano, tuner) between global (along the window bottom) and local (under its score pane) |
+| `:progress-bar [on\|off]`                  | the progress bar along the bottom of every score pane: the sections (letter and title), a translucent red mark at the play position (or the cursor), and the time; clicking it moves the cursor to that bar. `ui.progress_bar` sets the default (on) |
 | `:export {file}`                           | export by extension                                                                                                                                                                                      |
 | `:layout [page\|vertical\|horizontal]`     | GUI score layout of the focused pane _(M3)_                                                                                                                                                              |

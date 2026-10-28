@@ -128,6 +128,8 @@ pub struct Views {
     tracks_rect: Option<Rect>,
     /// Tool panes on screen: clicking one focuses it.
     tool_rects: Vec<(Rect, PaneId)>,
+    /// Score panes' progress bars: clicking one moves the cursor to that bar.
+    progress: Vec<(Rect, PaneId)>,
     /// The last click: when and where, to tell a double click.
     last_click: Option<(std::time::Instant, f64, f64)>,
     /// The waveforms drawn last frame (`None`: the window bar, else a pane's strip).
@@ -629,6 +631,78 @@ fn draw_tracks(
     }
 }
 
+/// Height of a score pane's progress bar.
+const PROGRESS_H: f64 = 24.0;
+
+/// A score pane's progress bar: the song's sections as labelled segments (letter and title),
+/// a translucent red marker at the play position (or the cursor's), and the time.
+fn draw_progress(
+    scene: &mut Scene,
+    app: &App,
+    views: &mut Views,
+    id: PaneId,
+    r: Rect,
+    play: Option<(usize, Location, f64, f64)>,
+) {
+    let play = play.map(|(b, loc, t, total)| (b, loc.bar, loc.tick, t, total));
+    let Some(p) = app.progress(id, play) else {
+        return;
+    };
+    let theme = app.config.theme.clone();
+    fill(scene, r, col(theme.panel));
+    let time = format!(
+        "{} / {}",
+        muse_app::progress::clock(p.now),
+        muse_app::progress::clock(p.total)
+    );
+    text(
+        scene,
+        &time,
+        r.x1 - 8.0,
+        r.center().y + 4.5,
+        12.0,
+        Align::Right,
+        col(theme.chrome_text),
+        false,
+    );
+    let bar = Rect::new(r.x0 + 2.0, r.y0 + 2.0, r.x1 - 96.0, r.y1 - 2.0);
+    views.progress.push((bar, id));
+    let x_at = |f: f64| bar.x0 + bar.width() * f.clamp(0.0, 1.0);
+    for sec in &p.sections {
+        let seg = Rect::new(x_at(sec.start) + 1.0, bar.y0, x_at(sec.end) - 1.0, bar.y1);
+        if seg.width() < 1.0 {
+            continue;
+        }
+        fill(scene, seg, col(theme.tab));
+        let label = match (sec.letter.is_empty(), sec.title.is_empty()) {
+            (false, false) => format!("[{}] {}", sec.letter, sec.title),
+            (false, true) => format!("[{}]", sec.letter),
+            (true, _) => sec.title.clone(),
+        };
+        if !label.is_empty() {
+            scene.push_layer(Mix::Clip, 1.0, Affine::IDENTITY, &seg);
+            text(
+                scene,
+                &label,
+                seg.x0 + 5.0,
+                seg.center().y + 4.5,
+                12.0,
+                Align::Left,
+                col(theme.chrome_text),
+                false,
+            );
+            scene.pop_layer();
+        }
+    }
+    // The position: see-through, so the section under it stays readable.
+    let x = x_at(p.at);
+    fill(
+        scene,
+        Rect::new(x - 3.0, r.y0, x + 3.0, r.y1),
+        col(theme.playhead.with_alpha(110)),
+    );
+}
+
 /// The audio track's row: under each bar, a few bars of the audio's loudness there, mirrored
 /// about the row's middle (blank until the audio has loaded).
 #[allow(clippy::too_many_arguments)]
@@ -782,6 +856,7 @@ pub fn build(
     views.wave_rects.clear();
     views.tracks_rect = None;
     views.tool_rects.clear();
+    views.progress.clear();
     app.row_height = TRACK_ROW as u16;
     app.pane_frame = 12;
     app.col_width = 8;
@@ -1400,7 +1475,7 @@ fn draw_tool_icon(
             }
             line(scene, &path(&[(5.0, 10.0), (11.0, 10.0)], false));
         }
-        "toolbar" | "layout" | "waveform" | "waveform-global" => {
+        "toolbar" | "layout" | "waveform" | "audio-pane" => {
             line(scene, &rect(1.5, 2.5, 14.5, 13.5, 2.0));
             line(scene, &path(&[(1.5, 6.0), (14.5, 6.0)], false));
         }
@@ -1617,6 +1692,12 @@ fn draw_pane(
         false,
     );
     let mut content = Rect::new(rect.x0 + 2.0, rect.y0 + TITLE, rect.x1 - 2.0, rect.y1 - 2.0);
+    // The progress bar along the bottom, under the waveform strip.
+    if app.progress_bar && content.height() > 120.0 {
+        let r = Rect::new(content.x0, content.y1 - PROGRESS_H, content.x1, content.y1);
+        content.y1 -= PROGRESS_H + 2.0;
+        draw_progress(scene, app, views, id, r, play);
+    }
     let waveform = (app.pane_waveform(&pane) && score.audio.is_some() && content.height() > 200.0)
         .then(|| {
             let wave_h = app.waveform_height as f64;
@@ -3325,6 +3406,14 @@ impl Views {
                 && (y - y0).abs() < 4.0
         });
         self.last_click = Some((now, x, y));
+        // A click on a progress bar moves that pane's cursor to the bar there.
+        if let Some(&(r, id)) = self.progress.iter().find(|(r, _)| r.contains((x, y))) {
+            app.set_focus(id);
+            if let Some(b) = app.progress_bar_at(id, (x - r.x0) / r.width().max(1.0)) {
+                app.run(muse_app::Command::GotoBar(b + 1));
+            }
+            return;
+        }
         // A click in a tool pane focuses it.
         if let Some(&(_, id)) = self.tool_rects.iter().find(|(r, _)| r.contains((x, y))) {
             app.set_focus(id);
