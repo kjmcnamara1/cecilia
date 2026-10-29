@@ -480,6 +480,16 @@ fn draw(f: &mut Frame, app: &mut App, play: Option<(usize, Location, f64, f64)>,
             .border_type(BorderType::Rounded)
             .border_style(border_style)
             .title(title);
+        let zoom_indicator = app.is_zoomed(id);
+        let block = if zoom_indicator {
+            block.title(
+                Line::from("  ")
+                    .right_aligned()
+                    .style(Style::default().fg(rc(app.config.theme.accent)).bold()),
+            )
+        } else {
+            block
+        };
         let mut inner = block.inner(area);
         f.render_widget(block, area);
         // The progress bar on the pane's last row.
@@ -1201,7 +1211,11 @@ fn draw_progress(
         return;
     };
     let t = &app.config.theme;
-    let base = Style::default().bg(rc(t.panel)).fg(rc(t.chrome_text));
+    // Match the score background (the page colour, since TUI is always vertical/horizontal).
+    let ground = t.page;
+    let label_ink = ground.mix(t.ink, 0.8);
+    let segment = ground.mix(t.ink, 0.12);
+    let base = Style::default().bg(rc(ground)).fg(rc(label_ink));
     let time = format!(
         " {} / {} ",
         muse_app::progress::clock(p.now),
@@ -1216,7 +1230,7 @@ fn draw_progress(
     buf.set_string(area.x + area.width - tw, area.y, &time, base);
     let w = (area.width - tw - 1) as f64;
     let col = |f: f64| area.x + (w * f.clamp(0.0, 1.0)).round() as u16;
-    let seg = Style::default().bg(rc(t.tab)).fg(rc(t.chrome_text));
+    let seg = Style::default().bg(rc(segment)).fg(rc(label_ink));
     for sec in &p.sections {
         let (x0, x1) = (col(sec.start), col(sec.end));
         if x1 <= x0 + 1 {

@@ -643,13 +643,22 @@ fn draw_progress(
     id: PaneId,
     r: Rect,
     play: Option<(usize, Location, f64, f64)>,
+    on_page: bool,
 ) {
     let play = play.map(|(b, loc, t, total)| (b, loc.bar, loc.tick, t, total));
     let Some(p) = app.progress(id, play) else {
         return;
     };
     let theme = app.config.theme.clone();
-    fill(scene, r, col(theme.panel));
+    // On the score's background: the page, or the window's behind the page layout's pages.
+    let (ground, ink) = if on_page {
+        (theme.page, theme.ink)
+    } else {
+        (theme.chrome, theme.chrome_text)
+    };
+    let segment = ground.mix(ink, 0.12);
+    let label_ink = ground.mix(ink, 0.8);
+    fill(scene, r, col(ground));
     let time = format!(
         "{} / {}",
         muse_app::progress::clock(p.now),
@@ -662,7 +671,7 @@ fn draw_progress(
         r.center().y + 4.5,
         12.0,
         Align::Right,
-        col(theme.chrome_text),
+        col(label_ink),
         false,
     );
     let bar = Rect::new(r.x0 + 2.0, r.y0 + 2.0, r.x1 - 96.0, r.y1 - 2.0);
@@ -673,7 +682,7 @@ fn draw_progress(
         if seg.width() < 1.0 {
             continue;
         }
-        fill(scene, seg, col(theme.tab));
+        fill(scene, seg, col(segment));
         let label = match (sec.letter.is_empty(), sec.title.is_empty()) {
             (false, false) => format!("[{}] {}", sec.letter, sec.title),
             (false, true) => format!("[{}]", sec.letter),
@@ -688,7 +697,7 @@ fn draw_progress(
                 seg.center().y + 4.5,
                 12.0,
                 Align::Left,
-                col(theme.chrome_text),
+                col(label_ink),
                 false,
             );
             scene.pop_layer();
@@ -1691,12 +1700,25 @@ fn draw_pane(
         dim(),
         false,
     );
+    // Zoom indicator on the right of the title bar when this pane is in the zoom state.
+    if app.is_zoomed(id) {
+        text(
+            scene,
+            "",
+            rect.x1 - 14.0,
+            rect.y0 + 17.0,
+            13.0,
+            Align::Center,
+            accent(),
+            true,
+        );
+    }
     let mut content = Rect::new(rect.x0 + 2.0, rect.y0 + TITLE, rect.x1 - 2.0, rect.y1 - 2.0);
     // The progress bar along the bottom, under the waveform strip.
     if app.progress_bar && content.height() > 120.0 {
         let r = Rect::new(content.x0, content.y1 - PROGRESS_H, content.x1, content.y1);
         content.y1 -= PROGRESS_H + 2.0;
-        draw_progress(scene, app, views, id, r, play);
+        draw_progress(scene, app, views, id, r, play, mode_tag(&pane) != "page");
     }
     let waveform = (app.pane_waveform(&pane) && score.audio.is_some() && content.height() > 200.0)
         .then(|| {

@@ -608,32 +608,69 @@ impl App {
             .any(|t| t == kind.name())
     }
 
-    /// `:global-tool`: makes a tool global or local; one open here moves to its new place.
+    /// `:global-tool`: makes a tool global or local. Making global closes all local panes of
+    /// that tool (in every view) and opens one global pane. Making local closes the global
+    /// pane and opens a local one under the current score pane.
     fn toggle_global_tool(&mut self, name: &str) {
         let Some(kind) = PaneKind::parse(name).filter(|k| *k != PaneKind::Score) else {
             return self.error(format!(
                 "global-tool: '{name}' is not a tool (tracks, audio, fretboard, piano, tuner)"
             ));
         };
-        let open = self.tool_pane(kind);
-        if open.is_some() {
-            self.set_tool(kind, Some(false));
-        }
+        let was_open = self.tool_pane(kind).is_some();
         let tools = &mut self.config.file.ui.global_tools;
-        let global = if let Some(i) = tools.iter().position(|t| t == kind.name()) {
-            tools.remove(i);
-            false
-        } else {
+        let going_global = !tools.iter().any(|t| t == kind.name());
+        if going_global {
+            // Close ALL local panes of this tool kind (across all views).
+            let locals: Vec<PaneId> = self
+                .panes
+                .iter()
+                .filter(|(_, p)| p.kind == kind && p.owner.is_some())
+                .map(|(id, _)| *id)
+                .collect();
+            for id in &locals {
+                for v in &mut self.views {
+                    v.root.remove(*id);
+                    if v.focus == *id {
+                        v.focus = v.score;
+                    }
+                }
+                self.panes.remove(id);
+            }
             tools.push(kind.name().to_string());
-            true
-        };
-        if open.is_some() {
-            self.set_tool(kind, Some(true));
+            // Open one global pane (the tool is now global).
+            if was_open || !locals.is_empty() {
+                self.set_tool(kind, Some(true));
+            }
+        } else {
+            // Close the global pane, if any.
+            let globals: Vec<PaneId> = self
+                .panes
+                .iter()
+                .filter(|(_, p)| p.kind == kind && p.owner.is_none())
+                .map(|(id, _)| *id)
+                .collect();
+            for id in &globals {
+                for v in &mut self.views {
+                    v.root.remove(*id);
+                    if v.focus == *id {
+                        v.focus = v.score;
+                    }
+                }
+                self.panes.remove(id);
+            }
+            if let Some(i) = tools.iter().position(|t| t == kind.name()) {
+                tools.remove(i);
+            }
+            // Open a local one under the current score pane.
+            if was_open || !globals.is_empty() {
+                self.set_tool(kind, Some(true));
+            }
         }
         self.info(format!(
             "{}: {}",
             kind.name(),
-            if global {
+            if going_global {
                 "global (along the window bottom)"
             } else {
                 "local (under its score pane)"
@@ -918,6 +955,12 @@ impl App {
         let v = self.view();
         v.maximized
             .filter(|&id| id == v.focus && v.root.panes().len() > 1)
+    }
+
+    /// Whether a pane is in the zoom state: it is the view's maximized pane, even when
+    /// focus has moved to another pane (it will be maximized again on return).
+    pub fn is_zoomed(&self, id: PaneId) -> bool {
+        self.view().maximized == Some(id)
     }
 
     /// Moves a pane border (from [`App::dividers`]) to `pos`.
