@@ -440,8 +440,9 @@ fn onoff(b: bool) -> String {
     if b { "on" } else { "off" }.into()
 }
 
-/// A track's lyrics (its first verse) as one text. As in Guitar Pro, line breaks are spaces; the
-/// text the score keeps (a file's, with its line breaks) is shown while it still says the same.
+/// A track's lyrics as one text. As in Guitar Pro, line breaks are spaces; the score keeps the
+/// text it was given (a file's, typed here), with its line breaks, and every edit of the notes'
+/// syllables rebuilds it, so what it holds is what the notes say.
 fn lyrics_text(score: &muse_core::Score, track: usize) -> String {
     let Some(t) = score.tracks.get(track) else {
         return String::new();
@@ -454,10 +455,7 @@ fn lyrics_text(score: &muse_core::Score, track: usize) -> String {
         .as_ref()
         .filter(|l| l.track == Some(track))
         .and_then(|l| l.lines.first())
-        .filter(|k| k.start_bar == line.start_bar)
-        .filter(|k| {
-            muse_core::lyrics::syllables(&k.text) == muse_core::lyrics::syllables(&line.text)
-        });
+        .filter(|k| !k.text.trim().is_empty());
     kept.map_or(line.text, |k| {
         k.text.replace("\r\n", "\n").replace('\r', "\n")
     })
@@ -1128,14 +1126,13 @@ impl App {
             let n = muse_core::lyrics::place(t, 0, start, 0, &syllables);
             crate::editor::refresh_lyric_lines(score, track);
             // The score keeps the text as typed, line breaks included.
-            if let Some(l) = score.lyrics.as_mut().filter(|l| l.track == Some(track)) {
-                if let Some(k) = l.lines.first_mut() {
-                    if k.start_bar as usize == start
-                        && muse_core::lyrics::syllables(&k.text) == syllables
-                    {
-                        k.text = text.to_string();
-                    }
-                }
+            if let Some(k) = score
+                .lyrics
+                .as_mut()
+                .filter(|l| l.track == Some(track))
+                .and_then(|l| l.lines.first_mut())
+            {
+                k.text = text.to_string();
             }
             Ok(n)
         });

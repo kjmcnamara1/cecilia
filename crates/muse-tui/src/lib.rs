@@ -477,7 +477,9 @@ fn draw(f: &mut Frame, app: &mut App, play: Option<(usize, Location, f64, f64)>,
             continue;
         }
         let area = to_rect(r);
-        let style = if id == focused {
+        let style = if id == focused && kind == PaneKind::Properties {
+            Style::default().fg(rc(app.config.theme.accent))
+        } else if id == focused {
             Style::default().fg(rc(app.config.theme.mode_color(app.mode)))
         } else {
             Style::default().fg(rc(app.config.theme.dim))
@@ -1473,7 +1475,7 @@ fn draw_properties(f: &mut Frame, app: &App, area: Rect, ui: &mut Ui) {
         }
         let sel = app.property_row_selected(k);
         let box_sel = k == app.property_selected();
-        let hit = Rect {
+        let mut hit = Rect {
             x: area.x,
             y,
             width: area.width,
@@ -1499,6 +1501,10 @@ fn draw_properties(f: &mut Frame, app: &App, area: Rect, ui: &mut Ui) {
             RowKind::Note => buf.set_string(x0, y, clip(&row.label, width), dim),
             RowKind::Field { field, editable } => {
                 let typing = app.props.edit.as_ref().filter(|e| e.field == *field);
+                if *field == muse_app::properties::Field::Lyrics {
+                    // The text area fills the pane down to its end.
+                    hit.height = bottom - y;
+                }
                 let label_style = if sel {
                     base.fg(rc(t.mode_normal)).add_modifier(Modifier::BOLD)
                 } else {

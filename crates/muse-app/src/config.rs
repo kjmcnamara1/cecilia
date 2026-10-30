@@ -580,8 +580,6 @@ const DEFAULT_PROPERTIES: &[(&str, &str)] = &[
     ("/", "properties-search"),
     ("n", "properties-search-next"),
     ("N", "properties-search-prev"),
-    ("<C-n>", "track-next"),
-    ("<C-p>", "track-prev"),
     ("<Esc>", "properties-focus"),
     ("q", "properties-focus"),
     ("<leader><leader>", "play-toggle"),

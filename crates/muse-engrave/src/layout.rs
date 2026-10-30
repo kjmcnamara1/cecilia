@@ -2294,7 +2294,8 @@ impl Ctx<'_> {
         }
         heads.sort_by_key(|h| h.0);
         let avg = heads.iter().map(|h| h.0).sum::<i32>() as f64 / heads.len().max(1) as f64;
-        let up = up_voice.unwrap_or(avg < 4.0);
+        // Slashes always have their stems up.
+        let up = self.slash || up_voice.unwrap_or(avg < 4.0);
         let head = match (self.slash, beat.duration.value) {
             (false, DurationValue::Whole) => HEAD_WHOLE,
             (false, DurationValue::Half) => HEAD_HALF,

@@ -1034,7 +1034,15 @@ pub fn build(
             scene.stroke(
                 &Stroke::new(2.0),
                 Affine::IDENTITY,
-                tc(|t| t.mode_color(app.mode)),
+                if app
+                    .panes
+                    .get(&id)
+                    .is_some_and(|p| p.kind == PaneKind::Properties)
+                {
+                    accent()
+                } else {
+                    tc(|t| t.mode_color(app.mode))
+                },
                 None,
                 &rect.to_rounded_rect(3.0),
             );
@@ -2929,7 +2937,7 @@ fn draw_properties(scene: &mut Scene, app: &App, views: &mut Views, r: Rect) {
         let h = row.height() as f64 * PROPS_UNIT;
         let sel = app.property_row_selected(k);
         let box_sel = k == app.property_selected();
-        let hit = Rect::new(r.x0, y, r.x1, (y + h).min(bottom));
+        let mut hit = Rect::new(r.x0, y, r.x1, (y + h).min(bottom));
         match &row.kind {
             RowKind::Header { folded, .. } => {
                 let c = col(if sel { th.mode_normal } else { th.chrome_text });
@@ -2972,6 +2980,10 @@ fn draw_properties(scene: &mut Scene, app: &App, views: &mut Views, r: Rect) {
                     );
                 }
                 let area = *field == Field::Lyrics;
+                if area {
+                    // The text area fills the pane down to its end.
+                    hit.y1 = bottom;
+                }
                 let by0 = if labelled { y + PROPS_UNIT } else { y };
                 // Staff fields have a drag handle before them (the empty one, a gap).
                 let staff = matches!(field, Field::StaffAt(_));

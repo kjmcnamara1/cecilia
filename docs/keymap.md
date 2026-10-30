@@ -285,7 +285,6 @@ score pane). It stays Normal mode; while the pane has the focus its keys are
 | `x` | same as `d`: clear the text, lyrics or the track's own color, or remove the selected staff |
 | `/` | search: a field opens at the bottom of the pane and jumps to the first key or value with what is typed (any case, unless a capital is typed); `<CR>` keeps the jump and sets the `/` register, `<Esc>` goes back |
 | `n` `N` | jump to the next / previous match of the `/` register (in the lyrics text area, normal mode: through the text, `/` too) |
-| `<C-n>` `<C-p>` | next / previous track |
 | `<Esc>` `q` | back to the score pane |
 | `<leader><leader>` `<leader>s` `<leader>f` `:` | play/pause, stop, follow, command line |
 
