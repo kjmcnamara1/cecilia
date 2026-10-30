@@ -207,6 +207,51 @@ impl PropEdit {
         Some((a.min(self.caret), a.max(self.caret).min(self.len())))
     }
 
+    fn select_all(&mut self) {
+        self.anchor = Some(0);
+        self.caret = self.len();
+    }
+
+    /// Selects the word at `at`: its letters, or the run of spaces or the sign it is on.
+    fn select_word(&mut self, at: usize) {
+        let c = self.chars();
+        if c.is_empty() {
+            return;
+        }
+        let at = at.min(c.len() - 1);
+        let class = |ch: char| match ch {
+            _ if is_word(ch) => 0,
+            ' ' | '\t' => 1,
+            '\n' => 2,
+            _ => 3,
+        };
+        let k = class(c[at]);
+        let (mut a, mut b) = (at, at + 1);
+        // Signs are taken one at a time.
+        if k != 3 {
+            while a > 0 && class(c[a - 1]) == k {
+                a -= 1;
+            }
+            while b < c.len() && class(c[b]) == k {
+                b += 1;
+            }
+        }
+        self.anchor = Some(a);
+        self.caret = b;
+    }
+
+    fn selected_text(&self) -> Option<String> {
+        let (a, b) = self.selection()?;
+        Some(self.chars()[a..b].iter().collect())
+    }
+
+    /// Inserts a text at the caret, line breaks as `\n`.
+    fn insert_str(&mut self, text: &str) {
+        for c in text.replace("\r\n", "\n").replace('\r', "\n").chars() {
+            self.insert_char(c);
+        }
+    }
+
     fn chars(&self) -> Vec<char> {
         self.text.chars().collect()
     }
@@ -734,6 +779,114 @@ impl App {
         }
     }
 
+    /// A double click in the text area being edited: in normal mode it enters insert mode at
+    /// the click, in insert mode it selects the word there.
+    pub fn text_double_click(&mut self, at: usize) {
+        let Some(e) = self.props.edit.as_mut().filter(|e| e.modal) else {
+            return;
+        };
+        if e.insert {
+            e.select_word(at);
+        } else {
+            e.caret = at.min(e.len());
+            e.anchor = None;
+            e.insert = true;
+            self.ed.group = Some(false);
+        }
+    }
+
+    /// Ctrl-A, Ctrl-C, Ctrl-X and Ctrl-V in the text area, and `y`, `yy`, `p`, `P` in its normal
+    /// mode. True when the key was used up.
+    fn clipboard_key(&mut self, key: Key) -> bool {
+        let Some(edit) = self.props.edit.as_mut().filter(|e| e.modal) else {
+            return false;
+        };
+        let insert = edit.insert;
+        let selected = edit.selected_text();
+        let pending = edit.pending;
+        let ctrl = |c: char| key.ctrl && key.code == KeyCode::Char(c);
+        let plain = |c: char| !key.ctrl && !key.alt && key.code == KeyCode::Char(c);
+        if ctrl('a') {
+            edit.select_all();
+        } else if ctrl('c') || (!insert && plain('y') && selected.is_some()) {
+            if let Some(t) = &selected {
+                crate::clipboard::set(t);
+            }
+            if !ctrl('c') {
+                edit.anchor = None;
+            }
+        } else if ctrl('x') {
+            let Some(t) = selected else {
+                return true;
+            };
+            crate::clipboard::set(&t);
+            self.remove_selection();
+        } else if ctrl('v') || (!insert && (plain('p') || plain('P'))) {
+            let after = !insert && !plain('P');
+            self.paste(after);
+        } else if !insert && plain('y') && pending == Some('y') {
+            // yy: the line, with its line break.
+            let (a, b) = (edit.line_start(), edit.line_end());
+            let mut text: String = edit.chars()[a..b].iter().collect();
+            text.push('\n');
+            edit.pending = None;
+            crate::clipboard::set(&text);
+        } else if !insert && plain('y') {
+            edit.pending = Some('y');
+        } else {
+            return false;
+        }
+        true
+    }
+
+    fn remove_selection(&mut self) {
+        if let Some(e) = self.props.edit.as_mut() {
+            if let Some((a, b)) = e.selection() {
+                e.remove(a, b);
+                e.caret = a;
+                e.anchor = None;
+                e.rest();
+                if !e.insert {
+                    self.ed.group = None;
+                }
+                self.apply_live();
+            }
+        }
+    }
+
+    /// Puts the clipboard's text in: at the caret in insert mode (over a selection), else after
+    /// (`after`) or before it, as a step of its own.
+    fn paste(&mut self, after: bool) {
+        let text = crate::clipboard::get();
+        let Some(e) = self.props.edit.as_mut() else {
+            return;
+        };
+        if text.is_empty() {
+            return;
+        }
+        if let Some((a, b)) = e.selection() {
+            e.remove(a, b);
+            e.caret = a;
+        }
+        e.anchor = None;
+        if !e.insert {
+            // Normal mode: after the caret's character, unless the line is empty.
+            if after && e.caret < e.line_end() {
+                e.caret += 1;
+            }
+            self.ed.group = None;
+        }
+        let Some(e) = self.props.edit.as_mut() else {
+            return;
+        };
+        let start = e.caret;
+        e.insert_str(&text);
+        if !e.insert {
+            e.caret = e.caret.saturating_sub(1).max(start);
+        }
+        self.apply_live();
+    }
+
     /// Whether the lyrics text area is being edited and `row` is it.
     pub fn text_editing(&self, row: usize) -> bool {
         self.props.edit.as_ref().is_some_and(|e| e.modal) && row == self.props.selected
@@ -948,7 +1101,7 @@ impl App {
     /// Keys while a property is typed. A single line is in insert mode: `<CR>` keeps the text,
     /// `<Esc>` and `<C-c>` cancel. The lyrics are edited like vim.
     pub(crate) fn props_edit_key(&mut self, key: Key) {
-        if self.selection_key(key) {
+        if self.clipboard_key(key) || self.selection_key(key) {
             return;
         }
         let lines = self.props.visual.borrow().clone();
@@ -1001,7 +1154,7 @@ impl App {
     /// Keys in the lyrics text area's normal mode: a vim subset. Each change is its own undo
     /// step, and `<Esc>` leaves the text area.
     fn text_normal_key(&mut self, key: Key) {
-        if self.selection_key(key) {
+        if self.clipboard_key(key) || self.selection_key(key) {
             return;
         }
         let lines = self.props.visual.borrow().clone();
@@ -2396,5 +2549,54 @@ mod tests {
         app.text_drag(2);
         keys(&mut app, "<Esc>");
         assert!(app.props.edit.is_some() && edit(&app).selection().is_none());
+    }
+
+    #[test]
+    fn words_select_all_and_the_clipboard() {
+        let mut app = with_props();
+        app.run(Command::Lyrics(0, "one two three".into()));
+        app.set_property_tab(PropTab::Lyrics);
+        keys(&mut app, "<leader>P<CR>");
+        let edit = |app: &App| app.props.edit.clone().unwrap();
+        // In insert mode a double click selects the word; in normal mode it enters insert mode.
+        app.text_double_click(5);
+        assert_eq!(edit(&app).selection(), Some((4, 7)));
+        assert_eq!(edit(&app).selected_text().as_deref(), Some("two"));
+        app.text_double_click(3);
+        assert_eq!(edit(&app).selection(), Some((3, 4)), "the space between");
+        keys(&mut app, "<Esc><Esc>");
+        assert!(app.props.edit.is_none());
+        keys(&mut app, "<CR><Esc>");
+        assert!(!edit(&app).insert);
+        app.text_double_click(5);
+        assert!(edit(&app).insert && edit(&app).selection().is_none());
+        assert_eq!(edit(&app).caret, 5);
+        // Ctrl-A selects everything; Ctrl-C copies; typing over a selection replaces it.
+        keys(&mut app, "<C-a>");
+        assert_eq!(edit(&app).selection(), Some((0, 13)));
+        keys(&mut app, "<C-c>");
+        assert_eq!(crate::clipboard::get(), "one two three");
+        keys(&mut app, "Z");
+        assert_eq!(edit(&app).text, "Z");
+        // Ctrl-V pastes at the caret, Ctrl-X cuts.
+        keys(&mut app, "<C-v>");
+        assert_eq!(edit(&app).text, "Zone two three");
+        app.text_click(0);
+        app.text_drag(4);
+        keys(&mut app, "<C-x>");
+        assert_eq!(edit(&app).text, " two three");
+        assert_eq!(crate::clipboard::get(), "Zone");
+        // Normal mode: y with a selection, yy for the line, p and P paste.
+        keys(&mut app, "<Esc>");
+        app.text_click(1);
+        app.text_drag(4);
+        keys(&mut app, "y");
+        assert_eq!(crate::clipboard::get(), "two");
+        keys(&mut app, "$p");
+        assert_eq!(edit(&app).text, " two threetwo");
+        keys(&mut app, "0P");
+        assert_eq!(edit(&app).text, "two two threetwo");
+        keys(&mut app, "yy");
+        assert_eq!(crate::clipboard::get(), "two two threetwo\n");
     }
 }

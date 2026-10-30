@@ -4039,8 +4039,7 @@ impl Views {
                 // In the text area being edited: a click places the caret, a drag selects.
                 let at = self.props_text.as_ref().map_or(0, |p| p.at(x, y));
                 if double {
-                    app.click_property(i, true);
-                    app.set_text_caret(at);
+                    app.text_double_click(at);
                 } else {
                     app.text_click(at);
                     self.drag = Some(Drag::Text);

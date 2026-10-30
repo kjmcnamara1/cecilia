@@ -214,8 +214,7 @@ fn event_loop(terminal: &mut DefaultTerminal, app: &mut App) -> Result<()> {
                             {
                                 let at = text_at(&ui, m.column, m.row).unwrap_or(0);
                                 if is_double(&mut ui, m.column, m.row) {
-                                    app.click_property(i, true);
-                                    app.set_text_caret(at);
+                                    app.text_double_click(at);
                                 } else {
                                     app.text_click(at);
                                     ui.drag = Some(Drag::Text);
