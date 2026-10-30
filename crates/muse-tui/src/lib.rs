@@ -509,6 +509,16 @@ fn draw(f: &mut Frame, app: &mut App, play: Option<(usize, Location, f64, f64)>,
             .filter(|(b, ..)| *b == pane.buffer && app.playing)
             .map(|(_, l, ..)| (l.bar, l.tick));
         let mut scroll = pane.scroll;
+        let mut extent = (0, 0);
+        // The scrollbar takes the last column (the layout is a column narrower).
+        let bar_col = (app.scrollbar && inner.width > 20).then(|| {
+            inner.width -= 1;
+            Rect {
+                x: inner.x + inner.width,
+                width: 1,
+                ..inner
+            }
+        });
         let chant = app.chant_view && track.is_some_and(|t| t.chant.is_some());
         if chant {
             f.render_widget(
@@ -519,6 +529,7 @@ fn draw(f: &mut Frame, app: &mut App, play: Option<(usize, Location, f64, f64)>,
                     play: play_here,
                     hits,
                     scroll: &mut scroll,
+                    extent: &mut extent,
                 },
                 inner,
             );
@@ -531,9 +542,13 @@ fn draw(f: &mut Frame, app: &mut App, play: Option<(usize, Location, f64, f64)>,
                     play: play_here,
                     hits,
                     scroll: &mut scroll,
+                    extent: &mut extent,
                 },
                 inner,
             );
+        }
+        if let Some(col) = bar_col {
+            draw_scrollbar(f, app, col, scroll, extent);
         }
         if let Some(p) = app.panes.get_mut(&id) {
             p.scroll = scroll;
@@ -2235,5 +2250,27 @@ mod render_tests {
             "{screen}"
         );
         assert!(screen.contains('■') || screen.contains('·'), "{screen}");
+    }
+}
+
+/// A vertical scrollbar in `col`: `extent` is the lines in all and the lines shown.
+fn draw_scrollbar(f: &mut Frame, app: &App, col: Rect, scroll: usize, extent: (usize, usize)) {
+    let (total, shown) = extent;
+    if total <= shown || col.height == 0 {
+        return;
+    }
+    let t = &app.config.theme;
+    let len = col.height as usize;
+    let thumb = (len * shown / total).clamp(1, len);
+    let at = (len - thumb) * scroll.min(total - shown) / (total - shown);
+    let buf = f.buffer_mut();
+    for i in 0..len {
+        let on = (at..at + thumb).contains(&i);
+        let (ch, color) = if on {
+            ("█", t.dim)
+        } else {
+            ("│", t.chrome)
+        };
+        buf.set_string(col.x, col.y + i as u16, ch, Style::default().fg(rc(color)));
     }
 }

@@ -1920,6 +1920,42 @@ fn draw_pane(
         }
         scene.append(page_scene, Some(to_screen(i)));
     }
+    // Scrollbar: the thumb is the visible part of the score's extent along its flow.
+    if app.scrollbar {
+        let horizontal = mode_name == "horizontal";
+        let (total, view, pos, len) = if horizontal {
+            let w = cached
+                .layout
+                .pages
+                .iter()
+                .map(|p| p.width)
+                .fold(0.0, f64::max);
+            (w, view_w, scroll.0, content.width())
+        } else {
+            (total_h, view_h, scroll.1, content.height())
+        };
+        if total > view {
+            let t = app.config.theme.clone();
+            let thick = 6.0;
+            let thumb = (len * view / total).max(24.0).min(len);
+            let at = (len - thumb) * (pos / (total - view)).clamp(0.0, 1.0);
+            let (track, bar) = if horizontal {
+                let y = content.y1 - thick;
+                (
+                    Rect::new(content.x0, y, content.x1, content.y1),
+                    Rect::new(content.x0 + at, y, content.x0 + at + thumb, content.y1),
+                )
+            } else {
+                let x = content.x1 - thick;
+                (
+                    Rect::new(x, content.y0, content.x1, content.y1),
+                    Rect::new(x, content.y0 + at, content.x1, content.y0 + at + thumb),
+                )
+            };
+            fill(scene, track, col(t.chrome.with_alpha(90)));
+            fill(scene, bar, col(t.dim.with_alpha(200)));
+        }
+    }
     // Visual selection.
     if let Some((anchor, cursor, bars)) = app.selection().filter(|_| focused) {
         let (a, b) = if (anchor.bar, anchor.beat) <= (cursor.bar, cursor.beat) {

@@ -149,6 +149,8 @@ pub struct ChantView<'a> {
     pub play: Option<(usize, u32)>,
     pub hits: &'a mut Vec<Hit>,
     pub scroll: &'a mut usize,
+    /// Set to (lines in all, lines shown) for the scrollbar.
+    pub extent: &'a mut (usize, usize),
 }
 
 impl Widget for ChantView<'_> {
@@ -214,6 +216,7 @@ impl Widget for ChantView<'_> {
             scroll = cursor_line + 1 - visible;
         }
         *self.scroll = scroll;
+        *self.extent = (lines.len(), visible);
 
         let dim = Style::default().fg(rc(th.dim));
         let ink = Style::default()

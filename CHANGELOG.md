@@ -17,6 +17,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
       upgrade to first major version 1.0.0
 - [x] Keep CHANGELOG.md up to date
 
+### Scrollbar
+
+- [x] Add scrollbar to each pane (side for vertical, bottom for horizontal)
+  - [x] Can be toggled on/off (`:scrollbar`) and set in config.toml (`ui.scrollbar`)
+
 ### Progress Bar
 
 - [x] FIX: Change style of progress bar to look like Go Playalong

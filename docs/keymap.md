@@ -411,6 +411,7 @@ flat or natural when needed), `x` deletes it and `u` undoes, as on any track.
 | `:metronome` / `:count-in` / `:waveform-strip` | toggles (`:waveform-strip`: the focused pane's strip) |
 | `:waveform [on\|off]`                      | the waveform tool pane: the score pane's audio waveform, marking the play position (or the cursor when stopped); no argument toggles |
 | `:global-tool TOOL`                        | switch a tool (tracks, waveform, fretboard, piano, tuner) between global (along the window bottom) and local (under its score pane) |
+| `:scrollbar [on\|off]`                    | the scrollbar on every score pane: down the right side, or along the bottom in the horizontal layout. `ui.scrollbar` sets the default (on) |
 | `:progress-bar [on\|off]`                  | the progress bar along the bottom of every score pane: the sections (letter and title), a translucent red mark at the play position (or the cursor), and the time; clicking it moves the cursor to that bar. `ui.progress_bar` sets the default (on) |
 | `:export {file}`                           | export by extension                                                                                                                                                                                      |
 | `:layout [page\|vertical\|horizontal]`     | GUI score layout of the focused pane _(M3)_                                                                                                                                                              |
