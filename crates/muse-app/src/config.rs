@@ -302,7 +302,7 @@ const DEFAULT_NORMAL: &[(&str, &str)] = &[
     ("<C-w>x", "pane-exchange"),
     ("<C-w>r", "pane-rotate"),
     ("<C-w>R", "pane-rotate-back"),
-    ("<C-m>", "maximize"),
+    ("<A-m>", "maximize"),
     ("<C-w>z", "maximize"),
     ("<C-w>t", "tracks-focus"),
     ("<leader>T", "tracks"),

@@ -327,11 +327,11 @@ impl ApplicationHandler for Gui {
                         gpu.window.request_redraw();
                     }
                 } else if self.mods.control_key() {
-                    self.app.run(if dy < 0.0 {
-                        muse_app::Command::ZoomIn
-                    } else {
-                        muse_app::Command::ZoomOut
-                    });
+                    // Zooms the pane under the mouse, not the focused one.
+                    if let Some(id) = self.views.pane_at(mx, my) {
+                        self.app
+                            .zoom_pane(id, if dy < 0.0 { 1.15 } else { 1.0 / 1.15 });
+                    }
                 } else {
                     self.views.scroll(&self.app, mx, my, dx, dy);
                 }

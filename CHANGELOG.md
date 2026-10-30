@@ -21,6 +21,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - [ ] FIX: Change style of progress bar to look like Go Playalong
       screenshot. Same background as the score (paper). Get rid of bluishness.
+      Solid black divider lines.
 - [ ] FIX: Halve the width of the red indicator in the progress bar in the gui
 
 ### Engraving

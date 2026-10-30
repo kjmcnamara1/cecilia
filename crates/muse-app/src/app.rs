@@ -121,6 +121,8 @@ pub struct Pane {
     pub layout: String,
     /// GUI: show the audio waveform strip at the bottom of this pane.
     pub waveform: bool,
+    /// GUI zoom of this pane's score (1.0 = 100%).
+    pub zoom: f64,
     /// Buffers shown in this pane before, most recent first, with their cursors (switching
     /// back restores the cursor; closing a buffer falls back to the most recent one).
     pub recent: Vec<(usize, Cursor)>,
@@ -384,7 +386,6 @@ pub struct App {
     pub score_layout: String,
     /// Chant tracks show square notation (false: their modern transcription).
     pub chant_view: bool,
-    pub zoom: f64,
     pub(crate) ed: crate::editor::EditorState,
     /// Play-along settings.
     pub pa: crate::playalong::PlayAlong,
@@ -425,6 +426,7 @@ impl App {
                 scroll: 0,
                 layout: score_layout.clone(),
                 waveform: true,
+                zoom,
                 recent: Vec::new(),
                 jump_back: None,
             },
@@ -490,7 +492,6 @@ impl App {
             quit: false,
             score_layout,
             chant_view: true,
-            zoom,
             ed: Default::default(),
             pa: Default::default(),
             workspace_file: None,
@@ -957,9 +958,21 @@ impl App {
             .filter(|&id| id == v.focus && v.root.panes().len() > 1)
     }
 
-    /// Whether a pane is in the zoom state: it is the view's maximized pane, even when
+    /// Multiplies a pane's zoom by `factor` (kept within 20%–600%).
+    pub fn zoom_pane(&mut self, id: PaneId, factor: f64) {
+        if let Some(p) = self.panes.get_mut(&id) {
+            p.zoom = (p.zoom * factor).clamp(0.2, 6.0);
+        }
+    }
+
+    /// The zoom of the pane being worked on.
+    pub fn zoom(&self) -> f64 {
+        self.pane().zoom
+    }
+
+    /// Whether a pane is in the maximized state: it is the view's maximized pane, even when
     /// focus has moved to another pane (it will be maximized again on return).
-    pub fn is_zoomed(&self, id: PaneId) -> bool {
+    pub fn is_maximized(&self, id: PaneId) -> bool {
         self.view().maximized == Some(id)
     }
 
@@ -1914,9 +1927,15 @@ impl App {
                 let msg = format!("layout: {}", pane.layout);
                 self.info(msg);
             }
-            ZoomIn => self.zoom = (self.zoom * 1.15).min(6.0),
-            ZoomOut => self.zoom = (self.zoom / 1.15).max(0.2),
-            ZoomReset => self.zoom = self.config.file.ui.zoom,
+            ZoomIn => self.zoom_pane(self.focused(), 1.15),
+            ZoomOut => self.zoom_pane(self.focused(), 1.0 / 1.15),
+            ZoomReset => {
+                let z = self.config.file.ui.zoom;
+                let id = self.focused();
+                if let Some(p) = self.panes.get_mut(&id) {
+                    p.zoom = z;
+                }
+            }
             Nop => {}
             _ => {}
         }
@@ -2043,9 +2062,9 @@ impl App {
     fn new_pane(&mut self, buffer: usize) -> PaneId {
         let id = self.next_pane;
         self.next_pane += 1;
-        let (layout, waveform) = self.panes.get(&self.focused()).map_or_else(
-            || (self.score_layout.clone(), true),
-            |p| (p.layout.clone(), p.waveform),
+        let (layout, waveform, zoom) = self.panes.get(&self.focused()).map_or_else(
+            || (self.score_layout.clone(), true, self.config.file.ui.zoom),
+            |p| (p.layout.clone(), p.waveform, p.zoom),
         );
         self.panes.insert(
             id,
@@ -2058,6 +2077,7 @@ impl App {
                 scroll: 0,
                 layout,
                 waveform,
+                zoom,
                 recent: Vec::new(),
                 jump_back: None,
             },
@@ -2974,10 +2994,10 @@ mod tests {
         };
         app.run(Command::VSplit);
         let id = app.focused();
-        keys(&mut app, "<C-m>");
+        keys(&mut app, "<A-m>");
         assert_eq!(app.layout(), vec![(id, app.viewport)]);
         assert!(app.dividers().is_empty());
-        keys(&mut app, "<C-m>");
+        keys(&mut app, "<A-m>");
         assert_eq!(app.layout().len(), 2);
         // Focusing another pane brings them all back.
         keys(&mut app, "<C-w>z<C-w>h");

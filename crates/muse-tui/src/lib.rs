@@ -480,10 +480,10 @@ fn draw(f: &mut Frame, app: &mut App, play: Option<(usize, Location, f64, f64)>,
             .border_type(BorderType::Rounded)
             .border_style(border_style)
             .title(title);
-        let zoom_indicator = app.is_zoomed(id);
+        let zoom_indicator = app.is_maximized(id);
         let block = if zoom_indicator {
             block.title(
-                Line::from("  ")
+                Line::from("  ")
                     .right_aligned()
                     .style(Style::default().fg(rc(app.config.theme.accent)).bold()),
             )

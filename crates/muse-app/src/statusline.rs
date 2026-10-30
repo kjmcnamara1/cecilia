@@ -223,11 +223,11 @@ impl App {
         }
         right.push(Segment::new(x.join("  "), SegKind::Plain));
         // The zoom, while it isn't 100%.
-        if zoom && (self.zoom - 1.0).abs() > 1e-6 {
+        if zoom && (self.zoom() - 1.0).abs() > 1e-6 {
             right.push(
                 Segment {
                     icon: Some(StatusIcon::Zoom),
-                    ..Segment::new(format!("{:.0}%", self.zoom * 100.0), SegKind::Plain)
+                    ..Segment::new(format!("{:.0}%", self.zoom() * 100.0), SegKind::Plain)
                 }
                 .on_click(crate::command::Command::ZoomReset),
             );
@@ -314,10 +314,22 @@ mod tests {
         assert_eq!(app.pane().layout, "page");
         click(&mut app, Some(StatusIcon::Synth), None);
         assert_ne!(mix(&app), Some(StatusIcon::Synth));
-        app.zoom = 1.3;
+        app.pane_mut().zoom = 1.3;
         click(&mut app, Some(StatusIcon::Zoom), None);
-        assert_eq!(app.zoom, 1.0);
+        assert_eq!(app.zoom(), 1.0);
         assert_eq!(progress(3, 8), "50%");
         assert_eq!(progress(7, 8), "Bot");
+    }
+
+    #[test]
+    fn zoom_is_per_pane() {
+        let mut app = App::new(Config::default(), None);
+        let first = app.focused();
+        app.run(Command::Split);
+        let second = app.focused();
+        assert_ne!(first, second);
+        app.zoom_pane(first, 2.0);
+        assert_eq!(app.panes[&first].zoom, 2.0);
+        assert_eq!(app.panes[&second].zoom, 1.0);
     }
 }

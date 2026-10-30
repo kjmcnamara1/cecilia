@@ -114,6 +114,9 @@ pub struct PaneState {
     pub voice: usize,
     pub layout: String,
     pub waveform: bool,
+    /// The pane's zoom (older workspaces had one for all).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub zoom: Option<f64>,
     /// Files shown in the pane before, most recent first, with their cursors.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub recent: Vec<RecentState>,
@@ -324,6 +327,7 @@ impl App {
                     voice: p.cursor.voice,
                     layout: p.layout.clone(),
                     waveform: p.waveform,
+                    zoom: Some(p.zoom),
                     recent: p
                         .recent
                         .iter()
@@ -383,7 +387,7 @@ impl App {
             active_view: self.active_view,
             views,
             panes,
-            zoom: self.zoom,
+            zoom: self.pane().zoom,
             follow: self.follow,
             chant_view: self.chant_view,
             // Tool panes are saved as panes; these older switches stay off.
@@ -576,6 +580,7 @@ impl App {
                     scroll: 0,
                     layout: p.layout.clone(),
                     waveform: p.waveform,
+                    zoom: p.zoom.unwrap_or(ws.zoom),
                     recent,
                     jump_back: None,
                 },
@@ -638,6 +643,7 @@ impl App {
                     scroll: 0,
                     layout,
                     waveform: true,
+                    zoom: ws.zoom,
                     recent: Vec::new(),
                     jump_back: None,
                 },
@@ -693,7 +699,6 @@ impl App {
         }
         self.next_pane = self.panes.keys().max().copied().unwrap_or(0) + 1;
         self.active_view = ws.active_view.min(self.views.len() - 1);
-        self.zoom = ws.zoom;
         self.follow = ws.follow;
         self.chant_view = ws.chant_view;
         self.toolbar = ws.toolbar;
@@ -760,7 +765,7 @@ mod tests {
         app.run(Command::Waveform);
         app.run(Command::ViewNew(Some(c.clone())));
         app.run(Command::ViewRename(Some("practice".into())));
-        app.zoom = 1.3;
+        app.pane_mut().zoom = 1.3;
         // Marks and macros are kept too.
         app.run(Command::Mark('q'));
         app.run(Command::Mark('Z'));

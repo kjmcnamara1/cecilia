@@ -428,7 +428,7 @@ impl Command {
             ),
             "buffer-move-next" => BufferMove(Amount::By(1)),
             "buffer-move-prev" => BufferMove(Amount::By(-1)),
-            "maximize" | "max" | "zoom-pane" => Maximize,
+            "maximize" | "max" => Maximize,
             "vsplit" | "vs" => VSplit,
             "focus-left" => Focus(Direction::Left),
             "focus-down" => Focus(Direction::Down),

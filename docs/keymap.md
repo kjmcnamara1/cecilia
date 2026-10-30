@@ -37,7 +37,7 @@ Items marked _(M1)_ are implemented in the first milestone; the rest are the pla
 | `<leader>t`                 | sync tap: place the next bar at the current audio time                                                                                                                                                                  | _(M5)_ |
 | `<leader>w`                 | show / hide the waveform strip of the focused pane (GUI) | _(M5)_ |
 | `<leader>v`                 | cycle the focused pane's score layout (vertical / page / horizontal); new splits and views copy it                                                                                                                      | _(M3)_ |
-| `<C-=>` / `<C-->` / `<C-0>` | zoom in / out / reset (GUI; also Ctrl+wheel)                                                                                                                                                                            | _(M3)_ |
+| `<C-=>` / `<C-->` / `<C-0>` | zoom the focused pane in / out / reset (GUI); Ctrl+wheel zooms the pane under the mouse                                                                                                                                                                        | _(M3)_ |
 
 ### Buffers, panes, views
 
@@ -74,7 +74,7 @@ unless forced (`:bdelete!`).
 | `<C-w>x`            | swap the pane with the next one (`:pane-exchange`) | |
 | `<C-w>r` / `<C-w>R` | rotate the panes of this split forwards / backwards (`:pane-rotate`, `:pane-rotate-back`) | |
 | `<leader>>` / `<leader><` | move this file's tab right / left in the tabline (`:buffer-move-next`, `:buffer-move-prev`; `:buffer-move N`, `+N`, `-N`) | |
-| `<C-m>` / `<C-w>z`  | maximize the pane / restore the others (`:maximize`); focusing another pane restores them too. Terminals often send `<C-m>` as Enter, so in the TUI use `<C-w>z` | |
+| `<A-m>` / `<C-w>z`  | maximize the pane / restore the others (`:maximize`); focusing another pane restores them too | |
 
 Besides scores, a pane can show a **tool**: the tracks (`:tracks`), the audio waveform
 (`:audio-pane`), the piano (`:piano`), the fretboard (`:fretboard`) or the tuner
@@ -365,7 +365,7 @@ e.g. `"<C-g>" = "completion-ignore-case"`, `"<C-f>" = "completion-fuzzy"`.
 ### Workspaces
 
 A workspace saves the views — each with its pane splits, name and bufferline of loaded files —
-and each pane's file, cursor, recent files, layout and waveform strip, plus zoom, follow, chant
+and each pane's file, cursor, recent files, layout and waveform strip, each pane's zoom, follow, chant
 view, the window waveform bar, marks (of saved files) and recorded macros, to
 `~/.local/share/muse/workspaces/NAME.toml` (or a path). A workspace is always active, and is
 saved again whenever the session changes and when muse quits. Until you choose one, it is

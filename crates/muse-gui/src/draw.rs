@@ -1700,9 +1700,9 @@ fn draw_pane(
         dim(),
         false,
     );
-    // Zoom indicator on the right of the title bar when this pane is in the zoom state.
-    if app.is_zoomed(id) {
-        draw_magnifier(scene, rect.x1 - 24.0, rect.y0 + TITLE / 2.0, accent());
+    // Maximize indicator on the right of the title bar when this pane is in the zoom state.
+    if app.is_maximized(id) {
+        draw_expand(scene, rect.x1 - 24.0, rect.y0 + TITLE / 2.0, accent());
     }
     let mut content = Rect::new(rect.x0 + 2.0, rect.y0 + TITLE, rect.x1 - 2.0, rect.y1 - 2.0);
     // The progress bar along the bottom, under the waveform strip.
@@ -1736,9 +1736,9 @@ fn draw_pane(
     let mode_name = mode_tag(&pane);
     // Pages fit the pane's width; zoom is relative to that.
     let scale = if mode_name == "page" {
-        app.zoom * (content.width() - 24.0).max(100.0) / 595.0
+        pane.zoom * (content.width() - 24.0).max(100.0) / 595.0
     } else {
-        BASE_SCALE * app.zoom
+        BASE_SCALE * pane.zoom
     };
     let width_pt = (content.width() / scale).floor();
     let key = (
@@ -3082,6 +3082,27 @@ fn draw_magnifier(scene: &mut Scene, x: f64, cy: f64, color: Color) {
     );
 }
 
+/// Four corner arrows pointing outwards: a maximized pane.
+fn draw_expand(scene: &mut Scene, x: f64, cy: f64, color: Color) {
+    let stroke = Stroke::new(1.5).with_caps(vello::kurbo::Cap::Round);
+    let (x0, x1, y0, y1) = (x + 1.0, x + 13.0, cy - 6.0, cy + 6.0);
+    // Each corner: a diagonal to the tip, and the two short sides of its arrowhead.
+    for (tx, ty, sx, sy) in [
+        (x0, y0, 1.0, 1.0),
+        (x1, y0, -1.0, 1.0),
+        (x0, y1, 1.0, -1.0),
+        (x1, y1, -1.0, -1.0),
+    ] {
+        let mut p = BezPath::new();
+        p.move_to((tx + sx * 5.0, ty + sy * 5.0));
+        p.line_to((tx, ty));
+        p.move_to((tx + sx * 4.0, ty));
+        p.line_to((tx, ty));
+        p.line_to((tx, ty + sy * 4.0));
+        scene.stroke(&stroke, Affine::IDENTITY, color, None, &p);
+    }
+}
+
 /// A small briefcase: the workspace.
 fn draw_workspace_icon(scene: &mut Scene, x: f64, cy: f64, color: Color) {
     let body = RoundedRect::new(x, cy - 4.0, x + 13.0, cy + 6.0, 1.5);
@@ -3509,6 +3530,11 @@ impl Views {
                 p.cursor.line = line;
             }
         }
+    }
+
+    /// The score pane under the point.
+    pub fn pane_at(&self, x: f64, y: f64) -> Option<PaneId> {
+        self.locate(x, y).map(|(g, _, _)| g.pane)
     }
 
     pub fn scroll(&mut self, app: &App, x: f64, y: f64, dx: f64, dy: f64) {
