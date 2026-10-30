@@ -656,8 +656,7 @@ fn draw_progress(
     } else {
         (theme.chrome, theme.chrome_text)
     };
-    let segment = ground.mix(ink, 0.12);
-    let label_ink = ground.mix(ink, 0.8);
+    let label_ink = ink;
     fill(scene, r, col(ground));
     let time = format!(
         "{} / {}",
@@ -682,7 +681,6 @@ fn draw_progress(
         if seg.width() < 1.0 {
             continue;
         }
-        fill(scene, seg, col(segment));
         let label = match (sec.letter.is_empty(), sec.title.is_empty()) {
             (false, false) => format!("[{}] {}", sec.letter, sec.title),
             (false, true) => format!("[{}]", sec.letter),
@@ -703,11 +701,18 @@ fn draw_progress(
             scene.pop_layer();
         }
     }
+    // Solid black lines between the sections and at both ends.
+    let mut edges: Vec<f64> = p.sections.iter().map(|s| s.start).collect();
+    edges.push(1.0);
+    for f in edges {
+        let x = x_at(f).clamp(bar.x0 + 0.5, bar.x1 - 0.5);
+        fill(scene, Rect::new(x - 0.75, bar.y0, x + 0.75, bar.y1), col(ink));
+    }
     // The position: see-through, so the section under it stays readable.
     let x = x_at(p.at);
     fill(
         scene,
-        Rect::new(x - 3.0, r.y0, x + 3.0, r.y1),
+        Rect::new(x - 1.5, r.y0, x + 1.5, r.y1),
         col(theme.playhead.with_alpha(110)),
     );
 }

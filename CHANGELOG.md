@@ -11,11 +11,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - [x] Run /init to generate AGENTS.md
 - [x] Use conventional commits
-- [ ] Implement new features in feature branches before merging back into main.
+- [x] Implement new features in feature branches before merging back into main.
       Ask me for when to do so.
-- [ ] Use semantic versioning and tag commits for releases. I will say when to
+- [x] Use semantic versioning and tag commits for releases. I will say when to
       upgrade to first major version 1.0.0
-- [ ] Keep CHANGELOG.md up to date
+- [x] Keep CHANGELOG.md up to date
 
 ### Progress Bar
 

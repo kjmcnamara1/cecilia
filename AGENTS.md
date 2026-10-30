@@ -32,6 +32,12 @@ Sample score files (GP, GABC, etc.) for testing and screenshots live in `test-co
 Use Conventional Commits (`feat:`, `fix(engrave):`, `refactor:`, `docs:`, `test:` …), even though
 older history uses plain sentences.
 
+- Implement new features in feature branches before merging back into `main`. Ask the user when to
+  merge.
+- Use semantic versioning and tag commits for releases. The user will say when to go to the first
+  major version, 1.0.0.
+- Keep `CHANGELOG.md` up to date.
+
 ## Architecture
 
 Crates (dependencies flow downward):
