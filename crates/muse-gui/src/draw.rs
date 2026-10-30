@@ -663,15 +663,16 @@ fn draw_progress(
         muse_app::progress::clock(p.now),
         muse_app::progress::clock(p.total)
     );
-    text(
+    text_heavy(
         scene,
         &time,
         r.x1 - 8.0,
         r.center().y + 4.5,
         12.0,
         Align::Right,
-        col(ground.mix(ink, 0.6)),
+        col(ground.mix(ink, 0.8)),
         false,
+        0.5,
     );
     let bar = Rect::new(r.x0 + 2.0, r.y0 + 2.0, r.x1 - 96.0, r.y1 - 2.0);
     views.progress.push((bar, id));
@@ -688,7 +689,8 @@ fn draw_progress(
         };
         if !label.is_empty() {
             scene.push_layer(Mix::Clip, 1.0, Affine::IDENTITY, &seg);
-            text(
+            let now = p.at >= sec.start && p.at < sec.end.max(sec.start + 1e-9);
+            text_heavy(
                 scene,
                 &label,
                 seg.x0 + 5.0,
@@ -697,7 +699,8 @@ fn draw_progress(
                 Align::Left,
                 col(label_ink),
                 // The section being played (or under the cursor) is bold.
-                p.at >= sec.start && p.at < sec.end.max(sec.start + 1e-9),
+                now,
+                if now { 0.6 } else { 0.5 },
             );
             scene.pop_layer();
         }
@@ -839,6 +842,25 @@ fn text(
     let font = if bold { FontKind::Bold } else { FontKind::Text };
     let path: BezPath = muse_engrave::fonts::fonts().text_path(font, s, x, y, size, align);
     scene.fill(Fill::NonZero, Affine::IDENTITY, color, None, &path);
+}
+
+/// `text` with a stroke along the outlines, which thickens the glyphs by `heft` px.
+#[allow(clippy::too_many_arguments)]
+fn text_heavy(
+    scene: &mut Scene,
+    s: &str,
+    x: f64,
+    y: f64,
+    size: f64,
+    align: Align,
+    color: Color,
+    bold: bool,
+    heft: f64,
+) {
+    let font = if bold { FontKind::Bold } else { FontKind::Text };
+    let path: BezPath = muse_engrave::fonts::fonts().text_path(font, s, x, y, size, align);
+    scene.fill(Fill::NonZero, Affine::IDENTITY, color, None, &path);
+    scene.stroke(&Stroke::new(heft), Affine::IDENTITY, color, None, &path);
 }
 
 fn fill(scene: &mut Scene, r: Rect, c: Color) {
