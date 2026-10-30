@@ -33,7 +33,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - [x] FIX: The audio tool should be referenced as the waveform tool.
 - [x] FIX: ":waveform" should be the command to toggle Waveform Tool Pane
 - [x] FIX: ":global-tool" waveform should be the command to toggle waveform global status
-- [ ] When changing buffers in a pane, auto-resize the height of the relevant Tracks pane
+- [x] When changing buffers in a pane, auto-resize the height of the relevant Tracks pane
 - [ ] TODO: Deep dive on waveform ux and audio track syncing (auto, manual, & tapping)
 
 ### Chant
@@ -73,7 +73,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### UI
 
-- [ ] FIX: Change _maximized_ indicator at right side of pane titlebar to  instead
+- [x] FIX: Change _maximized_ indicator at right side of pane titlebar to  instead
       of just "Z"
 - [ ] Properties pane (Score, Track, and Lyrics)
 - [ ] Add scrollbar (side for vertical, bottom for horizontal)
@@ -100,6 +100,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
       - so if there are 3 combined staves displayed in the pane, move the
         cursor vertically down by 2 staves.
 - [ ] Allow modifying the bar layout in "page layout". i.e. design mode
+- [ ] Pane Resizing
+  - Config setting for auto-resize
+  - able to change via command
+  - every pane should have a default w/h and current w/h
+  - values for width/height can be fixed or dynamic (%)
+  - :resize-default will set current w/h of the focused pane back to the default values
+  - auto-resize should essentially run :resize-equal after opening or closing panes
 
 ### TUI
 
