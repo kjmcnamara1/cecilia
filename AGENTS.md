@@ -36,7 +36,8 @@ older history uses plain sentences.
   merge.
 - Use semantic versioning and tag commits for releases. The user will say when to go to the first
   major version, 1.0.0.
-- Keep `CHANGELOG.md` up to date.
+- Keep `CHANGELOG.md` up to date: finished work goes under `[Unreleased]`. Planned work lives in
+  `TODO.md`, not the changelog.
 
 ## Architecture
 

@@ -88,7 +88,7 @@ pane goes back to the score pane worked on last. A tool
 pane keeps its own size — the height (or width) its contents need, until you drag its border or
 `:resize` it — while panes come and go; score panes share the room left, equally when split.
 Tool panes are panes like the others: `<C-w>h/j/k/l` focus them, `<C-w>H/J/K/L`
-dock them along any edge, and they swap, rotate, resize, maximize and close (`:q`) like score
+dock them along any edge, and they swap, rotate, resize, maximize and close (`:pane-close`) like score
 panes. They work on the view's score pane — the one focused last — and editing keys typed in
 a tool pane go to it. Closing the last score pane closes the view.
 
@@ -153,7 +153,7 @@ view pickers also work while a song plays.
 | `<F1>`      | help             |        |
 | `<leader>?` | find a key binding (keymaps picker) |        |
 | `ZZ`        | write and quit   |        |
-| `<C-q>`     | quit muse (`:quitall`; not while files have unsaved changes) | |
+| `<C-q>`     | quit muse (`:quit`; not while files have unsaved changes) | |
 
 ## Status line
 
@@ -379,8 +379,8 @@ e.g. `"<C-g>" = "completion-ignore-case"`, `"<C-f>" = "completion-fuzzy"`.
 
 | command                                                              |                                                                                                                                                                                             |
 | -------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `:open {file}` / `:w [file]` / `:q` / `:wq` / `:q!`                  | _(M2)_ `:w file.ext` exports by extension                                                                                                                                                   |
-| `:wa` (`:wall`) / `:wqa` (`:xa`) / `:qa` / `:qa!` | write every changed file / write them all and quit / quit (refused while a file has unsaved changes, as are `:q` on the last pane and closing the window) / quit, discarding changes |
+| `:open {file}` / `:w [file]` / `:q` (quit) / `:wq` (write all, quit) / `:q!`                  | _(M2)_ `:w file.ext` exports by extension                                                                                                                                                   |
+| `:wa` (`:wall`) / `:pane-close` | write every changed file / close the focused pane (its view with the last pane) |
 | `:split` / `:vsplit`                                                 | _(M1)_                                                                                                                                                                                      |
 | `:track {n}`                                                         | _(M1)_                                                                                                                                                                                      |
 | `:bar {n}` / `:{n}`                                                  | _(M1)_                                                                                                                                                                                      |

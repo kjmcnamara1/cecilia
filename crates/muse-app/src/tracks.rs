@@ -766,7 +766,7 @@ mod tests {
         let fret_h = rect(&app, fret).h;
         app.run(Command::Split);
         assert_eq!((rect(&app, tracks).h, rect(&app, fret).h), (h, fret_h));
-        app.run(Command::Quit { force: false });
+        app.run(Command::ClosePane);
         assert_eq!((rect(&app, tracks).h, rect(&app, fret).h), (h, fret_h));
         // Dragging its border resizes the tool pane itself.
         let d = app
@@ -807,7 +807,7 @@ mod tests {
         assert_eq!(app.focused(), first);
         // Closing a score pane closes its local tools.
         app.set_focus(first);
-        app.run(Command::Quit { force: false });
+        app.run(Command::ClosePane);
         assert!(!app.panes.contains_key(&fret) && app.panes.contains_key(&fret2));
 
         // Two global tools along the bottom: their shared border moves between them only.

@@ -64,7 +64,7 @@ cargo run --release -- convert chant.gabc chant.pdf  # square notation
 
 In the UI: `h j k l` move by beat/string, `w b` jump between notes, `{ }` bars, `J K` tracks,
 `<Space><Space>` play/pause, `<Space>s` stop, `<Space>v` cycle layout, `<C-=>`/`<C-->` zoom,
-`:q` close pane, `<F1>` all bindings.
+`:pane-close` close pane, `:q` quit, `<F1>` all bindings.
 
 ### Installing on Linux
 
