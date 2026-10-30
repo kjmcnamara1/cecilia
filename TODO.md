@@ -38,13 +38,6 @@ Planned work. Finished items move to `CHANGELOG.md` under `[Unreleased]`.
   - This allows moving to notes above or below standard staff without going to
     another staff
 
-### Commands
-
-- [ ] Change
-  - close-pane -> pane-close (just rename)
-  - quitall -> quit (quit should exit app)
-  - write-quit (write all unsaved scores and quit app)
-
 ### UI
 
 - [ ] Properties pane (Score, Track, and Lyrics)
