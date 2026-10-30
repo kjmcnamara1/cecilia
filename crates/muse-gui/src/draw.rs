@@ -670,7 +670,7 @@ fn draw_progress(
         r.center().y + 4.5,
         12.0,
         Align::Right,
-        col(label_ink),
+        col(ground.mix(ink, 0.6)),
         false,
     );
     let bar = Rect::new(r.x0 + 2.0, r.y0 + 2.0, r.x1 - 96.0, r.y1 - 2.0);
@@ -696,11 +696,13 @@ fn draw_progress(
                 12.0,
                 Align::Left,
                 col(label_ink),
-                false,
+                // The section being played (or under the cursor) is bold.
+                p.at >= sec.start && p.at < sec.end.max(sec.start + 1e-9),
             );
             scene.pop_layer();
         }
     }
+    fill(scene, Rect::new(r.x0, r.y1 - 1.0, r.x1, r.y1), col(ink));
     // Solid black lines between the sections and at both ends.
     let mut edges: Vec<f64> = p.sections.iter().map(|s| s.start).collect();
     edges.push(1.0);
