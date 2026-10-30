@@ -2114,8 +2114,22 @@ fn draw_pane(
                     Rect::new(x0, gutter.y0 + at, x1, gutter.y0 + at + size),
                 )
             };
-            fill(scene, track, col(ground.mix(ink, 0.06)));
-            fill(scene, thumb, col(ground.mix(ink, 0.28)));
+            let pill = |r: Rect| RoundedRect::from_rect(r, r.width().min(r.height()) / 2.0);
+            let tint = |t: f32| col(ground.mix(ink, t));
+            scene.fill(
+                Fill::NonZero,
+                Affine::IDENTITY,
+                tint(0.06),
+                None,
+                &pill(track),
+            );
+            scene.fill(
+                Fill::NonZero,
+                Affine::IDENTITY,
+                tint(0.28),
+                None,
+                &pill(thumb),
+            );
             bars[i] = Some(ScrollBar {
                 track,
                 thumb,
@@ -3718,28 +3732,15 @@ impl Views {
         self.locate(x, y).map(|(g, _, _)| g.pane)
     }
 
-    /// Wheel over a score: down scrolls down and sideways scrolls across, except in the
-    /// horizontal layout, where the wheel runs along the score and Shift scrolls down. (The
-    /// draw clamps to what the score extends.)
-    pub fn scroll(&mut self, app: &App, x: f64, y: f64, dx: f64, dy: f64, shift: bool) {
+    /// Wheel over a score: the vertical wheel scrolls down and the horizontal one (or Shift
+    /// with the vertical) across, in every layout. (The draw clamps to what the score extends.)
+    pub fn scroll(&mut self, x: f64, y: f64, dx: f64, dy: f64) {
         let Some((g, _, _)) = self.locate(x, y) else {
             return;
         };
-        let horizontal = app
-            .panes
-            .get(&g.pane)
-            .is_some_and(|p| p.layout == "horizontal");
         let entry = self.scroll.entry(g.pane).or_insert((0.0, 0.0));
-        let (dx, dy) = (dx / g.scale, dy / g.scale);
-        let (mx, my) = if !horizontal {
-            (dx, dy)
-        } else if shift {
-            (0.0, dx + dy)
-        } else {
-            (dx + dy, 0.0)
-        };
-        entry.0 = (entry.0 + mx).max(0.0);
-        entry.1 = (entry.1 + my).max(0.0);
+        entry.0 = (entry.0 + dx / g.scale).max(0.0);
+        entry.1 = (entry.1 + dy / g.scale).max(0.0);
     }
 }
 

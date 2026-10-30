@@ -25,7 +25,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - [x] Click and drag to scroll, in the GUI and TUI
   - [x] GUI: scrolls both ways when the score is bigger than the pane (narrow vertical
         layout, tall horizontal layout, zoomed page); a bar for each direction. Wheel:
-        sideways scrolls across; in the horizontal layout Shift scrolls down
+        vertical scrolls down, horizontal (or Shift) scrolls across, in every layout;
+        pill-shaped thumbs
 
 ### Progress Bar
 
