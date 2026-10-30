@@ -75,8 +75,9 @@ separators = "arrow"     # terminal: between sections, as lualine: "arrow", "rou
 [toolbar]
 # The toolbar's buttons: commands as typed after ":", "|" between groups (ui.toolbar shows it).
 # items = ["new", "open", "write", "|", "undo", "redo", "|", "play-toggle", "stop",
-#          "follow-toggle", "loop-toggle", "metronome", "count-in", "|", "tracks", "split",
-#          "vsplit", "|", "command-mode", "pick-keymap"]
+#          "follow-toggle", "loop-toggle", "metronome", "count-in", "|", "tracks", "properties",
+#          "waveform", "piano", "fretboard", "tuner", "split", "vsplit", "|", "command-mode",
+#          "pick-keymap"]
 
 [audio]
 # soundfont = "~/soundfonts/GeneralUser-GS.sf2"

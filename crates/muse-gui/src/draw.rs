@@ -1566,7 +1566,72 @@ fn draw_tool_icon(
             }
             line(scene, &path(&[(5.0, 10.0), (11.0, 10.0)], false));
         }
-        "toolbar" | "layout" | "waveform" => {
+        // A window with a side panel.
+        "properties" => {
+            line(scene, &rect(1.5, 2.5, 14.5, 13.5, 2.0));
+            line(scene, &path(&[(9.5, 2.5), (9.5, 13.5)], false));
+            for k in 0..3 {
+                solid(scene, &|| {
+                    rect(10.8, 4.5 + k as f64 * 2.6, 13.2, 5.6 + k as f64 * 2.6, 0.4)
+                });
+            }
+        }
+        // Bars of an audio wave.
+        "waveform" => {
+            for (k, h) in [3.0, 7.0, 12.0, 6.0, 10.0, 4.0, 8.0]
+                .into_iter()
+                .enumerate()
+            {
+                solid(scene, &|| {
+                    rect(
+                        1.0 + k as f64 * 2.1,
+                        8.0 - h / 2.0,
+                        2.4 + k as f64 * 2.1,
+                        8.0 + h / 2.0,
+                        0.5,
+                    )
+                });
+            }
+        }
+        // A tuning fork.
+        "tuner" => {
+            line(
+                scene,
+                &path(
+                    &[
+                        (5.0, 1.5),
+                        (5.0, 7.5),
+                        (6.0, 9.5),
+                        (10.0, 9.5),
+                        (11.0, 7.5),
+                        (11.0, 1.5),
+                    ],
+                    false,
+                ),
+            );
+            line(scene, &path(&[(8.0, 9.5), (8.0, 14.5)], false));
+        }
+        // Piano keys.
+        "piano" => {
+            line(scene, &rect(1.5, 3.5, 14.5, 12.5, 1.5));
+            for xk in [4.8, 8.0, 11.2] {
+                line(scene, &path(&[(xk, 8.0), (xk, 12.5)], false));
+            }
+            for xk in [3.9, 7.1, 10.3] {
+                solid(scene, &|| rect(xk, 3.5, xk + 1.8, 8.0, 0.3));
+            }
+        }
+        // A fretboard: strings across, frets down.
+        "fretboard" => {
+            line(scene, &rect(1.5, 3.5, 14.5, 12.5, 1.0));
+            for yk in [6.5, 9.5] {
+                line(scene, &path(&[(1.5, yk), (14.5, yk)], false));
+            }
+            for xk in [6.0, 10.5] {
+                line(scene, &path(&[(xk, 3.5), (xk, 12.5)], false));
+            }
+        }
+        "toolbar" | "layout" => {
             line(scene, &rect(1.5, 2.5, 14.5, 13.5, 2.0));
             line(scene, &path(&[(1.5, 6.0), (14.5, 6.0)], false));
         }
