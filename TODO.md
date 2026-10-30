@@ -37,6 +37,8 @@ Planned work. Finished items move to `CHANGELOG.md` under `[Unreleased]`.
 - [ ] Different keymap for moving between staves
   - This allows moving to notes above or below standard staff without going to
     another staff
+- [ ] FIX: ctrl-c in any pane (score,tool,properties,etc.) should close that pane.
+- [ ] ctrl-w ctrl-w switches focus back and forth between panes
 
 ### UI
 
