@@ -19,7 +19,58 @@ pub struct Score {
     pub anacrusis: bool,
     /// Audio track synchronised to the score.
     pub audio: Option<AudioSync>,
+    /// Page size, margins and the header and footer templates (printing).
+    #[serde(default)]
+    pub page: PageSetup,
     pub extras: Extras,
+}
+
+/// Page layout of the printed score, as Guitar Pro keeps it.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct PageSetup {
+    /// Page size in millimetres.
+    pub width: u32,
+    pub height: u32,
+    /// Margins in millimetres.
+    pub margin_left: u32,
+    pub margin_right: u32,
+    pub margin_top: u32,
+    pub margin_bottom: u32,
+    /// Size of the score on the page, in percent.
+    pub scale: u32,
+    /// Which of the header and footer templates are shown (Guitar Pro's flag bits).
+    pub header_flags: u16,
+    /// Title, subtitle, artist, album, words, music, words and music, copyright (two lines)
+    /// and page number templates, with `%TITLE%`-style placeholders.
+    pub templates: [String; 10],
+}
+
+impl Default for PageSetup {
+    fn default() -> Self {
+        Self {
+            width: 210,
+            height: 297,
+            margin_left: 10,
+            margin_right: 10,
+            margin_top: 15,
+            margin_bottom: 10,
+            scale: 100,
+            header_flags: 0x01FF,
+            templates: [
+                "%TITLE%",
+                "%SUBTITLE%",
+                "%ARTIST%",
+                "%ALBUM%",
+                "Words by %WORDS%",
+                "Music by %MUSIC%",
+                "Words & Music by %WORDSMUSIC%",
+                "Copyright %COPYRIGHT%",
+                "All Rights Reserved - International Copyright Secured",
+                "Page %N%/%P%",
+            ]
+            .map(String::from),
+        }
+    }
 }
 
 /// A recorded audio track and the points that align it with the score.

@@ -88,7 +88,7 @@ impl<'a> GpReader<'a> {
             self.r.skip(4 + 4 + 11)?;
         }
         if self.gp5() {
-            self.read_page_setup()?;
+            score.page = self.read_page_setup()?;
             let tempo_name = self.int_byte_size_string()?;
             if !tempo_name.is_empty() {
                 score.extras.insert("gp.tempo_name".into(), tempo_name);
@@ -218,13 +218,28 @@ impl<'a> GpReader<'a> {
         Ok(lyrics)
     }
 
-    fn read_page_setup(&mut self) -> Result<()> {
+    fn read_page_setup(&mut self) -> Result<PageSetup> {
         // Page size (2), margins (4), score size proportion: i32 each; header/footer flags: i16.
-        self.r.skip(4 * 7 + 2)?;
-        for _ in 0..10 {
-            self.int_byte_size_string()?;
+        let mut v = [0u32; 7];
+        for x in &mut v {
+            *x = self.r.i32()?.max(0) as u32;
         }
-        Ok(())
+        let header_flags = self.r.i16()? as u16;
+        let mut templates: [String; 10] = Default::default();
+        for t in &mut templates {
+            *t = self.int_byte_size_string()?;
+        }
+        Ok(PageSetup {
+            width: v[0],
+            height: v[1],
+            margin_left: v[2],
+            margin_right: v[3],
+            margin_top: v[4],
+            margin_bottom: v[5],
+            scale: v[6],
+            header_flags,
+            templates,
+        })
     }
 
     fn read_midi_channels(&mut self) -> Result<Vec<Channel>> {

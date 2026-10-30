@@ -116,7 +116,7 @@ impl Writer {
             self.int_byte_size_string(n);
         }
         self.write_lyrics(score);
-        self.write_page_setup();
+        self.write_page_setup(&score.page);
         self.int_byte_size_string(score.extras.get("gp.tempo_name").map_or("", String::as_str));
         self.i32(score.tempo as i32);
         let key = score
@@ -217,23 +217,20 @@ impl Writer {
         }
     }
 
-    fn write_page_setup(&mut self) {
-        for v in [210, 297, 10, 10, 15, 10, 100] {
-            self.i32(v);
-        }
-        self.i16(0x01FF);
-        for s in [
-            "%TITLE%",
-            "%SUBTITLE%",
-            "%ARTIST%",
-            "%ALBUM%",
-            "Words by %WORDS%",
-            "Music by %MUSIC%",
-            "Words & Music by %WORDSMUSIC%",
-            "Copyright %COPYRIGHT%",
-            "All Rights Reserved - International Copyright Secured",
-            "Page %N%/%P%",
+    fn write_page_setup(&mut self, page: &PageSetup) {
+        for v in [
+            page.width,
+            page.height,
+            page.margin_left,
+            page.margin_right,
+            page.margin_top,
+            page.margin_bottom,
+            page.scale,
         ] {
+            self.i32(v as i32);
+        }
+        self.i16(page.header_flags as i16);
+        for s in &page.templates {
             self.int_byte_size_string(s);
         }
     }
@@ -886,7 +883,7 @@ mod tests {
             }],
             ..Track::default()
         };
-        let score = Score {
+        let mut score = Score {
             tempo: 100,
             meta: Metadata {
                 title: "Test".into(),
@@ -896,8 +893,12 @@ mod tests {
             tracks: vec![track],
             ..Score::default()
         };
+        score.page.width = 216;
+        score.page.scale = 80;
+        score.page.templates[0] = "<%TITLE%>".into();
         let bytes = write_gp5(&score).unwrap();
         let back = crate::gp::read(&bytes).unwrap();
+        assert_eq!(back.page, score.page);
         assert_eq!(back.meta.title, "Test");
         assert_eq!(back.tempo, 100);
         assert_eq!(back.tracks[0].bars[0].voices[0].beats.len(), 4);
