@@ -45,6 +45,11 @@ pub const DEFAULT_ITEMS: &[&str] = &[
     "count-in",
     "|",
     "tracks",
+    "properties",
+    "waveform",
+    "piano",
+    "fretboard",
+    "tuner",
     "split",
     "vsplit",
     "|",
@@ -90,6 +95,10 @@ impl App {
                     "count-in" => self.pa.count_in,
                     "tracks" => self.has_tool(crate::app::PaneKind::Tracks),
                     "waveform" => self.has_tool(crate::app::PaneKind::Audio),
+                    "properties" => self.has_tool(crate::app::PaneKind::Properties),
+                    "piano" => self.has_tool(crate::app::PaneKind::Piano),
+                    "fretboard" => self.has_tool(crate::app::PaneKind::Fretboard),
+                    "tuner" => self.has_tool(crate::app::PaneKind::Tuner),
                     "progress-bar" => self.progress_bar,
                     "maximize" => self.maximized().is_some(),
                     _ => false,
@@ -162,6 +171,24 @@ mod tests {
         let tracks = find(&items, "tracks").unwrap();
         app.run_toolbar(tracks);
         assert!(app.has_tool(crate::app::PaneKind::Tracks));
+        // The pane buttons sit with the tracks button and toggle their panes.
+        for (name, kind) in [
+            ("properties", crate::app::PaneKind::Properties),
+            ("waveform", crate::app::PaneKind::Audio),
+            ("piano", crate::app::PaneKind::Piano),
+            ("fretboard", crate::app::PaneKind::Fretboard),
+            ("tuner", crate::app::PaneKind::Tuner),
+        ] {
+            let i = find(&items, name).unwrap();
+            assert!(
+                i > tracks && i < tracks + 8,
+                "{name} is grouped with tracks"
+            );
+            let before = app.has_tool(kind);
+            app.run_toolbar(i);
+            assert_ne!(app.has_tool(kind), before, "{name} toggles");
+            assert_eq!(button(&app.toolbar_items(), name).active, !before);
+        }
         // :toolbar toggles it; bad entries in the config are reported and left out.
         app.run(Command::Toolbar(None));
         assert!(!app.toolbar);

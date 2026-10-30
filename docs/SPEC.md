@@ -69,7 +69,7 @@ Score
 │                 alternate endings, section marker, directions (segno/coda/fine/D.C./D.S. …), triplet feel
 ├─ tracks[]
 │  ├─ name, instrument kind (Fretted | Drums | Pitched | Chant), MIDI program/channel/bank,
-│  │  volume/pan, colour, mute/solo
+│  │  volume/pan, color, mute/solo
 │  ├─ fretted: strings (tuning, MIDI pitch per string), fret count, capo
 │  ├─ staves: which views are shown (tab, standard, slash, chant)
 │  └─ bars[] (one per master bar) → voices[] (≥4) → beats[]

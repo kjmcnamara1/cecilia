@@ -1,9 +1,9 @@
-//! Interface colours: a preset (`[theme] preset = "dark"` or `"light"`) with any colour
-//! overridden in `config.toml`, and the palette tracks are coloured from.
+//! Interface colors: a preset (`[theme] preset = "dark"` or `"light"`) with any color
+//! overridden in `config.toml`, and the palette tracks are colored from.
 
 use serde::Deserialize;
 
-/// A colour with alpha.
+/// A color with alpha.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct Rgba {
     pub r: u8,
@@ -41,11 +41,11 @@ impl Rgba {
         }
     }
 
-    /// `#rrggbb` (with `aa` when not opaque).
+    /// `#RRGGBB` (with `AA` when not opaque).
     pub fn hex(self) -> String {
-        let mut s = format!("#{:02x}{:02x}{:02x}", self.r, self.g, self.b);
+        let mut s = format!("#{:02X}{:02X}{:02X}", self.r, self.g, self.b);
         if self.a != 255 {
-            s.push_str(&format!("{:02x}", self.a));
+            s.push_str(&format!("{:02X}", self.a));
         }
         s
     }
@@ -107,7 +107,7 @@ impl Rgba {
     }
 }
 
-/// The interface colours.
+/// The interface colors.
 #[derive(Debug, Clone, PartialEq)]
 pub struct Theme {
     /// Around the engraved pages.
@@ -163,7 +163,7 @@ pub struct Theme {
     pub icon_midi: Rgba,
     pub icon_chant: Rgba,
     pub icon_muse: Rgba,
-    /// Colours given to tracks in order (a track can have its own with `:track-color`).
+    /// Colors given to tracks in order (a track can have its own with `:track-color`).
     pub track_colors: Vec<Rgba>,
 }
 
@@ -177,7 +177,7 @@ pub const PRESETS: &[&str] = &[
     "solarized-light",
 ];
 
-/// The colours a theme sets, by their names in config.toml.
+/// The colors a theme sets, by their names in config.toml.
 pub const COLOR_NAMES: &[&str] = &[
     "paper",
     "page",
@@ -217,7 +217,7 @@ pub const COLOR_NAMES: &[&str] = &[
 ];
 
 fn hex(s: &str) -> Rgba {
-    Rgba::parse(s).expect("valid built-in colour")
+    Rgba::parse(s).expect("valid built-in color")
 }
 
 impl Theme {
@@ -457,7 +457,7 @@ impl Theme {
         })
     }
 
-    /// A colour by its config name (see [`COLOR_NAMES`]).
+    /// A color by its config name (see [`COLOR_NAMES`]).
     pub fn color_mut(&mut self, name: &str) -> Option<&mut Rgba> {
         Some(match name {
             "paper" => &mut self.paper,
@@ -499,7 +499,7 @@ impl Theme {
         })
     }
 
-    /// The colour of a mode: its status-line label, and the edit cursor while in it.
+    /// The color of a mode: its status-line label, and the edit cursor while in it.
     pub fn mode_color(&self, mode: crate::config::Mode) -> Rgba {
         use crate::config::Mode;
         match mode {
@@ -508,11 +508,11 @@ impl Theme {
             Mode::Visual => self.mode_visual,
             Mode::Command => self.mode_command,
             Mode::Picker => self.mode_picker,
-            Mode::Tracks => self.mode_tracks,
+            Mode::Tracks | Mode::Properties => self.mode_tracks,
         }
     }
 
-    /// The colour of track `i` without a colour of its own.
+    /// The color of track `i` without a color of its own.
     pub fn track_color(&self, i: usize) -> Rgba {
         match self.track_colors.len() {
             0 => self.accent,
@@ -520,7 +520,7 @@ impl Theme {
         }
     }
 
-    /// The colour of a file-type icon (`kind` from [`crate::file_kind`]).
+    /// The color of a file-type icon (`kind` from [`crate::file_kind`]).
     pub fn file_icon(&self, kind: &str) -> Rgba {
         match kind {
             "guitar-pro" => self.icon_guitar_pro,
@@ -543,7 +543,7 @@ impl Theme {
     }
 
     /// The theme a config asks for, and anything in it that couldn't be used. A theme file
-    /// (`file`) is read first; the preset and colours given in `[theme]` itself win over it.
+    /// (`file`) is read first; the preset and colors given in `[theme]` itself win over it.
     pub fn from_config(c: &ThemeConfig) -> (Self, Vec<String>) {
         let mut errors = Vec::new();
         let from_file = match &c.file {
@@ -580,13 +580,13 @@ impl Theme {
         for layer in layers {
             for (name, value) in &layer.colors {
                 let Some(slot) = t.color_mut(name) else {
-                    errors.push(format!("theme.{name}: not a theme colour"));
+                    errors.push(format!("theme.{name}: not a theme color"));
                     continue;
                 };
                 match Rgba::parse(value) {
                     Some(color) => *slot = color,
                     None => {
-                        errors.push(format!("theme.{name}: '{value}' is not a colour (#rrggbb)"))
+                        errors.push(format!("theme.{name}: '{value}' is not a color (#rrggbb)"))
                     }
                 }
             }
@@ -601,7 +601,7 @@ impl Theme {
                     .filter_map(|v| {
                         let c = Rgba::parse(v);
                         if c.is_none() {
-                            errors.push(format!("theme.track_colors: '{v}' is not a colour"));
+                            errors.push(format!("theme.track_colors: '{v}' is not a color"));
                         }
                         c
                     })
@@ -642,7 +642,7 @@ pub fn theme_path(path: &std::path::Path) -> std::path::PathBuf {
         .unwrap_or_else(|| path.to_path_buf())
 }
 
-/// `n` colours around the colour wheel starting at `from`'s hue, at lightness `l`.
+/// `n` colors around the color wheel starting at `from`'s hue, at lightness `l`.
 pub fn spectrum(from: Rgba, n: usize, l: f32) -> Vec<Rgba> {
     let (h, s, _) = from.to_hsl();
     let s = s.clamp(0.55, 0.85);
@@ -651,7 +651,7 @@ pub fn spectrum(from: Rgba, n: usize, l: f32) -> Vec<Rgba> {
         .collect()
 }
 
-/// `[theme]` in config.toml (or a theme file): a preset, colours overriding it by name
+/// `[theme]` in config.toml (or a theme file): a preset, colors overriding it by name
 /// (`chrome = "#282a30"`, see [`COLOR_NAMES`]) and the track palette.
 #[derive(Debug, Clone, Default, Deserialize)]
 #[serde(default)]
@@ -669,7 +669,7 @@ mod tests {
     use super::*;
 
     #[test]
-    fn colours_parse_and_presets_take_overrides() {
+    fn colors_parse_and_presets_take_overrides() {
         assert_eq!(Rgba::parse("#fa0"), Some(Rgba::rgb(255, 170, 0)));
         assert_eq!(Rgba::parse("102030"), Some(Rgba::rgb(16, 32, 48)));
         assert_eq!(Rgba::parse("#10203080").unwrap().a, 128);
@@ -695,7 +695,7 @@ mod tests {
     }
 
     #[test]
-    fn every_preset_and_colour_name_works() {
+    fn every_preset_and_color_name_works() {
         for p in PRESETS {
             let mut t = Theme::preset(p).unwrap();
             for name in COLOR_NAMES {
@@ -722,7 +722,7 @@ mod tests {
         .unwrap();
         let (t, errors) = Theme::from_config(&c);
         assert!(errors.is_empty(), "{errors:?}");
-        // The file's preset and colours, then the config's own on top.
+        // The file's preset and colors, then the config's own on top.
         assert_eq!(t.paper, Theme::nord().paper);
         assert_eq!(t.accent, Rgba::rgb(255, 0, 0));
         assert_eq!(t.chrome, Rgba::rgb(10, 11, 12));

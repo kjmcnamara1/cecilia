@@ -21,6 +21,8 @@ pub enum Mode {
     /// Names the tracks pane's keymap (`[keymap.tracks]`), used while that pane has the
     /// focus in Normal mode; never the current mode.
     Tracks,
+    /// Names the properties pane's keymap (`[keymap.properties]`), like [`Mode::Tracks`].
+    Properties,
 }
 
 #[derive(Debug, Clone, Default, Deserialize)]
@@ -168,6 +170,8 @@ pub struct UiConfig {
     pub scrollbar: bool,
     /// The tracks panel (tracks with mixer and a bar overview) at the bottom of the window.
     pub tracks_panel: bool,
+    /// The properties pane (score, tracks and lyrics) along the right of the window.
+    pub properties: bool,
     /// Tool panes that dock along the bottom of the whole view, at its full width, and show
     /// the last active score pane ("tracks", "waveform", "fretboard", "piano", "tuner"); the
     /// others dock under the score pane they open from, as wide as it, and always show it.
@@ -201,6 +205,7 @@ impl Default for UiConfig {
             progress_bar: true,
             scrollbar: true,
             tracks_panel: false,
+            properties: false,
             global_tools: ["tracks", "waveform", "fretboard", "piano", "tuner"]
                 .map(String::from)
                 .to_vec(),
@@ -262,6 +267,7 @@ pub struct KeymapConfig {
     pub insert_chant: HashMap<String, Binding>,
     pub visual: HashMap<String, Binding>,
     pub tracks: HashMap<String, Binding>,
+    pub properties: HashMap<String, Binding>,
     /// No longer used (Play mode was removed); kept so old configs still load, with a warning.
     pub play: HashMap<String, Binding>,
 }
@@ -313,6 +319,8 @@ const DEFAULT_NORMAL: &[(&str, &str)] = &[
     ("<C-w>z", "maximize"),
     ("<C-w>t", "tracks-focus"),
     ("<leader>T", "tracks"),
+    ("<leader>p", "properties"),
+    ("<leader>P", "properties-focus"),
     ("<leader>B", "toolbar"),
     ("]s", "section-next"),
     ("[s", "section-prev"),
@@ -544,6 +552,50 @@ const DEFAULT_TRACKS: &[(&str, &str)] = &[
     (":", "command-mode"),
 ];
 
+const DEFAULT_PROPERTIES: &[(&str, &str)] = &[
+    ("j", "properties-down"),
+    ("<Down>", "properties-down"),
+    ("<Tab>", "properties-down"),
+    ("k", "properties-up"),
+    ("<Up>", "properties-up"),
+    ("<S-Tab>", "properties-up"),
+    ("l", "properties-step +1"),
+    ("<Right>", "properties-step +1"),
+    ("h", "properties-step -1"),
+    ("<Left>", "properties-step -1"),
+    ("L", "properties-tab"),
+    ("<C-Tab>", "properties-tab"),
+    ("H", "properties-tab-prev"),
+    ("<C-S-Tab>", "properties-tab-prev"),
+    ("<A-j>", "properties-staff-move +1"),
+    ("<A-k>", "properties-staff-move -1"),
+    ("1", "properties-tab score"),
+    ("2", "properties-tab track"),
+    ("3", "properties-tab lyrics"),
+    ("<CR>", "properties-edit"),
+    ("i", "properties-edit"),
+    ("a", "properties-edit"),
+    ("c", "properties-change"),
+    ("za", "properties-fold"),
+    ("zc", "properties-fold close"),
+    ("zo", "properties-fold open"),
+    ("x", "properties-clear"),
+    ("d", "properties-clear"),
+    ("/", "properties-search"),
+    ("n", "properties-search-next"),
+    ("N", "properties-search-prev"),
+    ("<Esc>", "properties-focus"),
+    ("q", "properties-focus"),
+    ("<leader><leader>", "play-toggle"),
+    ("<leader>s", "stop"),
+    ("<leader>f", "follow-toggle"),
+    ("<leader>p", "properties"),
+    ("<leader>P", "properties-focus"),
+    ("<leader>?", "pick-keymap"),
+    ("<C-q>", "quitall"),
+    (":", "command-mode"),
+];
+
 const DEFAULT_VISUAL: &[(&str, &str)] = &[
     ("<Esc>", "normal"),
     ("d", "delete"),
@@ -620,7 +672,7 @@ pub struct Config {
     /// Insert-mode keys per notation, looked up before the shared insert keymap.
     pub insert_keymaps: HashMap<InsertKind, Keymap>,
     pub leader: Vec<Key>,
-    /// Interface colours (`[theme]`).
+    /// Interface colors (`[theme]`).
     pub theme: crate::theme::Theme,
 }
 
@@ -686,6 +738,19 @@ impl Config {
             &mut errors,
         );
         keymaps.insert(Mode::Tracks, tracks);
+        let mut properties = Keymap::default();
+        for (keys, cmd) in DEFAULT_PROPERTIES {
+            let keys = parse_keys(keys, &leader).expect("valid default key");
+            properties.bind_default(keys, cmd);
+        }
+        apply_user(
+            &mut properties,
+            &file.keymap.properties,
+            &leader,
+            "keymap.properties",
+            &mut errors,
+        );
+        keymaps.insert(Mode::Properties, properties);
         let mut insert_keymaps = HashMap::new();
         for (kind, defaults, user, name) in [
             (

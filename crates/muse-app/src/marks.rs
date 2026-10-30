@@ -224,6 +224,7 @@ impl App {
             _ if !self.pending.is_empty() => {
                 let map = self.config.keymap(match self.mode {
                     crate::config::Mode::Tracks => crate::config::Mode::Tracks,
+                    crate::config::Mode::Properties => crate::config::Mode::Properties,
                     _ => crate::config::Mode::Normal,
                 });
                 let rows: Vec<(String, String)> = map

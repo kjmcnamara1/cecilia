@@ -4,6 +4,7 @@
 
 mod app;
 mod chant;
+pub mod clipboard;
 pub mod command;
 pub mod complete;
 pub mod config;
@@ -11,6 +12,7 @@ pub mod dialog;
 pub mod edit;
 mod editor;
 pub mod history;
+pub mod icons;
 pub mod instrument;
 pub mod keys;
 pub mod layout;
@@ -19,6 +21,7 @@ pub mod picker;
 pub mod playalong;
 pub mod playback;
 pub mod progress;
+pub mod properties;
 pub mod statusline;
 pub mod theme;
 pub mod toolbar;

@@ -132,6 +132,9 @@ pub const COMMANDS: &[&str] = &[
     "tracks-resize",
     "waveform-resize",
     "tracks-focus",
+    "properties",
+    "properties-focus",
+    "properties-tab",
     "track-volume",
     "track-volume-up",
     "track-volume-down",
@@ -251,16 +254,7 @@ fn values(command: &str) -> Option<&'static [&'static str]> {
         ],
         "global-tool" => &["fretboard", "piano", "tracks", "tuner", "waveform"],
         "track-add" => &["bass", "drums", "guitar", "piano", "voice"],
-        "staff" | "staff-add" => &[
-            "chant",
-            "slash",
-            "standard",
-            "standard bass",
-            "standard grand",
-            "standard treble",
-            "tab",
-            "tab+",
-        ],
+        "staff" | "staff-add" => &["chant", "slash", "bass", "grand", "treble", "tab", "tab+"],
         "accidental" => &["flat", "natural", "sharp"],
         "chant-bar" => &[",", ":", "::", ";"],
         "volume" => &["audio", "metronome", "midi"],
@@ -828,10 +822,31 @@ pub fn describe(command: &str) -> Option<&'static str> {
         "tracks-resize" => "Tracks the tracks panel shows: N, +N or -N",
         "waveform-resize" => "Height of the waveforms in pixels: N, +N or -N",
         "tracks-focus" => "Focus the tracks panel (again: back to the score)",
+        "properties" => "Show or hide the properties pane (score, tracks, lyrics)",
+        "properties-focus" => "Focus the properties pane (again: back to the score)",
+        "properties-tab" => "Show a tab of the properties pane: score, tracks or lyrics",
+        "properties-tab-prev" => "Show the previous tab of the properties pane",
+        "properties-down" => "Properties pane: select the next property",
+        "properties-up" => "Properties pane: select the previous property",
+        "properties-edit" => "Properties pane: edit the selected property",
+        "properties-fold" => {
+            "Properties pane: fold (close), unfold (open) or toggle the selected section"
+        }
+        "properties-staff-move" => "Properties pane: move the selected staff down (+1) or up (-1)",
+        "properties-change" => "Properties pane: clear the selected property and edit it",
+        "properties-step" => {
+            "Properties pane: switch off (-1) / on (+1), or the previous / next choice"
+        }
+        "properties-search" => "Properties pane: search the keys and values (or the lyrics text)",
+        "properties-search-next" => "Properties pane: jump to the next match of the / register",
+        "properties-search-prev" => "Properties pane: jump to the previous match of the / register",
+        "properties-clear" => {
+            "Properties pane: clear the selected text, lyrics or color, or remove the staff"
+        }
         "track-volume" => "Set the track's volume: 80, +10 or -10 (percent)",
         "track-volume-up" => "Turn the track up",
         "track-volume-down" => "Turn the track down",
-        "track-color" => "Track colour in the tracks panel: #rrggbb, off, or the next one",
+        "track-color" => "Track color in the tracks panel: #rrggbb, off, or the next one",
         "pick-buffer" => "Pick a buffer of this view to show",
         "pick-view" => "Pick a view to switch to",
         "pick-workspace" => "Pick a saved workspace to open",
@@ -894,7 +909,7 @@ pub fn describe(command: &str) -> Option<&'static str> {
             "Set a track's instrument: PROGRAM (1-128) or drums [track number]; without one, a picker"
         }
         "staff" => {
-            "Show the cursor's staff another way (standard [treble|bass|grand [split]], tab, tab+, slash, chant)"
+            "Show the cursor's staff another way (treble, bass, grand [split], tab, tab+, slash, chant)"
         }
         "staff-add" => "Add a staff at the bottom of the track",
         "staff-remove" => "Remove a staff of the track (1 = top; the cursor's by default)",

@@ -7,14 +7,14 @@ use crate::app::App;
 use crate::config::{InsertKind, Mode};
 use muse_core::{TrackKind, chant, staff};
 
-/// How a segment is coloured.
+/// How a segment is colored.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum SegKind {
-    /// The mode's colour behind, text that reads on it (sections `a` and `z`).
+    /// The mode's color behind, text that reads on it (sections `a` and `z`).
     Mode,
-    /// The section-b colour (`status_b`) behind, the mode's colour as text (sections `b`, `y`).
+    /// The section-b color (`status_b`) behind, the mode's color as text (sections `b`, `y`).
     ModeText,
-    /// The status line's own colour (sections `c` and `x`).
+    /// The status line's own color (sections `c` and `x`).
     Plain,
 }
 
@@ -79,6 +79,7 @@ pub fn mode_label(mode: Mode) -> &'static str {
         Mode::Command => "COMMAND",
         Mode::Picker => "PICK",
         Mode::Tracks => "TRACKS",
+        Mode::Properties => "PROPS",
     }
 }
 
@@ -134,6 +135,17 @@ impl App {
         })
     }
 
+    /// The mode as shown: typing into a property of the properties pane is insert mode (the
+    /// lyrics text area has normal mode too).
+    pub fn display_mode(&self) -> Mode {
+        match &self.props.edit {
+            // The lyrics text area has vim's normal mode too.
+            Some(e) if e.modal && !e.insert => Mode::Normal,
+            Some(_) => Mode::Insert,
+            None => self.mode,
+        }
+    }
+
     /// The status line. `play` is the playing time and length (from the frontend's player),
     /// `zoom` whether to show the zoom level (GUI).
     pub fn statusline(&self, play: Option<(f64, f64)>, zoom: bool) -> StatusLine {
@@ -141,7 +153,7 @@ impl App {
         let buffer = self.buffer();
         let score = &buffer.score;
         let mut left = vec![
-            Segment::new(mode_label(self.mode), SegKind::Mode),
+            Segment::new(mode_label(self.display_mode()), SegKind::Mode),
             // Click: the next layout.
             Segment::new(pane.layout.clone(), SegKind::ModeText)
                 .on_click(crate::command::Command::Layout(None)),

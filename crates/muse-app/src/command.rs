@@ -185,6 +185,32 @@ pub enum Command {
     Tuner(Option<bool>),
     /// Show or hide the toolbar (no argument: toggle).
     Toolbar(Option<bool>),
+    /// Show or hide the properties pane (no argument: toggle).
+    Properties(Option<bool>),
+    /// Focus the properties pane, or give the focus back to the score.
+    PropertiesFocus,
+    /// In the properties pane: select the row below / above.
+    PropertiesDown,
+    PropertiesUp,
+    /// Show a tab of the properties pane: `score`, `tracks` or `lyrics`; none for the next.
+    PropertiesTab(Option<crate::properties::PropTab>),
+    PropertiesTabPrev,
+    /// Edit the selected property (a header: fold its section).
+    PropertiesEdit,
+    /// Fold or unfold the selected property's section.
+    /// Folds (`Some(true)`), unfolds (`Some(false)`) or toggles the selected section.
+    PropertiesFold(Option<bool>),
+    /// Clear the selected property (a verse's syllables, a track's own color).
+    PropertiesClear,
+    /// The properties pane's search: 0 opens the field, 1 / -1 jump to the next / previous match
+    /// of the `/` register.
+    PropertiesSearch(isize),
+    /// Sets a switch off (-1) or on (+1), or moves a choice to the previous or next one.
+    PropertiesStep(isize),
+    /// Clears the selected property's text and edits it.
+    PropertiesChange,
+    /// Moves the selected staff down (+1) or up (-1) among the track's staves.
+    PropertiesStaffMove(isize),
     /// Focus the tracks panel, or give the focus back to the score.
     TracksFocus,
     /// In the tracks panel: select the row below / above (tracks, the audio track, the master).
@@ -201,8 +227,8 @@ pub enum Command {
     TrackInstrument(Option<String>),
     /// Volume of the cursor's track.
     TrackVolume(crate::tracks::VolumeChange),
-    /// Colour of the cursor's track in the tracks panel: `#rrggbb`, `off`, or none for the
-    /// next colour of the theme's palette.
+    /// Color of the cursor's track in the tracks panel: `#rrggbb`, `off`, or none for the
+    /// next color of the theme's palette.
     TrackColor(Option<String>),
     /// Lyrics from the cursor on (verse 1–5, default 1), in Guitar Pro syntax: spaces and
     /// hyphens separate syllables, one per note.
@@ -563,13 +589,18 @@ impl Command {
             "track-add" => TrackAdd(arg.unwrap_or("guitar").to_string()),
             "track-delete" => TrackDelete,
             "staff" => Staff(
-                arg.ok_or("staff: expected standard [treble|bass|grand [split]], tab, tab+, slash or chant")?
-                    .to_string(),
+                arg.ok_or(
+                    "staff: expected treble, bass, grand [split], tab, tab+, slash or chant",
+                )?
+                .to_string(),
             ),
             "staff-add" => StaffAdd(arg.map(String::from)),
             "staff-remove" => StaffRemove(match arg {
                 None => None,
-                Some(a) => Some(a.parse().map_err(|_| "staff-remove: expected a staff number")?),
+                Some(a) => Some(
+                    a.parse()
+                        .map_err(|_| "staff-remove: expected a staff number")?,
+                ),
             }),
             "staff-move" => StaffMove(
                 arg.ok_or("staff-move: expected a position, +N or -N")?
@@ -769,6 +800,42 @@ impl Command {
                 Some("off") => Some(false),
                 Some(a) => return Err(format!("tracks: '{a}' is not on or off")),
             }),
+            "properties" => Properties(match arg {
+                None => None,
+                Some("on") => Some(true),
+                Some("off") => Some(false),
+                Some(a) => return Err(format!("properties: '{a}' is not on or off")),
+            }),
+            "properties-focus" => PropertiesFocus,
+            "properties-down" => PropertiesDown,
+            "properties-up" => PropertiesUp,
+            "properties-tab" => PropertiesTab(match arg {
+                None => None,
+                Some(a) => Some(crate::properties::PropTab::parse(a).ok_or_else(|| {
+                    format!("properties-tab: '{a}' is not score, track or lyrics")
+                })?),
+            }),
+            "properties-tab-prev" => PropertiesTabPrev,
+            "properties-edit" => PropertiesEdit,
+            "properties-fold" => PropertiesFold(match arg {
+                None => None,
+                Some("close") => Some(true),
+                Some("open") => Some(false),
+                Some(a) => return Err(format!("properties-fold: '{a}' is not open or close")),
+            }),
+            "properties-clear" => PropertiesClear,
+            "properties-search" => PropertiesSearch(0),
+            "properties-search-next" => PropertiesSearch(1),
+            "properties-search-prev" => PropertiesSearch(-1),
+            "properties-step" => PropertiesStep(
+                arg.and_then(|a| a.trim().parse().ok())
+                    .ok_or("properties-step: expected +1 or -1")?,
+            ),
+            "properties-change" => PropertiesChange,
+            "properties-staff-move" => PropertiesStaffMove(
+                arg.and_then(|a| a.trim().parse().ok())
+                    .ok_or("properties-staff-move: expected +1 or -1")?,
+            ),
             "tracks-focus" => TracksFocus,
             "tracks-down" => TracksDown,
             "tracks-up" => TracksUp,
@@ -804,7 +871,7 @@ impl Command {
             ),
             "track-volume-up" => TrackVolume(crate::tracks::VolumeChange::Up),
             "track-volume-down" => TrackVolume(crate::tracks::VolumeChange::Down),
-            "track-color" | "track-colour" => TrackColor(arg.map(String::from)),
+            "track-color" => TrackColor(arg.map(String::from)),
             "solo" => Solo(arg.map(Strip::parse).transpose()?),
             _ => return Err(format!("unknown command: {name}")),
         })
@@ -818,6 +885,8 @@ impl Command {
             BeatNext
                 | TracksDown
                 | TracksUp
+                | PropertiesDown
+                | PropertiesUp
                 | BeatPrev
                 | StringDown
                 | StringUp

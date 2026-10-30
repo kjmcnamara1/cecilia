@@ -32,6 +32,10 @@ pub fn run(mut app: App) -> Result<()> {
     result
 }
 
+/// The lyrics text area as drawn: its left, its first line's row, its height, the wrapped lines
+/// and the first one shown.
+type PropsText = (u16, u16, u16, Vec<(usize, usize)>, usize);
+
 /// Mouse state between frames: what was drawn where, and where the mouse is.
 #[derive(Default)]
 struct Ui {
@@ -55,6 +59,13 @@ struct Ui {
     tracks_anchor: Option<(usize, usize)>,
     /// The tracks panel's area, and its header row (dragged to resize it).
     tracks_area: Option<Rect>,
+    /// Clickable areas of the properties pane.
+    props: Vec<(Rect, PropHit)>,
+    /// The properties pane, for the wheel.
+    props_area: Option<Rect>,
+    /// The lyrics text area as drawn: its left, its first line's row and height, the wrapped
+    /// lines and the first one shown.
+    props_text: Option<PropsText>,
     /// A mouse drag in progress.
     drag: Option<Drag>,
     hits: Vec<Hit>,
@@ -71,6 +82,10 @@ struct Ui {
 /// A mouse drag in progress.
 #[derive(Debug, Clone, PartialEq)]
 enum Drag {
+    /// A selection in the lyrics text area.
+    Text,
+    /// A staff row of the properties pane (where it began, and the row under the mouse now).
+    Prop(usize, usize, bool),
     /// A track's volume (one undo step).
     Volume,
     /// A border between panes, grabbed this far from its position.
@@ -166,6 +181,24 @@ fn event_loop(terminal: &mut DefaultTerminal, app: &mut App) -> Result<()> {
                             _ => {}
                         }
                     }
+                    MouseEventKind::Drag(MouseButton::Left) if ui.drag == Some(Drag::Text) => {
+                        if let Some(at) = text_at(&ui, m.column, m.row) {
+                            app.text_drag(at);
+                        }
+                    }
+                    MouseEventKind::Drag(MouseButton::Left)
+                        if matches!(ui.drag, Some(Drag::Prop(..))) =>
+                    {
+                        let over = ui.props.iter().find_map(|(r, h)| match h {
+                            PropHit::Row(i) if contains(*r, m.column, m.row) => Some(*i),
+                            _ => None,
+                        });
+                        if let (Some(i), Some(Drag::Prop(from, _, double))) =
+                            (over, ui.drag.clone())
+                        {
+                            ui.drag = Some(Drag::Prop(from, i, double));
+                        }
+                    }
                     MouseEventKind::Drag(MouseButton::Left)
                         if matches!(ui.drag, Some(Drag::Scrollbar(..))) =>
                     {
@@ -204,6 +237,56 @@ fn event_loop(terminal: &mut DefaultTerminal, app: &mut App) -> Result<()> {
                         ui.drag = Some(Drag::Divider(d, off));
                     }
                     MouseEventKind::Down(MouseButton::Left)
+                        if ui.props.iter().any(|(r, _)| contains(*r, m.column, m.row)) =>
+                    {
+                        let hit = ui
+                            .props
+                            .iter()
+                            .find(|(r, _)| contains(*r, m.column, m.row))
+                            .map(|(_, h)| *h)
+                            .unwrap();
+                        match hit {
+                            // In the text area being edited: a click places the caret, a drag
+                            // selects.
+                            PropHit::Row(i)
+                                if app.text_editing(i) && text_inside(&ui, m.column, m.row) =>
+                            {
+                                let at = text_at(&ui, m.column, m.row).unwrap_or(0);
+                                if is_double(&mut ui, m.column, m.row) {
+                                    app.text_double_click(at);
+                                } else {
+                                    app.text_click(at);
+                                    ui.drag = Some(Drag::Text);
+                                }
+                            }
+                            // A staff can be dragged; a plain click waits for the release.
+                            PropHit::Row(i) if app.property_is_staff(i) => {
+                                if let Some(id) = app.tool_pane(PaneKind::Properties) {
+                                    app.set_focus(id);
+                                }
+                                let double = is_double(&mut ui, m.column, m.row);
+                                ui.drag = Some(Drag::Prop(i, i, double));
+                            }
+                            _ => {
+                                let double = is_double(&mut ui, m.column, m.row);
+                                click_properties(app, hit, double);
+                                // A double click in the lyrics puts the caret where it landed.
+                                if let (true, Some((x, y, h, lines, skip))) =
+                                    (double, ui.props_text.as_ref())
+                                {
+                                    if m.row >= *y && m.row < y + h && m.column >= *x {
+                                        let row = (*skip + (m.row - y) as usize)
+                                            .min(lines.len().saturating_sub(1));
+                                        if let Some(&(s, e)) = lines.get(row) {
+                                            let col = (m.column - x) as usize;
+                                            app.set_text_caret(s + col.min(e - s));
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                    MouseEventKind::Down(MouseButton::Left)
                     | MouseEventKind::Drag(MouseButton::Left)
                         if ui.drag == Some(Drag::Volume)
                             || ui.tracks.iter().any(|(r, _)| contains(*r, m.column, m.row)) =>
@@ -211,8 +294,14 @@ fn event_loop(terminal: &mut DefaultTerminal, app: &mut App) -> Result<()> {
                         click_tracks(app, &mut ui, m.column, m.row, m.kind);
                     }
                     MouseEventKind::Up(MouseButton::Left) if ui.drag.is_some() => {
-                        if ui.drag.take() == Some(Drag::Volume) {
-                            app.group_edits(false);
+                        match ui.drag.take() {
+                            Some(Drag::Volume) => app.group_edits(false),
+                            Some(Drag::Text) => app.text_release(),
+                            Some(Drag::Prop(from, to, double)) if from == to => {
+                                app.click_property(from, double)
+                            }
+                            Some(Drag::Prop(from, to, _)) => app.drag_property(from, to),
+                            _ => {}
                         }
                     }
                     // The wheel over the tracks panel scrolls its rows (sideways: its bars).
@@ -323,6 +412,26 @@ fn event_loop(terminal: &mut DefaultTerminal, app: &mut App) -> Result<()> {
                             app.set_focus(id);
                         }
                     }
+                    // The wheel over a picker moves its selection; over the properties pane it
+                    // scrolls the rows.
+                    MouseEventKind::ScrollDown | MouseEventKind::ScrollUp
+                        if app.mode == muse_app::Mode::Picker =>
+                    {
+                        app.picker_scroll(if m.kind == MouseEventKind::ScrollDown {
+                            1
+                        } else {
+                            -1
+                        });
+                    }
+                    MouseEventKind::ScrollDown | MouseEventKind::ScrollUp
+                        if ui.props_area.is_some_and(|r| contains(r, m.column, m.row)) =>
+                    {
+                        app.scroll_properties(if m.kind == MouseEventKind::ScrollDown {
+                            2
+                        } else {
+                            -2
+                        });
+                    }
                     MouseEventKind::ScrollDown => app.run(muse_app::Command::BarNext),
                     MouseEventKind::ScrollUp => app.run(muse_app::Command::BarPrev),
                     _ => {}
@@ -343,12 +452,12 @@ fn event_loop(terminal: &mut DefaultTerminal, app: &mut App) -> Result<()> {
     Ok(())
 }
 
-/// A theme colour for the terminal.
+/// A theme color for the terminal.
 pub(crate) fn rc(c: muse_app::theme::Rgba) -> Color {
     Color::Rgb(c.r, c.g, c.b)
 }
 
-/// Text on a theme-coloured background.
+/// Text on a theme-colored background.
 fn on(app: &App, bg: muse_app::theme::Rgba) -> Style {
     Style::default()
         .fg(rc(app.config.theme.text_on(bg)))
@@ -421,6 +530,9 @@ fn draw(f: &mut Frame, app: &mut App, play: Option<(usize, Location, f64, f64)>,
     .areas(f.area());
     ui.tracks.clear();
     ui.tracks_area = None;
+    ui.props.clear();
+    ui.props_area = None;
+    ui.props_text = None;
     if peek_h > 0 {
         draw_tracks(f, app, peek, play, ui);
     }
@@ -465,6 +577,7 @@ fn draw(f: &mut Frame, app: &mut App, play: Option<(usize, Location, f64, f64)>,
         let instrument = app.instrument_view(play.map(|(b, loc, ..)| (b, loc.bar, loc.tick)));
         match kind {
             PaneKind::Tracks => draw_tracks(f, app, inner, play, ui),
+            PaneKind::Properties => draw_properties(f, app, inner, ui),
             PaneKind::Tuner => draw_tuner(f, app, inner),
             PaneKind::Fretboard | PaneKind::Piano => match &instrument {
                 Some(v) if kind == PaneKind::Fretboard => draw_fretboard(f, app, v, inner, ui),
@@ -512,7 +625,7 @@ fn draw(f: &mut Frame, app: &mut App, play: Option<(usize, Location, f64, f64)>,
             None => format!(" {} ", buffer.name),
         };
         let border_style = if id == focused {
-            Style::default().fg(rc(app.config.theme.accent))
+            Style::default().fg(rc(app.config.theme.mode_color(app.mode)))
         } else {
             Style::default().fg(rc(app.config.theme.dim))
         };
@@ -684,6 +797,10 @@ fn draw_palette(f: &mut Frame, app: &App, p: &muse_app::Palette, screen: Rect) {
         Some(sel) if sel >= rows => sel + 1 - rows,
         _ => 0,
     };
+    let swatches = p
+        .items
+        .iter()
+        .any(|i| i.swatch.is_some() || i.icon.is_some());
     for (k, item) in p.items.iter().enumerate().skip(first).take(rows) {
         let row = Rect {
             y: inner.y + 2 + (k - first) as u16,
@@ -697,8 +814,14 @@ fn draw_palette(f: &mut Frame, app: &App, p: &muse_app::Palette, screen: Rect) {
             Style::default()
         };
         let width = row.width as usize;
-        let name: String = item.text.chars().take(width.saturating_sub(1)).collect();
-        let mut line = format!(" {name}");
+        // Colors get a swatch before their name.
+        let ind = if swatches { 3 } else { 0 };
+        let name: String = item
+            .text
+            .chars()
+            .take(width.saturating_sub(1 + ind))
+            .collect();
+        let mut line = format!(" {}{name}", " ".repeat(ind));
         if let Some(d) = &item.description {
             let room = width.saturating_sub(line.chars().count() + 3);
             let d: String = d.chars().take(room).collect();
@@ -708,6 +831,14 @@ fn draw_palette(f: &mut Frame, app: &App, p: &muse_app::Palette, screen: Rect) {
             line.push(' ');
         }
         f.render_widget(Paragraph::new(line).style(style), row);
+        if let Some(c) = item.swatch {
+            f.buffer_mut()
+                .set_string(row.x + 1, row.y, "██", Style::default().fg(rc(c)));
+        }
+        if let Some(icon) = item.icon {
+            f.buffer_mut()
+                .set_string(row.x + 1, row.y, icon.glyph(), Style::default());
+        }
         // Highlight the characters that matched what was typed.
         let hl = if selected {
             Style::default()
@@ -719,7 +850,7 @@ fn draw_palette(f: &mut Frame, app: &App, p: &muse_app::Palette, screen: Rect) {
                 .add_modifier(Modifier::BOLD)
         };
         for &i in &item.matched {
-            let x = row.x + 1 + i as u16;
+            let x = row.x + 1 + i as u16 + if swatches { 3 } else { 0 };
             if x < row.x + row.width {
                 f.buffer_mut().set_style(Rect { x, width: 1, ..row }, hl);
             }
@@ -856,7 +987,7 @@ fn draw_tuner(f: &mut Frame, app: &App, area: Rect) {
 }
 
 /// The fretboard: a row per string (open note, nut, a cell per fret) and the fret numbers
-/// under it; the notes at the cursor or playhead are named in the track's colour.
+/// under it; the notes at the cursor or playhead are named in the track's color.
 fn draw_fretboard(
     f: &mut Frame,
     app: &App,
@@ -883,7 +1014,7 @@ fn draw_fretboard(
     for (s, &open) in v.strings.iter().enumerate() {
         let y = area.y + s as u16;
         let cursor = v.cursor_string == Some(s);
-        // The cursor's string in the mode's colour (thin, like the others).
+        // The cursor's string in the mode's color (thin, like the others).
         let line = if cursor {
             base.fg(rc(t.mode_color(app.mode)))
         } else {
@@ -917,7 +1048,7 @@ fn draw_fretboard(
                 buf.set_string(x, y, format!("{name:^3}"), note_style);
             }
         }
-        // A capo: a solid bar (in the theme's capo colour) across its fret, over the strings.
+        // A capo: a solid bar (in the theme's capo color) across its fret, over the strings.
         if v.capo > 0 && (v.capo as u16) <= frets {
             let x = nut + v.capo as u16 * 4;
             buf.set_string(x, y, "▌", base.fg(rc(t.capo)));
@@ -935,7 +1066,7 @@ fn draw_fretboard(
 }
 
 /// The piano: a column per key around the notes (C4 in the middle when there are none); the
-/// notes at the cursor or playhead are in the track's colour.
+/// notes at the cursor or playhead are in the track's color.
 fn draw_piano(
     f: &mut Frame,
     app: &App,
@@ -1015,6 +1146,11 @@ fn tool_icon(b: &muse_app::toolbar::ToolButton, style: &str) -> String {
         "metronome" => ("\u{f017}", "♩", "click"),
         "count-in" => ("12", "12", "count"),
         "tracks" | "tracks-focus" => ("\u{f0c9}", "≡", "tracks"),
+        "properties" => ("\u{f013}", "⚙", "props"),
+        "waveform" => ("\u{f080}", "∿", "wave"),
+        "piano" => ("\u{f001}", "♫", "piano"),
+        "fretboard" => ("\u{f1c0}", "▦", "frets"),
+        "tuner" => ("\u{f130}", "♮", "tuner"),
         "split" | "sp" => ("\u{f2d0}", "⊟", "split"),
         "vsplit" | "vs" => ("\u{f0db}", "◫", "vsplit"),
         "maximize" | "max" => ("\u{f065}", "⤢", "max"),
@@ -1279,7 +1415,7 @@ fn draw_progress(
         return;
     };
     let t = &app.config.theme;
-    // Match the score background (the page colour, since TUI is always vertical/horizontal).
+    // Match the score background (the page color, since TUI is always vertical/horizontal).
     let ground = t.page;
     let label_ink = ground.mix(t.ink, 0.8);
     let segment = ground.mix(t.ink, 0.12);
@@ -1363,8 +1499,342 @@ fn draw_audio(f: &mut Frame, app: &App, area: Rect, ui: &Ui) {
     }
 }
 
+#[derive(Clone, Copy)]
+enum PropHit {
+    Tab(muse_app::properties::PropTab),
+    Row(usize),
+}
+
+/// Whether a point is in the lyrics text area as drawn.
+fn text_inside(ui: &Ui, col: u16, row: u16) -> bool {
+    ui.props_text
+        .as_ref()
+        .is_some_and(|(x, y, h, ..)| col >= *x && row >= *y && row < y + h)
+}
+
+/// The character of the lyrics text at a cell (rows and columns past it go to its edges).
+fn text_at(ui: &Ui, col: u16, row: u16) -> Option<usize> {
+    let (x, y, h, lines, skip) = ui.props_text.as_ref()?;
+    let r = (row.clamp(*y, y + h - 1) - y) as usize + skip;
+    let &(s, e) = lines.get(r.min(lines.len().saturating_sub(1)))?;
+    Some(s + (col.saturating_sub(*x) as usize).min(e - s))
+}
+
+/// Whether a click at this cell follows one just before (and notes it).
+fn is_double(ui: &mut Ui, x: u16, y: u16) -> bool {
+    let now = std::time::Instant::now();
+    let double = ui.last_click.is_some_and(|(t, x0, y0)| {
+        now.duration_since(t) < std::time::Duration::from_millis(400) && (x0, y0) == (x, y)
+    });
+    ui.last_click = Some((now, x, y));
+    double
+}
+
+fn click_properties(app: &mut App, hit: PropHit, double: bool) {
+    if let Some(id) = app.tool_pane(PaneKind::Properties) {
+        app.set_focus(id);
+    }
+    match hit {
+        PropHit::Tab(t) => app.set_property_tab(t),
+        // A click selects a property; another on the selected one edits it.
+        PropHit::Row(i) => app.click_property(i, double),
+    }
+}
+
+/// `text` cut to `width` cells, ending in an ellipsis when it is longer.
+fn clip(text: &str, width: usize) -> String {
+    if text.chars().count() <= width {
+        return text.to_string();
+    }
+    let mut out: String = text.chars().take(width.saturating_sub(1)).collect();
+    out.push('…');
+    out
+}
+
+/// The properties pane: its tabs, then the shown tab's rows (section titles, and per property
+/// its label above a box holding the value), with a margin all round.
+fn draw_properties(f: &mut Frame, app: &App, area: Rect, ui: &mut Ui) {
+    use muse_app::properties::{PropTab, RowKind, caret_in, small_caps, wrap_ranges};
+    const PAD: u16 = 2;
+    let t = app.config.theme.clone();
+    let base = Style::default().bg(rc(t.panel)).fg(rc(t.chrome_text));
+    let dim = Style::default().fg(rc(t.dim)).bg(rc(t.panel));
+    ui.props_area = Some(area);
+    f.render_widget(Paragraph::new("").style(base), area);
+    if area.height < 6 || area.width < 12 {
+        return;
+    }
+    let buf = f.buffer_mut();
+    let x0 = area.x + PAD;
+    let width = (area.width - 2 * PAD) as usize;
+    // Tabs.
+    let mut x = x0;
+    for tab in PropTab::ALL {
+        let label = format!(" {} ", tab.title());
+        let w = label.chars().count() as u16;
+        let style = if tab == app.props.tab {
+            on(app, t.mode_normal).add_modifier(Modifier::BOLD)
+        } else {
+            Style::default().fg(rc(t.dim)).bg(rc(t.tab))
+        };
+        buf.set_string(x, area.y + 1, &label, style);
+        ui.props.push((
+            Rect {
+                x,
+                y: area.y + 1,
+                width: w,
+                height: 1,
+            },
+            PropHit::Tab(tab),
+        ));
+        x += w + 1;
+    }
+    let rows = app.property_rows();
+    let top = area.y + 3;
+    let bottom = area.y + area.height - 1;
+    let first = app.property_window((bottom - top) as usize);
+    let mut y = top;
+    // The staff rows: row, line of the box, whether a label sits above.
+    let mut staff_rows: Vec<(usize, u16, bool)> = Vec::new();
+    for (k, row) in rows.iter().enumerate().skip(first) {
+        let h = row.height() as u16;
+        if y >= bottom {
+            break;
+        }
+        let sel = app.property_row_selected(k);
+        let box_sel = k == app.property_selected();
+        let mut hit = Rect {
+            x: area.x,
+            y,
+            width: area.width,
+            height: h.min(bottom - y),
+        };
+        match &row.kind {
+            RowKind::Header { folded, .. } => {
+                // Chevrons (Nerd Font): right when folded, down when open.
+                let mark = if *folded { '\u{f054}' } else { '\u{f078}' };
+                let title = format!("{mark} {}", small_caps(&row.label));
+                let style = if sel {
+                    on(app, t.mode_normal)
+                } else {
+                    base.fg(rc(t.mode_normal))
+                };
+                buf.set_string(
+                    x0,
+                    y + h - 1,
+                    clip(&title, width),
+                    style.add_modifier(Modifier::BOLD),
+                );
+            }
+            RowKind::Note => buf.set_string(x0, y, clip(&row.label, width), dim),
+            RowKind::Field { field, editable } => {
+                let typing = app.props.edit.as_ref().filter(|e| e.field == *field);
+                if *field == muse_app::properties::Field::Lyrics {
+                    // The text area fills the pane down to its end.
+                    hit.height = bottom - y;
+                }
+                let label_style = if sel {
+                    base.fg(rc(t.mode_normal)).add_modifier(Modifier::BOLD)
+                } else {
+                    dim
+                };
+                // A staff after the first has no label: its box takes the label's place.
+                let labelled = !row.label.is_empty();
+                if labelled {
+                    buf.set_string(x0, y, clip(&row.label, width), label_style);
+                }
+                let by = if labelled { y + 1 } else { y };
+                // Staff fields have a drag handle before them (the empty one, a gap).
+                let staff = matches!(field, muse_app::properties::Field::StaffAt(_));
+                let bx = if staff { x0 + 2 } else { x0 };
+                if staff {
+                    if !row.value.is_empty() {
+                        buf.set_string(x0, by, "⠿", dim);
+                    }
+                    staff_rows.push((k, by, labelled));
+                }
+                let box_bg = if typing.is_some() {
+                    t.tab.mix(t.mode_normal, 0.5)
+                } else if box_sel {
+                    t.tab.mix(t.mode_normal, 0.25)
+                } else {
+                    t.tab
+                };
+                let text_style = Style::default().bg(rc(box_bg)).fg(rc(if *editable {
+                    t.chrome_text
+                } else {
+                    t.dim
+                }));
+                // The box takes the pane's width; the text area also its remaining height.
+                let box_h = if *field == muse_app::properties::Field::Lyrics {
+                    (bottom - by).max(1)
+                } else {
+                    1
+                };
+                // A property with text beside it has a narrower box, the text dim to its right.
+                let toggle = matches!(
+                    field,
+                    muse_app::properties::Field::Mute | muse_app::properties::Field::Solo
+                );
+                let aside = row.aside.chars().count();
+                let box_w = if toggle {
+                    6
+                } else if aside == 0 {
+                    width - (bx - x0) as usize
+                } else {
+                    width
+                        .saturating_sub(aside + 2 + (bx - x0) as usize)
+                        .min(width * 62 / 100)
+                };
+                for dy in 0..box_h {
+                    buf.set_string(bx, by + dy, " ".repeat(box_w), text_style);
+                }
+                if aside > 0 {
+                    buf.set_string(bx + box_w as u16 + 2, by, &row.aside, dim);
+                }
+                if toggle {
+                    // A switch: the knob at the end that says which, and on/off beside it.
+                    let on_now = row.value == "on";
+                    let (knob, bg) = if on_now {
+                        (" ●", t.mode_normal)
+                    } else {
+                        ("● ", t.tab)
+                    };
+                    buf.set_string(bx, by, "      ", Style::default().bg(rc(bg)));
+                    buf.set_string(
+                        bx + if on_now { 3 } else { 1 },
+                        by,
+                        knob.trim(),
+                        Style::default()
+                            .fg(rc(if on_now {
+                                t.text_on(t.mode_normal)
+                            } else {
+                                t.dim
+                            }))
+                            .bg(rc(bg)),
+                    );
+                    buf.set_string(bx + 8, by, if on_now { "on" } else { "off" }, base);
+                }
+                let mut text_x = bx + 1;
+                if let Some(c) = row.swatch {
+                    buf.set_string(text_x, by, "██", Style::default().fg(rc(c)).bg(rc(box_bg)));
+                    text_x += 3;
+                }
+                if let Some(icon) = row.icon {
+                    let g = icon.glyph();
+                    buf.set_string(text_x, by, g, Style::default().bg(rc(box_bg)));
+                    text_x += if g.chars().any(|c| c as u32 >= 0x1F000) {
+                        3
+                    } else {
+                        2
+                    };
+                }
+                let inner = box_w.saturating_sub((text_x - bx) as usize + 1);
+                if *field == muse_app::properties::Field::Lyrics {
+                    let text = typing.map_or(row.value.as_str(), |e| e.text.as_str());
+                    let lines = wrap_ranges(text, |l| l.chars().count() <= inner);
+                    *app.props.visual.borrow_mut() = lines.clone();
+                    let chars: Vec<char> = text.chars().collect();
+                    let caret = typing.map(|e| caret_in(&lines, e.caret));
+                    // Keep the caret's line in view.
+                    let skip = app.text_window(
+                        typing.zip(caret).map(|(e, (r, _))| (e.caret, r)),
+                        lines.len(),
+                        box_h as usize,
+                    );
+                    ui.props_text = Some((bx + 1, by, box_h, lines.clone(), skip));
+                    // The selection, behind the text.
+                    let selection = typing.and_then(|e| e.selection());
+                    for (n, &(s, e)) in lines.iter().enumerate().skip(skip).take(box_h as usize) {
+                        let line: String = chars[s..e].iter().collect();
+                        buf.set_string(bx + 1, by + (n - skip) as u16, line, text_style);
+                        if let Some((a, z)) = selection {
+                            let (lo, hi) = (a.max(s), z.min(e));
+                            if lo < hi {
+                                buf.set_style(
+                                    Rect {
+                                        x: bx + 1 + (lo - s) as u16,
+                                        y: by + (n - skip) as u16,
+                                        width: (hi - lo) as u16,
+                                        height: 1,
+                                    },
+                                    Style::default().bg(rc(t.mode_normal.with_alpha(255))),
+                                );
+                            }
+                        }
+                    }
+                    if let Some((r, c)) = caret.filter(|&(r, _)| r >= skip) {
+                        let (cx, cy) = (bx + 1 + c as u16, by + (r - skip) as u16);
+                        if typing.is_some_and(|e| e.modal && !e.insert) {
+                            // Normal mode: the character under the caret is a block.
+                            let under = lines.get(r).and_then(|&(s, _)| chars.get(s + c));
+                            let ch = under.filter(|c| **c != '\n').copied().unwrap_or(' ');
+                            buf.set_string(cx, cy, ch.to_string(), on(app, t.mode_normal));
+                        } else {
+                            buf.set_string(cx, cy, "▏", text_style.fg(rc(t.mode_normal)));
+                        }
+                    }
+                } else {
+                    let shown = match typing {
+                        Some(e) => {
+                            // The tail stays in view, with the caret in the text.
+                            let chars: Vec<char> = e.text.chars().collect();
+                            let keep = inner.saturating_sub(1);
+                            let from = e.caret.saturating_sub(keep);
+                            let mut line: String =
+                                chars[from..e.caret.min(chars.len())].iter().collect();
+                            line.push('▏');
+                            line.extend(chars[e.caret.min(chars.len())..].iter().take(keep));
+                            line.chars().take(inner).collect()
+                        }
+                        None if row.value.is_empty() => row.placeholder.to_string(),
+                        None => clip(&row.value, inner),
+                    };
+                    if !toggle {
+                        buf.set_string(text_x, by, shown, text_style);
+                    }
+                }
+            }
+        }
+        ui.props.push((hit, PropHit::Row(k)));
+        y += h;
+    }
+    // The search field along the bottom of the pane.
+    if let Some(search) = &app.props.search {
+        let y = area.y + area.height - 1;
+        let style = Style::default().bg(rc(t.tab)).fg(rc(t.chrome_text));
+        f.buffer_mut().set_string(x0, y, " ".repeat(width), style);
+        let line = clip(&format!("/{}▏", search.query), width.saturating_sub(1));
+        f.buffer_mut().set_string(x0 + 1, y, line, style);
+    }
+    // While a staff is dragged: a line in the accent color where it would land.
+    if let Some(Drag::Prop(from, to, _)) = ui.drag {
+        if from != to {
+            if let Some(&(_, line, labelled)) = staff_rows.iter().find(|r| r.0 == to) {
+                let ly = if to > from {
+                    line + 1
+                } else {
+                    line.saturating_sub(1)
+                };
+                let from_x = if labelled && to < from {
+                    x0 + 10
+                } else {
+                    x0 + 2
+                };
+                let w = width.saturating_sub((from_x - x0) as usize);
+                f.buffer_mut().set_string(
+                    from_x,
+                    ly,
+                    "━".repeat(w),
+                    Style::default().fg(rc(t.accent)).bg(rc(t.panel)),
+                );
+            }
+        }
+    }
+}
+
 /// The tracks panel: per track its number, volume, solo, mute, name and instrument, then a
-/// cell per bar (coloured where it has notes) with the edit cursor and the playhead.
+/// cell per bar (colored where it has notes) with the edit cursor and the playhead.
 fn draw_tracks(
     f: &mut Frame,
     app: &App,
@@ -1677,7 +2147,7 @@ fn draw_tracks(
 }
 
 /// The status line, as lualine.nvim: mode, layout, workspace and file on the left; the rest of
-/// the state, progress and `bar:beat` on the right, in coloured sections.
+/// the state, progress and `bar:beat` on the right, in colored sections.
 fn draw_status(
     f: &mut Frame,
     app: &App,
@@ -1695,7 +2165,7 @@ fn draw_status(
         ("round", "nerd") => Some(("\u{e0b4}", "\u{e0b6}")),
         _ => None,
     };
-    let mode = t.mode_color(app.mode);
+    let mode = t.mode_color(app.display_mode());
     let bg_of = |k: SegKind| match k {
         SegKind::Mode => mode,
         SegKind::ModeText => t.status_b,
@@ -1826,7 +2296,7 @@ fn draw_cmdline(f: &mut Frame, app: &App, area: Rect) {
     match app.mode {
         // Typed in the command palette.
         Mode::Command | Mode::Picker => {}
-        Mode::Normal | Mode::Insert | Mode::Visual | Mode::Tracks => {
+        Mode::Normal | Mode::Insert | Mode::Visual | Mode::Tracks | Mode::Properties => {
             if let Some(m) = &app.message {
                 let style = if m.error {
                     Style::default().fg(Color::Red)
@@ -2065,6 +2535,50 @@ mod render_tests {
     }
 
     #[test]
+    fn the_properties_pane_shows_rows_and_takes_clicks() {
+        let mut app = App::new(muse_app::Config::default(), None);
+        app.run(muse_app::Command::New);
+        app.run(muse_app::Command::Properties(Some(true)));
+        let mut terminal = Terminal::new(TestBackend::new(100, 30)).unwrap();
+        let mut ui = Ui::default();
+        terminal.draw(|f| draw(f, &mut app, None, &mut ui)).unwrap();
+        let screen = render(&mut app, 100, 30);
+        assert!(screen.contains("properties"), "{screen}");
+        assert!(
+            screen.contains("SCORE") && screen.contains("TRACK") && screen.contains("LYRICS"),
+            "{screen}"
+        );
+        assert!(
+            screen.contains("\u{f078} Iɴꜰᴏ") && screen.contains("Title"),
+            "{screen}"
+        );
+        assert!(!screen.contains("Tempo"), "{screen}");
+        // Clicking the tracks tab shows the cursor track's properties.
+        let tab = ui
+            .props
+            .iter()
+            .find_map(|(_, h)| match h {
+                PropHit::Tab(t) if *t == muse_app::properties::PropTab::Tracks => Some(*h),
+                _ => None,
+            })
+            .unwrap();
+        click_properties(&mut app, tab, false);
+        let screen = render(&mut app, 100, 30);
+        assert!(
+            screen.contains("Color") && screen.contains("Tuning"),
+            "{screen}"
+        );
+        assert_eq!(app.focused_kind(), PaneKind::Properties);
+        // A click on a row selects it; another edits it.
+        click_properties(&mut app, PropHit::Row(2), false);
+        assert_eq!(app.property_selected(), 2);
+        click_properties(&mut app, PropHit::Row(2), true);
+        assert!(app.props.edit.is_some());
+        let screen = render(&mut app, 100, 30);
+        assert!(screen.contains('▏'), "{screen}");
+    }
+
+    #[test]
     fn the_status_line_has_lualine_sections() {
         let mut app = App::new(muse_app::Config::default(), None);
         app.run(muse_app::Command::New);
@@ -2074,12 +2588,12 @@ mod render_tests {
         let buf = terminal.backend().buffer().clone();
         let y = 10;
         let row: String = (0..100).map(|x| buf[(x, y)].symbol().to_string()).collect();
-        // The mode keeps its colour (it used to be painted over).
+        // The mode keeps its color (it used to be painted over).
         let mode = rc(app.config.theme.mode_color(muse_app::Mode::Normal));
         assert!(row.starts_with(" NORMAL "), "{row}");
         assert_eq!(buf[(1, y)].bg, mode);
         assert!(row.contains("vertical"), "{row}");
-        // Arrow separators with Nerd Font icons; the location on the mode colour at the end.
+        // Arrow separators with Nerd Font icons; the location on the mode color at the end.
         assert_eq!(buf[(8, y)].symbol(), "\u{e0b0}");
         assert!(row.trim_end().ends_with("1:1"), "{row}");
         assert_eq!(buf[(98, y)].bg, mode);
@@ -2243,6 +2757,7 @@ mod render_tests {
             muse_formats::gabc::parse("name: t;\n%%\n(c4) Al(fg)le(h.) lu(ixi)ia.(f) (::)\n")
                 .unwrap();
         let mut app = App::new(muse_app::Config::default(), None);
+        app.set_tool(PaneKind::Properties, Some(false));
         app.buffers[0].score = muse_formats::gabc::chant_score(chant);
         let screen = render(&mut app, 60, 24);
         assert!(screen.contains("Al- le lu- ia."), "{screen}");

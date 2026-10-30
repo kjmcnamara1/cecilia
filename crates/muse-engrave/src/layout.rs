@@ -1505,10 +1505,13 @@ impl Ctx<'_> {
         let total: f64 = bars.iter().map(|&i| plans[i].natural * stretch).sum();
         let x1 = x0 + header + total;
 
-        // Staff lines: four for chant, five otherwise.
+        // Staff lines: four for chant, five otherwise, and just the middle one for slashes.
         if self.standard {
             let lines = if self.chant.is_some() { 4 } else { 5 };
             for l in 0..lines {
+                if self.slash && l != 2 {
+                    continue;
+                }
                 let y = std_bottom - l as f64 * sp;
                 page.line((x0, y), (x1, y), 0.13 * sp);
             }
@@ -2291,7 +2294,8 @@ impl Ctx<'_> {
         }
         heads.sort_by_key(|h| h.0);
         let avg = heads.iter().map(|h| h.0).sum::<i32>() as f64 / heads.len().max(1) as f64;
-        let up = up_voice.unwrap_or(avg < 4.0);
+        // Slashes always have their stems up.
+        let up = self.slash || up_voice.unwrap_or(avg < 4.0);
         let head = match (self.slash, beat.duration.value) {
             (false, DurationValue::Whole) => HEAD_WHOLE,
             (false, DurationValue::Half) => HEAD_HALF,

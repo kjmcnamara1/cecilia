@@ -4,7 +4,9 @@
 use crate::app::{App, Palette, PaletteItem};
 use crate::command::Command;
 use crate::config::Mode;
+use crate::icons::Icon;
 use crate::keys::{Key, KeyCode};
+use crate::theme::Rgba;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum PickerKind {
@@ -19,6 +21,12 @@ pub enum PickerKind {
     Section,
     /// General MIDI instruments (and the drum kit) for a track.
     Instrument(usize),
+    /// Colors (named, or typed as `#rrggbb` or `rgb(r,g,b)`) for a track.
+    Color(usize),
+    /// Common tunings of a track's instrument.
+    Tuning(usize),
+    /// The kinds of staff for a track's staff (its index; one past the last adds one).
+    Staff(usize, usize),
 }
 
 impl PickerKind {
@@ -45,6 +53,9 @@ impl PickerKind {
             PickerKind::Keymap => "Keymaps",
             PickerKind::Section => "Sections",
             PickerKind::Instrument(_) => "Instruments",
+            PickerKind::Color(_) => "Colors",
+            PickerKind::Tuning(_) => "Tunings",
+            PickerKind::Staff(..) => "Staves",
         }
     }
 }
@@ -66,6 +77,277 @@ struct Entry {
     action: Command,
     /// The description is searched too (keymaps).
     search_description: bool,
+    /// A color shown next to the label.
+    swatch: Option<Rgba>,
+    /// An icon shown next to the label.
+    icon: Option<Icon>,
+    /// The choice now in force (the properties pane steps from it).
+    current: bool,
+}
+
+/// Common colors: name and hex code.
+const COLORS: &[(&str, &str)] = &[
+    ("Red", "#e53935"),
+    ("Crimson", "#c2185b"),
+    ("Pink", "#ec407a"),
+    ("Hot Pink", "#ff4081"),
+    ("Magenta", "#d500f9"),
+    ("Purple", "#8e24aa"),
+    ("Violet", "#7e57c2"),
+    ("Indigo", "#3949ab"),
+    ("Blue", "#1e88e5"),
+    ("Sky Blue", "#4fc3f7"),
+    ("Cyan", "#00bcd4"),
+    ("Teal", "#009688"),
+    ("Turquoise", "#26c6da"),
+    ("Mint", "#69f0ae"),
+    ("Green", "#43a047"),
+    ("Lime", "#c0ca33"),
+    ("Olive", "#827717"),
+    ("Yellow", "#fdd835"),
+    ("Gold", "#ffb300"),
+    ("Amber", "#ffa000"),
+    ("Orange", "#fb8c00"),
+    ("Coral", "#ff7043"),
+    ("Salmon", "#ff8a80"),
+    ("Brown", "#6d4c41"),
+    ("Tan", "#bcaaa4"),
+    ("Maroon", "#7f0000"),
+    ("Navy", "#0d2a6b"),
+    ("Slate", "#607d8b"),
+    ("Silver", "#b0bec5"),
+    ("Gray", "#9e9e9e"),
+    ("Charcoal", "#37474f"),
+    ("White", "#fafafa"),
+    ("Black", "#212121"),
+];
+
+/// A color typed as `#rgb`, `#rrggbb`, or `rgb(r, g, b)`.
+fn parse_color_query(q: &str) -> Option<Rgba> {
+    let q = q.trim();
+    if q.starts_with('#') {
+        return Rgba::parse(q).filter(|c| c.a == 255);
+    }
+    let inner = q.to_ascii_lowercase();
+    let inner = inner.strip_prefix("rgb(")?.strip_suffix(')')?;
+    let n: Vec<u8> = inner
+        .split(',')
+        .map(|p| p.trim().parse().ok())
+        .collect::<Option<_>>()?;
+    match n.as_slice() {
+        &[r, g, b] => Some(Rgba::rgb(r, g, b)),
+        _ => None,
+    }
+}
+
+/// A staff as the properties pane shows it: `treble`, `bass`, `grand`, `tab` …
+pub(crate) fn staff_label(staff: muse_core::Staff) -> String {
+    match staff {
+        muse_core::Staff::Standard(c) => c.name(),
+        other => other.name(),
+    }
+}
+
+/// The name of a color of the picker's list.
+pub(crate) fn color_name(c: Rgba) -> Option<&'static str> {
+    COLORS
+        .iter()
+        .find(|(_, hex)| Rgba::parse(hex) == Some(c))
+        .map(|(n, _)| *n)
+}
+
+/// The name of a tuning of the picker's lists (strings highest first).
+pub(crate) fn tuning_name(strings: &[u8]) -> Option<&'static str> {
+    tunings(tuning_family(strings), strings.len())
+        .into_iter()
+        .find(|(_, _, s)| s == strings)
+        .map(|(n, _, _)| n)
+}
+
+/// The instrument family a track's tuning is picked from, by its strings.
+#[derive(Clone, Copy, PartialEq)]
+enum Family {
+    Guitar,
+    Bass,
+    Ukulele,
+    Other,
+}
+
+fn tuning_family(strings: &[u8]) -> Family {
+    let top = strings.iter().copied().max().unwrap_or(0);
+    match strings.len() {
+        4 if top >= 60 => Family::Ukulele,
+        n if top < 55 && (4..=6).contains(&n) => Family::Bass,
+        6..=8 if top >= 55 => Family::Guitar,
+        _ => Family::Other,
+    }
+}
+
+/// Common tunings of a family: name, description and the open strings (highest first).
+fn tunings(family: Family, strings: usize) -> Vec<(&'static str, &'static str, Vec<u8>)> {
+    let t = |n, d, p: &[u8]| (n, d, p.to_vec());
+    match (family, strings) {
+        (Family::Guitar, 6) => vec![
+            t(
+                "Standard",
+                "E A D G B E: the usual tuning",
+                &[64, 59, 55, 50, 45, 40],
+            ),
+            t(
+                "Half Step Down",
+                "Eb tuning: Hendrix, Nirvana, easier bends",
+                &[63, 58, 54, 49, 44, 39],
+            ),
+            t(
+                "Whole Step Down",
+                "D standard: darker, looser strings",
+                &[62, 57, 53, 48, 43, 38],
+            ),
+            t(
+                "Drop D",
+                "Low string down a tone: power chords on one finger",
+                &[64, 59, 55, 50, 45, 38],
+            ),
+            t(
+                "Double Drop D",
+                "Both E strings down to D: Neil Young",
+                &[62, 59, 55, 50, 45, 38],
+            ),
+            t(
+                "Drop C#",
+                "Drop D, a half step lower",
+                &[63, 58, 54, 49, 44, 37],
+            ),
+            t(
+                "Drop C",
+                "Drop D, a whole step lower: heavy rock and metal",
+                &[62, 57, 53, 48, 43, 36],
+            ),
+            t(
+                "C# Standard",
+                "Every string down 3 half steps",
+                &[61, 56, 52, 47, 42, 37],
+            ),
+            t(
+                "C Standard",
+                "Every string down 4 half steps",
+                &[60, 55, 51, 46, 41, 36],
+            ),
+            t(
+                "Baritone (B Standard)",
+                "A fourth below standard",
+                &[59, 54, 50, 45, 40, 35],
+            ),
+            t(
+                "DADGAD",
+                "Celtic and folk: suspended open chord",
+                &[62, 57, 55, 50, 45, 38],
+            ),
+            t(
+                "Open G",
+                "D G D G B D: slide and blues, Keith Richards",
+                &[62, 59, 55, 50, 43, 38],
+            ),
+            t(
+                "Open D",
+                "D A D F# A D: slide, folk, Joni Mitchell",
+                &[62, 57, 54, 50, 45, 38],
+            ),
+            t(
+                "Open E",
+                "E B E G# B E: slide, Allman Brothers",
+                &[64, 59, 56, 52, 47, 40],
+            ),
+            t(
+                "Open A",
+                "E A E A C# E: slide, Rolling Stones",
+                &[64, 61, 57, 52, 45, 40],
+            ),
+            t(
+                "Open C",
+                "C G C G C E: strummed open chord, Led Zeppelin",
+                &[64, 60, 55, 48, 43, 36],
+            ),
+            t(
+                "All Fourths",
+                "E A D G C F: even intervals, jazz",
+                &[65, 60, 55, 50, 45, 40],
+            ),
+            t(
+                "New Standard",
+                "C G D A E G: Robert Fripp",
+                &[67, 64, 57, 50, 43, 36],
+            ),
+        ],
+        (Family::Guitar, 7) => vec![
+            t(
+                "Standard",
+                "B E A D G B E: the usual 7-string",
+                &[64, 59, 55, 50, 45, 40, 35],
+            ),
+            t("Half Step Down", "Bb to Eb", &[63, 58, 54, 49, 44, 39, 34]),
+            t(
+                "Drop A",
+                "Low string down a tone: heavy metal",
+                &[64, 59, 55, 50, 45, 40, 33],
+            ),
+        ],
+        (Family::Guitar, 8) => vec![t(
+            "Standard",
+            "F# B E A D G B E: the usual 8-string",
+            &[64, 59, 55, 50, 45, 40, 35, 30],
+        )],
+        (Family::Bass, 4) => vec![
+            t("Standard", "E A D G: the usual tuning", &[43, 38, 33, 28]),
+            t("Half Step Down", "Eb Ab Db Gb", &[42, 37, 32, 27]),
+            t("D Standard", "Whole step down: D G C F", &[41, 36, 31, 26]),
+            t("Drop D", "Low string down a tone", &[43, 38, 33, 26]),
+            t("Drop C", "C G C F: heavy rock and metal", &[41, 36, 31, 24]),
+        ],
+        (Family::Bass, 5) => vec![
+            t("Standard", "B E A D G: low B string", &[43, 38, 33, 28, 23]),
+            t("Tenor", "E A D G C: high C string", &[48, 43, 38, 33, 28]),
+            t(
+                "Drop A",
+                "A E A D G: low string down a tone",
+                &[43, 38, 33, 28, 21],
+            ),
+        ],
+        (Family::Bass, 6) => vec![t(
+            "Standard",
+            "B E A D G C: the usual 6-string",
+            &[48, 43, 38, 33, 28, 23],
+        )],
+        (Family::Ukulele, _) => vec![
+            t(
+                "Standard (GCEA)",
+                "Re-entrant: the high G string",
+                &[69, 64, 60, 67],
+            ),
+            t("Low G", "Linear: the G an octave lower", &[69, 64, 60, 55]),
+            t(
+                "D Tuning (ADF#B)",
+                "A whole step up from standard",
+                &[71, 66, 62, 69],
+            ),
+            t(
+                "Baritone (DGBE)",
+                "Like the top four guitar strings",
+                &[64, 59, 55, 50],
+            ),
+        ],
+        _ => Vec::new(),
+    }
+}
+
+/// Notes of a tuning from the lowest string up, as `:tuning` takes them.
+pub(crate) fn tuning_notes(strings: &[u8]) -> String {
+    strings
+        .iter()
+        .rev()
+        .map(|&p| muse_core::pitch_name(p))
+        .collect::<Vec<_>>()
+        .join(" ")
 }
 
 /// `~/…` for paths under the home folder.
@@ -115,6 +397,9 @@ impl App {
                         description,
                         action: Command::BufferGoto(i + 1),
                         search_description: false,
+                        swatch: None,
+                        icon: None,
+                        current: false,
                     }
                 })
                 .collect(),
@@ -145,6 +430,9 @@ impl App {
                         description,
                         action: Command::ViewGoto(i + 1),
                         search_description: false,
+                        swatch: None,
+                        icon: None,
+                        current: false,
                     }
                 })
                 .collect(),
@@ -162,6 +450,9 @@ impl App {
                     ),
                     action: Command::GotoMark(m.name),
                     search_description: false,
+                    swatch: None,
+                    icon: None,
+                    current: false,
                 })
                 .collect(),
             PickerKind::Macro => {
@@ -174,6 +465,9 @@ impl App {
                         description: crate::keys::format_keys(keys),
                         action: Command::RunMacro(*r),
                         search_description: false,
+                        swatch: None,
+                        icon: None,
+                        current: false,
                     })
                     .collect()
             }
@@ -193,16 +487,160 @@ impl App {
                     .map(|(p, name)| Entry {
                         label: format!("{:>3} {name}", p + 1),
                         description: mark(current == Some(p)),
+                        icon: Some(Icon::of_program(p)),
                         action: Command::TrackInstrument(Some(format!("{} {n}", p + 1))),
                         search_description: false,
+                        swatch: None,
+                        current: current == Some(p),
                     })
                     .chain(std::iter::once(Entry {
                         label: "    Drum Kit".into(),
                         description: mark(current == Some(usize::MAX)),
+                        icon: Some(Icon::Drums),
                         action: Command::TrackInstrument(Some(format!("drums {n}"))),
                         search_description: false,
+                        swatch: None,
+                        current: current == Some(usize::MAX),
                     }))
                     .collect()
+            }
+            PickerKind::Color(t) => {
+                let now = self
+                    .buffer()
+                    .score
+                    .tracks
+                    .get(t)
+                    .and_then(|t| t.display_color)
+                    .map(|c| Rgba::rgb(c.r, c.g, c.b));
+                let auto = Entry {
+                    label: "Automatic".into(),
+                    description: if now.is_none() {
+                        "current"
+                    } else {
+                        "from the theme"
+                    }
+                    .into(),
+                    action: Command::TrackColor(Some("off".into())),
+                    search_description: false,
+                    swatch: Some(self.track_color(self.pane().buffer, t)),
+                    icon: None,
+                    current: now.is_none(),
+                };
+                std::iter::once(auto)
+                    .chain(COLORS.iter().filter_map(|&(name, hex)| {
+                        let c = Rgba::parse(hex)?;
+                        Some(Entry {
+                            label: name.into(),
+                            description: if now == Some(c) {
+                                format!("{}  current", hex.to_uppercase())
+                            } else {
+                                hex.to_uppercase()
+                            },
+                            action: Command::TrackColor(Some(hex.into())),
+                            search_description: true,
+                            swatch: Some(c),
+                            icon: None,
+                            current: now == Some(c),
+                        })
+                    }))
+                    .collect()
+            }
+            PickerKind::Tuning(t) => {
+                let Some(track) = self.buffer().score.tracks.get(t) else {
+                    return Vec::new();
+                };
+                let family = tuning_family(&track.strings);
+                tunings(family, track.strings.len())
+                    .into_iter()
+                    .map(|(name, about, strings)| {
+                        // The notes are listed apart: leave them out of the text.
+                        let about = about
+                            .split_once(": ")
+                            .filter(|(notes, _)| notes.chars().all(|c| "ABCDEFG# ".contains(c)))
+                            .map_or(about, |(_, rest)| rest);
+                        let here = strings == track.strings;
+                        Entry {
+                            label: name.into(),
+                            description: format!(
+                                "{}  {about}{}",
+                                tuning_notes(&strings),
+                                if here { "  (current)" } else { "" }
+                            ),
+                            action: Command::Tuning(tuning_notes(&strings)),
+                            search_description: true,
+                            swatch: None,
+                            icon: None,
+                            current: here,
+                        }
+                    })
+                    .collect()
+            }
+            PickerKind::Staff(t, i) => {
+                let Some(track) = self.buffer().score.tracks.get(t) else {
+                    return Vec::new();
+                };
+                let staves = track.staves();
+                let here = staves.get(i).copied();
+                let tab_ok = track.kind == muse_core::TrackKind::Fretted
+                    || track.kind == muse_core::TrackKind::Pitched;
+                let kinds = [
+                    ("treble", "treble", "Standard notation, treble clef"),
+                    ("bass", "bass", "Standard notation, bass clef"),
+                    (
+                        "grand",
+                        "grand",
+                        "Standard notation, treble and bass joined",
+                    ),
+                    ("tab", "tab", "Tablature"),
+                    ("tab+", "tab+", "Tablature with rhythm"),
+                    ("slash", "slash", "Rhythm slashes"),
+                    ("chant", "chant", "Gregorian square notation"),
+                ];
+                let clef = self.config.default_clef();
+                let mut out: Vec<Entry> = kinds
+                    .into_iter()
+                    .filter(|(k, ..)| tab_ok || !k.starts_with("tab"))
+                    .map(|(kind, label, about)| {
+                        let staff = muse_core::Staff::parse(kind, clef).ok();
+                        // A grand staff counts whatever its split.
+                        let same = match (staff, here) {
+                            (
+                                Some(muse_core::Staff::Standard(muse_core::Clef::Grand { .. })),
+                                Some(muse_core::Staff::Standard(muse_core::Clef::Grand { .. })),
+                            ) => true,
+                            (a, b) => a.is_some() && a == b,
+                        };
+                        Entry {
+                            label: label.into(),
+                            description: if same {
+                                format!("{about}  (current)")
+                            } else {
+                                about.into()
+                            },
+                            action: if here.is_some() {
+                                Command::Staff(kind.into())
+                            } else {
+                                Command::StaffAdd(Some(kind.into()))
+                            },
+                            search_description: true,
+                            swatch: None,
+                            icon: staff.map(Icon::of_staff),
+                            current: same,
+                        }
+                    })
+                    .collect();
+                if here.is_some() && staves.len() > 1 {
+                    out.push(Entry {
+                        label: "remove".into(),
+                        description: "Remove this staff".into(),
+                        action: Command::StaffRemove(None),
+                        search_description: true,
+                        swatch: None,
+                        icon: None,
+                        current: false,
+                    });
+                }
+                out
             }
             PickerKind::Section => {
                 let bars = &self.buffer().score.master_bars;
@@ -240,6 +678,9 @@ impl App {
                             description,
                             action: Command::GotoBar(b + 1),
                             search_description: false,
+                            swatch: None,
+                            icon: None,
+                            current: false,
                         })
                     })
                     .collect()
@@ -260,6 +701,7 @@ impl App {
                     (c.insert_keymap(InsertKind::Slash), "insert (slash) ", false),
                     (c.insert_keymap(InsertKind::Chant), "insert (chant) ", false),
                     (c.keymap(Mode::Tracks), "tracks ", false),
+                    (c.keymap(Mode::Properties), "properties ", false),
                     (c.keymap(Mode::Command), "command ", false),
                 ];
                 let mut out = Vec::new();
@@ -288,6 +730,9 @@ impl App {
                             description: what.join("; "),
                             action,
                             search_description: true,
+                            swatch: None,
+                            icon: None,
+                            current: false,
                         });
                     }
                 }
@@ -321,10 +766,52 @@ impl App {
                             label: name,
                             description,
                             search_description: false,
+                            swatch: None,
+                            icon: None,
+                            current: false,
                         }
                     })
                     .collect()
             }
+        }
+    }
+
+    /// Moves a choice (a color, tuning, instrument or staff kind) to the previous (`by` < 0) or
+    /// next one, without wrapping around.
+    pub fn step_choice(&mut self, kind: PickerKind, by: isize) {
+        let entries: Vec<Entry> = self
+            .picker_entries(kind)
+            .into_iter()
+            .filter(|e| e.label != "remove")
+            .collect();
+        let next = match entries.iter().position(|e| e.current) {
+            Some(i) => i as isize + by.signum(),
+            // Not one of the list (a custom value): forwards starts at the first.
+            None if by > 0 => 0,
+            None => return,
+        };
+        if let Some(e) = usize::try_from(next)
+            .ok()
+            .and_then(|n| entries.into_iter().nth(n))
+        {
+            self.run(e.action);
+        }
+    }
+
+    /// Runs the first or the last choice of a picker's list.
+    pub(crate) fn pick_choice(&mut self, kind: PickerKind, first: bool) {
+        let mut entries: Vec<Entry> = self
+            .picker_entries(kind)
+            .into_iter()
+            .filter(|e| e.label != "remove")
+            .collect();
+        let pick = if first {
+            0
+        } else {
+            entries.len().saturating_sub(1)
+        };
+        if pick < entries.len() {
+            self.run(entries.swap_remove(pick).action);
         }
     }
 
@@ -342,16 +829,58 @@ impl App {
         let ranked = self.matcher().rank(entries.iter().map(text), &p.query);
         // Match ranked texts back to entries (texts can repeat: take each once). Highlights
         // fall on the label only.
-        ranked
+        let custom = self.custom_entry(p);
+        custom
+            .map(|e| (e, Vec::new()))
             .into_iter()
-            .filter_map(|(t, pos)| {
+            .chain(ranked.into_iter().filter_map(|(t, pos)| {
                 let i = entries.iter().position(|e| text(e) == t)?;
                 let e = entries.remove(i);
                 let n = e.label.chars().count();
                 let pos = pos.into_iter().filter(|&p| p < n).collect();
                 Some((e, pos))
-            })
+            }))
             .collect()
+    }
+
+    /// What the typed query itself stands for, listed first: a color as `#rrggbb` or
+    /// `rgb(r,g,b)`, or a tuning as note names for each string.
+    fn custom_entry(&self, p: &Picker) -> Option<Entry> {
+        match p.kind {
+            PickerKind::Color(_) => {
+                let c = parse_color_query(&p.query)?;
+                Some(Entry {
+                    label: "Custom".into(),
+                    description: c.hex(),
+                    action: Command::TrackColor(Some(c.hex())),
+                    search_description: false,
+                    swatch: Some(c),
+                    icon: None,
+                    current: false,
+                })
+            }
+            PickerKind::Tuning(t) => {
+                let track = self.buffer().score.tracks.get(t)?;
+                let notes: Vec<&str> = p.query.split_whitespace().collect();
+                let named = notes
+                    .iter()
+                    .all(|n| n.starts_with(|c: char| c.is_ascii_alphabetic()));
+                let pitches: Option<Vec<u8>> =
+                    notes.iter().map(|n| muse_core::parse_pitch(n)).collect();
+                let pitches = pitches.filter(|p| named && p.len() == track.strings.len())?;
+                let strings: Vec<u8> = pitches.into_iter().rev().collect();
+                Some(Entry {
+                    label: "Custom".into(),
+                    description: tuning_notes(&strings),
+                    action: Command::Tuning(tuning_notes(&strings)),
+                    search_description: false,
+                    swatch: None,
+                    icon: None,
+                    current: false,
+                })
+            }
+            _ => None,
+        }
     }
 
     /// The picker as the palette shows it.
@@ -368,11 +897,24 @@ impl App {
                 .map(|(e, matched)| PaletteItem {
                     text: e.label,
                     description: Some(e.description),
+                    swatch: e.swatch,
+                    icon: e.icon,
                     matched,
                 })
                 .collect(),
             selected,
         })
+    }
+
+    /// The wheel over an open picker: moves the selection by `by` entries.
+    pub fn picker_scroll(&mut self, by: isize) {
+        let Some(p) = self.picker.clone() else {
+            return;
+        };
+        let n = self.picker_matches(&p).len();
+        if let Some(q) = self.picker.as_mut() {
+            q.selected = (q.selected as isize + by).clamp(0, n.saturating_sub(1) as isize) as usize;
+        }
     }
 
     fn close_picker(&mut self) -> Option<Picker> {

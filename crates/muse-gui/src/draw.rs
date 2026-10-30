@@ -20,7 +20,7 @@ thread_local! {
     static THEME: std::cell::RefCell<muse_app::theme::Theme> = Default::default();
 }
 
-/// A colour of the current theme.
+/// A color of the current theme.
 fn tc(f: impl FnOnce(&muse_app::theme::Theme) -> Rgba) -> Color {
     THEME.with(|t| col(f(&t.borrow())))
 }
@@ -73,7 +73,7 @@ const UI_FONT: f64 = 14.0;
 const BASE_SCALE: f64 = 1.6;
 
 struct Cached {
-    /// (buffer, track, layout mode, width bucket, score version, chant view, page + ink colours)
+    /// (buffer, track, layout mode, width bucket, score version, chant view, page + ink colors)
     key: (usize, usize, String, i64, u64, bool, [u8; 8]),
     layout: Layout,
     scenes: Vec<Scene>,
@@ -140,6 +140,12 @@ pub struct Views {
     tracks_anchor: Option<(usize, usize)>,
     /// The tracks panel's area drawn last frame.
     tracks_rect: Option<Rect>,
+    /// The properties pane, for the wheel.
+    props_rect: Option<Rect>,
+    /// The lyrics text area as drawn, to put the caret where a click lands.
+    props_text: Option<PropsText>,
+    /// Clickable areas of the properties pane drawn last frame.
+    props: Vec<(Rect, PropHit)>,
     /// Tool panes on screen: clicking one focuses it.
     tool_rects: Vec<(Rect, PaneId)>,
     /// Score panes' progress bars: clicking one moves the cursor to that bar.
@@ -189,6 +195,10 @@ enum Edge {
 /// A mouse drag in progress.
 #[derive(Debug, Clone, PartialEq)]
 enum Drag {
+    /// A selection in the lyrics text area.
+    Text,
+    /// A staff row of the properties pane (where it began, and the row under the mouse now).
+    Prop(usize, usize, bool),
     /// A row's volume slider (row, left, right).
     Volume(Strip, f64, f64),
     /// A border between panes.
@@ -209,6 +219,45 @@ pub enum Pointer {
     ResizeColumns,
     /// Drag up and down.
     ResizeRows,
+}
+
+/// The lyrics text area as drawn.
+struct PropsText {
+    area: Rect,
+    /// Where the first line's text starts (x) and its top (y), and the line height.
+    x: f64,
+    top: f64,
+    line_h: f64,
+    size: f64,
+    skip: usize,
+    lines: Vec<(usize, usize)>,
+    chars: Vec<char>,
+}
+
+impl PropsText {
+    /// The character index at a point.
+    fn at(&self, x: f64, y: f64) -> usize {
+        let fonts = muse_engrave::fonts::fonts();
+        let row = (((y - self.top) / self.line_h).floor().max(0.0) as usize + self.skip)
+            .min(self.lines.len().saturating_sub(1));
+        let Some(&(s, e)) = self.lines.get(row) else {
+            return 0;
+        };
+        let w = |i: usize| {
+            let t: String = self.chars[s..i].iter().collect();
+            fonts.text_width(FontKind::Text, &t, self.size)
+        };
+        (s..e)
+            .find(|&i| x < self.x + (w(i) + w(i + 1)) / 2.0)
+            .unwrap_or(e)
+    }
+}
+
+/// What a click on the properties pane does.
+#[derive(Debug, Clone, Copy, PartialEq)]
+enum PropHit {
+    Tab(muse_app::properties::PropTab),
+    Row(usize),
 }
 
 /// What a click on the tracks panel does.
@@ -263,7 +312,7 @@ fn clip_text(s: &str, max: usize) -> String {
 }
 
 /// The tracks panel: a row per track (number, volume, solo, mute, name, instrument) and a
-/// block per bar, coloured where the bar has notes, with the edit cursor and the playhead.
+/// block per bar, colored where the bar has notes, with the edit cursor and the playhead.
 fn draw_tracks(
     scene: &mut Scene,
     app: &App,
@@ -376,7 +425,7 @@ fn draw_tracks(
         let cy = y + TRACK_ROW / 2.0;
         let row_rect = Rect::new(r.x0, y, gx - 6.0, y + TRACK_ROW);
         let track = matches!(row.strip, Strip::Track(_));
-        // The selected row is shaded; the track the pane shows has its colour at the edge.
+        // The selected row is shaded; the track the pane shows has its color at the edge.
         let shown = track && row.index == cursor.track;
         if (focused && k == sel_row) || (!focused && shown) {
             fill(
@@ -800,8 +849,8 @@ fn draw_track_waveform(
 /// How fast the cursor glides after the playhead (per second: it covers 1 − e^(−rate·t)).
 const GLIDE_RATE: f64 = 16.0;
 
-/// An engraving colour in the theme: black and greys become shades between the page and the
-/// ink (so notation reads on dark pages too); other colours stay as engraved.
+/// An engraving color in the theme: black and greys become shades between the page and the
+/// ink (so notation reads on dark pages too); other colors stay as engraved.
 fn rgb(c: muse_engrave::display::Color, page: Rgba, ink: Rgba) -> Color {
     if c.r == c.g && c.g == c.b {
         let darkness = 1.0 - c.r as f32 / 255.0;
@@ -908,9 +957,12 @@ pub fn build(
     views.frets.clear();
     views.keys.clear();
     views.tracks.clear();
+    views.props.clear();
     views.edges.clear();
     views.wave_rects.clear();
     views.tracks_rect = None;
+    views.props_rect = None;
+    views.props_text = None;
     views.tool_rects.clear();
     views.progress.clear();
     app.row_height = TRACK_ROW as u16;
@@ -1025,11 +1077,12 @@ pub fn build(
                 }
             },
             PaneKind::Tuner => draw_tuner(scene, app, rect),
+            PaneKind::Properties => draw_properties(scene, app, views, rect),
             PaneKind::Score => {}
         }
         app.views[active].score = view_score;
         scene.pop_layer();
-        // The focused tool pane is outlined in the mode's colour.
+        // The focused tool pane is outlined in the mode's color.
         if id == focused {
             scene.stroke(
                 &Stroke::new(2.0),
@@ -1531,7 +1584,72 @@ fn draw_tool_icon(
             }
             line(scene, &path(&[(5.0, 10.0), (11.0, 10.0)], false));
         }
-        "toolbar" | "layout" | "waveform" => {
+        // A window with a side panel.
+        "properties" => {
+            line(scene, &rect(1.5, 2.5, 14.5, 13.5, 2.0));
+            line(scene, &path(&[(9.5, 2.5), (9.5, 13.5)], false));
+            for k in 0..3 {
+                solid(scene, &|| {
+                    rect(10.8, 4.5 + k as f64 * 2.6, 13.2, 5.6 + k as f64 * 2.6, 0.4)
+                });
+            }
+        }
+        // Bars of an audio wave.
+        "waveform" => {
+            for (k, h) in [3.0, 7.0, 12.0, 6.0, 10.0, 4.0, 8.0]
+                .into_iter()
+                .enumerate()
+            {
+                solid(scene, &|| {
+                    rect(
+                        1.0 + k as f64 * 2.1,
+                        8.0 - h / 2.0,
+                        2.4 + k as f64 * 2.1,
+                        8.0 + h / 2.0,
+                        0.5,
+                    )
+                });
+            }
+        }
+        // A tuning fork.
+        "tuner" => {
+            line(
+                scene,
+                &path(
+                    &[
+                        (5.0, 1.5),
+                        (5.0, 7.5),
+                        (6.0, 9.5),
+                        (10.0, 9.5),
+                        (11.0, 7.5),
+                        (11.0, 1.5),
+                    ],
+                    false,
+                ),
+            );
+            line(scene, &path(&[(8.0, 9.5), (8.0, 14.5)], false));
+        }
+        // Piano keys.
+        "piano" => {
+            line(scene, &rect(1.5, 3.5, 14.5, 12.5, 1.5));
+            for xk in [4.8, 8.0, 11.2] {
+                line(scene, &path(&[(xk, 8.0), (xk, 12.5)], false));
+            }
+            for xk in [3.9, 7.1, 10.3] {
+                solid(scene, &|| rect(xk, 3.5, xk + 1.8, 8.0, 0.3));
+            }
+        }
+        // A fretboard: strings across, frets down.
+        "fretboard" => {
+            line(scene, &rect(1.5, 3.5, 14.5, 12.5, 1.0));
+            for yk in [6.5, 9.5] {
+                line(scene, &path(&[(1.5, yk), (14.5, yk)], false));
+            }
+            for xk in [6.0, 10.5] {
+                line(scene, &path(&[(xk, 3.5), (xk, 12.5)], false));
+            }
+        }
+        "toolbar" | "layout" => {
             line(scene, &rect(1.5, 2.5, 14.5, 13.5, 2.0));
             line(scene, &path(&[(1.5, 6.0), (14.5, 6.0)], false));
         }
@@ -1707,8 +1825,9 @@ fn draw_pane(
         None,
         &RoundedRect::from_rect(rect, 6.0),
     );
+    // The focused pane is ringed in the mode's color, like the tool panes.
     let border = if focused {
-        accent()
+        tc(|t| t.mode_color(app.mode))
     } else {
         tc(|t| t.chrome.mix(t.chrome_text, 0.25))
     };
@@ -1823,7 +1942,7 @@ fn draw_pane(
         },
         buffer.version,
         app.chant_view,
-        // Pages are recoloured when the theme's page or ink change.
+        // Pages are recolored when the theme's page or ink change.
         {
             let (p, i) = (app.config.theme.page, app.config.theme.ink);
             [p.r, p.g, p.b, p.a, i.r, i.g, i.b, i.a]
@@ -2012,7 +2131,7 @@ fn draw_pane(
             _ => (pos.x, pos.width),
         };
         views.glide.insert(id, (pos.page, pos.top, x, w, now));
-        // A translucent shade in the mode's colour over just what an edit changes: the note
+        // A translucent shade in the mode's color over just what an edit changes: the note
         // place on the cursor's string, or the whole beat on staves without strings.
         let alpha = if focused { 110 } else { 45 };
         let color = tc(|t| t.mode_color(app.mode).with_alpha(alpha));
@@ -2437,6 +2556,10 @@ fn draw_palette(scene: &mut Scene, p: &muse_app::Palette, width: f64, height: f6
         Some(sel) if sel >= rows => sel + 1 - rows,
         _ => 0,
     };
+    let swatches = p
+        .items
+        .iter()
+        .any(|i| i.swatch.is_some() || i.icon.is_some());
     for (k, item) in p.items.iter().enumerate().skip(first).take(rows) {
         let ry = y0 + input_h + 5.0 + (k - first) as f64 * row_h;
         let selected = p.selected == Some(k);
@@ -2451,17 +2574,33 @@ fn draw_palette(scene: &mut Scene, p: &muse_app::Palette, width: f64, height: f6
         }
         let base = ry + row_h / 2.0 + 4.5;
         let color = if selected { accent() } else { chrome_text() };
+        // Colors get a swatch before their name.
+        let tx0 = if swatches { x0 + 48.0 } else { x0 + 16.0 };
+        if let Some(c) = item.swatch {
+            let sw = RoundedRect::new(x0 + 16.0, ry + 4.0, x0 + 40.0, ry + row_h - 6.0, 4.0);
+            scene.fill(Fill::NonZero, Affine::IDENTITY, col(c), None, &sw);
+            scene.stroke(&Stroke::new(1.0), Affine::IDENTITY, dim(), None, &sw);
+        }
+        if let Some(icon) = item.icon {
+            draw_icon(
+                scene,
+                icon,
+                x0 + 18.0,
+                ry + (row_h - 18.0) / 2.0 - 1.0,
+                color,
+            );
+        }
         text(
             scene,
             &item.text,
-            x0 + 16.0,
+            tx0,
             base,
             14.0,
             Align::Left,
             color,
             selected,
         );
-        // The characters that matched what was typed, over the text in a stronger colour.
+        // The characters that matched what was typed, over the text in a stronger color.
         let font = if selected {
             FontKind::Bold
         } else {
@@ -2476,7 +2615,7 @@ fn draw_palette(scene: &mut Scene, p: &muse_app::Palette, width: f64, height: f6
         for &i in &item.matched {
             let Some(c) = chars.get(i) else { continue };
             let before: String = chars[..i].iter().collect();
-            let cx = x0 + 16.0 + fonts.text_width(font, &before, 14.0);
+            let cx = tx0 + fonts.text_width(font, &before, 14.0);
             text(
                 scene,
                 &c.to_string(),
@@ -2526,7 +2665,7 @@ fn draw_command_line(scene: &mut Scene, app: &App, width: f64, height: f64) {
     match app.mode {
         // Typed in the command palette.
         Mode::Command | Mode::Picker => {}
-        Mode::Normal | Mode::Insert | Mode::Visual | Mode::Tracks => {
+        Mode::Normal | Mode::Insert | Mode::Visual | Mode::Tracks | Mode::Properties => {
             if let Some(m) = &app.message {
                 let c = if m.error {
                     tc(|t| t.error)
@@ -2552,7 +2691,7 @@ fn draw_command_line(scene: &mut Scene, app: &App, width: f64, height: f64) {
 }
 
 /// The status line, as lualine.nvim: mode, layout, workspace and file on the left; the rest of
-/// the state, progress and `bar:beat` on the right. Coloured sections are rounded chips.
+/// the state, progress and `bar:beat` on the right. Colored sections are rounded chips.
 fn draw_status(
     scene: &mut Scene,
     app: &App,
@@ -2566,7 +2705,7 @@ fn draw_status(
     fill(scene, Rect::new(0.0, y0, width, height), chrome());
     let line = app.statusline(play.map(|(_, _, now, total)| (now, total)), true);
     let th = app.config.theme.clone();
-    let mode = th.mode_color(app.mode);
+    let mode = th.mode_color(app.display_mode());
     let bg_of = |k: SegKind| match k {
         SegKind::Mode => mode,
         SegKind::ModeText => th.status_b,
@@ -2742,6 +2881,583 @@ fn draw_speedometer(scene: &mut Scene, x: f64, cy: f64, color: Color) {
         None,
         &Circle::new((cx, cy), 1.6),
     );
+}
+
+/// The properties pane's text sizes: keys as the status line's, values and tabs 1.2 times,
+/// section titles 1.5 times.
+const PROPS_KEY: f64 = 13.0;
+const PROPS_VALUE: f64 = 13.0 * 1.2;
+const PROPS_SECTION: f64 = 13.0 * 1.5;
+
+/// An icon in an 18 px square with its corner at (`x`, `y`).
+fn draw_icon(scene: &mut Scene, icon: muse_app::icons::Icon, x: f64, y: f64, c: Color) {
+    use muse_app::icons::Icon;
+    use vello::kurbo::{Cap, Ellipse, Line};
+    let (cx, cy) = (x + 9.0, y + 9.0);
+    let line = |scene: &mut Scene, a: (f64, f64), b: (f64, f64), w: f64| {
+        let stroke = Stroke::new(w).with_caps(Cap::Round);
+        scene.stroke(&stroke, Affine::IDENTITY, c, None, &Line::new(a, b));
+    };
+    fn outline(scene: &mut Scene, c: Color, shape: &impl Shape) {
+        scene.stroke(&Stroke::new(1.3), Affine::IDENTITY, c, None, shape);
+    }
+    fn solid(scene: &mut Scene, c: Color, shape: &impl Shape) {
+        scene.fill(Fill::NonZero, Affine::IDENTITY, c, None, shape);
+    }
+    let letter = |scene: &mut Scene, s: &str, lx: f64, ly: f64, size: f64| {
+        text(scene, s, lx, ly, size, Align::Center, c, true);
+    };
+    match icon {
+        Icon::Treble | Icon::Bass | Icon::Grand => {
+            for dy in [-5.0, 0.0, 5.0] {
+                line(scene, (x + 1.0, cy + dy), (x + 17.0, cy + dy), 0.8);
+            }
+            let (s, size) = match icon {
+                Icon::Treble => ("G", 14.0),
+                Icon::Bass => ("F", 14.0),
+                _ => ("GF", 10.5),
+            };
+            letter(scene, s, cx, cy + size * 0.36, size);
+        }
+        Icon::Tab | Icon::TabRhythm => {
+            for (i, l) in ["T", "A", "B"].into_iter().enumerate() {
+                letter(scene, l, cx - 2.0, y + 6.0 + i as f64 * 5.5, 6.5);
+            }
+            if icon == Icon::TabRhythm {
+                line(scene, (x + 14.0, y + 3.0), (x + 14.0, y + 15.0), 1.2);
+                line(scene, (x + 14.0, y + 15.0), (x + 17.0, y + 12.0), 1.2);
+            }
+        }
+        Icon::Slash => line(scene, (x + 4.0, y + 15.0), (x + 14.0, y + 3.0), 2.4),
+        Icon::Chant => {
+            for dy in [-6.0, -2.0, 2.0, 6.0] {
+                line(scene, (x + 1.0, cy + dy), (x + 17.0, cy + dy), 0.8);
+            }
+            solid(scene, c, &Rect::new(cx - 3.0, cy - 3.0, cx + 3.0, cy + 3.0));
+        }
+        Icon::Guitar => {
+            outline(scene, c, &Circle::new((cx - 3.0, cy + 3.5), 5.5));
+            outline(scene, c, &Circle::new((cx - 1.0, cy - 1.0), 3.5));
+            line(scene, (cx, cy - 2.0), (x + 16.0, y + 2.0), 1.8);
+            solid(scene, c, &Circle::new((cx - 3.0, cy + 3.5), 1.6));
+        }
+        Icon::Piano => {
+            outline(scene, c, &Rect::new(x + 1.0, y + 4.0, x + 17.0, y + 14.0));
+            for bx in [5.0, 9.0, 13.0] {
+                solid(
+                    scene,
+                    c,
+                    &Rect::new(x + bx - 1.0, y + 4.0, x + bx + 1.0, y + 10.0),
+                );
+            }
+        }
+        Icon::Organ => {
+            for (px, h) in [(3.0, 10.0), (8.0, 14.0), (13.0, 8.0)] {
+                outline(
+                    scene,
+                    c,
+                    &Rect::new(x + px, y + 16.0 - h, x + px + 3.0, y + 16.0),
+                );
+            }
+        }
+        Icon::Drums => {
+            outline(scene, c, &Ellipse::new((cx, y + 8.0), (7.0, 3.0), 0.0));
+            line(scene, (x + 2.0, y + 8.0), (x + 2.0, y + 14.0), 1.3);
+            line(scene, (x + 16.0, y + 8.0), (x + 16.0, y + 14.0), 1.3);
+            outline(scene, c, &Ellipse::new((cx, y + 14.0), (7.0, 3.0), 0.0));
+            line(scene, (x + 5.0, y + 1.0), (cx - 1.0, y + 7.0), 1.3);
+            line(scene, (x + 13.0, y + 1.0), (cx + 1.0, y + 7.0), 1.3);
+        }
+        Icon::Violin => {
+            outline(
+                scene,
+                c,
+                &Ellipse::new((cx - 2.0, cy + 3.0), (4.5, 6.0), 0.0),
+            );
+            line(scene, (cx - 2.0, cy - 3.0), (cx - 2.0, y + 1.0), 1.6);
+            line(scene, (x + 14.0, y + 2.0), (x + 16.0, y + 16.0), 1.2);
+        }
+        Icon::Voice => {
+            outline(
+                scene,
+                c,
+                &RoundedRect::new(cx - 3.0, y + 1.0, cx + 3.0, y + 10.0, 3.0),
+            );
+            let mut arc = BezPath::new();
+            arc.move_to((cx - 5.5, y + 7.0));
+            arc.quad_to((cx, y + 17.0), (cx + 5.5, y + 7.0));
+            outline(scene, c, &arc);
+            line(scene, (cx, y + 12.0), (cx, y + 16.0), 1.3);
+            line(scene, (cx - 3.0, y + 16.5), (cx + 3.0, y + 16.5), 1.3);
+        }
+        Icon::Brass => {
+            line(scene, (x + 1.0, cy), (x + 11.0, cy), 1.8);
+            let mut bell = BezPath::new();
+            bell.move_to((x + 11.0, cy - 1.0));
+            bell.line_to((x + 17.0, cy - 6.0));
+            bell.line_to((x + 17.0, cy + 6.0));
+            bell.line_to((x + 11.0, cy + 1.0));
+            bell.close_path();
+            outline(scene, c, &bell);
+            line(scene, (x + 5.0, cy), (x + 5.0, cy - 4.0), 1.3);
+            line(scene, (x + 8.0, cy), (x + 8.0, cy - 4.0), 1.3);
+        }
+        Icon::Wind => {
+            line(scene, (x + 2.0, y + 15.0), (x + 15.0, y + 3.0), 2.4);
+            for t in [0.35, 0.55, 0.75] {
+                let (px, py) = (x + 2.0 + 13.0 * t, y + 15.0 - 12.0 * t);
+                solid(scene, c, &Circle::new((px + 2.0, py + 2.0), 1.1));
+            }
+        }
+        Icon::Synth => {
+            let mut wave = BezPath::new();
+            wave.move_to((x + 1.0, cy));
+            wave.curve_to((x + 4.0, cy - 9.0), (x + 7.0, cy - 9.0), (x + 9.0, cy));
+            wave.curve_to((x + 11.0, cy + 9.0), (x + 14.0, cy + 9.0), (x + 17.0, cy));
+            outline(scene, c, &wave);
+        }
+        Icon::Note => {
+            solid(
+                scene,
+                c,
+                &Ellipse::new((cx - 2.0, cy + 4.0), (3.4, 2.5), -0.4),
+            );
+            line(scene, (cx + 1.0, cy + 3.5), (cx + 1.0, y + 2.0), 1.3);
+            line(scene, (cx + 1.0, y + 2.0), (cx + 5.0, y + 6.0), 1.3);
+        }
+    }
+}
+
+/// A chevron centred on (`x`, `y`): pointing right, or down when `open`.
+fn draw_chevron(scene: &mut Scene, x: f64, y: f64, open: bool, color: Color) {
+    let mut path = BezPath::new();
+    if open {
+        path.move_to((x - 4.5, y - 2.5));
+        path.line_to((x, y + 2.5));
+        path.line_to((x + 4.5, y - 2.5));
+    } else {
+        path.move_to((x - 2.5, y - 4.5));
+        path.line_to((x + 2.5, y));
+        path.line_to((x - 2.5, y + 4.5));
+    }
+    let stroke = Stroke::new(2.0)
+        .with_caps(vello::kurbo::Cap::Round)
+        .with_join(vello::kurbo::Join::Round);
+    scene.stroke(&stroke, Affine::IDENTITY, color, None, &path);
+}
+/// One line unit of a row's height (see `PropRow::height`).
+const PROPS_UNIT: f64 = 24.0;
+
+/// `s` in small capitals starting at `x`: a word's first letter full size, the rest capitals at
+/// four fifths of it. Returns where it ends.
+#[allow(clippy::too_many_arguments)]
+fn text_small_caps(
+    scene: &mut Scene,
+    s: &str,
+    mut x: f64,
+    y: f64,
+    size: f64,
+    color: Color,
+    bold: bool,
+) -> f64 {
+    let fonts = muse_engrave::fonts::fonts();
+    let font = if bold { FontKind::Bold } else { FontKind::Text };
+    let mut start = true;
+    for c in s.chars() {
+        let (shown, sz) = if !start && c.is_lowercase() {
+            (c.to_uppercase().to_string(), size * 0.8)
+        } else {
+            (c.to_string(), size)
+        };
+        text(scene, &shown, x, y, sz, Align::Left, color, bold);
+        x += fonts.text_width(font, &shown, sz) + size * 0.04;
+        start = !c.is_alphanumeric();
+    }
+    x
+}
+
+/// The properties pane: its tabs, then the shown tab's rows (section titles, and per property
+/// its label above a box holding the value), with room around everything.
+fn draw_properties(scene: &mut Scene, app: &App, views: &mut Views, r: Rect) {
+    use muse_app::properties::{Field, PropTab, RowKind, caret_in, wrap_ranges};
+    const PAD: f64 = 16.0;
+    const BOX_H: f64 = 36.0;
+    let th = &app.config.theme;
+    let fonts = muse_engrave::fonts::fonts();
+    let width_of = |s: &str, size: f64| fonts.text_width(FontKind::Text, s, size);
+    views.props_rect = Some(r);
+    fill(scene, r, col(th.panel));
+    // Tabs.
+    let tab_size = PROPS_VALUE;
+    let mut x = r.x0 + PAD;
+    let tab_y = r.y0 + 14.0;
+    for tab in PropTab::ALL {
+        let label = tab.title();
+        let w = fonts.text_width(FontKind::Bold, &label, tab_size) + 20.0;
+        let b = Rect::new(x, tab_y, x + w, tab_y + 36.0);
+        let current = tab == app.props.tab;
+        if current {
+            scene.fill(
+                Fill::NonZero,
+                Affine::IDENTITY,
+                col(th.mode_normal),
+                None,
+                &b.to_rounded_rect(6.0),
+            );
+        }
+        let c = if current {
+            text_on(col(th.mode_normal))
+        } else {
+            dim()
+        };
+        text(
+            scene,
+            &label,
+            x + w / 2.0,
+            b.y0 + 25.0,
+            tab_size,
+            Align::Center,
+            c,
+            true,
+        );
+        views.props.push((b, PropHit::Tab(tab)));
+        x += w + 6.0;
+    }
+    let top = tab_y + 36.0 + 14.0;
+    let bottom = r.y1 - 12.0;
+    let rows = app.property_rows();
+    let first = app.property_window(((bottom - top) / PROPS_UNIT).floor().max(1.0) as usize);
+    let (bx0, bx1) = (r.x0 + PAD, r.x1 - PAD);
+    let mut y = top;
+    // The staff rows' boxes: row, left, top, bottom, and whether a label sits above.
+    let mut staff_rows: Vec<(usize, f64, f64, f64, bool)> = Vec::new();
+    for (k, row) in rows.iter().enumerate().skip(first) {
+        if y >= bottom {
+            break;
+        }
+        let h = row.height() as f64 * PROPS_UNIT;
+        let sel = app.property_row_selected(k);
+        let box_sel = k == app.property_selected();
+        let mut hit = Rect::new(r.x0, y, r.x1, (y + h).min(bottom));
+        match &row.kind {
+            RowKind::Header { folded, .. } => {
+                let c = col(if sel { th.mode_normal } else { th.chrome_text });
+                let size = PROPS_SECTION;
+                let by = y + h - 8.0;
+                draw_chevron(scene, bx0 + 6.0, by - size * 0.3, !*folded, c);
+                let end = text_small_caps(scene, &row.label, bx0 + 20.0, by, size, c, true);
+                // A rule after the title.
+                fill(
+                    scene,
+                    Rect::new(end + 10.0, by - size * 0.3, bx1, by - size * 0.3 + 1.0),
+                    col(th.tab),
+                );
+            }
+            RowKind::Note => text(
+                scene,
+                &row.label,
+                bx0,
+                y + 20.0,
+                PROPS_KEY,
+                Align::Left,
+                dim(),
+                false,
+            ),
+            RowKind::Field { field, editable } => {
+                let typing = app.props.edit.as_ref().filter(|e| e.field == *field);
+                let label_c = if sel { col(th.mode_normal) } else { dim() };
+                // A staff after the first has no label: its box takes the label's place.
+                let labelled = !row.label.is_empty();
+                if labelled {
+                    text(
+                        scene,
+                        &row.label,
+                        bx0,
+                        y + 18.0,
+                        PROPS_KEY,
+                        Align::Left,
+                        label_c,
+                        sel,
+                    );
+                }
+                let area = *field == Field::Lyrics;
+                if area {
+                    // The text area fills the pane down to its end.
+                    hit.y1 = bottom;
+                }
+                let by0 = if labelled { y + PROPS_UNIT } else { y };
+                // Staff fields have a drag handle before them (the empty one, a gap).
+                let staff = matches!(field, Field::StaffAt(_));
+                let box_x0 = if staff { bx0 + 22.0 } else { bx0 };
+                if staff && !row.value.is_empty() {
+                    for dy in [-6.0, 0.0, 6.0] {
+                        for dx in [-3.0, 3.0] {
+                            let dot = Circle::new((bx0 + 9.0 + dx, by0 + BOX_H / 2.0 + dy), 1.6);
+                            scene.fill(Fill::NonZero, Affine::IDENTITY, dim(), None, &dot);
+                        }
+                    }
+                }
+                if staff {
+                    staff_rows.push((k, box_x0, by0, by0 + BOX_H, labelled));
+                }
+                let by1 = if area { bottom } else { by0 + BOX_H };
+                // A property with text beside it (a color's code, a tuning's pitches) has a
+                // narrower box, the text in grey to its right.
+                let toggle = matches!(field, Field::Mute | Field::Solo);
+                let box_x1 = if toggle {
+                    box_x0 + 52.0
+                } else if row.aside.is_empty() {
+                    bx1
+                } else {
+                    let aside_w = width_of(&row.aside, PROPS_VALUE);
+                    (bx1 - aside_w - 14.0).min(box_x0 + (bx1 - box_x0) * 0.62)
+                };
+                let on = row.value == "on";
+                // A toggle is a switch: a pill with a knob, and on/off printed beside it.
+                let b = if toggle {
+                    Rect::new(box_x0, by0 + 6.0, box_x1, by0 + 30.0)
+                } else {
+                    Rect::new(box_x0, by0, box_x1, by1)
+                };
+                let shape = b.to_rounded_rect(if toggle { 12.0 } else { 6.0 });
+                let track = if toggle && on { th.mode_normal } else { th.tab };
+                scene.fill(Fill::NonZero, Affine::IDENTITY, col(track), None, &shape);
+                if toggle {
+                    let kx = if on { b.x1 - 12.0 } else { b.x0 + 12.0 };
+                    let knob = Circle::new((kx, b.y0 + 12.0), 9.0);
+                    let kc = if on {
+                        text_on(col(th.mode_normal))
+                    } else {
+                        dim()
+                    };
+                    scene.fill(Fill::NonZero, Affine::IDENTITY, kc, None, &knob);
+                    let ty = b.y0 + 12.0 + PROPS_VALUE * 0.35;
+                    let word = if on { "on" } else { "off" };
+                    text(
+                        scene,
+                        word,
+                        b.x1 + 12.0,
+                        ty,
+                        PROPS_VALUE,
+                        Align::Left,
+                        chrome_text(),
+                        false,
+                    );
+                }
+                if box_sel {
+                    let a = if typing.is_some() { 80 } else { 40 };
+                    scene.fill(
+                        Fill::NonZero,
+                        Affine::IDENTITY,
+                        col(th.mode_normal.with_alpha(a)),
+                        None,
+                        &shape,
+                    );
+                    scene.stroke(
+                        &Stroke::new(1.0),
+                        Affine::IDENTITY,
+                        col(th.mode_normal),
+                        None,
+                        &shape,
+                    );
+                }
+                let c = if *editable { chrome_text() } else { dim() };
+                let size = PROPS_VALUE;
+                let mut tx = box_x0 + 10.0;
+                let inner = box_x1 - box_x0 - 20.0;
+                if let Some(c) = row.swatch {
+                    let sw = RoundedRect::new(tx, by0 + 9.0, tx + 18.0, by0 + BOX_H - 9.0, 4.0);
+                    scene.fill(Fill::NonZero, Affine::IDENTITY, col(c), None, &sw);
+                    scene.stroke(&Stroke::new(1.0), Affine::IDENTITY, dim(), None, &sw);
+                    tx += 28.0;
+                }
+                if let Some(icon) = row.icon {
+                    draw_icon(scene, icon, tx, by0 + (BOX_H - 18.0) / 2.0, c);
+                    tx += 28.0;
+                }
+                if !row.aside.is_empty() {
+                    let ay = by0 + BOX_H / 2.0 + size * 0.35;
+                    text(scene, &row.aside, bx1, ay, size, Align::Right, dim(), false);
+                }
+                if area {
+                    let value = typing.map_or(row.value.as_str(), |e| e.text.as_str());
+                    let lines = wrap_ranges(value, |l| width_of(l, size) <= inner);
+                    *app.props.visual.borrow_mut() = lines.clone();
+                    let chars: Vec<char> = value.chars().collect();
+                    let line_h = size * 1.35;
+                    let shown = (((by1 - by0 - 14.0) / line_h).floor().max(1.0)) as usize;
+                    let caret = typing.map(|e| caret_in(&lines, e.caret));
+                    let skip = app.text_window(
+                        typing.zip(caret).map(|(e, (r, _))| (e.caret, r)),
+                        lines.len(),
+                        shown,
+                    );
+                    views.props_text = Some(PropsText {
+                        area: b,
+                        x: tx,
+                        top: by0 + 7.0,
+                        line_h,
+                        size,
+                        skip,
+                        lines: lines.clone(),
+                        chars: chars.clone(),
+                    });
+                    // The selection, behind the text.
+                    if let Some((a, z)) = typing.and_then(|e| e.selection()) {
+                        for (n, &(s, e)) in lines.iter().enumerate().skip(skip).take(shown) {
+                            let (lo, hi) = (a.max(s), z.min(e));
+                            if lo < hi || (a < s && z > e && s == e) {
+                                let before: String = chars[s..lo.max(s)].iter().collect();
+                                let inside: String = chars[lo.max(s)..hi.max(lo)].iter().collect();
+                                let x0 = tx + width_of(&before, size);
+                                // An empty line inside the selection shows a sliver.
+                                let w = width_of(&inside, size).max(if s == e { 6.0 } else { 0.0 });
+                                let ly = by0 + 7.0 + line_h * (n - skip) as f64;
+                                fill(
+                                    scene,
+                                    Rect::new(x0, ly + 2.0, x0 + w, ly + size + 4.0),
+                                    col(th.mode_normal.with_alpha(110)),
+                                );
+                            }
+                        }
+                    }
+                    for (n, &(s, e)) in lines.iter().enumerate().skip(skip).take(shown) {
+                        let line: String = chars[s..e].iter().collect();
+                        let ly = by0 + 7.0 + line_h * (n - skip) as f64 + size;
+                        text(scene, &line, tx, ly, size, Align::Left, c, false);
+                    }
+                    if let Some((cr, cc)) = caret.filter(|&(r, _)| r >= skip) {
+                        let (s, _) = lines[cr];
+                        let before: String = chars[s..s + cc].iter().collect();
+                        let cx = tx + width_of(&before, size);
+                        let ly = by0 + 7.0 + line_h * (cr - skip) as f64;
+                        // Normal mode: a block over the character; insert mode: a bar.
+                        let wide = match typing {
+                            Some(e) if e.modal && !e.insert => {
+                                let ch = chars.get(s + cc).filter(|c| **c != '\n');
+                                ch.map_or(8.0, |c| width_of(&c.to_string(), size))
+                            }
+                            _ => 2.0,
+                        };
+                        let a = if wide > 2.0 { 150 } else { 255 };
+                        fill(
+                            scene,
+                            Rect::new(cx, ly + 2.0, cx + wide, ly + size + 4.0),
+                            col(th.mode_normal.with_alpha(a)),
+                        );
+                    }
+                } else {
+                    let ty = by0 + BOX_H / 2.0 + size * 0.35;
+                    match typing {
+                        Some(e) => {
+                            // Start far enough in that the caret stays in the box.
+                            let chars: Vec<char> = e.text.chars().collect();
+                            let mut from = 0;
+                            let upto = e.caret.min(chars.len());
+                            while from < upto {
+                                let seg: String = chars[from..upto].iter().collect();
+                                if width_of(&seg, size) <= inner - 4.0 {
+                                    break;
+                                }
+                                from += 1;
+                            }
+                            let mut shown = String::new();
+                            for &ch in &chars[from..] {
+                                shown.push(ch);
+                                if width_of(&shown, size) > inner {
+                                    shown.pop();
+                                    break;
+                                }
+                            }
+                            text(scene, &shown, tx, ty, size, Align::Left, c, false);
+                            let before: String = chars[from..upto].iter().collect();
+                            let cx = tx + width_of(&before, size);
+                            fill(
+                                scene,
+                                Rect::new(cx, by0 + 7.0, cx + 2.0, by1 - 7.0),
+                                col(th.mode_normal),
+                            );
+                        }
+                        None => {
+                            let mut shown: String = if toggle {
+                                String::new()
+                            } else {
+                                row.value.clone()
+                            };
+                            if shown.is_empty() && !row.placeholder.is_empty() {
+                                text(
+                                    scene,
+                                    row.placeholder,
+                                    tx,
+                                    ty,
+                                    size,
+                                    Align::Left,
+                                    dim(),
+                                    false,
+                                );
+                            }
+                            if width_of(&shown, size) > inner {
+                                while width_of(&format!("{shown}…"), size) > inner
+                                    && !shown.is_empty()
+                                {
+                                    shown.pop();
+                                }
+                                shown.push('…');
+                            }
+                            text(scene, &shown, tx, ty, size, Align::Left, c, false);
+                        }
+                    }
+                }
+            }
+        }
+        views.props.push((hit, PropHit::Row(k)));
+        y += h;
+    }
+    // The search field along the bottom of the pane.
+    if let Some(search) = &app.props.search {
+        let b = Rect::new(bx0, r.y1 - 52.0, bx1, r.y1 - 14.0);
+        let shape = b.to_rounded_rect(6.0);
+        scene.fill(Fill::NonZero, Affine::IDENTITY, col(th.tab), None, &shape);
+        scene.stroke(
+            &Stroke::new(1.0),
+            Affine::IDENTITY,
+            col(th.mode_normal),
+            None,
+            &shape,
+        );
+        let line = format!("/{}", search.query);
+        let ty = b.y0 + 19.0 + PROPS_VALUE * 0.35;
+        text(
+            scene,
+            &line,
+            b.x0 + 10.0,
+            ty,
+            PROPS_VALUE,
+            Align::Left,
+            chrome_text(),
+            false,
+        );
+        let cx = b.x0 + 10.0 + width_of(&line, PROPS_VALUE) + 1.0;
+        fill(
+            scene,
+            Rect::new(cx, b.y0 + 9.0, cx + 2.0, b.y1 - 9.0),
+            col(th.mode_normal),
+        );
+    }
+    // While a staff is dragged: a line in the accent color where it would land.
+    if let Some(Drag::Prop(from, to, _)) = views.drag {
+        if from != to {
+            if let Some(&(_, x0, top, bottom, labelled)) = staff_rows.iter().find(|r| r.0 == to) {
+                let ly = if to > from { bottom + 6.0 } else { top - 6.0 };
+                let x0 = if labelled && to < from { x0 + 44.0 } else { x0 };
+                fill(
+                    scene,
+                    Rect::new(x0, ly - 1.5, bx1, ly + 1.5),
+                    col(th.accent),
+                );
+            }
+        }
+    }
 }
 
 /// The tuner: the note heard (big), a cents scale with a needle (green when in tune), the
@@ -2924,7 +3640,7 @@ fn draw_tuner(scene: &mut Scene, app: &App, r: Rect) {
 const PIANO_KEYS: (u8, u8) = (21, 108);
 
 /// The fretboard: the track's strings and frets (spaced as on a real neck), inlays, and the
-/// notes at the cursor or playhead as dots in the track's colour with their names.
+/// notes at the cursor or playhead as dots in the track's color with their names.
 fn draw_fretboard(
     scene: &mut Scene,
     app: &App,
@@ -3008,7 +3724,7 @@ fn draw_fretboard(
             );
         }
     }
-    // A capo across its fret (in the theme's capo colour).
+    // A capo across its fret (in the theme's capo color).
     if v.capo > 0 && v.capo <= v.frets {
         let x = fret_x(v.capo as f64) - 4.0;
         scene.fill(
@@ -3086,7 +3802,7 @@ fn draw_fretboard(
     }
 }
 
-/// The piano: 88 keys with the notes at the cursor or playhead pressed in the track's colour.
+/// The piano: 88 keys with the notes at the cursor or playhead pressed in the track's color.
 fn draw_piano_panel(
     scene: &mut Scene,
     app: &App,
@@ -3410,6 +4126,47 @@ impl Views {
         })
     }
 
+    /// Mouse down over the properties pane: a tab shows, a row selects, a selected row edits.
+    /// True when the pane took the click.
+    fn click_properties(&mut self, app: &mut App, x: f64, y: f64, double: bool) -> bool {
+        let Some(&(_, hit)) = self.props.iter().find(|(r, _)| r.contains((x, y))) else {
+            return false;
+        };
+        match hit {
+            PropHit::Tab(t) => app.set_property_tab(t),
+            // A staff can be dragged to another place; a plain click waits for the release.
+            PropHit::Row(i)
+                if app.text_editing(i)
+                    && self
+                        .props_text
+                        .as_ref()
+                        .is_some_and(|p| p.area.contains((x, y))) =>
+            {
+                // In the text area being edited: a click places the caret, a drag selects.
+                let at = self.props_text.as_ref().map_or(0, |p| p.at(x, y));
+                if double {
+                    app.text_double_click(at);
+                } else {
+                    app.text_click(at);
+                    self.drag = Some(Drag::Text);
+                }
+            }
+            PropHit::Row(i) if app.property_is_staff(i) => {
+                self.drag = Some(Drag::Prop(i, i, double));
+            }
+            PropHit::Row(i) => {
+                app.click_property(i, double);
+                // A double click in the lyrics puts the caret where it landed.
+                if double {
+                    if let Some(pt) = self.props_text.as_ref().filter(|p| p.area.contains((x, y))) {
+                        app.set_text_caret(pt.at(x, y));
+                    }
+                }
+            }
+        }
+        true
+    }
+
     /// Mouse down over the tracks panel: select, solo, mute, or start dragging a volume.
     /// True when the panel took the click.
     fn click_tracks(&mut self, app: &mut App, x: f64, y: f64, double: bool) -> bool {
@@ -3448,6 +4205,26 @@ impl Views {
     /// Mouse moved with the button down: drags a slider, a pane border or a panel's edge.
     pub fn drag_to(&mut self, app: &mut App, x: f64, y: f64) -> bool {
         match self.drag.clone() {
+            Some(Drag::Text) => {
+                if let Some(pt) = &self.props_text {
+                    // Past the top or bottom of the text scrolls it.
+                    if y < pt.area.y0 {
+                        app.scroll_properties(-1);
+                    } else if y > pt.area.y1 {
+                        app.scroll_properties(1);
+                    }
+                    app.text_drag(pt.at(x, y));
+                }
+            }
+            Some(Drag::Prop(from, _, double)) => {
+                let over = self.props.iter().find_map(|(r, h)| match h {
+                    PropHit::Row(i) if r.contains((x, y)) => Some(*i),
+                    _ => None,
+                });
+                if let Some(i) = over {
+                    self.drag = Some(Drag::Prop(from, i, double));
+                }
+            }
             Some(Drag::Volume(strip, x0, x1)) => {
                 app.set_strip_volume(strip, (x - x0) / (x1 - x0));
             }
@@ -3514,8 +4291,13 @@ impl Views {
 
     /// Mouse up: ends a drag (a volume drag is one undo step).
     pub fn release(&mut self, app: &mut App) {
-        if let Some(Drag::Volume(..)) = self.drag.take() {
-            app.group_edits(false);
+        match self.drag.take() {
+            Some(Drag::Volume(..)) => app.group_edits(false),
+            Some(Drag::Text) => app.text_release(),
+            // Released on another staff: it moves there; on the same one: a click.
+            Some(Drag::Prop(from, to, double)) if from == to => app.click_property(from, double),
+            Some(Drag::Prop(from, to, _)) => app.drag_property(from, to),
+            _ => {}
         }
     }
 
@@ -3573,6 +4355,17 @@ impl Views {
         }
         if zoom {
             return false;
+        }
+        if self.props_rect.is_some_and(|r| r.contains((x, y))) {
+            // A couple of rows a notch, whichever way the wheel turns.
+            let rows = (dy / 30.0).round() as isize;
+            let rows = if rows == 0 {
+                dy.signum() as isize
+            } else {
+                rows
+            };
+            app.scroll_properties(rows);
+            return true;
         }
         if self.tracks_rect.is_some_and(|r| r.contains((x, y))) {
             let n = app.track_rows().len();
@@ -3654,6 +4447,9 @@ impl Views {
         }
         if let Some(&(_, pitch)) = self.keys.iter().find(|(r, _)| r.contains((x, y))) {
             app.click_key(pitch);
+            return;
+        }
+        if self.click_properties(app, x, y, double) {
             return;
         }
         if self.click_tracks(app, x, y, double) {

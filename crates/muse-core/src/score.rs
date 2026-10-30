@@ -19,7 +19,58 @@ pub struct Score {
     pub anacrusis: bool,
     /// Audio track synchronised to the score.
     pub audio: Option<AudioSync>,
+    /// Page size, margins and the header and footer templates (printing).
+    #[serde(default)]
+    pub page: PageSetup,
     pub extras: Extras,
+}
+
+/// Page layout of the printed score, as Guitar Pro keeps it.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct PageSetup {
+    /// Page size in millimetres.
+    pub width: u32,
+    pub height: u32,
+    /// Margins in millimetres.
+    pub margin_left: u32,
+    pub margin_right: u32,
+    pub margin_top: u32,
+    pub margin_bottom: u32,
+    /// Size of the score on the page, in percent.
+    pub scale: u32,
+    /// Which of the header and footer templates are shown (Guitar Pro's flag bits).
+    pub header_flags: u16,
+    /// Title, subtitle, artist, album, words, music, words and music, copyright (two lines)
+    /// and page number templates, with `%TITLE%`-style placeholders.
+    pub templates: [String; 10],
+}
+
+impl Default for PageSetup {
+    fn default() -> Self {
+        Self {
+            width: 210,
+            height: 297,
+            margin_left: 10,
+            margin_right: 10,
+            margin_top: 15,
+            margin_bottom: 10,
+            scale: 100,
+            header_flags: 0x01FF,
+            templates: [
+                "%TITLE%",
+                "%SUBTITLE%",
+                "%ARTIST%",
+                "%ALBUM%",
+                "Words by %WORDS%",
+                "Music by %MUSIC%",
+                "Words & Music by %WORDSMUSIC%",
+                "Copyright %COPYRIGHT%",
+                "All Rights Reserved - International Copyright Secured",
+                "Page %N%/%P%",
+            ]
+            .map(String::from),
+        }
+    }
 }
 
 /// A recorded audio track and the points that align it with the score.
@@ -357,31 +408,35 @@ pub fn parse_pitch(s: &str) -> Option<u8> {
 
 impl Staff {
     /// Every kind, as typed: `standard`, `tab`, `tab+`, `slash`, `chant`.
-    pub const KINDS: [&str; 5] = ["standard", "tab", "tab+", "slash", "chant"];
+    pub const KINDS: [&str; 7] = ["treble", "bass", "grand", "tab", "tab+", "slash", "chant"];
 
-    /// Parses `standard [treble|bass|grand [split]]`, `tab`, `tab+`, `slash` or `chant`;
-    /// `standard` alone takes `clef`.
+    /// Parses `treble`, `bass`, `grand [split note]`, `tab`, `tab+`, `slash` or `chant` (standard
+    /// notation is `standard [clef]`, which still works; `standard` alone takes `clef`).
     pub fn parse(s: &str, clef: Clef) -> Result<Staff, String> {
         let words: Vec<&str> = s.split_whitespace().collect();
-        Ok(match words.as_slice() {
-            ["standard" | "std", rest @ ..] => Staff::Standard(match rest {
-                [] => clef,
-                ["treble"] => Clef::Treble,
-                ["bass"] => Clef::Bass,
-                ["grand"] => Clef::Grand { split: GRAND_SPLIT },
-                ["grand", note] => Clef::Grand {
+        let grand = |rest: &[&str]| -> Result<Clef, String> {
+            Ok(match rest {
+                [] => Clef::Grand { split: GRAND_SPLIT },
+                [note] => Clef::Grand {
                     split: parse_pitch(note)
                         .ok_or_else(|| format!("'{note}' is not a note (e.g. C4, F#3)"))?,
                 },
-                _ => return Err("standard takes treble, bass or grand [split note]".into()),
-            }),
+                _ => return Err("grand takes a split note (e.g. C4)".into()),
+            })
+        };
+        Ok(match words.as_slice() {
+            ["standard" | "std"] => Staff::Standard(clef),
+            ["standard" | "std", rest @ ..] => return Staff::parse(&rest.join(" "), clef),
+            ["treble"] => Staff::Standard(Clef::Treble),
+            ["bass"] => Staff::Standard(Clef::Bass),
+            ["grand", rest @ ..] => Staff::Standard(grand(rest)?),
             ["tab"] => Staff::Tab,
             ["tab+"] => Staff::TabRhythm,
             ["slash"] => Staff::Slash,
             ["chant"] => Staff::Chant,
             _ => {
                 return Err(format!(
-                    "'{s}' is not a staff (standard [treble|bass|grand [split]], tab, tab+, slash, chant)"
+                    "'{s}' is not a staff (treble, bass, grand [split], tab, tab+, slash, chant)"
                 ));
             }
         })
@@ -389,7 +444,7 @@ impl Staff {
 
     pub fn name(self) -> String {
         match self {
-            Staff::Standard(c) => format!("standard {}", c.name()),
+            Staff::Standard(c) => c.name(),
             Staff::Tab => "tab".into(),
             Staff::TabRhythm => "tab+".into(),
             Staff::Slash => "slash".into(),

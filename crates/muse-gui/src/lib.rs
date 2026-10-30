@@ -319,6 +319,12 @@ impl ApplicationHandler for Gui {
                     (dx, dy) = (dy, 0.0);
                 }
                 let (mx, my) = self.mouse;
+                if self.app.mode == muse_app::Mode::Picker {
+                    // The wheel over a picker moves its selection.
+                    self.app.picker_scroll(if dy > 0.0 { 1 } else { -1 });
+                    self.after_input();
+                    return;
+                }
                 if self
                     .views
                     .wheel(&self.app, mx, my, dx, dy, self.mods.control_key())

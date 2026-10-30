@@ -99,6 +99,10 @@ pub struct PaletteItem {
     pub text: String,
     /// Short description (of a command, or a picker entry).
     pub description: Option<String>,
+    /// A color shown beside the text (the color picker).
+    pub swatch: Option<crate::theme::Rgba>,
+    /// An icon shown beside the text.
+    pub icon: Option<crate::icons::Icon>,
     /// Character positions that matched the typed text (highlighted).
     pub matched: Vec<usize>,
 }
@@ -144,15 +148,18 @@ pub enum PaneKind {
     Piano,
     Fretboard,
     Tuner,
+    /// The score's, the cursor track's and the lyrics' properties, docked along the right.
+    Properties,
 }
 
 impl PaneKind {
-    pub const TOOLS: [PaneKind; 5] = [
+    pub const TOOLS: [PaneKind; 6] = [
         PaneKind::Tracks,
         PaneKind::Audio,
         PaneKind::Piano,
         PaneKind::Fretboard,
         PaneKind::Tuner,
+        PaneKind::Properties,
     ];
 
     pub fn name(self) -> &'static str {
@@ -163,6 +170,7 @@ impl PaneKind {
             PaneKind::Piano => "piano",
             PaneKind::Fretboard => "fretboard",
             PaneKind::Tuner => "tuner",
+            PaneKind::Properties => "properties",
         }
     }
 
@@ -174,8 +182,33 @@ impl PaneKind {
             "piano" => PaneKind::Piano,
             "fretboard" => PaneKind::Fretboard,
             "tuner" => PaneKind::Tuner,
+            "properties" => PaneKind::Properties,
             _ => return None,
         })
+    }
+}
+
+/// Adds a pane along the bottom of a layout (a tool docked at the window's bottom).
+fn dock_bottom(root: Node, id: PaneId) -> Node {
+    match root {
+        Node::Split {
+            axis: Axis::Stacked,
+            mut children,
+            mut weights,
+        } => {
+            children.push(Node::Leaf(id));
+            weights.push(1.0);
+            Node::Split {
+                axis: Axis::Stacked,
+                children,
+                weights,
+            }
+        }
+        other => Node::Split {
+            axis: Axis::Stacked,
+            children: vec![other, Node::Leaf(id)],
+            weights: vec![1.0, 1.0],
+        },
     }
 }
 
@@ -362,6 +395,8 @@ pub struct App {
     /// The tracks panel's selected row (an index into [`App::track_rows`]), while it has the
     /// focus.
     pub tracks_selected: usize,
+    /// The properties pane's tab, selection and fold state.
+    pub props: crate::properties::PropsState,
     /// Height of a row of text in viewport units (1 in a terminal, pixels in the GUI), for
     /// sizing new tool panes.
     pub row_height: u16,
@@ -480,6 +515,7 @@ impl App {
             tuner_reading: None,
             tuner_error: None,
             tracks_selected: 0,
+            props: Default::default(),
             renaming: None,
             row_height: 1,
             col_width: 1,
@@ -511,6 +547,7 @@ impl App {
             (PaneKind::Tracks, ui.tracks_panel),
             (PaneKind::Fretboard, ui.fretboard),
             (PaneKind::Piano, ui.piano),
+            (PaneKind::Properties, ui.properties),
         ];
         for (kind, on) in tools {
             if on {
@@ -596,6 +633,7 @@ impl App {
             PaneKind::Fretboard => (strings + 1, 60),
             PaneKind::Piano | PaneKind::Tuner => (3, 40),
             PaneKind::Audio => (4, 40),
+            PaneKind::Properties => (10, crate::properties::WIDTH as usize),
             PaneKind::Score => (10, 40),
         };
         let frame = self.pane_frame as usize;
@@ -605,15 +643,27 @@ impl App {
         )
     }
 
+    /// A new tool pane's size: its natural one, except that the properties pane (docked at the
+    /// right) has a width only.
+    fn tool_size(&self, kind: PaneKind) -> (Option<u16>, Option<u16>) {
+        let (h, w) = self.natural_size(kind);
+        match kind {
+            PaneKind::Properties => (None, Some(w)),
+            _ => (Some(h), Some(w)),
+        }
+    }
+
     /// Whether a tool docks along the bottom of the whole view, showing the last active score
     /// pane (`ui.global_tools`, `:global-tool`), else under its own score pane.
     pub fn is_global(&self, kind: PaneKind) -> bool {
-        self.config
-            .file
-            .ui
-            .global_tools
-            .iter()
-            .any(|t| PaneKind::parse(t) == Some(kind))
+        kind == PaneKind::Properties
+            || self
+                .config
+                .file
+                .ui
+                .global_tools
+                .iter()
+                .any(|t| PaneKind::parse(t) == Some(kind))
     }
 
     /// `:global-tool`: makes a tool global or local. Making global closes all local panes of
@@ -625,6 +675,9 @@ impl App {
                 "global-tool: '{name}' is not a tool (tracks, waveform, fretboard, piano, tuner)"
             ));
         };
+        if kind == PaneKind::Properties {
+            return self.error("global-tool: the properties pane always docks at the right");
+        }
         let was_open = self.tool_pane(kind).is_some();
         let tools = &mut self.config.file.ui.global_tools;
         let going_global = !tools.iter().any(|t| PaneKind::parse(t) == Some(kind));
@@ -708,9 +761,9 @@ impl App {
             let Some(kind) = self.panes.get(&id).map(|p| p.kind) else {
                 continue;
             };
-            let (h, w) = self.natural_size(kind);
+            let size = self.tool_size(kind);
             if let Some(p) = self.panes.get_mut(&id) {
-                p.size = (Some(h), Some(w));
+                p.size = size;
             }
         }
     }
@@ -733,39 +786,47 @@ impl App {
             }
             (None, true) => {
                 let id = self.new_pane(self.pane().buffer);
-                let (h, w) = self.natural_size(kind);
+                let size = self.tool_size(kind);
                 let score = self.focused();
                 let global = self.is_global(kind);
                 let pane = self.panes.get_mut(&id).unwrap();
                 pane.kind = kind;
-                pane.size = (Some(h), Some(w));
+                pane.size = size;
                 pane.owner = (!global).then_some(score);
                 if !self.viewport_known {
                     self.unfitted.push(id);
                 }
+                let docked_right = self.docked_right();
                 let view = &mut self.views[self.active_view];
-                if global {
-                    // Along the bottom of the whole view.
+                if kind == PaneKind::Properties {
+                    // Along the right of the whole view, at its full height.
                     let root = std::mem::replace(&mut view.root, Node::Leaf(0));
-                    view.root = match root {
-                        Node::Split {
-                            axis: Axis::Stacked,
-                            mut children,
-                            mut weights,
-                        } => {
-                            children.push(Node::Leaf(id));
-                            weights.push(1.0);
+                    view.root = Node::Split {
+                        axis: Axis::SideBySide,
+                        children: vec![root, Node::Leaf(id)],
+                        weights: vec![1.0, 1.0],
+                    };
+                } else if global {
+                    // Along the bottom of the view's panes (left of the properties pane).
+                    let root = std::mem::replace(&mut view.root, Node::Leaf(0));
+                    view.root = match (root, docked_right) {
+                        (
                             Node::Split {
-                                axis: Axis::Stacked,
+                                axis: Axis::SideBySide,
+                                mut children,
+                                weights,
+                            },
+                            true,
+                        ) => {
+                            let body = children.remove(0);
+                            children.insert(0, dock_bottom(body, id));
+                            Node::Split {
+                                axis: Axis::SideBySide,
                                 children,
                                 weights,
                             }
                         }
-                        other => Node::Split {
-                            axis: Axis::Stacked,
-                            children: vec![other, Node::Leaf(id)],
-                            weights: vec![1.0, 1.0],
-                        },
+                        (root, _) => dock_bottom(root, id),
                     };
                 } else {
                     // Under the score pane it works on, as wide as it.
@@ -778,6 +839,21 @@ impl App {
             self.tuner_reading = None;
             self.tuner_error = None;
             self.effects.push(Effect::Tuner(on));
+        }
+    }
+
+    /// Whether the active view's root is a split with the properties pane as its last child.
+    fn docked_right(&self) -> bool {
+        match &self.view().root {
+            Node::Split {
+                axis: Axis::SideBySide,
+                children,
+                ..
+            } => matches!(
+                children.last(),
+                Some(Node::Leaf(id)) if self.panes.get(id).is_some_and(|p| p.kind == PaneKind::Properties)
+            ),
+            _ => false,
         }
     }
 
@@ -946,13 +1022,17 @@ impl App {
         let without: Vec<PaneId> = self
             .panes
             .iter()
-            .filter(|(_, p)| p.kind != PaneKind::Score && p.size.0.is_none())
+            .filter(|(_, p)| match p.kind {
+                PaneKind::Score => false,
+                PaneKind::Properties => p.size.1.is_none(),
+                _ => p.size.0.is_none(),
+            })
             .map(|(id, _)| *id)
             .collect();
         for id in without {
             if self.viewport_known {
-                let (h, w) = self.natural_size(self.panes[&id].kind);
-                self.panes.get_mut(&id).unwrap().size = (Some(h), Some(w));
+                let size = self.tool_size(self.panes[&id].kind);
+                self.panes.get_mut(&id).unwrap().size = size;
             } else {
                 self.unfitted.push(id);
             }
@@ -1575,6 +1655,8 @@ impl App {
                     None
                 },
                 text,
+                swatch: None,
+                icon: None,
                 matched,
             })
             .collect();
@@ -1611,6 +1693,7 @@ impl App {
             || self.run_edit(&cmd)
             || self.run_playalong(&cmd)
             || self.run_tracks(&cmd)
+            || self.run_properties(&cmd)
         {
             return;
         }
@@ -2542,11 +2625,11 @@ fn step_note(score: &Score, c: &mut Cursor, forward: bool) {
 }
 
 #[cfg(test)]
-mod tests {
+pub(crate) mod tests {
     use super::*;
     use muse_core::*;
 
-    fn test_app() -> App {
+    pub(crate) fn test_app() -> App {
         let beat = |fret| Beat {
             duration: Duration::new(DurationValue::Quarter),
             notes: vec![Note::new(0, fret)],
@@ -2578,10 +2661,12 @@ mod tests {
             history: Default::default(),
             version: 0,
         };
+        // The properties pane is on by default; most tests are about panes without it.
+        app.set_tool(PaneKind::Properties, Some(false));
         app
     }
 
-    fn keys(app: &mut App, s: &str) {
+    pub(crate) fn keys(app: &mut App, s: &str) {
         for k in crate::keys::parse_keys(s, &[Key::char(' ')]).unwrap() {
             app.handle_key(k);
         }
@@ -2652,6 +2737,7 @@ mod tests {
     fn files(dir: &Path, names: &[&str]) -> Vec<PathBuf> {
         std::fs::create_dir_all(dir).unwrap();
         let mut app = App::new(Config::default(), None);
+        app.set_tool(PaneKind::Properties, Some(false));
         app.run(Command::New);
         names
             .iter()
@@ -2668,6 +2754,7 @@ mod tests {
         let dir = std::env::temp_dir().join(format!("muse-views-{}", std::process::id()));
         let f = files(&dir, &["a.muse", "b.muse", "c.muse"]);
         let mut app = App::new(Config::default(), None);
+        app.set_tool(PaneKind::Properties, Some(false));
         for p in &f {
             app.run(Command::Edit(p.clone()));
         }
@@ -3003,6 +3090,7 @@ mod tests {
     #[test]
     fn maximize_shows_the_focused_pane_alone() {
         let mut app = App::new(Config::default(), None);
+        app.set_tool(PaneKind::Properties, Some(false));
         app.viewport = Rect {
             x: 0,
             y: 0,

@@ -41,6 +41,9 @@ pub struct Workspace {
     /// Height of waveform strips and bar (GUI, logical pixels).
     #[serde(default = "default_waveform_height")]
     pub waveform_height: u16,
+    /// Tab of the properties pane.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub properties_tab: Option<String>,
     /// Marks: lowercase ones belong to their file, uppercase ones are global.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub marks: Vec<MarkState>,
@@ -402,6 +405,7 @@ impl App {
             piano: false,
             tracks_rows: default_tracks_rows(),
             waveform_height: self.waveform_height,
+            properties_tab: Some(self.props.tab.name().to_string()),
         }
     }
 
@@ -708,6 +712,13 @@ impl App {
         self.follow = ws.follow;
         self.chant_view = ws.chant_view;
         self.toolbar = ws.toolbar;
+        if let Some(tab) = ws
+            .properties_tab
+            .as_deref()
+            .and_then(crate::properties::PropTab::parse)
+        {
+            self.set_property_tab(tab);
+        }
         self.size_tools();
         // Workspaces from before tool panes switched the panels on: they become panes.
         for (kind, on) in [
@@ -817,6 +828,7 @@ mod tests {
     #[test]
     fn pane_and_panel_sizes_are_kept() {
         let mut app = App::new(Config::default(), None);
+        app.set_tool(PaneKind::Properties, Some(false));
         app.viewport = crate::layout::Rect {
             x: 0,
             y: 0,
@@ -872,12 +884,31 @@ mod tests {
     }
 
     #[test]
+    fn the_properties_pane_and_its_tab_are_saved() {
+        let mut app = App::new(Config::default(), None);
+        assert!(!app.has_tool(PaneKind::Properties), "off by default");
+        app.set_tool(PaneKind::Properties, Some(true));
+        app.set_property_tab(crate::properties::PropTab::Lyrics);
+        let text = toml::to_string_pretty(&app.workspace()).unwrap();
+        let mut other = App::new(Config::default(), None);
+        other.restore(&toml::from_str(&text).unwrap());
+        assert!(other.has_tool(PaneKind::Properties));
+        assert_eq!(other.props.tab, crate::properties::PropTab::Lyrics);
+        // Hidden in the saved session: hidden again.
+        app.set_tool(PaneKind::Properties, Some(false));
+        let text = toml::to_string_pretty(&app.workspace()).unwrap();
+        other.restore(&toml::from_str(&text).unwrap());
+        assert!(!other.has_tool(PaneKind::Properties));
+    }
+
+    #[test]
     fn using_a_workspace_starts_it_or_opens_it() {
         let dir = std::env::temp_dir().join(format!("muse-ws-use-{}", std::process::id()));
         std::fs::create_dir_all(&dir).unwrap();
         let ws = dir.join("gig.toml").display().to_string();
         // Not saved yet: the current session becomes it.
         let mut app = App::new(Config::default(), None);
+        app.set_tool(PaneKind::Properties, Some(false));
         app.run(Command::Split);
         app.use_workspace(&ws);
         assert_eq!(app.workspace_name().as_deref(), Some(ws.as_str()));

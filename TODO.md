@@ -45,7 +45,6 @@ Planned work. Finished items move to `CHANGELOG.md` under `[Unreleased]`.
 
 ### UI
 
-- [ ] Properties pane (Score, Track, and Lyrics)
 - [ ] FIX: Remember last focused pane in tree so switching back to a row/column
       refocuses the last pane before focusing another row/column
 - [ ] Allow grouping scores in tabline into groups and ability to (auto)

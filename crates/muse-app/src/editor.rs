@@ -121,6 +121,20 @@ impl App {
         match self.mode {
             Mode::Command => self.handle_command_key(key),
             Mode::Picker => self.handle_picker_key(key),
+            // The pane's search field takes every key.
+            Mode::Normal | Mode::Tracks | Mode::Properties
+                if self.props.search.is_some()
+                    && self.focused_kind() == crate::app::PaneKind::Properties =>
+            {
+                self.props_search_key(key)
+            }
+            // A property being typed takes every key.
+            Mode::Normal | Mode::Tracks | Mode::Properties
+                if self.props.edit.is_some()
+                    && self.focused_kind() == crate::app::PaneKind::Properties =>
+            {
+                self.props_edit_key(key)
+            }
             // Escape in a tool pane goes back to the score pane worked on last.
             Mode::Normal | Mode::Tracks
                 if key.code == KeyCode::Esc
@@ -130,11 +144,16 @@ impl App {
                 self.count = None;
                 self.set_focus(self.focused());
             }
+            Mode::Normal | Mode::Tracks | Mode::Properties
+                if self.focused_kind() == crate::app::PaneKind::Properties =>
+            {
+                self.properties_key(key)
+            }
             // A focused tracks pane has its own keys first.
             Mode::Normal | Mode::Tracks if self.focused_kind() == crate::app::PaneKind::Tracks => {
                 self.tracks_key(key)
             }
-            Mode::Normal | Mode::Tracks => self.normal_key(key),
+            Mode::Normal | Mode::Tracks | Mode::Properties => self.normal_key(key),
             Mode::Insert => self.insert_key(key),
             Mode::Visual => self.visual_key(key),
         }
@@ -1140,7 +1159,8 @@ impl App {
 
     /// Adds a staff at the bottom of the cursor's track.
     fn add_staff(&mut self, arg: Option<&str>) {
-        let Some(staff) = self.parse_staff(arg.unwrap_or("standard")) else {
+        let Some(staff) = self.parse_staff(arg.unwrap_or(&self.config.default_clef().name()))
+        else {
             return;
         };
         let done = self.edit(|cx| {
@@ -1250,7 +1270,7 @@ impl App {
 
 /// Keeps a score's stored lyric lines (Guitar Pro 3–5 form) in step with the syllables of the
 /// track they belong to.
-fn refresh_lyric_lines(score: &mut Score, track: usize) {
+pub(crate) fn refresh_lyric_lines(score: &mut Score, track: usize) {
     let lines = muse_core::lyrics::lines_from_beats(&score.tracks[track]);
     match score.lyrics.as_mut() {
         Some(l) if l.track == Some(track) || l.lines.is_empty() => {
@@ -1391,7 +1411,7 @@ mod tests {
         assert_eq!(staves(&a), vec![Staff::Standard(Treble), Staff::Tab]);
         // Added at the bottom; the cursor goes to the new staff, which can be changed.
         a.run(Command::StaffAdd(Some("slash".into())));
-        a.run(Command::StaffAdd(Some("standard grand G3".into())));
+        a.run(Command::StaffAdd(Some("grand G3".into())));
         assert_eq!(staves(&a)[3], Staff::Standard(Grand { split: 55 }));
         assert_eq!(a.pane().cursor.staff, 3);
         a.run(Command::Staff("tab+".into()));

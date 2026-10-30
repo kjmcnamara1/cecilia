@@ -13,6 +13,7 @@ completion_fuzzy = true         # …and matches the typed letters in order anyw
 scrollbar = true         # a scrollbar on score panes (right side; bottom in the horizontal layout)
 progress_bar = true      # sections, play position and time along the bottom of score panes
 tracks_panel = false     # start with the tracks pane (mixer and bar overview) docked at the bottom
+properties = false       # show the properties pane (score, track, lyrics) along the right (<leader>p)
 toolbar = true           # the toolbar of common commands at the top of the window (:toolbar, <leader>B)
 fretboard = false        # start with a fretboard pane: the notes at the cursor or playhead (<leader>F)
 piano = false            # piano keys likewise (<leader>K)
@@ -39,14 +40,14 @@ preset = "dark"
 # A theme file with the same keys as this section (absolute, ~/…, or relative to this folder);
 # keys here override it. Edits to it apply while muse runs.
 # file = "themes/mine.toml"
-# Any colour overrides the preset: "#rrggbb" or "#rrggbbaa". Defaults of the dark theme:
+# Any color overrides the preset: "#rrggbb" or "#rrggbbaa". Defaults of the dark theme:
 # paper = "#e8e9ec"           # around the engraved pages
 # page = "#ffffff"            # the pages
 # ink = "#000000"             # the notation (greys are blended between page and ink)
 # chrome = "#282a30"          # tabline, status line
 # chrome_text = "#e1e1e6"
 # dim = "#9698a0"             # secondary text
-# accent = "#fabe28"          # active tab, focus; tracks without a colour get a spectrum from it
+# accent = "#fabe28"          # active tab, focus; tracks without a color get a spectrum from it
 # playhead = "#e12828"
 # selection = "#965adc"
 # tab = "#34373f"             # buffer tabs
@@ -75,8 +76,9 @@ separators = "arrow"     # terminal: between sections, as lualine: "arrow", "rou
 [toolbar]
 # The toolbar's buttons: commands as typed after ":", "|" between groups (ui.toolbar shows it).
 # items = ["new", "open", "write", "|", "undo", "redo", "|", "play-toggle", "stop",
-#          "follow-toggle", "loop-toggle", "metronome", "count-in", "|", "tracks", "split",
-#          "vsplit", "|", "command-mode", "pick-keymap"]
+#          "follow-toggle", "loop-toggle", "metronome", "count-in", "|", "tracks", "properties",
+#          "waveform", "piano", "fretboard", "tuner", "split", "vsplit", "|", "command-mode",
+#          "pick-keymap"]
 
 [audio]
 # soundfont = "~/soundfonts/GeneralUser-GS.sf2"
@@ -105,6 +107,10 @@ clef = "treble"          # clef of a standard staff added without one: treble, b
 [keymap.tracks]
 # Keys while the tracks panel has the focus (<C-w>t).
 # "x" = "mute"
+
+[keymap.properties]
+# Keys while the properties pane has the focus (<leader>P).
+# "d" = "properties-clear"
 
 [keymap.command]
 # "<C-p>" = "normal"
