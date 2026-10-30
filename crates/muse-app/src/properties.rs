@@ -365,6 +365,9 @@ pub struct PropsState {
     /// The lines the lyrics text is wrapped to as last drawn (character ranges), for moving
     /// by visual line.
     pub visual: std::cell::RefCell<Vec<(usize, usize)>>,
+    /// The first line of the lyrics text area shown, and the caret when it last followed it.
+    text_scroll: Cell<usize>,
+    text_seen: Cell<usize>,
     /// The selected row when the window last followed it: while that is the selection the
     /// wheel scrolls freely.
     seen: Cell<usize>,
@@ -691,8 +694,44 @@ impl App {
         first
     }
 
-    /// The wheel: scrolls the rows by `by` (positive: down) without moving the selection.
+    /// The first line of the lyrics text area to draw, of `total` lines with `shown` in view:
+    /// the wheel's scrolling stands, until the caret (row `row` of the lines) has moved.
+    pub fn text_window(&self, caret: Option<(usize, usize)>, total: usize, shown: usize) -> usize {
+        let mut skip = self
+            .props
+            .text_scroll
+            .get()
+            .min(total.saturating_sub(shown));
+        if let Some((caret, row)) = caret {
+            if caret != self.props.text_seen.get() {
+                self.props.text_seen.set(caret);
+                if row < skip {
+                    skip = row;
+                } else if row >= skip + shown {
+                    skip = row + 1 - shown;
+                }
+            }
+        }
+        self.props.text_scroll.set(skip);
+        skip
+    }
+
+    /// Puts the caret of the text being edited at character `at` (a click).
+    pub fn set_text_caret(&mut self, at: usize) {
+        if let Some(e) = self.props.edit.as_mut() {
+            e.caret = at.min(e.len());
+            e.rest();
+        }
+    }
+
+    /// The wheel: scrolls the rows by `by` (positive: down) without moving the selection; in the
+    /// lyrics tab the text.
     pub fn scroll_properties(&self, by: isize) {
+        if self.props.tab == PropTab::Lyrics {
+            let now = self.props.text_scroll.get() as isize;
+            self.props.text_scroll.set((now + by).max(0) as usize);
+            return;
+        }
         let n = self.property_rows().len() as isize;
         let first = (self.props.scroll.get() as isize + by).clamp(0, (n - 1).max(0));
         self.props.scroll.set(first as usize);
@@ -2189,5 +2228,34 @@ mod tests {
         keys(&mut app, "l");
         let staves = app.buffer().score.tracks[0].staves();
         assert_eq!(crate::picker::staff_label(staves[3]), "treble");
+    }
+
+    #[test]
+    fn the_lyrics_text_scrolls_with_the_wheel_and_takes_the_caret_from_a_click() {
+        let mut app = with_props();
+        app.run(Command::Lyrics(0, "one two three".into()));
+        app.set_property_tab(PropTab::Lyrics);
+        // 20 lines, 5 shown: the wheel scrolls, and stays while the caret doesn't move.
+        assert_eq!(app.text_window(None, 20, 5), 0);
+        app.scroll_properties(4);
+        assert_eq!(app.text_window(None, 20, 5), 4);
+        app.scroll_properties(100);
+        assert_eq!(app.text_window(None, 20, 5), 15, "kept within the text");
+        app.scroll_properties(-100);
+        assert_eq!(app.text_window(None, 20, 5), 0);
+        // A caret that moves to a line out of view brings it into view.
+        assert_eq!(app.text_window(Some((7, 9)), 20, 5), 5);
+        app.scroll_properties(-3);
+        assert_eq!(
+            app.text_window(Some((7, 9)), 20, 5),
+            2,
+            "not while it stays"
+        );
+        // A double click edits and the caret goes where it is told.
+        keys(&mut app, "<leader>P");
+        let row = app.props.selected;
+        app.click_property(row, true);
+        app.set_text_caret(4);
+        assert_eq!(app.props.edit.as_ref().unwrap().caret, 4);
     }
 }

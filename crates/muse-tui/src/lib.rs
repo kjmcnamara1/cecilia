@@ -59,7 +59,14 @@ struct Ui {
     props: Vec<(Rect, PropHit)>,
     /// The properties pane, for the wheel.
     props_area: Option<Rect>,
-    /// A mouse drag in progress.
+    /// The lyrics text area as drawn: its left, its first line's row and height, the wrapped
+    /// lines and the first one shown.
+    props_text: Option<PropsText>,
+    /// The lyrics text area as drawn: its left, its first line's row, its height, the wrapped lines
+/// and the first one shown.
+type PropsText = (u16, u16, u16, Vec<(usize, usize)>, usize);
+
+/// A mouse drag in progress.
     drag: Option<Drag>,
     hits: Vec<Hit>,
     tabline: Vec<(Rect, TablineHit)>,
@@ -203,7 +210,20 @@ fn event_loop(terminal: &mut DefaultTerminal, app: &mut App) -> Result<()> {
                             }
                             _ => {
                                 let double = is_double(&mut ui, m.column, m.row);
-                                click_properties(app, hit, double)
+                                click_properties(app, hit, double);
+                                // A double click in the lyrics puts the caret where it landed.
+                                if let (true, Some((x, y, h, lines, skip))) =
+                                    (double, ui.props_text.as_ref())
+                                {
+                                    if m.row >= *y && m.row < y + h && m.column >= *x {
+                                        let row = (*skip + (m.row - y) as usize)
+                                            .min(lines.len().saturating_sub(1));
+                                        if let Some(&(s, e)) = lines.get(row) {
+                                            let col = (m.column - x) as usize;
+                                            app.set_text_caret(s + col.min(e - s));
+                                        }
+                                    }
+                                }
                             }
                         }
                     }
@@ -451,6 +471,7 @@ fn draw(f: &mut Frame, app: &mut App, play: Option<(usize, Location, f64, f64)>,
     ui.tracks_area = None;
     ui.props.clear();
     ui.props_area = None;
+    ui.props_text = None;
     if peek_h > 0 {
         draw_tracks(f, app, peek, play, ui);
     }
@@ -1607,7 +1628,12 @@ fn draw_properties(f: &mut Frame, app: &App, area: Rect, ui: &mut Ui) {
                     let chars: Vec<char> = text.chars().collect();
                     let caret = typing.map(|e| caret_in(&lines, e.caret));
                     // Keep the caret's line in view.
-                    let skip = caret.map_or(0, |(r, _)| (r + 1).saturating_sub(box_h as usize));
+                    let skip = app.text_window(
+                        typing.zip(caret).map(|(e, (r, _))| (e.caret, r)),
+                        lines.len(),
+                        box_h as usize,
+                    );
+                    ui.props_text = Some((bx + 1, by, box_h, lines.clone(), skip));
                     for (n, &(s, e)) in lines.iter().enumerate().skip(skip).take(box_h as usize) {
                         let line: String = chars[s..e].iter().collect();
                         buf.set_string(bx + 1, by + (n - skip) as u16, line, text_style);

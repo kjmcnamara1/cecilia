@@ -128,6 +128,8 @@ pub struct Views {
     tracks_rect: Option<Rect>,
     /// The properties pane, for the wheel.
     props_rect: Option<Rect>,
+    /// The lyrics text area as drawn, to put the caret where a click lands.
+    props_text: Option<PropsText>,
     /// Clickable areas of the properties pane drawn last frame.
     props: Vec<(Rect, PropHit)>,
     /// Tool panes on screen: clicking one focuses it.
@@ -199,6 +201,38 @@ pub enum Pointer {
     ResizeColumns,
     /// Drag up and down.
     ResizeRows,
+}
+
+/// The lyrics text area as drawn.
+struct PropsText {
+    area: Rect,
+    /// Where the first line's text starts (x) and its top (y), and the line height.
+    x: f64,
+    top: f64,
+    line_h: f64,
+    size: f64,
+    skip: usize,
+    lines: Vec<(usize, usize)>,
+    chars: Vec<char>,
+}
+
+impl PropsText {
+    /// The character index at a point.
+    fn at(&self, x: f64, y: f64) -> usize {
+        let fonts = muse_engrave::fonts::fonts();
+        let row = (((y - self.top) / self.line_h).floor().max(0.0) as usize + self.skip)
+            .min(self.lines.len().saturating_sub(1));
+        let Some(&(s, e)) = self.lines.get(row) else {
+            return 0;
+        };
+        let w = |i: usize| {
+            let t: String = self.chars[s..i].iter().collect();
+            fonts.text_width(FontKind::Text, &t, self.size)
+        };
+        (s..e)
+            .find(|&i| x < self.x + (w(i) + w(i + 1)) / 2.0)
+            .unwrap_or(e)
+    }
 }
 
 /// What a click on the properties pane does.
@@ -910,6 +944,7 @@ pub fn build(
     views.wave_rects.clear();
     views.tracks_rect = None;
     views.props_rect = None;
+    views.props_text = None;
     views.tool_rects.clear();
     views.progress.clear();
     app.row_height = TRACK_ROW as u16;
@@ -3079,7 +3114,21 @@ fn draw_properties(scene: &mut Scene, app: &App, views: &mut Views, r: Rect) {
                     let line_h = size * 1.35;
                     let shown = (((by1 - by0 - 14.0) / line_h).floor().max(1.0)) as usize;
                     let caret = typing.map(|e| caret_in(&lines, e.caret));
-                    let skip = caret.map_or(0, |(r, _)| (r + 1).saturating_sub(shown));
+                    let skip = app.text_window(
+                        typing.zip(caret).map(|(e, (r, _))| (e.caret, r)),
+                        lines.len(),
+                        shown,
+                    );
+                    views.props_text = Some(PropsText {
+                        area: b,
+                        x: tx,
+                        top: by0 + 7.0,
+                        line_h,
+                        size,
+                        skip,
+                        lines: lines.clone(),
+                        chars: chars.clone(),
+                    });
                     for (n, &(s, e)) in lines.iter().enumerate().skip(skip).take(shown) {
                         let line: String = chars[s..e].iter().collect();
                         let ly = by0 + 7.0 + line_h * (n - skip) as f64 + size;
@@ -3897,7 +3946,15 @@ impl Views {
             PropHit::Row(i) if app.property_is_staff(i) => {
                 self.drag = Some(Drag::Prop(i, i, double));
             }
-            PropHit::Row(i) => app.click_property(i, double),
+            PropHit::Row(i) => {
+                app.click_property(i, double);
+                // A double click in the lyrics puts the caret where it landed.
+                if double {
+                    if let Some(pt) = self.props_text.as_ref().filter(|p| p.area.contains((x, y))) {
+                        app.set_text_caret(pt.at(x, y));
+                    }
+                }
+            }
         }
         true
     }
