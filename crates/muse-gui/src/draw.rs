@@ -126,6 +126,8 @@ pub struct Views {
     tracks_anchor: Option<(usize, usize)>,
     /// The tracks panel's area drawn last frame.
     tracks_rect: Option<Rect>,
+    /// The properties pane, for the wheel.
+    props_rect: Option<Rect>,
     /// Clickable areas of the properties pane drawn last frame.
     props: Vec<(Rect, PropHit)>,
     /// Tool panes on screen: clicking one focuses it.
@@ -907,6 +909,7 @@ pub fn build(
     views.edges.clear();
     views.wave_rects.clear();
     views.tracks_rect = None;
+    views.props_rect = None;
     views.tool_rects.clear();
     views.progress.clear();
     app.row_height = TRACK_ROW as u16;
@@ -2873,6 +2876,7 @@ fn draw_properties(scene: &mut Scene, app: &App, views: &mut Views, r: Rect) {
     let th = &app.config.theme;
     let fonts = muse_engrave::fonts::fonts();
     let width_of = |s: &str, size: f64| fonts.text_width(FontKind::Text, s, size);
+    views.props_rect = Some(r);
     fill(scene, r, col(th.panel));
     // Tabs.
     let tab_size = PROPS_VALUE;
@@ -2887,13 +2891,13 @@ fn draw_properties(scene: &mut Scene, app: &App, views: &mut Views, r: Rect) {
             scene.fill(
                 Fill::NonZero,
                 Affine::IDENTITY,
-                col(th.accent),
+                col(th.mode_normal),
                 None,
                 &b.to_rounded_rect(6.0),
             );
         }
         let c = if current {
-            text_on(col(th.accent))
+            text_on(col(th.mode_normal))
         } else {
             dim()
         };
@@ -2924,10 +2928,11 @@ fn draw_properties(scene: &mut Scene, app: &App, views: &mut Views, r: Rect) {
         }
         let h = row.height() as f64 * PROPS_UNIT;
         let sel = app.property_row_selected(k);
+        let box_sel = k == app.property_selected();
         let hit = Rect::new(r.x0, y, r.x1, (y + h).min(bottom));
         match &row.kind {
             RowKind::Header { folded, .. } => {
-                let c = col(if sel { th.accent } else { th.chrome_text });
+                let c = col(if sel { th.mode_normal } else { th.chrome_text });
                 let size = PROPS_SECTION;
                 let by = y + h - 8.0;
                 draw_chevron(scene, bx0 + 6.0, by - size * 0.3, !*folded, c);
@@ -2951,7 +2956,7 @@ fn draw_properties(scene: &mut Scene, app: &App, views: &mut Views, r: Rect) {
             ),
             RowKind::Field { field, editable } => {
                 let typing = app.props.edit.as_ref().filter(|e| e.field == *field);
-                let label_c = if sel { col(th.accent) } else { dim() };
+                let label_c = if sel { col(th.mode_normal) } else { dim() };
                 // A staff after the first has no label: its box takes the label's place.
                 let labelled = !row.label.is_empty();
                 if labelled {
@@ -3002,12 +3007,16 @@ fn draw_properties(scene: &mut Scene, app: &App, views: &mut Views, r: Rect) {
                     Rect::new(box_x0, by0, box_x1, by1)
                 };
                 let shape = b.to_rounded_rect(if toggle { 12.0 } else { 6.0 });
-                let track = if toggle && on { th.accent } else { th.tab };
+                let track = if toggle && on { th.mode_normal } else { th.tab };
                 scene.fill(Fill::NonZero, Affine::IDENTITY, col(track), None, &shape);
                 if toggle {
                     let kx = if on { b.x1 - 12.0 } else { b.x0 + 12.0 };
                     let knob = Circle::new((kx, b.y0 + 12.0), 9.0);
-                    let kc = if on { text_on(col(th.accent)) } else { dim() };
+                    let kc = if on {
+                        text_on(col(th.mode_normal))
+                    } else {
+                        dim()
+                    };
                     scene.fill(Fill::NonZero, Affine::IDENTITY, kc, None, &knob);
                     let ty = b.y0 + 12.0 + PROPS_VALUE * 0.35;
                     let word = if on { "on" } else { "off" };
@@ -3022,19 +3031,19 @@ fn draw_properties(scene: &mut Scene, app: &App, views: &mut Views, r: Rect) {
                         false,
                     );
                 }
-                if sel {
+                if box_sel {
                     let a = if typing.is_some() { 80 } else { 40 };
                     scene.fill(
                         Fill::NonZero,
                         Affine::IDENTITY,
-                        col(th.accent.with_alpha(a)),
+                        col(th.mode_normal.with_alpha(a)),
                         None,
                         &shape,
                     );
                     scene.stroke(
                         &Stroke::new(1.0),
                         Affine::IDENTITY,
-                        col(th.accent),
+                        col(th.mode_normal),
                         None,
                         &shape,
                     );
@@ -3088,7 +3097,7 @@ fn draw_properties(scene: &mut Scene, app: &App, views: &mut Views, r: Rect) {
                         fill(
                             scene,
                             Rect::new(cx, ly + 2.0, cx + wide, ly + size + 4.0),
-                            col(th.accent.with_alpha(a)),
+                            col(th.mode_normal.with_alpha(a)),
                         );
                     }
                 } else {
@@ -3120,7 +3129,7 @@ fn draw_properties(scene: &mut Scene, app: &App, views: &mut Views, r: Rect) {
                             fill(
                                 scene,
                                 Rect::new(cx, by0 + 7.0, cx + 2.0, by1 - 7.0),
-                                col(th.accent),
+                                col(th.mode_normal),
                             );
                         }
                         None => {
@@ -4005,6 +4014,17 @@ impl Views {
         }
         if zoom {
             return false;
+        }
+        if self.props_rect.is_some_and(|r| r.contains((x, y))) {
+            // A couple of rows a notch, whichever way the wheel turns.
+            let rows = (dy / 30.0).round() as isize;
+            let rows = if rows == 0 {
+                dy.signum() as isize
+            } else {
+                rows
+            };
+            app.scroll_properties(rows);
+            return true;
         }
         if self.tracks_rect.is_some_and(|r| r.contains((x, y))) {
             let n = app.track_rows().len();

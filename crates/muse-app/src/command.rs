@@ -585,13 +585,18 @@ impl Command {
             "track-add" => TrackAdd(arg.unwrap_or("guitar").to_string()),
             "track-delete" => TrackDelete,
             "staff" => Staff(
-                arg.ok_or("staff: expected standard [treble|bass|grand [split]], tab, tab+, slash or chant")?
-                    .to_string(),
+                arg.ok_or(
+                    "staff: expected treble, bass, grand [split], tab, tab+, slash or chant",
+                )?
+                .to_string(),
             ),
             "staff-add" => StaffAdd(arg.map(String::from)),
             "staff-remove" => StaffRemove(match arg {
                 None => None,
-                Some(a) => Some(a.parse().map_err(|_| "staff-remove: expected a staff number")?),
+                Some(a) => Some(
+                    a.parse()
+                        .map_err(|_| "staff-remove: expected a staff number")?,
+                ),
             }),
             "staff-move" => StaffMove(
                 arg.ok_or("staff-move: expected a position, +N or -N")?
@@ -802,10 +807,9 @@ impl Command {
             "properties-up" => PropertiesUp,
             "properties-tab" => PropertiesTab(match arg {
                 None => None,
-                Some(a) => Some(
-                    crate::properties::PropTab::parse(a)
-                        .ok_or_else(|| format!("properties-tab: '{a}' is not score, track or lyrics"))?,
-                ),
+                Some(a) => Some(crate::properties::PropTab::parse(a).ok_or_else(|| {
+                    format!("properties-tab: '{a}' is not score, track or lyrics")
+                })?),
             }),
             "properties-tab-prev" => PropertiesTabPrev,
             "properties-edit" => PropertiesEdit,

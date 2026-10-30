@@ -1152,7 +1152,8 @@ impl App {
 
     /// Adds a staff at the bottom of the cursor's track.
     fn add_staff(&mut self, arg: Option<&str>) {
-        let Some(staff) = self.parse_staff(arg.unwrap_or("standard")) else {
+        let Some(staff) = self.parse_staff(arg.unwrap_or(&self.config.default_clef().name()))
+        else {
             return;
         };
         let done = self.edit(|cx| {
@@ -1403,7 +1404,7 @@ mod tests {
         assert_eq!(staves(&a), vec![Staff::Standard(Treble), Staff::Tab]);
         // Added at the bottom; the cursor goes to the new staff, which can be changed.
         a.run(Command::StaffAdd(Some("slash".into())));
-        a.run(Command::StaffAdd(Some("standard grand G3".into())));
+        a.run(Command::StaffAdd(Some("grand G3".into())));
         assert_eq!(staves(&a)[3], Staff::Standard(Grand { split: 55 }));
         assert_eq!(a.pane().cursor.staff, 3);
         a.run(Command::Staff("tab+".into()));

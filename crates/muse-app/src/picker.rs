@@ -584,14 +584,10 @@ impl App {
                 let tab_ok = track.kind == muse_core::TrackKind::Fretted
                     || track.kind == muse_core::TrackKind::Pitched;
                 let kinds = [
+                    ("treble", "treble", "Standard notation, treble clef"),
+                    ("bass", "bass", "Standard notation, bass clef"),
                     (
-                        "standard treble",
-                        "treble",
-                        "Standard notation, treble clef",
-                    ),
-                    ("standard bass", "bass", "Standard notation, bass clef"),
-                    (
-                        "standard grand",
+                        "grand",
                         "grand",
                         "Standard notation, treble and bass joined",
                     ),
@@ -891,6 +887,17 @@ impl App {
                 .collect(),
             selected,
         })
+    }
+
+    /// The wheel over an open picker: moves the selection by `by` entries.
+    pub fn picker_scroll(&mut self, by: isize) {
+        let Some(p) = self.picker.clone() else {
+            return;
+        };
+        let n = self.picker_matches(&p).len();
+        if let Some(q) = self.picker.as_mut() {
+            q.selected = (q.selected as isize + by).clamp(0, n.saturating_sub(1) as isize) as usize;
+        }
     }
 
     fn close_picker(&mut self) -> Option<Picker> {

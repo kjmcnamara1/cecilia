@@ -298,6 +298,19 @@ impl PropEdit {
         self.caret = i.min(c.len());
     }
 
+    /// The end of this word, or of the next one when already on an end.
+    fn word_end(&mut self) {
+        let c = self.chars();
+        let mut i = self.caret + 1;
+        while i < c.len() && !is_word(c[i]) {
+            i += 1;
+        }
+        while i + 1 < c.len() && is_word(c[i + 1]) {
+            i += 1;
+        }
+        self.caret = i.min(c.len().saturating_sub(1));
+    }
+
     /// The start of this word, or the previous one.
     fn word_back(&mut self) {
         let c = self.chars();
@@ -338,6 +351,9 @@ pub struct PropsState {
     /// The lines the lyrics text is wrapped to as last drawn (character ranges), for moving
     /// by visual line.
     pub visual: std::cell::RefCell<Vec<(usize, usize)>>,
+    /// The selected row when the window last followed it: while that is the selection the
+    /// wheel scrolls freely.
+    seen: Cell<usize>,
     /// First row shown; kept by [`App::property_window`].
     scroll: Cell<usize>,
 }
@@ -410,12 +426,9 @@ fn onoff(b: bool) -> String {
     if b { "on" } else { "off" }.into()
 }
 
-/// A track's verses as one text, a blank line between them.
+/// A track's lyrics (its first verse) as one text. As in Guitar Pro, line breaks are spaces.
 fn lyrics_text(t: &muse_core::Track) -> String {
-    let verses: Vec<String> = (0..muse_core::lyrics::verse_count(t))
-        .map(|v| muse_core::lyrics::verse_line(t, v).map_or(String::new(), |l| l.text))
-        .collect();
-    verses.join("\n\n")
+    muse_core::lyrics::verse_line(t, 0).map_or(String::new(), |l| l.text)
 }
 
 fn kind_name(k: TrackKind) -> &'static str {
@@ -619,15 +632,20 @@ impl App {
             .min(self.property_rows().len().saturating_sub(1))
     }
 
-    /// The first row to draw so the selected row is in view, given `visible` lines of room.
+    /// The first row to draw, given `visible` lines of room: the selected row is kept in view
+    /// when it has just changed; else the wheel's scrolling stands.
     pub fn property_window(&self, visible: usize) -> usize {
         let rows = self.property_rows();
         let sel = self.property_selected();
         let height = |r: &PropRow| r.height();
-        let mut first = self.props.scroll.get().min(sel);
-        // Scroll down until the selected row fits.
-        while first < sel && rows[first..=sel].iter().map(height).sum::<usize>() > visible {
-            first += 1;
+        let mut first = self.props.scroll.get().min(rows.len().saturating_sub(1));
+        if sel != self.props.seen.get() {
+            self.props.seen.set(sel);
+            first = first.min(sel);
+            // Scroll down until the selected row fits.
+            while first < sel && rows[first..=sel].iter().map(height).sum::<usize>() > visible {
+                first += 1;
+            }
         }
         // Don't leave room empty below the last row.
         while first > 0 && rows[first - 1..].iter().map(height).sum::<usize>() <= visible {
@@ -635,6 +653,14 @@ impl App {
         }
         self.props.scroll.set(first);
         first
+    }
+
+    /// The wheel: scrolls the rows by `by` (positive: down) without moving the selection.
+    pub fn scroll_properties(&self, by: isize) {
+        let n = self.property_rows().len() as isize;
+        let first = (self.props.scroll.get() as isize + by).clamp(0, (n - 1).max(0));
+        self.props.scroll.set(first as usize);
+        self.props.seen.set(self.property_selected());
     }
 
     pub fn set_property_tab(&mut self, tab: PropTab) {
@@ -838,6 +864,7 @@ impl App {
                 'k' => edit.move_visual(-1, &lines),
                 'w' => edit.word_forward(),
                 'b' => edit.word_back(),
+                'e' => edit.word_end(),
                 '0' => edit.caret = edit.line_start(),
                 '^' => {
                     edit.caret = edit.line_start();
@@ -1040,39 +1067,32 @@ impl App {
         valid.get()
     }
 
-    /// Replaces the verses of a track with `text` (Guitar Pro lyric syntax; verses are separated
-    /// by blank lines), each placed from the bar the verse started at, or the cursor's bar for a
-    /// new one: one undo step.
+    /// Replaces the lyrics of a track (its first verse) with `text` in Guitar Pro lyric syntax,
+    /// where line breaks are spaces, laid onto the notes from the bar the lyrics started at (the
+    /// cursor's bar for new ones): one undo step.
     fn set_lyrics(&mut self, track: usize, text: &str) {
-        let verses: Vec<Vec<String>> = text
-            .replace("\r\n", "\n")
-            .split("\n\n")
-            .filter(|v| !v.trim().is_empty())
-            .map(muse_core::lyrics::syllables)
-            .collect();
+        let syllables = muse_core::lyrics::syllables(text);
         let cursor_bar = self.pane().cursor.bar;
-        let unplaced = self.edit(|cx| {
+        let placed = self.edit(|cx| {
             let score = cx.whole();
             let t = score.tracks.get_mut(track).ok_or("no such track")?;
-            let starts: Vec<usize> = (0..verses.len())
-                .map(|v| {
-                    muse_core::lyrics::verse_line(t, v).map_or(cursor_bar, |l| l.start_bar as usize)
-                })
-                .collect();
-            muse_core::lyrics::clear(t, None);
-            let mut unplaced = 0;
-            for (v, (syllables, start)) in verses.iter().zip(starts).enumerate() {
-                unplaced += syllables.len() - muse_core::lyrics::place(t, v, start, 0, syllables);
-            }
+            let start =
+                muse_core::lyrics::verse_line(t, 0).map_or(cursor_bar, |l| l.start_bar as usize);
+            muse_core::lyrics::clear(t, Some(0));
+            let n = muse_core::lyrics::place(t, 0, start, 0, &syllables);
             crate::editor::refresh_lyric_lines(score, track);
-            Ok(unplaced)
+            Ok(n)
         });
-        if let Some(n) = unplaced.filter(|&n| n > 0) {
-            self.error(format!("lyrics: {n} syllables did not fit"));
+        if let Some(n) = placed.filter(|&n| n < syllables.len()) {
+            self.error(format!(
+                "lyrics: {} syllables did not fit",
+                syllables.len() - n
+            ));
         }
     }
 
-    /// `h` / `l`: a switch goes off / on; a choice moves to the previous / next one.
+    /// `h` / `l`: a switch goes off / on; a choice moves to the previous / next one; a number
+    /// goes down / up by one.
     fn step_property(&mut self, by: isize) {
         let t = self.pane().cursor.track;
         let Some((field, _)) = self.selected_field() else {
@@ -1095,6 +1115,28 @@ impl App {
                 if i < n {
                     self.pane_mut().cursor.staff = i;
                     self.step_choice(PickerKind::Staff(t, i), by);
+                }
+            }
+            Field::PageWidth
+            | Field::PageHeight
+            | Field::MarginLeft
+            | Field::MarginRight
+            | Field::MarginTop
+            | Field::MarginBottom
+            | Field::PageScale
+            | Field::FretCount
+            | Field::Capo
+            | Field::Channel
+            | Field::Bank
+            | Field::Volume
+            | Field::Pan => {
+                let now = self
+                    .property_rows()
+                    .get(self.property_selected())
+                    .and_then(|r| r.value.parse::<i64>().ok());
+                if let Some(n) = now {
+                    // Out of range steps are refused quietly.
+                    self.commit_property(field, &(n + by.signum() as i64).to_string(), true);
                 }
             }
             _ => {}
@@ -1184,7 +1226,7 @@ impl App {
     /// Clears the selected verse, or the track's own color.
     fn clear_property(&mut self) {
         match self.selected_field().map(|(f, _)| f) {
-            Some(Field::Lyrics) => self.run(Command::LyricsClear(None)),
+            Some(Field::Lyrics) => self.run(Command::LyricsClear(Some(0))),
             Some(Field::TrackColor) => self.run(Command::TrackColor(Some("off".into()))),
             Some(Field::StaffAt(i)) => {
                 self.pane_mut().cursor.staff = i;
@@ -1590,8 +1632,10 @@ mod tests {
         assert_eq!(app.display_mode(), Mode::Insert);
         keys(&mut app, "<C-u>Good-bye");
         assert_eq!(verse(&app, 0).as_deref(), Some("Good-bye"), "live");
+        // Line breaks are spaces, as in Guitar Pro.
         keys(&mut app, "<CR><CR>la la");
-        assert_eq!(verse(&app, 1).as_deref(), Some("la la"));
+        assert_eq!(verse(&app, 0).as_deref(), Some("Good-bye la la"));
+        assert_eq!(verse(&app, 1), None);
         keys(&mut app, "<Esc>");
         assert_eq!(app.display_mode(), Mode::Normal);
         assert!(app.props.edit.is_some(), "still in the text area");
@@ -1601,6 +1645,14 @@ mod tests {
         assert_eq!(verse(&app, 1), None);
         assert_eq!(app.props.edit.as_ref().unwrap().text, "Hel-lo world");
         // Normal mode: motions and changes, each its own step; i and Enter insert.
+        keys(&mut app, "0e");
+        assert_eq!(
+            app.props.edit.as_ref().unwrap().caret,
+            2,
+            "e: the end of the word"
+        );
+        keys(&mut app, "e");
+        assert_eq!(app.props.edit.as_ref().unwrap().caret, 5, "and of the next");
         keys(&mut app, "0wx");
         assert_eq!(verse(&app, 0).as_deref(), Some("Hel-o world"));
         keys(&mut app, "ddu");
@@ -1786,5 +1838,54 @@ mod tests {
         assert_eq!(app.props.edit.as_ref().unwrap().caret, 7);
         keys(&mut app, "k");
         assert_eq!(app.props.edit.as_ref().unwrap().caret, 1);
+    }
+
+    #[test]
+    fn numbers_step_arrows_follow_hjkl_and_the_wheel_scrolls() {
+        let mut app = with_props();
+        app.set_property_tab(PropTab::Tracks);
+        keys(&mut app, "<leader>P");
+        app.props.selected = field_row(&app, Field::Capo);
+        keys(&mut app, "l");
+        keys(&mut app, "l");
+        assert_eq!(app.buffer().score.tracks[0].capo, 2);
+        keys(&mut app, "h");
+        assert_eq!(app.buffer().score.tracks[0].capo, 1);
+        keys(&mut app, "<Right>");
+        assert_eq!(app.buffer().score.tracks[0].capo, 2);
+        keys(&mut app, "<Left>");
+        assert_eq!(app.buffer().score.tracks[0].capo, 1);
+        // Tab is j, shift-tab is k, the arrows likewise.
+        let at = app.property_selected();
+        keys(&mut app, "<Tab>");
+        assert_eq!(app.property_selected(), at + 1);
+        keys(&mut app, "<S-Tab>");
+        assert_eq!(app.property_selected(), at);
+        keys(&mut app, "<Down><Up>");
+        assert_eq!(app.property_selected(), at);
+        // The wheel scrolls the rows and leaves the selection.
+        app.props.selected = 1;
+        assert_eq!(app.property_window(8), 0);
+        app.scroll_properties(3);
+        assert_eq!(app.property_window(8), 3);
+        assert_eq!(app.property_selected(), 1);
+        // Pickers: the wheel moves the selection.
+        app.run(Command::Pick(crate::picker::PickerKind::Keymap));
+        app.picker_scroll(2);
+        assert_eq!(app.picker.as_ref().unwrap().selected, 2);
+        app.picker_scroll(-5);
+        assert_eq!(app.picker.as_ref().unwrap().selected, 0);
+        keys(&mut app, "<Esc>");
+        // The staff names: treble, bass, grand.
+        use muse_core::{Clef, Staff};
+        assert_eq!(
+            Staff::parse("bass", Clef::Treble),
+            Ok(Staff::Standard(Clef::Bass))
+        );
+        assert_eq!(Staff::Standard(Clef::Treble).name(), "treble");
+        assert!(matches!(
+            Staff::parse("grand G3", Clef::Treble),
+            Ok(Staff::Standard(Clef::Grand { split: 55 }))
+        ));
     }
 }

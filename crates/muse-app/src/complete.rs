@@ -253,16 +253,7 @@ fn values(command: &str) -> Option<&'static [&'static str]> {
         ],
         "global-tool" => &["fretboard", "piano", "tracks", "tuner", "waveform"],
         "track-add" => &["bass", "drums", "guitar", "piano", "voice"],
-        "staff" | "staff-add" => &[
-            "chant",
-            "slash",
-            "standard",
-            "standard bass",
-            "standard grand",
-            "standard treble",
-            "tab",
-            "tab+",
-        ],
+        "staff" | "staff-add" => &["chant", "slash", "bass", "grand", "treble", "tab", "tab+"],
         "accidental" => &["flat", "natural", "sharp"],
         "chant-bar" => &[",", ":", "::", ";"],
         "volume" => &["audio", "metronome", "midi"],
@@ -912,7 +903,7 @@ pub fn describe(command: &str) -> Option<&'static str> {
             "Set a track's instrument: PROGRAM (1-128) or drums [track number]; without one, a picker"
         }
         "staff" => {
-            "Show the cursor's staff another way (standard [treble|bass|grand [split]], tab, tab+, slash, chant)"
+            "Show the cursor's staff another way (treble, bass, grand [split], tab, tab+, slash, chant)"
         }
         "staff-add" => "Add a staff at the bottom of the track",
         "staff-remove" => "Remove a staff of the track (1 = top; the cursor's by default)",

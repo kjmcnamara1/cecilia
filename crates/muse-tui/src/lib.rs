@@ -57,6 +57,8 @@ struct Ui {
     tracks_area: Option<Rect>,
     /// Clickable areas of the properties pane.
     props: Vec<(Rect, PropHit)>,
+    /// The properties pane, for the wheel.
+    props_area: Option<Rect>,
     /// A mouse drag in progress.
     drag: Option<Drag>,
     hits: Vec<Hit>,
@@ -330,6 +332,26 @@ fn event_loop(terminal: &mut DefaultTerminal, app: &mut App) -> Result<()> {
                             app.set_focus(id);
                         }
                     }
+                    // The wheel over a picker moves its selection; over the properties pane it
+                    // scrolls the rows.
+                    MouseEventKind::ScrollDown | MouseEventKind::ScrollUp
+                        if app.mode == muse_app::Mode::Picker =>
+                    {
+                        app.picker_scroll(if m.kind == MouseEventKind::ScrollDown {
+                            1
+                        } else {
+                            -1
+                        });
+                    }
+                    MouseEventKind::ScrollDown | MouseEventKind::ScrollUp
+                        if ui.props_area.is_some_and(|r| contains(r, m.column, m.row)) =>
+                    {
+                        app.scroll_properties(if m.kind == MouseEventKind::ScrollDown {
+                            2
+                        } else {
+                            -2
+                        });
+                    }
                     MouseEventKind::ScrollDown => app.run(muse_app::Command::BarNext),
                     MouseEventKind::ScrollUp => app.run(muse_app::Command::BarPrev),
                     _ => {}
@@ -428,6 +450,7 @@ fn draw(f: &mut Frame, app: &mut App, play: Option<(usize, Location, f64, f64)>,
     ui.tracks.clear();
     ui.tracks_area = None;
     ui.props.clear();
+    ui.props_area = None;
     if peek_h > 0 {
         draw_tracks(f, app, peek, play, ui);
     }
@@ -1406,6 +1429,7 @@ fn draw_properties(f: &mut Frame, app: &App, area: Rect, ui: &mut Ui) {
     let t = app.config.theme.clone();
     let base = Style::default().bg(rc(t.panel)).fg(rc(t.chrome_text));
     let dim = Style::default().fg(rc(t.dim)).bg(rc(t.panel));
+    ui.props_area = Some(area);
     f.render_widget(Paragraph::new("").style(base), area);
     if area.height < 6 || area.width < 12 {
         return;
@@ -1419,7 +1443,7 @@ fn draw_properties(f: &mut Frame, app: &App, area: Rect, ui: &mut Ui) {
         let label = format!(" {} ", tab.title());
         let w = label.chars().count() as u16;
         let style = if tab == app.props.tab {
-            on(app, t.accent).add_modifier(Modifier::BOLD)
+            on(app, t.mode_normal).add_modifier(Modifier::BOLD)
         } else {
             Style::default().fg(rc(t.dim)).bg(rc(t.tab))
         };
@@ -1448,6 +1472,7 @@ fn draw_properties(f: &mut Frame, app: &App, area: Rect, ui: &mut Ui) {
             break;
         }
         let sel = app.property_row_selected(k);
+        let box_sel = k == app.property_selected();
         let hit = Rect {
             x: area.x,
             y,
@@ -1460,9 +1485,9 @@ fn draw_properties(f: &mut Frame, app: &App, area: Rect, ui: &mut Ui) {
                 let mark = if *folded { '\u{f054}' } else { '\u{f078}' };
                 let title = format!("{mark} {}", small_caps(&row.label));
                 let style = if sel {
-                    on(app, t.accent)
+                    on(app, t.mode_normal)
                 } else {
-                    base.fg(rc(t.accent))
+                    base.fg(rc(t.mode_normal))
                 };
                 buf.set_string(
                     x0,
@@ -1475,7 +1500,7 @@ fn draw_properties(f: &mut Frame, app: &App, area: Rect, ui: &mut Ui) {
             RowKind::Field { field, editable } => {
                 let typing = app.props.edit.as_ref().filter(|e| e.field == *field);
                 let label_style = if sel {
-                    base.fg(rc(t.accent)).add_modifier(Modifier::BOLD)
+                    base.fg(rc(t.mode_normal)).add_modifier(Modifier::BOLD)
                 } else {
                     dim
                 };
@@ -1495,9 +1520,9 @@ fn draw_properties(f: &mut Frame, app: &App, area: Rect, ui: &mut Ui) {
                     staff_rows.push((k, by, labelled));
                 }
                 let box_bg = if typing.is_some() {
-                    t.tab.mix(t.accent, 0.5)
-                } else if sel {
-                    t.tab.mix(t.accent, 0.25)
+                    t.tab.mix(t.mode_normal, 0.5)
+                } else if box_sel {
+                    t.tab.mix(t.mode_normal, 0.25)
                 } else {
                     t.tab
                 };
@@ -1537,7 +1562,7 @@ fn draw_properties(f: &mut Frame, app: &App, area: Rect, ui: &mut Ui) {
                     // A switch: the knob at the end that says which, and on/off beside it.
                     let on_now = row.value == "on";
                     let (knob, bg) = if on_now {
-                        (" ●", t.accent)
+                        (" ●", t.mode_normal)
                     } else {
                         ("● ", t.tab)
                     };
@@ -1547,7 +1572,11 @@ fn draw_properties(f: &mut Frame, app: &App, area: Rect, ui: &mut Ui) {
                         by,
                         knob.trim(),
                         Style::default()
-                            .fg(rc(if on_now { t.text_on(t.accent) } else { t.dim }))
+                            .fg(rc(if on_now {
+                                t.text_on(t.mode_normal)
+                            } else {
+                                t.dim
+                            }))
                             .bg(rc(bg)),
                     );
                     buf.set_string(bx + 8, by, if on_now { "on" } else { "off" }, base);
@@ -1585,9 +1614,9 @@ fn draw_properties(f: &mut Frame, app: &App, area: Rect, ui: &mut Ui) {
                             // Normal mode: the character under the caret is a block.
                             let under = lines.get(r).and_then(|&(s, _)| chars.get(s + c));
                             let ch = under.filter(|c| **c != '\n').copied().unwrap_or(' ');
-                            buf.set_string(cx, cy, ch.to_string(), on(app, t.accent));
+                            buf.set_string(cx, cy, ch.to_string(), on(app, t.mode_normal));
                         } else {
-                            buf.set_string(cx, cy, "▏", text_style.fg(rc(t.accent)));
+                            buf.set_string(cx, cy, "▏", text_style.fg(rc(t.mode_normal)));
                         }
                     }
                 } else {
