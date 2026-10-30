@@ -1911,7 +1911,7 @@ dependencies = [
 
 [[package]]
 name = "muse"
-version = "0.3.0"
+version = "0.4.0"
 dependencies = [
  "anyhow",
  "clap",
@@ -1928,7 +1928,7 @@ dependencies = [
 
 [[package]]
 name = "muse-app"
-version = "0.3.0"
+version = "0.4.0"
 dependencies = [
  "directories",
  "muse-audio",
@@ -1943,7 +1943,7 @@ dependencies = [
 
 [[package]]
 name = "muse-audio"
-version = "0.3.0"
+version = "0.4.0"
 dependencies = [
  "cpal",
  "flacenc",
@@ -1958,21 +1958,21 @@ dependencies = [
 
 [[package]]
 name = "muse-convert"
-version = "0.3.0"
+version = "0.4.0"
 dependencies = [
  "muse-core",
 ]
 
 [[package]]
 name = "muse-core"
-version = "0.3.0"
+version = "0.4.0"
 dependencies = [
  "serde",
 ]
 
 [[package]]
 name = "muse-engrave"
-version = "0.3.0"
+version = "0.4.0"
 dependencies = [
  "kurbo",
  "muse-core",
@@ -1984,7 +1984,7 @@ dependencies = [
 
 [[package]]
 name = "muse-formats"
-version = "0.3.0"
+version = "0.4.0"
 dependencies = [
  "muse-convert",
  "muse-core",
@@ -1996,7 +1996,7 @@ dependencies = [
 
 [[package]]
 name = "muse-gui"
-version = "0.3.0"
+version = "0.4.0"
 dependencies = [
  "anyhow",
  "muse-app",
@@ -2011,7 +2011,7 @@ dependencies = [
 
 [[package]]
 name = "muse-tui"
-version = "0.3.0"
+version = "0.4.0"
 dependencies = [
  "anyhow",
  "muse-app",
