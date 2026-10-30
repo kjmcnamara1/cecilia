@@ -23,4 +23,5 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- `j`/`k` stop at the last/first row of a track instead of jumping into the neighbouring track.
 - Progress bar's red position indicator is half as wide in the GUI.

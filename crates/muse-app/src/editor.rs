@@ -1515,12 +1515,20 @@ mod tests {
         assert_eq!(at(&a), (0, Line(2, 34)));
         keys(&mut a, "k");
         assert_eq!(at(&a), (0, String(1, 5)));
-        // Past the last staff: the next track.
+        // Past the last staff the cursor stays put; j and k never change track.
         a.run(Command::TrackAdd("piano".into()));
         a.pane_mut().cursor.track = 0;
         a.pane_mut().cursor.staff = 2;
+        let last = at(&a);
         keys(&mut a, "j");
-        assert!(matches!(at(&a), (1, Line(0, _))));
+        assert_eq!(at(&a), last);
+        a.pane_mut().cursor.track = 1;
+        a.pane_mut().cursor.staff = 0;
+        keys(&mut a, "kkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkk");
+        let top = at(&a);
+        assert_eq!(top.0, 1);
+        keys(&mut a, "k");
+        assert_eq!(at(&a), top);
     }
 
     #[test]

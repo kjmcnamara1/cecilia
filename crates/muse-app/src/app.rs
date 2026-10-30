@@ -2465,7 +2465,7 @@ fn set_row(c: &mut Cursor, row: Row) {
     }
 }
 
-/// One row down or up: through the track's staves, then on to the neighbouring track.
+/// One row down or up through the track's staves; it stops at the first and last row.
 fn move_row(score: &Score, c: &mut Cursor, down: bool) {
     let here = rows(score, c);
     if let Some(t) = score.tracks.get(c.track) {
@@ -2486,21 +2486,7 @@ fn move_row(score: &Score, c: &mut Cursor, down: bool) {
         _ => None,
     };
     if let Some(r) = target {
-        return set_row(c, r);
-    }
-    let next = if down {
-        Some(c.track + 1).filter(|&t| t < score.tracks.len())
-    } else {
-        c.track.checked_sub(1)
-    };
-    if let Some(t) = next {
-        set_track(score, c, t);
-        c.staff = 0;
-        let there = rows(score, c);
-        let entry = if down { there.first() } else { there.last() };
-        if let Some(&r) = entry {
-            set_row(c, r);
-        }
+        set_row(c, r);
     }
 }
 
