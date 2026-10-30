@@ -30,9 +30,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Tool Panes
 
-- [ ] FIX: The audio tool should be referenced as the waveform tool.
-- [ ] FIX: ":waveform" should be the command to toggle Waveform Tool Pane
-- [ ] FIX: ":global-tool" waveform should be the command to toggle waveform global status
+- [x] FIX: The audio tool should be referenced as the waveform tool.
+- [x] FIX: ":waveform" should be the command to toggle Waveform Tool Pane
+- [x] FIX: ":global-tool" waveform should be the command to toggle waveform global status
 - [ ] When changing buffers in a pane, auto-resize the height of the relevant Tracks pane
 - [ ] TODO: Deep dive on waveform ux and audio track syncing (auto, manual, & tapping)
 

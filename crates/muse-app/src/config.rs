@@ -172,6 +172,8 @@ pub struct UiConfig {
     /// Seconds the tracks show along the bottom after a key or command changes the track,
     /// while no tracks pane is shown (0: off).
     pub tracks_peek: f64,
+    /// Tracks panes follow the height their score needs, until resized by hand.
+    pub auto_resize: bool,
     /// The toolbar of common commands at the top of the window.
     pub toolbar: bool,
     /// The fretboard and piano panels (notes at the cursor or playhead).
@@ -199,6 +201,7 @@ impl Default for UiConfig {
                 .map(String::from)
                 .to_vec(),
             tracks_peek: 1.0,
+            auto_resize: true,
             toolbar: true,
             fretboard: false,
             piano: false,

@@ -104,6 +104,9 @@ pub struct PaneState {
     /// A local tool pane's score pane.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub owner: Option<PaneId>,
+    /// The size was set by hand.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub manual: bool,
     /// Index into `files`; none for a pane on an unsaved score.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub file: Option<usize>,
@@ -319,6 +322,7 @@ impl App {
                     height: p.size.0,
                     width: p.size.1,
                     owner: p.owner,
+                    manual: p.manual_size,
                     file: add(p.buffer, &mut files, self),
                     track: p.cursor.track,
                     bar: p.cursor.bar,
@@ -574,6 +578,7 @@ impl App {
                         .and_then(PaneKind::parse)
                         .unwrap_or_default(),
                     size: (p.height, p.width),
+                    manual_size: p.manual,
                     owner: p.owner,
                     buffer,
                     cursor,
@@ -637,6 +642,7 @@ impl App {
                 Pane {
                     kind: PaneKind::Score,
                     size: (None, None),
+                    manual_size: false,
                     owner: None,
                     buffer: 0,
                     cursor: Cursor::default(),

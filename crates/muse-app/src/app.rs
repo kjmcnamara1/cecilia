@@ -110,6 +110,8 @@ pub struct Pane {
     /// A tool pane's own height and width (viewport units), kept whatever other panes come
     /// and go; score panes share the room left.
     pub size: (Option<u16>, Option<u16>),
+    /// The size was set by hand: it is no longer fitted to the contents (`ui.auto_resize`).
+    pub manual_size: bool,
     /// A local tool pane's score pane: the one it opened under and always shows. Global
     /// tool panes (and score panes) have none and follow the view's score pane.
     pub owner: Option<PaneId>,
@@ -420,6 +422,7 @@ impl App {
             Pane {
                 kind: PaneKind::Score,
                 size: (None, None),
+                manual_size: false,
                 owner: None,
                 buffer: 0,
                 cursor: Cursor::default(),
@@ -693,6 +696,7 @@ impl App {
     pub fn set_viewport(&mut self, viewport: Rect) {
         self.viewport = viewport;
         if self.viewport_known {
+            self.fit_tracks_panes();
             return;
         }
         self.viewport_known = true;
@@ -1034,6 +1038,7 @@ impl App {
     /// Sets a tool pane's height (stacked) or width (side by side).
     fn set_tool_size(&mut self, id: PaneId, axis: Axis, size: u16) {
         if let Some(p) = self.panes.get_mut(&id) {
+            p.manual_size = true;
             match axis {
                 Axis::Stacked => p.size.0 = Some(size),
                 Axis::SideBySide => p.size.1 = Some(size),
@@ -1151,7 +1156,7 @@ impl App {
     /// Gives each tracks pane of the active view the height its score's rows need (after
     /// the score it shows changed).
     fn fit_tracks_panes(&mut self) {
-        if !self.viewport_known {
+        if !self.viewport_known || !self.config.file.ui.auto_resize {
             return;
         }
         let active = self.active_view;
@@ -1160,7 +1165,7 @@ impl App {
             if self
                 .panes
                 .get(&id)
-                .is_none_or(|p| p.kind != PaneKind::Tracks)
+                .is_none_or(|p| p.kind != PaneKind::Tracks || p.manual_size)
             {
                 continue;
             }
@@ -2095,6 +2100,7 @@ impl App {
             Pane {
                 kind: PaneKind::Score,
                 size: (None, None),
+                manual_size: false,
                 owner: None,
                 buffer,
                 cursor: Cursor::default(),
@@ -3133,5 +3139,52 @@ mod tests {
             }]
         );
         assert_eq!(app.pane().cursor.bar, 1);
+    }
+
+    #[test]
+    fn tracks_pane_fits_until_resized_by_hand() {
+        let mut app = test_app();
+        app.row_height = 10;
+        app.col_width = 5;
+        app.set_viewport(Rect {
+            x: 0,
+            y: 0,
+            w: 200,
+            h: 200,
+        });
+        app.run(Command::Tracks(Some(true)));
+        let id = app.tool_pane(PaneKind::Tracks).unwrap();
+        let fitted = app.panes[&id].size.0;
+        // A track added later makes the pane taller.
+        let track = app.buffer().score.tracks[0].clone();
+        app.buffers[0].score.tracks.push(track);
+        app.set_viewport(Rect {
+            x: 0,
+            y: 0,
+            w: 200,
+            h: 200,
+        });
+        let taller = app.panes[&id].size.0;
+        assert!(taller > fitted);
+        // Resized by hand, it stays; with auto_resize off nothing follows.
+        app.set_tool_size(id, Axis::Stacked, 30);
+        let track = app.buffer().score.tracks[0].clone();
+        app.buffers[0].score.tracks.push(track);
+        app.set_viewport(Rect {
+            x: 0,
+            y: 0,
+            w: 200,
+            h: 200,
+        });
+        assert_eq!(app.panes[&id].size.0, Some(30));
+        app.panes.get_mut(&id).unwrap().manual_size = false;
+        app.config.file.ui.auto_resize = false;
+        app.set_viewport(Rect {
+            x: 0,
+            y: 0,
+            w: 200,
+            h: 200,
+        });
+        assert_eq!(app.panes[&id].size.0, Some(30));
     }
 }
