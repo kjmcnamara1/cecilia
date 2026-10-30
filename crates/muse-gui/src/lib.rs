@@ -212,9 +212,9 @@ impl ApplicationHandler for Gui {
 
     fn window_event(&mut self, event_loop: &ActiveEventLoop, _id: WindowId, event: WindowEvent) {
         match event {
-            // Like :quitall: refused (with a message) while files have unsaved changes.
+            // Like :quit: refused (with a message) while files have unsaved changes.
             WindowEvent::CloseRequested => {
-                self.app.run(muse_app::Command::QuitAll { force: false });
+                self.app.run(muse_app::Command::Quit { force: false });
                 self.after_input();
             }
             WindowEvent::Resized(size) => {
