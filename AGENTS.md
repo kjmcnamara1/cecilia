@@ -24,6 +24,9 @@ target/release/muse -W <scratch-workspace> --screenshot out.png --keys "<keys>" 
 
 Use `-W` with a scratch workspace name so runs don't touch the user's saved workspace.
 
+Sample score files (GP, GABC, etc.) for testing and screenshots live in `test-corpus/`
+(`gabc/`, `Sacred/`, `Tabs/`).
+
 ## Commits
 
 Use Conventional Commits (`feat:`, `fix(engrave):`, `refactor:`, `docs:`, `test:` …), even though
