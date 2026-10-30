@@ -151,6 +151,8 @@ pub struct ChantView<'a> {
     pub scroll: &'a mut usize,
     /// Set to (lines in all, lines shown) for the scrollbar.
     pub extent: &'a mut (usize, usize),
+    /// Keep the cursor (or playhead) in view; off after the scrollbar moved the view by hand.
+    pub follow: bool,
 }
 
 impl Widget for ChantView<'_> {
@@ -210,7 +212,9 @@ impl Widget for ChantView<'_> {
         let sh = system_height();
         let visible = (area.height / sh).max(1) as usize;
         let mut scroll = (*self.scroll).min(lines.len().saturating_sub(1));
-        if cursor_line < scroll {
+        if !self.follow {
+            scroll = scroll.min(lines.len().saturating_sub(visible));
+        } else if cursor_line < scroll {
             scroll = cursor_line;
         } else if cursor_line >= scroll + visible {
             scroll = cursor_line + 1 - visible;

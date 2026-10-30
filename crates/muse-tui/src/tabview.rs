@@ -196,6 +196,8 @@ pub struct TabView<'a> {
     pub scroll: &'a mut usize,
     /// Set to (lines in all, lines shown) for the scrollbar.
     pub extent: &'a mut (usize, usize),
+    /// Keep the cursor (or playhead) in view; off after the scrollbar moved the view by hand.
+    pub follow: bool,
 }
 
 impl Widget for TabView<'_> {
@@ -220,7 +222,9 @@ impl Widget for TabView<'_> {
         };
         let cursor_sys = system_of_bar(&systems, focus_bar);
         let mut scroll = (*self.scroll).min(systems.len().saturating_sub(1));
-        if cursor_sys < scroll {
+        if !self.follow {
+            scroll = scroll.min(systems.len().saturating_sub(visible));
+        } else if cursor_sys < scroll {
             scroll = cursor_sys;
         } else if cursor_sys >= scroll + visible {
             scroll = cursor_sys + 1 - visible;

@@ -87,7 +87,20 @@ struct Geometry {
     content: Rect,
     scale: f64,
     scroll: (f64, f64),
+    bar: Option<ScrollBar>,
 }
+
+/// A pane's scrollbar: its track and thumb, and how far the view can scroll (points).
+#[derive(Clone, Copy)]
+struct ScrollBar {
+    track: Rect,
+    thumb: Rect,
+    horizontal: bool,
+    range: f64,
+}
+
+/// Thickness of the scrollbar's gutter, which the score never draws into.
+const SCROLLBAR: f64 = 10.0;
 
 /// Per-pane view state kept between frames.
 #[derive(Default)]
@@ -183,6 +196,8 @@ enum Drag {
     Wave(f64, u16),
     /// A buffer tab: its position now, and where the press was (it moves past a few pixels).
     Tab(usize, f64),
+    /// A pane's scrollbar thumb, held this far (pixels) from its start.
+    Scrollbar(PaneId, f64),
 }
 
 /// The pointer shape over something draggable.
@@ -1770,6 +1785,18 @@ fn draw_pane(
 
     // Layout for this pane's width, mode and track (cached).
     let mode_name = mode_tag(&pane);
+    // The scrollbar's gutter: the score lays out and draws beside it, never under it.
+    let gutter = app.scrollbar.then(|| {
+        if mode_name == "horizontal" {
+            let r = Rect::new(content.x0, content.y1 - SCROLLBAR, content.x1, content.y1);
+            content.y1 -= SCROLLBAR;
+            r
+        } else {
+            let r = Rect::new(content.x1 - SCROLLBAR, content.y0, content.x1, content.y1);
+            content.x1 -= SCROLLBAR;
+            r
+        }
+    });
     // Pages fit the pane's width; zoom is relative to that.
     let scale = if mode_name == "page" {
         pane.zoom * (content.width() - 24.0).max(100.0) / 595.0
@@ -1893,6 +1920,7 @@ fn draw_pane(
         content,
         scale,
         scroll,
+        bar: None,
     });
 
     // Pages.
@@ -1919,42 +1947,6 @@ fn draw_pane(
             continue;
         }
         scene.append(page_scene, Some(to_screen(i)));
-    }
-    // Scrollbar: the thumb is the visible part of the score's extent along its flow.
-    if app.scrollbar {
-        let horizontal = mode_name == "horizontal";
-        let (total, view, pos, len) = if horizontal {
-            let w = cached
-                .layout
-                .pages
-                .iter()
-                .map(|p| p.width)
-                .fold(0.0, f64::max);
-            (w, view_w, scroll.0, content.width())
-        } else {
-            (total_h, view_h, scroll.1, content.height())
-        };
-        if total > view {
-            let t = app.config.theme.clone();
-            let thick = 6.0;
-            let thumb = (len * view / total).max(24.0).min(len);
-            let at = (len - thumb) * (pos / (total - view)).clamp(0.0, 1.0);
-            let (track, bar) = if horizontal {
-                let y = content.y1 - thick;
-                (
-                    Rect::new(content.x0, y, content.x1, content.y1),
-                    Rect::new(content.x0 + at, y, content.x0 + at + thumb, content.y1),
-                )
-            } else {
-                let x = content.x1 - thick;
-                (
-                    Rect::new(x, content.y0, content.x1, content.y1),
-                    Rect::new(x, content.y0 + at, content.x1, content.y0 + at + thumb),
-                )
-            };
-            fill(scene, track, col(t.chrome.with_alpha(90)));
-            fill(scene, bar, col(t.dim.with_alpha(200)));
-        }
     }
     // Visual selection.
     if let Some((anchor, cursor, bars)) = app.selection().filter(|_| focused) {
@@ -2071,6 +2063,59 @@ fn draw_pane(
         );
     }
     scene.pop_layer();
+    // Scrollbar: the thumb is the visible part of the score's extent along its flow, tinted
+    // lightly from the ground it sits on.
+    let mut bar = None;
+    if let Some(gutter) = gutter {
+        let horizontal = mode_name == "horizontal";
+        let (total, view, pos, len) = if horizontal {
+            let w = cached
+                .layout
+                .pages
+                .iter()
+                .map(|p| p.width)
+                .fold(0.0, f64::max);
+            (w, view_w, scroll.0, content.width())
+        } else {
+            (total_h, view_h, scroll.1, content.height())
+        };
+        let t = &app.config.theme;
+        let (ground, ink) = if mode_name == "page" {
+            (t.chrome, t.chrome_text)
+        } else {
+            (t.page, t.ink)
+        };
+        fill(scene, gutter, col(ground));
+        if total > view {
+            let size = (len * view / total).clamp(24.0_f64.min(len), len);
+            let at = (len - size) * (pos / (total - view)).clamp(0.0, 1.0);
+            let inset = 2.0;
+            let (track, thumb) = if horizontal {
+                let (y0, y1) = (gutter.y0 + inset, gutter.y1 - inset);
+                (
+                    Rect::new(gutter.x0, y0, gutter.x1, y1),
+                    Rect::new(gutter.x0 + at, y0, gutter.x0 + at + size, y1),
+                )
+            } else {
+                let (x0, x1) = (gutter.x0 + inset, gutter.x1 - inset);
+                (
+                    Rect::new(x0, gutter.y0, x1, gutter.y1),
+                    Rect::new(x0, gutter.y0 + at, x1, gutter.y0 + at + size),
+                )
+            };
+            fill(scene, track, col(ground.mix(ink, 0.06)));
+            fill(scene, thumb, col(ground.mix(ink, 0.28)));
+            bar = Some(ScrollBar {
+                track,
+                thumb,
+                horizontal,
+                range: total - view,
+            });
+        }
+    }
+    if let Some(g) = views.geometry.last_mut() {
+        g.bar = bar;
+    }
     if let (Some(strip), Some(pb)) = (waveform, playback) {
         views.edges.push((
             Rect::new(strip.x0, strip.y0 - 3.0, strip.x1, strip.y0 + 3.0),
@@ -3409,9 +3454,35 @@ impl Views {
                     muse_app::command::Amount::To(h.max(0.0).round() as u32),
                 ));
             }
+            Some(Drag::Scrollbar(pane, grab)) => self.scrollbar_to(pane, grab, x, y),
             None => return false,
         }
         true
+    }
+
+    /// Scrolls a pane to where a scrollbar drag has its thumb, held `grab` pixels from the
+    /// thumb's start.
+    fn scrollbar_to(&mut self, pane: PaneId, grab: f64, x: f64, y: f64) {
+        let Some(bar) = self
+            .geometry
+            .iter()
+            .find(|g| g.pane == pane)
+            .and_then(|g| g.bar)
+        else {
+            return;
+        };
+        let (pos, start, len, size) = if bar.horizontal {
+            (x, bar.track.x0, bar.track.width(), bar.thumb.width())
+        } else {
+            (y, bar.track.y0, bar.track.height(), bar.thumb.height())
+        };
+        let frac = ((pos - grab - start) / (len - size).max(1.0)).clamp(0.0, 1.0);
+        let entry = self.scroll.entry(pane).or_insert((0.0, 0.0));
+        if bar.horizontal {
+            entry.0 = frac * bar.range;
+        } else {
+            entry.1 = frac * bar.range;
+        }
     }
 
     /// Mouse up: ends a drag (a volume drag is one undo step).
@@ -3503,6 +3574,30 @@ impl Views {
         }
         if let Some((_, cmd)) = self.status.iter().find(|(r, _)| r.contains((x, y))) {
             app.run(cmd.clone());
+            return;
+        }
+        // A click on a scrollbar grabs its thumb (or jumps it under the pointer).
+        let grabbed = self.geometry.iter().find_map(|g| {
+            let bar = g.bar.filter(|b| b.track.contains((x, y)))?;
+            let (pos, start, size) = if bar.horizontal {
+                (x, bar.thumb.x0, bar.thumb.width())
+            } else {
+                (y, bar.thumb.y0, bar.thumb.height())
+            };
+            let held = pos - start;
+            Some((
+                g.pane,
+                if (0.0..=size).contains(&held) {
+                    held
+                } else {
+                    size / 2.0
+                },
+            ))
+        });
+        if let Some((pane, grab)) = grabbed {
+            app.set_focus(pane);
+            self.drag = Some(Drag::Scrollbar(pane, grab));
+            self.scrollbar_to(pane, grab, x, y);
             return;
         }
         let now = std::time::Instant::now();

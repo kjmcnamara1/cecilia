@@ -21,6 +21,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - [x] Add scrollbar to each pane (side for vertical, bottom for horizontal)
   - [x] Can be toggled on/off (`:scrollbar`) and set in config.toml (`ui.scrollbar`)
+  - [x] Only a light tint of the background; never overlaps the notation (own gutter)
+  - [x] Click and drag to scroll, in the GUI and TUI
 
 ### Progress Bar
 

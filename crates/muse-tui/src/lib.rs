@@ -58,6 +58,12 @@ struct Ui {
     /// A mouse drag in progress.
     drag: Option<Drag>,
     hits: Vec<Hit>,
+    /// Score panes' scrollbars (column, pane, (lines in all, lines shown)).
+    scrollbars: Vec<(Rect, u32, (usize, usize))>,
+    /// Panes scrolled by hand, which stop following the cursor until it moves, and the
+    /// cursor (and playhead) position last drawn per pane.
+    scrolled: std::collections::HashSet<u32>,
+    last_view: std::collections::HashMap<u32, (usize, usize, usize, usize)>,
     tabline: Vec<(Rect, TablineHit)>,
     hover: Option<(u16, u16)>,
 }
@@ -71,6 +77,8 @@ enum Drag {
     Divider(muse_app::layout::Divider, i32),
     /// A buffer tab being dragged along the tabline (its position now).
     Tab(usize),
+    /// A pane's scrollbar thumb, grabbed this many rows below its top.
+    Scrollbar(u32, u16),
 }
 
 /// A pane border under a cell: the divider and how far the cell is from its position.
@@ -157,6 +165,37 @@ fn event_loop(terminal: &mut DefaultTerminal, app: &mut App) -> Result<()> {
                             }
                             _ => {}
                         }
+                    }
+                    MouseEventKind::Drag(MouseButton::Left)
+                        if matches!(ui.drag, Some(Drag::Scrollbar(..))) =>
+                    {
+                        if let Some(Drag::Scrollbar(pane, grab)) = ui.drag {
+                            scrollbar_to(app, &mut ui, pane, grab, m.row);
+                        }
+                    }
+                    MouseEventKind::Down(MouseButton::Left)
+                        if ui
+                            .scrollbars
+                            .iter()
+                            .any(|(r, ..)| contains(*r, m.column, m.row)) =>
+                    {
+                        let &(col, pane, extent) = ui
+                            .scrollbars
+                            .iter()
+                            .find(|(r, ..)| contains(*r, m.column, m.row))
+                            .unwrap();
+                        app.set_focus(pane);
+                        let scroll = app.panes.get(&pane).map_or(0, |p| p.scroll);
+                        let (at, size) = thumb(col.height as usize, scroll, extent);
+                        let rel = (m.row - col.y) as usize;
+                        // Grabbing the thumb keeps it under the pointer; elsewhere it centres.
+                        let grab = if (at..at + size).contains(&rel) {
+                            rel - at
+                        } else {
+                            size / 2
+                        };
+                        ui.drag = Some(Drag::Scrollbar(pane, grab as u16));
+                        scrollbar_to(app, &mut ui, pane, grab as u16, m.row);
                     }
                     MouseEventKind::Down(MouseButton::Left)
                         if divider_at(app, m.column, m.row).is_some() =>
@@ -364,6 +403,7 @@ fn convert_key(k: KeyEvent) -> Option<Key> {
 
 fn draw(f: &mut Frame, app: &mut App, play: Option<(usize, Location, f64, f64)>, ui: &mut Ui) {
     ui.hits.clear();
+    ui.scrollbars.clear();
     // The tracks peeking after a change of track (no tracks pane shown) take the bottom.
     let peek_h = if app.tracks_peeking() {
         app.peek_height().saturating_sub(2)
@@ -502,14 +542,6 @@ fn draw(f: &mut Frame, app: &mut App, play: Option<(usize, Location, f64, f64)>,
             inner.height -= 1;
             draw_progress(f, app, id, row, play);
         }
-        if let Some(track) = track {
-            app.page_bars = page_bars(inner, track);
-        }
-        let play_here = play
-            .filter(|(b, ..)| *b == pane.buffer && app.playing)
-            .map(|(_, l, ..)| (l.bar, l.tick));
-        let mut scroll = pane.scroll;
-        let mut extent = (0, 0);
         // The scrollbar takes the last column (the layout is a column narrower).
         let bar_col = (app.scrollbar && inner.width > 20).then(|| {
             inner.width -= 1;
@@ -519,6 +551,24 @@ fn draw(f: &mut Frame, app: &mut App, play: Option<(usize, Location, f64, f64)>,
                 ..inner
             }
         });
+        if let Some(track) = track {
+            app.page_bars = page_bars(inner, track);
+        }
+        let play_here = play
+            .filter(|(b, ..)| *b == pane.buffer && app.playing)
+            .map(|(_, l, ..)| (l.bar, l.tick));
+        let mut scroll = pane.scroll;
+        let view_key = (
+            pane.cursor.track,
+            pane.cursor.bar,
+            pane.cursor.beat,
+            play_here.map_or(usize::MAX, |p| p.0),
+        );
+        if ui.last_view.insert(id, view_key) != Some(view_key) {
+            ui.scrolled.remove(&id);
+        }
+        let follow = !ui.scrolled.contains(&id);
+        let mut extent = (0, 0);
         let chant = app.chant_view && track.is_some_and(|t| t.chant.is_some());
         if chant {
             f.render_widget(
@@ -530,6 +580,7 @@ fn draw(f: &mut Frame, app: &mut App, play: Option<(usize, Location, f64, f64)>,
                     hits,
                     scroll: &mut scroll,
                     extent: &mut extent,
+                    follow,
                 },
                 inner,
             );
@@ -543,12 +594,14 @@ fn draw(f: &mut Frame, app: &mut App, play: Option<(usize, Location, f64, f64)>,
                     hits,
                     scroll: &mut scroll,
                     extent: &mut extent,
+                    follow,
                 },
                 inner,
             );
         }
         if let Some(col) = bar_col {
             draw_scrollbar(f, app, col, scroll, extent);
+            ui.scrollbars.push((col, id, extent));
         }
         if let Some(p) = app.panes.get_mut(&id) {
             p.scroll = scroll;
@@ -1894,6 +1947,14 @@ mod tests {
 #[cfg(test)]
 mod render_tests {
     use super::*;
+
+    #[test]
+    fn scrollbar_thumb_spans_the_visible_share() {
+        // 20 lines, 5 shown, on a 10-row bar: a thumb of 2 rows that reaches the end.
+        assert_eq!(thumb(10, 0, (20, 5)), (0, 2));
+        assert_eq!(thumb(10, 15, (20, 5)), (8, 2));
+        assert_eq!(thumb(10, 99, (20, 5)), (8, 2));
+    }
     use ratatui::Terminal;
     use ratatui::backend::TestBackend;
 
@@ -2253,7 +2314,15 @@ mod render_tests {
     }
 }
 
-/// A vertical scrollbar in `col`: `extent` is the lines in all and the lines shown.
+/// The thumb's top row and height in a scrollbar column `len` rows tall.
+fn thumb(len: usize, scroll: usize, (total, shown): (usize, usize)) -> (usize, usize) {
+    let size = (len * shown / total.max(1)).clamp(1, len);
+    let range = total.saturating_sub(shown).max(1);
+    ((len - size) * scroll.min(range) / range, size)
+}
+
+/// A vertical scrollbar in `col`: `extent` is the lines in all and the lines shown. Both
+/// parts are only a light tint of the background.
 fn draw_scrollbar(f: &mut Frame, app: &App, col: Rect, scroll: usize, extent: (usize, usize)) {
     let (total, shown) = extent;
     if total <= shown || col.height == 0 {
@@ -2261,16 +2330,33 @@ fn draw_scrollbar(f: &mut Frame, app: &App, col: Rect, scroll: usize, extent: (u
     }
     let t = &app.config.theme;
     let len = col.height as usize;
-    let thumb = (len * shown / total).clamp(1, len);
-    let at = (len - thumb) * scroll.min(total - shown) / (total - shown);
+    let (at, size) = thumb(len, scroll, extent);
+    let track = Style::default().fg(rc(t.chrome.mix(t.dim, 0.15)));
+    let bar = Style::default().fg(rc(t.chrome.mix(t.dim, 0.4)));
     let buf = f.buffer_mut();
     for i in 0..len {
-        let on = (at..at + thumb).contains(&i);
-        let (ch, color) = if on {
-            ("█", t.dim)
+        let (ch, style) = if (at..at + size).contains(&i) {
+            ("█", bar)
         } else {
-            ("│", t.chrome)
+            ("│", track)
         };
-        buf.set_string(col.x, col.y + i as u16, ch, Style::default().fg(rc(color)));
+        buf.set_string(col.x, col.y + i as u16, ch, style);
     }
+}
+
+/// Scrolls a pane to where a scrollbar drag has the thumb: `row` on screen, the thumb held
+/// `grab` rows below its top.
+fn scrollbar_to(app: &mut App, ui: &mut Ui, pane: u32, grab: u16, row: u16) {
+    let Some(&(col, _, extent)) = ui.scrollbars.iter().find(|s| s.1 == pane) else {
+        return;
+    };
+    let len = col.height as usize;
+    let (_, size) = thumb(len, 0, extent);
+    let range = extent.0.saturating_sub(extent.1);
+    let travel = (len - size).max(1);
+    let top = (row.saturating_sub(col.y).saturating_sub(grab) as usize).min(travel);
+    if let Some(p) = app.panes.get_mut(&pane) {
+        p.scroll = (top * range + travel / 2) / travel;
+    }
+    ui.scrolled.insert(pane);
 }
