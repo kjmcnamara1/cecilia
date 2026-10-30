@@ -44,11 +44,13 @@ fn normalize_gp5(s: &mut Score) {
     }
 }
 
-/// Removes differences GPIF cannot represent: per-note dynamics within a beat, note duration
+/// Removes differences GPIF cannot represent: page setup, per-note dynamics within a beat, note duration
 /// percentages, fingering, barres, MIDI volume/pan, marker colors, whammy bar, trill speed.
 fn normalize_gpif(s: &mut Score) {
     s.extras.clear();
     s.audio = None;
+    // Page setup is only kept by Guitar Pro 5 files.
+    s.page = PageSetup::default();
     if s.lyrics.as_ref().is_some_and(|l| l.lines.is_empty()) {
         s.lyrics = None;
     }
