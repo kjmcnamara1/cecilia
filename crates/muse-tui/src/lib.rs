@@ -1644,6 +1644,14 @@ fn draw_properties(f: &mut Frame, app: &App, area: Rect, ui: &mut Ui) {
         ui.props.push((hit, PropHit::Row(k)));
         y += h;
     }
+    // The search field along the bottom of the pane.
+    if let Some(search) = &app.props.search {
+        let y = area.y + area.height - 1;
+        let style = Style::default().bg(rc(t.tab)).fg(rc(t.chrome_text));
+        f.buffer_mut().set_string(x0, y, " ".repeat(width), style);
+        let line = clip(&format!("/{}▏", search.query), width.saturating_sub(1));
+        f.buffer_mut().set_string(x0 + 1, y, line, style);
+    }
     // While a staff is dragged: a line in the accent color where it would land.
     if let Some(Drag::Prop(from, to, _)) = ui.drag {
         if from != to {
@@ -2367,6 +2375,7 @@ mod render_tests {
     fn the_properties_pane_shows_rows_and_takes_clicks() {
         let mut app = App::new(muse_app::Config::default(), None);
         app.run(muse_app::Command::New);
+        app.run(muse_app::Command::Properties(Some(true)));
         let mut terminal = Terminal::new(TestBackend::new(100, 30)).unwrap();
         let mut ui = Ui::default();
         terminal.draw(|f| draw(f, &mut app, None, &mut ui)).unwrap();

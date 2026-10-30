@@ -201,7 +201,7 @@ impl Default for UiConfig {
             global_waveform: None,
             progress_bar: true,
             tracks_panel: false,
-            properties: true,
+            properties: false,
             global_tools: ["tracks", "waveform", "fretboard", "piano", "tuner"]
                 .map(String::from)
                 .to_vec(),
@@ -577,8 +577,11 @@ const DEFAULT_PROPERTIES: &[(&str, &str)] = &[
     ("zo", "properties-fold open"),
     ("x", "properties-clear"),
     ("d", "properties-clear"),
-    ("n", "track-next"),
-    ("p", "track-prev"),
+    ("/", "properties-search"),
+    ("n", "properties-search-next"),
+    ("N", "properties-search-prev"),
+    ("<C-n>", "track-next"),
+    ("<C-p>", "track-prev"),
     ("<Esc>", "properties-focus"),
     ("q", "properties-focus"),
     ("<leader><leader>", "play-toggle"),

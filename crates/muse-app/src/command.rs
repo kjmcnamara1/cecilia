@@ -201,6 +201,9 @@ pub enum Command {
     PropertiesFold(Option<bool>),
     /// Clear the selected property (a verse's syllables, a track's own color).
     PropertiesClear,
+    /// The properties pane's search: 0 opens the field, 1 / -1 jump to the next / previous match
+    /// of the `/` register.
+    PropertiesSearch(isize),
     /// Sets a switch off (-1) or on (+1), or moves a choice to the previous or next one.
     PropertiesStep(isize),
     /// Clears the selected property's text and edits it.
@@ -820,6 +823,9 @@ impl Command {
                 Some(a) => return Err(format!("properties-fold: '{a}' is not open or close")),
             }),
             "properties-clear" => PropertiesClear,
+            "properties-search" => PropertiesSearch(0),
+            "properties-search-next" => PropertiesSearch(1),
+            "properties-search-prev" => PropertiesSearch(-1),
             "properties-step" => PropertiesStep(
                 arg.and_then(|a| a.trim().parse().ok())
                     .ok_or("properties-step: expected +1 or -1")?,

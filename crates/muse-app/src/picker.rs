@@ -798,6 +798,23 @@ impl App {
         }
     }
 
+    /// Runs the first or the last choice of a picker's list.
+    pub(crate) fn pick_choice(&mut self, kind: PickerKind, first: bool) {
+        let mut entries: Vec<Entry> = self
+            .picker_entries(kind)
+            .into_iter()
+            .filter(|e| e.label != "remove")
+            .collect();
+        let pick = if first {
+            0
+        } else {
+            entries.len().saturating_sub(1)
+        };
+        if pick < entries.len() {
+            self.run(entries.swap_remove(pick).action);
+        }
+    }
+
     /// The picker's entries filtered by its query, best first.
     fn picker_matches(&self, p: &Picker) -> Vec<(Entry, Vec<usize>)> {
         let mut entries = self.picker_entries(p.kind);

@@ -3167,6 +3167,37 @@ fn draw_properties(scene: &mut Scene, app: &App, views: &mut Views, r: Rect) {
         views.props.push((hit, PropHit::Row(k)));
         y += h;
     }
+    // The search field along the bottom of the pane.
+    if let Some(search) = &app.props.search {
+        let b = Rect::new(bx0, r.y1 - 52.0, bx1, r.y1 - 14.0);
+        let shape = b.to_rounded_rect(6.0);
+        scene.fill(Fill::NonZero, Affine::IDENTITY, col(th.tab), None, &shape);
+        scene.stroke(
+            &Stroke::new(1.0),
+            Affine::IDENTITY,
+            col(th.mode_normal),
+            None,
+            &shape,
+        );
+        let line = format!("/{}", search.query);
+        let ty = b.y0 + 19.0 + PROPS_VALUE * 0.35;
+        text(
+            scene,
+            &line,
+            b.x0 + 10.0,
+            ty,
+            PROPS_VALUE,
+            Align::Left,
+            chrome_text(),
+            false,
+        );
+        let cx = b.x0 + 10.0 + width_of(&line, PROPS_VALUE) + 1.0;
+        fill(
+            scene,
+            Rect::new(cx, b.y0 + 9.0, cx + 2.0, b.y1 - 9.0),
+            col(th.mode_normal),
+        );
+    }
     // While a staff is dragged: a line in the accent color where it would land.
     if let Some(Drag::Prop(from, to, _)) = views.drag {
         if from != to {

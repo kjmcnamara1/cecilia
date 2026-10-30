@@ -121,6 +121,13 @@ impl App {
         match self.mode {
             Mode::Command => self.handle_command_key(key),
             Mode::Picker => self.handle_picker_key(key),
+            // The pane's search field takes every key.
+            Mode::Normal | Mode::Tracks | Mode::Properties
+                if self.props.search.is_some()
+                    && self.focused_kind() == crate::app::PaneKind::Properties =>
+            {
+                self.props_search_key(key)
+            }
             // A property being typed takes every key.
             Mode::Normal | Mode::Tracks | Mode::Properties
                 if self.props.edit.is_some()

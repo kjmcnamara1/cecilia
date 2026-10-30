@@ -886,7 +886,8 @@ mod tests {
     #[test]
     fn the_properties_pane_and_its_tab_are_saved() {
         let mut app = App::new(Config::default(), None);
-        assert!(app.has_tool(PaneKind::Properties), "on by default");
+        assert!(!app.has_tool(PaneKind::Properties), "off by default");
+        app.set_tool(PaneKind::Properties, Some(true));
         app.set_property_tab(crate::properties::PropTab::Lyrics);
         let text = toml::to_string_pretty(&app.workspace()).unwrap();
         let mut other = App::new(Config::default(), None);

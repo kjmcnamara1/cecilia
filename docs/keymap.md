@@ -252,7 +252,7 @@ mode; while the pane has the focus its keys are `[keymap.tracks]`, then the usua
 ## Properties pane
 
 `<leader>p` shows or hides the properties pane, docked full height along the right of the
-window (`ui.properties` shows it from the start; workspaces remember it and its tab). It has
+window (`ui.properties = true` shows it from the start; workspaces remember it and its tab). It has
 three tabs (SCORE, TRACK, LYRICS). Each property is a label with its value in a box across the
 pane's width; they come in sections (with chevrons) that fold. In the GUI keys are the status
 line's size, values and tabs 1.2 times and section titles 1.5 times; tab titles are uppercase and
@@ -283,7 +283,9 @@ score pane). It stays Normal mode; while the pane has the focus its keys are
 | `<A-j>` `<A-k>` | swap the selected staff with the one below / above |
 | `za` `zc` `zo` | toggle / close / open the section |
 | `x` | same as `d`: clear the text, lyrics or the track's own color, or remove the selected staff |
-| `n` `p` | next / previous track |
+| `/` | search: a field opens at the bottom of the pane and jumps to the first key or value with what is typed (any case, unless a capital is typed); `<CR>` keeps the jump and sets the `/` register, `<Esc>` goes back |
+| `n` `N` | jump to the next / previous match of the `/` register (in the lyrics text area, normal mode: through the text, `/` too) |
+| `<C-n>` `<C-p>` | next / previous track |
 | `<Esc>` `q` | back to the score pane |
 | `<leader><leader>` `<leader>s` `<leader>f` `:` | play/pause, stop, follow, command line |
 

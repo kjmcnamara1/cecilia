@@ -341,8 +341,22 @@ impl PropEdit {
     }
 }
 
+/// A search being typed in the pane (`/`): the field at its bottom.
+#[derive(Debug, Clone, PartialEq)]
+pub struct PropSearch {
+    pub query: String,
+    /// Where the search began: Escape goes back there.
+    origin_row: usize,
+    origin_caret: usize,
+    /// Searching the lyrics text rather than the rows.
+    in_text: bool,
+}
+
 #[derive(Debug, Default)]
 pub struct PropsState {
+    pub search: Option<PropSearch>,
+    /// The `/` register: what `n` and `N` look for.
+    pub last_search: String,
     pub tab: PropTab,
     /// Selected row of the tab's [`App::property_rows`].
     pub selected: usize,
@@ -426,9 +440,27 @@ fn onoff(b: bool) -> String {
     if b { "on" } else { "off" }.into()
 }
 
-/// A track's lyrics (its first verse) as one text. As in Guitar Pro, line breaks are spaces.
-fn lyrics_text(t: &muse_core::Track) -> String {
-    muse_core::lyrics::verse_line(t, 0).map_or(String::new(), |l| l.text)
+/// A track's lyrics (its first verse) as one text. As in Guitar Pro, line breaks are spaces; the
+/// text the score keeps (a file's, with its line breaks) is shown while it still says the same.
+fn lyrics_text(score: &muse_core::Score, track: usize) -> String {
+    let Some(t) = score.tracks.get(track) else {
+        return String::new();
+    };
+    let Some(line) = muse_core::lyrics::verse_line(t, 0) else {
+        return String::new();
+    };
+    let kept = score
+        .lyrics
+        .as_ref()
+        .filter(|l| l.track == Some(track))
+        .and_then(|l| l.lines.first())
+        .filter(|k| k.start_bar == line.start_bar)
+        .filter(|k| {
+            muse_core::lyrics::syllables(&k.text) == muse_core::lyrics::syllables(&line.text)
+        });
+    kept.map_or(line.text, |k| {
+        k.text.replace("\r\n", "\n").replace('\r', "\n")
+    })
 }
 
 fn kind_name(k: TrackKind) -> &'static str {
@@ -619,7 +651,13 @@ impl App {
                     t.name.trim().to_string()
                 };
                 rows.push(note(&format!("Lyrics of {name}")));
-                field(&mut rows, Field::Lyrics, "Lyrics", lyrics_text(t), true);
+                field(
+                    &mut rows,
+                    Field::Lyrics,
+                    "Lyrics",
+                    lyrics_text(score, cursor.track),
+                    true,
+                );
             }
         }
         rows
@@ -865,6 +903,14 @@ impl App {
                 'w' => edit.word_forward(),
                 'b' => edit.word_back(),
                 'e' => edit.word_end(),
+                '/' => {
+                    self.start_search();
+                    return;
+                }
+                'n' | 'N' => {
+                    self.search_step(if c == 'n' { 1 } else { -1 }, None);
+                    return;
+                }
                 '0' => edit.caret = edit.line_start(),
                 '^' => {
                     edit.caret = edit.line_start();
@@ -931,7 +977,7 @@ impl App {
         self.ed.group = None;
         self.run(cmd);
         let t = self.pane().cursor.track;
-        let text = self.buffer().score.tracks.get(t).map(lyrics_text);
+        let text = Some(lyrics_text(&self.buffer().score, t));
         if let (Some(text), Some(edit)) = (text, self.props.edit.as_mut()) {
             edit.text = text;
             edit.caret = edit.caret.min(edit.len());
@@ -1081,6 +1127,16 @@ impl App {
             muse_core::lyrics::clear(t, Some(0));
             let n = muse_core::lyrics::place(t, 0, start, 0, &syllables);
             crate::editor::refresh_lyric_lines(score, track);
+            // The score keeps the text as typed, line breaks included.
+            if let Some(l) = score.lyrics.as_mut().filter(|l| l.track == Some(track)) {
+                if let Some(k) = l.lines.first_mut() {
+                    if k.start_bar as usize == start
+                        && muse_core::lyrics::syllables(&k.text) == syllables
+                    {
+                        k.text = text.to_string();
+                    }
+                }
+            }
             Ok(n)
         });
         if let Some(n) = placed.filter(|&n| n < syllables.len()) {
@@ -1115,6 +1171,9 @@ impl App {
                 if i < n {
                     self.pane_mut().cursor.staff = i;
                     self.step_choice(PickerKind::Staff(t, i), by);
+                } else {
+                    // The empty field adds a staff: `l` the first kind, `h` the last.
+                    self.pick_choice(PickerKind::Staff(t, n), by > 0);
                 }
             }
             Field::PageWidth
@@ -1140,6 +1199,171 @@ impl App {
                 }
             }
             _ => {}
+        }
+    }
+
+    /// Whether `hay` has `query`: in any case, unless the query has a capital.
+    fn has_text(hay: &str, query: &str) -> bool {
+        if query.chars().any(char::is_uppercase) {
+            hay.contains(query)
+        } else {
+            hay.to_lowercase().contains(query)
+        }
+    }
+
+    /// Opens the search field: in the lyrics text area it looks through the text.
+    pub(crate) fn start_search(&mut self) {
+        let edit = self.props.edit.as_ref().filter(|e| e.modal);
+        self.props.search = Some(PropSearch {
+            query: String::new(),
+            origin_row: self.props.selected,
+            origin_caret: edit.map_or(0, |e| e.caret),
+            in_text: edit.is_some(),
+        });
+    }
+
+    /// Jumps to the match of `query` that is `dir` (1, -1) from `from`, wrapping around: a row
+    /// of the tab by its key or value, or a place in the lyrics text. `from` is the row or
+    /// character the search starts at, itself included when `dir` is 0.
+    fn search_jump(&mut self, query: &str, from: usize, dir: isize, in_text: bool) -> bool {
+        if query.is_empty() {
+            return false;
+        }
+        if in_text {
+            let Some(edit) = self.props.edit.as_mut() else {
+                return false;
+            };
+            let chars: Vec<char> = edit.text.chars().collect();
+            let n = chars.len();
+            let q: Vec<char> = query.chars().collect();
+            let fold = !query.chars().any(char::is_uppercase);
+            let same = |a: char, b: char| {
+                if fold {
+                    a.to_lowercase().eq(b.to_lowercase())
+                } else {
+                    a == b
+                }
+            };
+            let at = |i: usize| {
+                i + q.len() <= n && q.iter().enumerate().all(|(k, &c)| same(chars[i + k], c))
+            };
+            let m = n.max(1);
+            for step in 0..m {
+                let i = if dir < 0 {
+                    (from + m - step) % m
+                } else {
+                    (from + step) % m
+                };
+                if at(i) {
+                    edit.caret = i;
+                    edit.rest();
+                    return true;
+                }
+            }
+            return false;
+        }
+        let rows = self.property_rows();
+        let n = rows.len();
+        for step in 0..n {
+            let i = match dir {
+                -1 => (from + n - step) % n,
+                _ => (from + step) % n,
+            };
+            let row = &rows[i];
+            if row.kind == RowKind::Note {
+                continue;
+            }
+            let hay = format!("{}  {}  {}", row.label, row.value, row.aside);
+            if Self::has_text(&hay, query) {
+                self.props.selected = i;
+                return true;
+            }
+        }
+        false
+    }
+
+    /// Keys while the search field is open: they type the query, which jumps as it is typed;
+    /// Enter keeps the jump and sets the `/` register, Escape goes back.
+    pub(crate) fn props_search_key(&mut self, key: Key) {
+        let Some(mut search) = self.props.search.take() else {
+            return;
+        };
+        let mut done = false;
+        match key.code {
+            KeyCode::Esc => {
+                self.props.selected = search.origin_row;
+                if let Some(e) = self.props.edit.as_mut().filter(|_| search.in_text) {
+                    e.caret = search.origin_caret;
+                }
+                done = true;
+            }
+            KeyCode::Enter => {
+                if !search.query.is_empty() {
+                    self.props.last_search = search.query.clone();
+                }
+                done = true;
+            }
+            KeyCode::Backspace if search.query.is_empty() => {
+                self.props.selected = search.origin_row;
+                done = true;
+            }
+            KeyCode::Backspace => {
+                search.query.pop();
+            }
+            KeyCode::Char('u') if key.ctrl => search.query.clear(),
+            _ => {
+                if let Some(c) = key.as_char() {
+                    search.query.push(c);
+                }
+            }
+        }
+        if done {
+            return;
+        }
+        // Each change looks again from where the search began.
+        let from = if search.in_text {
+            search.origin_caret
+        } else {
+            search.origin_row
+        };
+        if !self.search_jump(&search.query, from, 1, search.in_text) {
+            self.props.selected = search.origin_row;
+            if let Some(e) = self.props.edit.as_mut().filter(|_| search.in_text) {
+                e.caret = search.origin_caret;
+            }
+        }
+        self.props.search = Some(search);
+    }
+
+    /// `n` / `N`: the next / previous match of the `/` register.
+    pub(crate) fn search_step(&mut self, dir: isize, _: Option<()>) {
+        let query = self.props.last_search.clone();
+        if query.is_empty() {
+            return self.info("no previous search");
+        }
+        let in_text = self.props.edit.as_ref().is_some_and(|e| e.modal);
+        let from = match (in_text, dir) {
+            (true, d) => {
+                let caret = self.props.edit.as_ref().map_or(0, |e| e.caret);
+                let n = self.props.edit.as_ref().map_or(0, |e| e.len());
+                if d > 0 {
+                    (caret + 1) % n.max(1)
+                } else {
+                    (caret + n.max(1) - 1) % n.max(1)
+                }
+            }
+            (false, d) => {
+                let n = self.property_rows().len();
+                let sel = self.property_selected();
+                if d > 0 {
+                    (sel + 1) % n.max(1)
+                } else {
+                    (sel + n.max(1) - 1) % n.max(1)
+                }
+            }
+        };
+        if !self.search_jump(&query, from, dir, in_text) {
+            self.error(format!("pattern not found: {query}"));
         }
     }
 
@@ -1175,6 +1399,16 @@ impl App {
 
     /// A click on a row: it selects it, and a double click edits it. A switch flips at once.
     pub fn click_property(&mut self, row: usize, double: bool) {
+        // In the lyrics text area a double click is `i`, as `<CR>` is.
+        if let Some(e) = self.props.edit.as_mut().filter(|e| e.modal) {
+            if row == self.props.selected {
+                if double && !e.insert {
+                    e.insert = true;
+                    self.ed.group = Some(false);
+                }
+                return;
+            }
+        }
         let toggle = matches!(
             self.property_rows().get(row).map(|r| &r.kind),
             Some(RowKind::Field {
@@ -1316,6 +1550,8 @@ impl App {
             PropertiesFold(fold) => self.fold_property(*fold),
             PropertiesClear => self.clear_property(),
             PropertiesStep(by) => self.step_property(*by),
+            PropertiesSearch(0) => self.start_search(),
+            PropertiesSearch(dir) => self.search_step(*dir, None),
             PropertiesChange => {
                 self.edit_property();
                 // Text is cleared (as the score follows); pickers and toggles just open.
@@ -1887,5 +2123,74 @@ mod tests {
             Staff::parse("grand G3", Clef::Treble),
             Ok(Staff::Standard(Clef::Grand { split: 55 }))
         ));
+    }
+
+    #[test]
+    fn search_jumps_as_typed_and_n_repeats() {
+        let mut app = with_props();
+        keys(&mut app, "<leader>P");
+        let row = |app: &App| app.property_rows()[app.property_selected()].label.clone();
+        // `/` opens the field and jumps at once; Escape goes back and sets nothing.
+        keys(&mut app, "/arti");
+        assert!(app.props.search.is_some());
+        assert_eq!(row(&app), "Artist");
+        keys(&mut app, "<Esc>");
+        assert!(app.props.search.is_none() && app.props.last_search.is_empty());
+        assert_ne!(row(&app), "Artist");
+        // Enter keeps the jump and sets the register; n and N go on from there.
+        keys(&mut app, "/t<CR>");
+        let first = row(&app);
+        assert_eq!(app.props.last_search, "t");
+        keys(&mut app, "n");
+        let second = row(&app);
+        assert_ne!(first, second);
+        keys(&mut app, "N");
+        assert_eq!(row(&app), first);
+        // In the lyrics text area it looks through the text.
+        app.run(Command::Lyrics(0, "one two three two".into()));
+        app.set_property_tab(PropTab::Lyrics);
+        keys(&mut app, "<CR><Esc>0/two<CR>");
+        assert_eq!(app.props.edit.as_ref().unwrap().caret, 4);
+        keys(&mut app, "n");
+        assert_eq!(app.props.edit.as_ref().unwrap().caret, 14);
+        keys(&mut app, "n");
+        assert_eq!(app.props.edit.as_ref().unwrap().caret, 4, "it wraps");
+        keys(&mut app, "N");
+        assert_eq!(app.props.edit.as_ref().unwrap().caret, 14);
+        keys(&mut app, "0/e<Esc>");
+        assert_eq!(
+            app.props.edit.as_ref().unwrap().caret,
+            0,
+            "Escape goes back"
+        );
+    }
+
+    #[test]
+    fn lyric_line_breaks_come_from_the_file_and_the_add_staff_field_steps() {
+        let mut app = with_props();
+        app.run(Command::Lyrics(0, "Hel-lo world".into()));
+        // The score keeps the text as it was given, with its line breaks.
+        app.set_property_tab(PropTab::Lyrics);
+        keys(&mut app, "<leader>P");
+        keys(&mut app, "<CR><C-u>Hel-lo<CR>world<Esc>");
+        let rows = app.property_rows();
+        let lyrics = rows.iter().find(|r| r.label == "Lyrics").unwrap();
+        assert_eq!(lyrics.value, "Hel-lo\nworld");
+        // A double click in the text area is `i`.
+        assert!(!app.props.edit.as_ref().unwrap().insert);
+        let row = app.props.selected;
+        app.click_property(row, true);
+        assert!(app.props.edit.as_ref().unwrap().insert);
+        keys(&mut app, "<Esc><Esc>");
+        // h on the empty staff field adds the last kind, l the first.
+        app.set_property_tab(PropTab::Tracks);
+        app.props.selected = field_row(&app, Field::StaffAt(2));
+        keys(&mut app, "h");
+        let staves = app.buffer().score.tracks[0].staves();
+        assert_eq!(crate::picker::staff_label(staves[2]), "chant");
+        app.props.selected = field_row(&app, Field::StaffAt(3));
+        keys(&mut app, "l");
+        let staves = app.buffer().score.tracks[0].staves();
+        assert_eq!(crate::picker::staff_label(staves[3]), "treble");
     }
 }

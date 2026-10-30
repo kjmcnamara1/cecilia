@@ -834,6 +834,9 @@ pub fn describe(command: &str) -> Option<&'static str> {
         "properties-step" => {
             "Properties pane: switch off (-1) / on (+1), or the previous / next choice"
         }
+        "properties-search" => "Properties pane: search the keys and values (or the lyrics text)",
+        "properties-search-next" => "Properties pane: jump to the next match of the / register",
+        "properties-search-prev" => "Properties pane: jump to the previous match of the / register",
         "properties-clear" => {
             "Properties pane: clear the selected text, lyrics or color, or remove the staff"
         }
