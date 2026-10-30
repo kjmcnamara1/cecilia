@@ -1829,7 +1829,7 @@ fn draw_pane(
             },
             "horizontal" => muse_engrave::Mode::Horizontal,
             _ => muse_engrave::Mode::Vertical {
-                width: (key.3 as f64 * 8.0).max(300.0),
+                width: (key.3 as f64 * 8.0).max(100.0),
             },
         };
         let options = Options {
