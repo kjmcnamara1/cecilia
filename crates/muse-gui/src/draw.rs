@@ -1515,7 +1515,7 @@ fn draw_tool_icon(
             }
             line(scene, &path(&[(5.0, 10.0), (11.0, 10.0)], false));
         }
-        "toolbar" | "layout" | "waveform" | "waveform-strip" => {
+        "toolbar" | "layout" | "waveform" => {
             line(scene, &rect(1.5, 2.5, 14.5, 13.5, 2.0));
             line(scene, &path(&[(1.5, 6.0), (14.5, 6.0)], false));
         }

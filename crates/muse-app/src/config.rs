@@ -385,7 +385,7 @@ const DEFAULT_NORMAL: &[(&str, &str)] = &[
     ("<leader>=", "speed-up"),
     ("<leader>l", "loop-toggle"),
     ("<leader>t", "sync-tap"),
-    ("<leader>w", "waveform-strip"),
+    ("<leader>w", "waveform"),
     ("<C-=>", "zoom-in"),
     ("<C-+>", "zoom-in"),
     ("<C-->", "zoom-out"),

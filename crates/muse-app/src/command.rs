@@ -658,7 +658,7 @@ impl Command {
             "sync-clear" => SyncClear,
             "sync-detect" => SyncDetect,
             "waveform-strip" => Waveform,
-            "waveform" | "audio-pane" | "progress-bar" => {
+            "waveform" | "progress-bar" => {
                 let on = match arg {
                     None | Some("toggle") => None,
                     Some("on" | "true" | "yes") => Some(true),

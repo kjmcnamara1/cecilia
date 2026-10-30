@@ -168,7 +168,7 @@ impl PaneKind {
         Some(match s {
             "score" => PaneKind::Score,
             "tracks" => PaneKind::Tracks,
-            "waveform" | "audio" => PaneKind::Audio,
+            "waveform" => PaneKind::Audio,
             "piano" => PaneKind::Piano,
             "fretboard" => PaneKind::Fretboard,
             "tuner" => PaneKind::Tuner,

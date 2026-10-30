@@ -35,7 +35,7 @@ Items marked _(M1)_ are implemented in the first milestone; the rest are the pla
 | `<leader>-` / `<leader>=`   | speed −5% / +5%                                                                                                                                                                                                         | _(M5)_ |
 | `<leader>a`                 | cycle mix: audio + MIDI / audio only / MIDI only                                                                                                                                                                        | _(M5)_ |
 | `<leader>t`                 | sync tap: place the next bar at the current audio time                                                                                                                                                                  | _(M5)_ |
-| `<leader>w`                 | show / hide the waveform strip of the focused pane (GUI) | _(M5)_ |
+| `<leader>w`                 | show / hide the waveform tool pane (`:waveform`) | _(M5)_ |
 | `<leader>v`                 | cycle the focused pane's score layout (vertical / page / horizontal); new splits and views copy it                                                                                                                      | _(M3)_ |
 | `<C-=>` / `<C-->` / `<C-0>` | zoom the focused pane in / out / reset (GUI); Ctrl+wheel zooms the pane under the mouse                                                                                                                                                                        | _(M3)_ |
 
