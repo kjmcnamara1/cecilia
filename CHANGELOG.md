@@ -14,6 +14,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- `close-pane` is now `pane-close`; `quit` (`:q`, `:qa`) exits muse instead of closing a pane; `write-quit` (`:wq`, `:x`) writes every changed score and quits.
 - The audio tool is now called the waveform tool.
 - Progress bar matches the Go Playalong look: paper background, solid black dividers, no bluish tint.
 - The pane _maximized_ indicator in the titlebar is an icon instead of "Z".
