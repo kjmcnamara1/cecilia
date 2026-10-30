@@ -1034,15 +1034,7 @@ pub fn build(
             scene.stroke(
                 &Stroke::new(2.0),
                 Affine::IDENTITY,
-                if app
-                    .panes
-                    .get(&id)
-                    .is_some_and(|p| p.kind == PaneKind::Properties)
-                {
-                    accent()
-                } else {
-                    tc(|t| t.mode_color(app.mode))
-                },
+                tc(|t| t.mode_color(app.mode)),
                 None,
                 &rect.to_rounded_rect(3.0),
             );
@@ -1715,8 +1707,9 @@ fn draw_pane(
         None,
         &RoundedRect::from_rect(rect, 6.0),
     );
+    // The focused pane is ringed in the mode's color, like the tool panes.
     let border = if focused {
-        accent()
+        tc(|t| t.mode_color(app.mode))
     } else {
         tc(|t| t.chrome.mix(t.chrome_text, 0.25))
     };

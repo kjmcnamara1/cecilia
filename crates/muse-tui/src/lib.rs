@@ -477,9 +477,7 @@ fn draw(f: &mut Frame, app: &mut App, play: Option<(usize, Location, f64, f64)>,
             continue;
         }
         let area = to_rect(r);
-        let style = if id == focused && kind == PaneKind::Properties {
-            Style::default().fg(rc(app.config.theme.accent))
-        } else if id == focused {
+        let style = if id == focused {
             Style::default().fg(rc(app.config.theme.mode_color(app.mode)))
         } else {
             Style::default().fg(rc(app.config.theme.dim))
@@ -545,7 +543,7 @@ fn draw(f: &mut Frame, app: &mut App, play: Option<(usize, Location, f64, f64)>,
             None => format!(" {} ", buffer.name),
         };
         let border_style = if id == focused {
-            Style::default().fg(rc(app.config.theme.accent))
+            Style::default().fg(rc(app.config.theme.mode_color(app.mode)))
         } else {
             Style::default().fg(rc(app.config.theme.dim))
         };
