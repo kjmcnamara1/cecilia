@@ -55,6 +55,8 @@ struct Ui {
     tracks_anchor: Option<(usize, usize)>,
     /// The tracks panel's area, and its header row (dragged to resize it).
     tracks_area: Option<Rect>,
+    /// Clickable areas of the properties pane.
+    props: Vec<(Rect, PropHit)>,
     /// A mouse drag in progress.
     drag: Option<Drag>,
     hits: Vec<Hit>,
@@ -163,6 +165,17 @@ fn event_loop(terminal: &mut DefaultTerminal, app: &mut App) -> Result<()> {
                     {
                         let (d, off) = divider_at(app, m.column, m.row).unwrap();
                         ui.drag = Some(Drag::Divider(d, off));
+                    }
+                    MouseEventKind::Down(MouseButton::Left)
+                        if ui.props.iter().any(|(r, _)| contains(*r, m.column, m.row)) =>
+                    {
+                        let hit = ui
+                            .props
+                            .iter()
+                            .find(|(r, _)| contains(*r, m.column, m.row))
+                            .map(|(_, h)| *h)
+                            .unwrap();
+                        click_properties(app, hit);
                     }
                     MouseEventKind::Down(MouseButton::Left)
                     | MouseEventKind::Drag(MouseButton::Left)
@@ -381,6 +394,7 @@ fn draw(f: &mut Frame, app: &mut App, play: Option<(usize, Location, f64, f64)>,
     .areas(f.area());
     ui.tracks.clear();
     ui.tracks_area = None;
+    ui.props.clear();
     if peek_h > 0 {
         draw_tracks(f, app, peek, play, ui);
     }
@@ -425,6 +439,7 @@ fn draw(f: &mut Frame, app: &mut App, play: Option<(usize, Location, f64, f64)>,
         let instrument = app.instrument_view(play.map(|(b, loc, ..)| (b, loc.bar, loc.tick)));
         match kind {
             PaneKind::Tracks => draw_tracks(f, app, inner, play, ui),
+            PaneKind::Properties => draw_properties(f, app, inner, ui),
             PaneKind::Tuner => draw_tuner(f, app, inner),
             PaneKind::Fretboard | PaneKind::Piano => match &instrument {
                 Some(v) if kind == PaneKind::Fretboard => draw_fretboard(f, app, v, inner, ui),
@@ -1295,6 +1310,152 @@ fn draw_audio(f: &mut Frame, app: &App, area: Rect, ui: &Ui) {
     }
 }
 
+#[derive(Clone, Copy)]
+enum PropHit {
+    Tab(muse_app::properties::PropTab),
+    Row(usize),
+}
+
+fn click_properties(app: &mut App, hit: PropHit) {
+    if let Some(id) = app.tool_pane(PaneKind::Properties) {
+        app.set_focus(id);
+    }
+    match hit {
+        PropHit::Tab(t) => app.set_property_tab(t),
+        // A click selects a property; another on the selected one edits it.
+        PropHit::Row(i) => {
+            if i == app.property_selected() && app.props.edit.is_none() {
+                app.edit_property();
+            } else {
+                app.select_property(i);
+            }
+        }
+    }
+}
+
+/// `text` cut to `width` cells, ending in an ellipsis when it is longer.
+fn clip(text: &str, width: usize) -> String {
+    if text.chars().count() <= width {
+        return text.to_string();
+    }
+    let mut out: String = text.chars().take(width.saturating_sub(1)).collect();
+    out.push('…');
+    out
+}
+
+/// The properties pane: its tabs, then the shown tab's rows (sections, then label and value).
+fn draw_properties(f: &mut Frame, app: &App, area: Rect, ui: &mut Ui) {
+    use muse_app::properties::{PropTab, RowKind};
+    let t = app.config.theme.clone();
+    let focused = app.focused_kind() == PaneKind::Properties;
+    let base = Style::default().bg(rc(t.panel)).fg(rc(t.chrome_text));
+    let dim = Style::default().fg(rc(t.dim)).bg(rc(t.panel));
+    f.render_widget(Paragraph::new("").style(base), area);
+    if area.height < 2 || area.width < 8 {
+        return;
+    }
+    let buf = f.buffer_mut();
+    // Tabs.
+    let mut x = area.x;
+    for tab in PropTab::ALL {
+        let label = format!(" {} ", tab.name());
+        let w = label.chars().count() as u16;
+        let style = if tab == app.props.tab {
+            on(app, if focused { t.mode_tracks } else { t.accent })
+        } else {
+            Style::default().fg(rc(t.dim)).bg(rc(t.tab))
+        };
+        buf.set_string(x, area.y, &label, style);
+        ui.props.push((
+            Rect {
+                x,
+                y: area.y,
+                width: w,
+                height: 1,
+            },
+            PropHit::Tab(tab),
+        ));
+        x += w + 1;
+    }
+    let rows = app.property_rows();
+    let visible = (area.height - 1) as usize;
+    let first = app.property_window(visible);
+    let selected = app.property_selected();
+    let label_w = 14usize.min(area.width as usize / 2);
+    let value_w = (area.width as usize).saturating_sub(label_w + 1);
+    for (k, row) in rows.iter().enumerate().skip(first).take(visible) {
+        let y = area.y + 1 + (k - first) as u16;
+        let sel = k == selected;
+        let style = match (sel, focused) {
+            (true, true) => on(app, t.mode_tracks),
+            (true, false) => Style::default().bg(rc(t.tab)).fg(rc(t.chrome_text)),
+            _ => base,
+        };
+        buf.set_style(
+            Rect {
+                x: area.x,
+                y,
+                width: area.width,
+                height: 1,
+            },
+            style,
+        );
+        match &row.kind {
+            RowKind::Header { folded, .. } => {
+                let mark = if *folded { '▸' } else { '▾' };
+                buf.set_string(
+                    area.x,
+                    y,
+                    clip(&format!("{mark} {}", row.label), area.width as usize),
+                    style.add_modifier(Modifier::BOLD),
+                );
+            }
+            RowKind::Note => buf.set_string(
+                area.x,
+                y,
+                clip(&row.label, area.width as usize),
+                if sel { style } else { dim },
+            ),
+            RowKind::Field { field, editable } => {
+                buf.set_string(
+                    area.x + 1,
+                    y,
+                    clip(&row.label, label_w.saturating_sub(1)),
+                    if sel || *editable { style } else { style.fg(rc(t.dim)) },
+                );
+                let typing = app.props.edit.as_ref().filter(|e| e.field == *field);
+                let value = match typing {
+                    Some(e) => {
+                        // The tail of the text stays in view, with the caret after it.
+                        let chars: Vec<char> = e.text.chars().collect();
+                        let keep = value_w.saturating_sub(1);
+                        let tail: String = chars[chars.len().saturating_sub(keep)..].iter().collect();
+                        format!("{tail}▏")
+                    }
+                    None => clip(&row.value, value_w),
+                };
+                let vstyle = if typing.is_some() {
+                    Style::default().fg(rc(t.chrome_text)).bg(rc(t.tab))
+                } else if *editable {
+                    style
+                } else {
+                    style.fg(rc(t.dim))
+                };
+                buf.set_string(area.x + label_w as u16 + 1, y, value, vstyle);
+            }
+        }
+        ui.props.push((
+            Rect {
+                x: area.x,
+                y,
+                width: area.width,
+                height: 1,
+            },
+            PropHit::Row(k),
+        ));
+    }
+}
+
 /// The tracks panel: per track its number, volume, solo, mute, name and instrument, then a
 /// cell per bar (coloured where it has notes) with the edit cursor and the playhead.
 fn draw_tracks(
@@ -1758,7 +1919,7 @@ fn draw_cmdline(f: &mut Frame, app: &App, area: Rect) {
     match app.mode {
         // Typed in the command palette.
         Mode::Command | Mode::Picker => {}
-        Mode::Normal | Mode::Insert | Mode::Visual | Mode::Tracks => {
+        Mode::Normal | Mode::Insert | Mode::Visual | Mode::Tracks | Mode::Properties => {
             if let Some(m) = &app.message {
                 let style = if m.error {
                     Style::default().fg(Color::Red)
@@ -1989,6 +2150,40 @@ mod render_tests {
     }
 
     #[test]
+    fn the_properties_pane_shows_rows_and_takes_clicks() {
+        let mut app = App::new(muse_app::Config::default(), None);
+        app.run(muse_app::Command::New);
+        let mut terminal = Terminal::new(TestBackend::new(100, 30)).unwrap();
+        let mut ui = Ui::default();
+        terminal.draw(|f| draw(f, &mut app, None, &mut ui)).unwrap();
+        let screen = render(&mut app, 100, 30);
+        assert!(screen.contains("properties"), "{screen}");
+        assert!(screen.contains("score") && screen.contains("lyrics"), "{screen}");
+        assert!(screen.contains("▾ Info") && screen.contains("Title"), "{screen}");
+        assert!(screen.contains("Tempo") && screen.contains("Width (mm)"), "{screen}");
+        // Clicking the tracks tab shows the cursor track's properties.
+        let tab = ui
+            .props
+            .iter()
+            .find_map(|(_, h)| match h {
+                PropHit::Tab(t) if *t == muse_app::properties::PropTab::Tracks => Some(*h),
+                _ => None,
+            })
+            .unwrap();
+        click_properties(&mut app, tab);
+        let screen = render(&mut app, 100, 30);
+        assert!(screen.contains("Instrument") && screen.contains("Tuning"), "{screen}");
+        assert_eq!(app.focused_kind(), PaneKind::Properties);
+        // A click on a row selects it; another edits it.
+        click_properties(&mut app, PropHit::Row(2));
+        assert_eq!(app.property_selected(), 2);
+        click_properties(&mut app, PropHit::Row(2));
+        assert!(app.props.edit.is_some());
+        let screen = render(&mut app, 100, 30);
+        assert!(screen.contains('▏'), "{screen}");
+    }
+
+    #[test]
     fn the_status_line_has_lualine_sections() {
         let mut app = App::new(muse_app::Config::default(), None);
         app.run(muse_app::Command::New);
@@ -2167,6 +2362,7 @@ mod render_tests {
             muse_formats::gabc::parse("name: t;\n%%\n(c4) Al(fg)le(h.) lu(ixi)ia.(f) (::)\n")
                 .unwrap();
         let mut app = App::new(muse_app::Config::default(), None);
+        app.set_tool(PaneKind::Properties, Some(false));
         app.buffers[0].score = muse_formats::gabc::chant_score(chant);
         let screen = render(&mut app, 60, 24);
         assert!(screen.contains("Al- le lu- ia."), "{screen}");
