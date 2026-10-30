@@ -87,7 +87,8 @@ struct Geometry {
     content: Rect,
     scale: f64,
     scroll: (f64, f64),
-    bar: Option<ScrollBar>,
+    /// The vertical and horizontal scrollbars, where the score scrolls that way.
+    bars: [Option<ScrollBar>; 2],
 }
 
 /// A pane's scrollbar: its track and thumb, and how far the view can scroll (points).
@@ -196,8 +197,8 @@ enum Drag {
     Wave(f64, u16),
     /// A buffer tab: its position now, and where the press was (it moves past a few pixels).
     Tab(usize, f64),
-    /// A pane's scrollbar thumb, held this far (pixels) from its start.
-    Scrollbar(PaneId, f64),
+    /// A pane's scrollbar thumb (horizontal or vertical), held this far (pixels) from its start.
+    Scrollbar(PaneId, bool, f64),
 }
 
 /// The pointer shape over something draggable.
@@ -1785,17 +1786,24 @@ fn draw_pane(
 
     // Layout for this pane's width, mode and track (cached).
     let mode_name = mode_tag(&pane);
-    // The scrollbar's gutter: the score lays out and draws beside it, never under it.
-    let gutter = app.scrollbar.then(|| {
-        if mode_name == "horizontal" {
-            let r = Rect::new(content.x0, content.y1 - SCROLLBAR, content.x1, content.y1);
-            content.y1 -= SCROLLBAR;
-            r
-        } else {
-            let r = Rect::new(content.x1 - SCROLLBAR, content.y0, content.x1, content.y1);
-            content.x1 -= SCROLLBAR;
-            r
-        }
+    // The scrollbars' gutters (right and bottom): the score lays out and draws beside them,
+    // never under them.
+    let gutters = app.scrollbar.then(|| {
+        let right = Rect::new(
+            content.x1 - SCROLLBAR,
+            content.y0,
+            content.x1,
+            content.y1 - SCROLLBAR,
+        );
+        let bottom = Rect::new(
+            content.x0,
+            content.y1 - SCROLLBAR,
+            content.x1 - SCROLLBAR,
+            content.y1,
+        );
+        content.x1 -= SCROLLBAR;
+        content.y1 -= SCROLLBAR;
+        (right, bottom)
     });
     // Pages fit the pane's width; zoom is relative to that.
     let scale = if mode_name == "page" {
@@ -1906,21 +1914,28 @@ fn draw_pane(
     }
     let total_h = cached.offsets.last().copied().unwrap_or(0.0)
         + cached.layout.pages.last().map_or(0.0, |p| p.height);
-    scroll.1 = scroll.1.clamp(0.0, (total_h - view_h * 0.5).max(0.0));
-    // Scores scroll only along their flow: down the vertical and page layouts, across the
-    // horizontal one.
-    if mode_name == "horizontal" {
-        scroll.1 = 0.0;
+    let total_w = cached
+        .layout
+        .pages
+        .iter()
+        .map(|p| p.width)
+        .fold(0.0, f64::max);
+    // The score may scroll past its end along its flow (down the vertical and page layouts,
+    // across the horizontal one), by half a view; the other way only as far as it extends.
+    let (max_x, max_y) = if mode_name == "horizontal" {
+        (total_w - view_w * 0.5, total_h - view_h)
     } else {
-        scroll.0 = 0.0;
-    }
+        (total_w - view_w, total_h - view_h * 0.5)
+    };
+    scroll.0 = scroll.0.clamp(0.0, max_x.max(0.0));
+    scroll.1 = scroll.1.clamp(0.0, max_y.max(0.0));
     views.scroll.insert(id, scroll);
     views.geometry.push(Geometry {
         pane: id,
         content,
         scale,
         scroll,
-        bar: None,
+        bars: [None, None],
     });
 
     // Pages.
@@ -2063,30 +2078,26 @@ fn draw_pane(
         );
     }
     scene.pop_layer();
-    // Scrollbar: the thumb is the visible part of the score's extent along its flow, tinted
-    // lightly from the ground it sits on.
-    let mut bar = None;
-    if let Some(gutter) = gutter {
-        let horizontal = mode_name == "horizontal";
-        let (total, view, pos, len) = if horizontal {
-            let w = cached
-                .layout
-                .pages
-                .iter()
-                .map(|p| p.width)
-                .fold(0.0, f64::max);
-            (w, view_w, scroll.0, content.width())
-        } else {
-            (total_h, view_h, scroll.1, content.height())
-        };
+    // Scrollbars, for each direction the score scrolls: the thumb is the visible part of its
+    // extent, tinted lightly from the ground it sits on.
+    let mut bars = [None, None];
+    if let Some((right, bottom)) = gutters {
         let t = &app.config.theme;
         let (ground, ink) = if mode_name == "page" {
             (t.chrome, t.chrome_text)
         } else {
             (t.page, t.ink)
         };
-        fill(scene, gutter, col(ground));
-        if total > view {
+        fill(scene, right, col(ground));
+        fill(scene, bottom, col(ground));
+        let axes = [
+            (right, false, total_h, view_h, scroll.1, content.height()),
+            (bottom, true, total_w, view_w, scroll.0, content.width()),
+        ];
+        for (i, (gutter, horizontal, total, view, pos, len)) in axes.into_iter().enumerate() {
+            if total <= view {
+                continue;
+            }
             let size = (len * view / total).clamp(24.0_f64.min(len), len);
             let at = (len - size) * (pos / (total - view)).clamp(0.0, 1.0);
             let inset = 2.0;
@@ -2105,7 +2116,7 @@ fn draw_pane(
             };
             fill(scene, track, col(ground.mix(ink, 0.06)));
             fill(scene, thumb, col(ground.mix(ink, 0.28)));
-            bar = Some(ScrollBar {
+            bars[i] = Some(ScrollBar {
                 track,
                 thumb,
                 horizontal,
@@ -2114,7 +2125,7 @@ fn draw_pane(
         }
     }
     if let Some(g) = views.geometry.last_mut() {
-        g.bar = bar;
+        g.bars = bars;
     }
     if let (Some(strip), Some(pb)) = (waveform, playback) {
         views.edges.push((
@@ -3454,7 +3465,9 @@ impl Views {
                     muse_app::command::Amount::To(h.max(0.0).round() as u32),
                 ));
             }
-            Some(Drag::Scrollbar(pane, grab)) => self.scrollbar_to(pane, grab, x, y),
+            Some(Drag::Scrollbar(pane, horizontal, grab)) => {
+                self.scrollbar_to(pane, horizontal, grab, x, y)
+            }
             None => return false,
         }
         true
@@ -3462,12 +3475,12 @@ impl Views {
 
     /// Scrolls a pane to where a scrollbar drag has its thumb, held `grab` pixels from the
     /// thumb's start.
-    fn scrollbar_to(&mut self, pane: PaneId, grab: f64, x: f64, y: f64) {
+    fn scrollbar_to(&mut self, pane: PaneId, horizontal: bool, grab: f64, x: f64, y: f64) {
         let Some(bar) = self
             .geometry
             .iter()
             .find(|g| g.pane == pane)
-            .and_then(|g| g.bar)
+            .and_then(|g| g.bars[usize::from(horizontal)])
         else {
             return;
         };
@@ -3578,7 +3591,7 @@ impl Views {
         }
         // A click on a scrollbar grabs its thumb (or jumps it under the pointer).
         let grabbed = self.geometry.iter().find_map(|g| {
-            let bar = g.bar.filter(|b| b.track.contains((x, y)))?;
+            let bar = g.bars.iter().flatten().find(|b| b.track.contains((x, y)))?;
             let (pos, start, size) = if bar.horizontal {
                 (x, bar.thumb.x0, bar.thumb.width())
             } else {
@@ -3587,6 +3600,7 @@ impl Views {
             let held = pos - start;
             Some((
                 g.pane,
+                bar.horizontal,
                 if (0.0..=size).contains(&held) {
                     held
                 } else {
@@ -3594,10 +3608,10 @@ impl Views {
                 },
             ))
         });
-        if let Some((pane, grab)) = grabbed {
+        if let Some((pane, horizontal, grab)) = grabbed {
             app.set_focus(pane);
-            self.drag = Some(Drag::Scrollbar(pane, grab));
-            self.scrollbar_to(pane, grab, x, y);
+            self.drag = Some(Drag::Scrollbar(pane, horizontal, grab));
+            self.scrollbar_to(pane, horizontal, grab, x, y);
             return;
         }
         let now = std::time::Instant::now();
@@ -3704,7 +3718,10 @@ impl Views {
         self.locate(x, y).map(|(g, _, _)| g.pane)
     }
 
-    pub fn scroll(&mut self, app: &App, x: f64, y: f64, dx: f64, dy: f64) {
+    /// Wheel over a score: down scrolls down and sideways scrolls across, except in the
+    /// horizontal layout, where the wheel runs along the score and Shift scrolls down. (The
+    /// draw clamps to what the score extends.)
+    pub fn scroll(&mut self, app: &App, x: f64, y: f64, dx: f64, dy: f64, shift: bool) {
         let Some((g, _, _)) = self.locate(x, y) else {
             return;
         };
@@ -3713,12 +3730,16 @@ impl Views {
             .get(&g.pane)
             .is_some_and(|p| p.layout == "horizontal");
         let entry = self.scroll.entry(g.pane).or_insert((0.0, 0.0));
-        // Both wheels scroll along the score's flow (the only way it scrolls).
-        if horizontal {
-            entry.0 = (entry.0 + (dy + dx) / g.scale).max(0.0);
+        let (dx, dy) = (dx / g.scale, dy / g.scale);
+        let (mx, my) = if !horizontal {
+            (dx, dy)
+        } else if shift {
+            (0.0, dx + dy)
         } else {
-            entry.1 = (entry.1 + (dy + dx) / g.scale).max(0.0);
-        }
+            (dx + dy, 0.0)
+        };
+        entry.0 = (entry.0 + mx).max(0.0);
+        entry.1 = (entry.1 + my).max(0.0);
     }
 }
 
