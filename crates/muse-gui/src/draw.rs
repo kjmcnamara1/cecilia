@@ -702,13 +702,15 @@ fn draw_progress(
             scene.pop_layer();
         }
     }
-    fill(scene, Rect::new(r.x0, r.y1 - 1.0, r.x1, r.y1), col(ink));
-    // Solid black lines between the sections and at both ends.
+    // A thin gray border along the top, and the same lines between the sections.
+    let line = col(ground.mix(ink, 0.35));
+    fill(scene, Rect::new(r.x0, r.y0, r.x1, r.y0 + 1.0), line);
+    // Between the sections and at both ends.
     let mut edges: Vec<f64> = p.sections.iter().map(|s| s.start).collect();
     edges.push(1.0);
     for f in edges {
         let x = x_at(f).clamp(bar.x0 + 0.5, bar.x1 - 0.5);
-        fill(scene, Rect::new(x - 0.75, bar.y0, x + 0.75, bar.y1), col(ink));
+        fill(scene, Rect::new(x - 0.5, bar.y0, x + 0.5, bar.y1), line);
     }
     // The position: see-through, so the section under it stays readable.
     let x = x_at(p.at);

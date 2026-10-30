@@ -90,6 +90,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
     workspace by default
   - can still start "muse --workspace NAME" to open a window in
     a new/different workspace
+- [ ] FIX: ctrl-d/u should move the cursor vertically half a _screen_, not by
+      bars.
+  - Horizontal layout: total bars displayed on screen divided by 2.
+  - Vertical and Page layout:
+    - no horizontal movement of cursor
+    - cursor stays on same line of staff
+    - cursor jumps to [# of displayed combo staves] / 2. round up. minimum 1.
+      - so if there are 3 combined staves displayed in the pane, move the
+        cursor vertically down by 2 staves.
 
 ### TUI
 
