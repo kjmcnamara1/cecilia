@@ -29,6 +29,9 @@ Planned work. Finished items move to `CHANGELOG.md` under `[Unreleased]`.
 
 - [ ] TODO: Deep dive on editing workflow
 - [ ] Editing toolbar
+- [ ] Auto save editing progress in a swap file (similar to neovim swap files)
+      to recover from a crash or if app is force closed without saving.
+  - swap directory should be a setting (default=~/.local/state/muse/swap)
 
 ### Keymaps
 
@@ -72,6 +75,8 @@ Planned work. Finished items move to `CHANGELOG.md` under `[Unreleased]`.
   - values for width/height can be fixed or dynamic (%)
   - :resize-default will set current w/h of the focused pane back to the default values
   - auto-resize should essentially run :resize-equal after opening or closing panes
+- [ ] When closing a buffer with unsaved changes, prompt whether to save it or
+      not first. don't just deny.
 
 ### TUI
 
