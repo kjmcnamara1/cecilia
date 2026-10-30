@@ -719,8 +719,8 @@ fn draw_progress(
     let x = x_at(p.at);
     fill(
         scene,
-        Rect::new(x - 1.5, r.y0, x + 1.5, r.y1),
-        col(theme.playhead.with_alpha(110)),
+        Rect::new(x - 2.5, r.y0, x + 2.5, r.y1),
+        col(theme.playhead.with_alpha(180)),
     );
 }
 
