@@ -1421,7 +1421,11 @@ fn draw_properties(f: &mut Frame, app: &App, area: Rect, ui: &mut Ui) {
                     area.x + 1,
                     y,
                     clip(&row.label, label_w.saturating_sub(1)),
-                    if sel || *editable { style } else { style.fg(rc(t.dim)) },
+                    if sel || *editable {
+                        style
+                    } else {
+                        style.fg(rc(t.dim))
+                    },
                 );
                 let typing = app.props.edit.as_ref().filter(|e| e.field == *field);
                 let value = match typing {
@@ -1429,7 +1433,8 @@ fn draw_properties(f: &mut Frame, app: &App, area: Rect, ui: &mut Ui) {
                         // The tail of the text stays in view, with the caret after it.
                         let chars: Vec<char> = e.text.chars().collect();
                         let keep = value_w.saturating_sub(1);
-                        let tail: String = chars[chars.len().saturating_sub(keep)..].iter().collect();
+                        let tail: String =
+                            chars[chars.len().saturating_sub(keep)..].iter().collect();
                         format!("{tail}▏")
                     }
                     None => clip(&row.value, value_w),
@@ -2158,9 +2163,18 @@ mod render_tests {
         terminal.draw(|f| draw(f, &mut app, None, &mut ui)).unwrap();
         let screen = render(&mut app, 100, 30);
         assert!(screen.contains("properties"), "{screen}");
-        assert!(screen.contains("score") && screen.contains("lyrics"), "{screen}");
-        assert!(screen.contains("▾ Info") && screen.contains("Title"), "{screen}");
-        assert!(screen.contains("Tempo") && screen.contains("Width (mm)"), "{screen}");
+        assert!(
+            screen.contains("score") && screen.contains("lyrics"),
+            "{screen}"
+        );
+        assert!(
+            screen.contains("▾ Info") && screen.contains("Title"),
+            "{screen}"
+        );
+        assert!(
+            screen.contains("Tempo") && screen.contains("Width (mm)"),
+            "{screen}"
+        );
         // Clicking the tracks tab shows the cursor track's properties.
         let tab = ui
             .props
@@ -2172,7 +2186,10 @@ mod render_tests {
             .unwrap();
         click_properties(&mut app, tab);
         let screen = render(&mut app, 100, 30);
-        assert!(screen.contains("Instrument") && screen.contains("Tuning"), "{screen}");
+        assert!(
+            screen.contains("Instrument") && screen.contains("Tuning"),
+            "{screen}"
+        );
         assert_eq!(app.focused_kind(), PaneKind::Properties);
         // A click on a row selects it; another edits it.
         click_properties(&mut app, PropHit::Row(2));

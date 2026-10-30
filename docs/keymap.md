@@ -249,6 +249,43 @@ mode; while the pane has the focus its keys are `[keymap.tracks]`, then the usua
 | `:track-color #rrggbb` / `:track-color off` / `:track-color` | the track's colour (saved in `.muse` files) / back to the theme's / the next palette colour |
 | `:mute [n\|audio\|master]` / `:solo [n\|audio\|master]` | toggle mute / solo of track n (default: the cursor's), the audio track, or the synth master. A row is soloed, muted or neither: turning one on turns the other off. With any row soloed only soloed rows play; a muted row is silent. The master's mute is on when every synth track is muted (it mutes or unmutes them all); its solo is on when any synth track is soloed (it solos them all, or clears their solos) |
 
+## Properties pane
+
+`<leader>p` shows or hides the properties pane, docked full height along the right of the
+window (`ui.properties` shows it from the start; workspaces remember it and its tab). It has
+three tabs, drawn as rows of label and value, in sections that fold:
+
+- **score** — *Info* (title, subtitle, artist, album, words, music, copyright, tab author,
+  instructions), *Tempo* (the initial tempo and the pickup bar) and *Page* (page size, margins
+  and scale, as Guitar Pro 5 files keep them; muse doesn't print with them yet).
+- **tracks** — the track under the score cursor (`n`/`p` change it): *Info* (name, kind, colour),
+  *Notation* (tuning, frets, capo, the track's staves and the cursor's staff) and *Sound*
+  (instrument, MIDI channel, bank, volume, pan, mute, solo).
+- **lyrics** — one row per verse of the cursor track, as Guitar Pro lyric text (syllables split
+  by spaces and hyphens, one per note); `+ Verse` adds one at the cursor's bar.
+
+Every edit is an ordinary, undoable score edit. `<leader>P` focuses the pane (again: back to the
+score pane). It stays Normal mode; while the pane has the focus its keys are
+`[keymap.properties]`, then the usual ones:
+
+| keys | command |
+| --- | --- |
+| `j` `k` / `<Down>` `<Up>` | select the next / previous property |
+| `l` `<Tab>` / `h` `<S-Tab>`, `1` `2` `3` | next / previous tab, the score / tracks / lyrics tab |
+| `<CR>` `i` `a` | edit the property: type, `<CR>` keeps it, `<Esc>` drops it, `<C-u>` clears the text. Toggles (pickup bar, mute, solo) flip; the instrument opens its picker; a section header folds |
+| `za` | fold / unfold the section |
+| `x` | clear the verse or the track's own colour, or remove the cursor's staff |
+| `n` `p` | next / previous track |
+| `<Esc>` `q` | back to the score pane |
+| `<leader><leader>` `<leader>s` `<leader>f` `:` | play/pause, stop, follow, command line |
+
+Clicking a tab shows it, a row selects it and a second click on the selected row edits it.
+
+| command | |
+| --- | --- |
+| `:properties [on\|off]` / `:properties-focus` | show or hide the pane / focus it |
+| `:properties-tab [score\|tracks\|lyrics]` | show a tab (none: the next) |
+
 ## Playing
 
 Playing is not a mode: Normal, Visual, Insert and the command line all keep working while a

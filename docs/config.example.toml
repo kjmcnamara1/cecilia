@@ -12,6 +12,7 @@ completion_ignore_case = true   # Tab completion on the command line ignores let
 completion_fuzzy = true         # …and matches the typed letters in order anywhere ("sd" → sync-detect)
 progress_bar = true      # sections, play position and time along the bottom of score panes
 tracks_panel = false     # start with the tracks pane (mixer and bar overview) docked at the bottom
+properties = true        # the properties pane (score, tracks, lyrics) along the right (<leader>p)
 toolbar = true           # the toolbar of common commands at the top of the window (:toolbar, <leader>B)
 fretboard = false        # start with a fretboard pane: the notes at the cursor or playhead (<leader>F)
 piano = false            # piano keys likewise (<leader>K)
@@ -104,6 +105,10 @@ clef = "treble"          # clef of a standard staff added without one: treble, b
 [keymap.tracks]
 # Keys while the tracks panel has the focus (<C-w>t).
 # "x" = "mute"
+
+[keymap.properties]
+# Keys while the properties pane has the focus (<leader>P).
+# "d" = "properties-clear"
 
 [keymap.command]
 # "<C-p>" = "normal"

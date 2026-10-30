@@ -394,7 +394,11 @@ impl App {
     pub fn set_property_tab(&mut self, tab: PropTab) {
         if self.props.tab != tab {
             self.props.tab = tab;
-            self.props.selected = 0;
+            self.props.selected = self
+                .property_rows()
+                .iter()
+                .position(|r| r.kind != RowKind::Note)
+                .unwrap_or(0);
             self.props.scroll.set(0);
             self.props.edit = None;
         }
@@ -405,6 +409,9 @@ impl App {
         self.props.edit = None;
         let rows = self.property_rows();
         if row >= rows.len() {
+            return;
+        }
+        if rows[row].kind == RowKind::Note {
             return;
         }
         self.props.selected = row;
@@ -723,12 +730,25 @@ impl App {
                 }
             }
             PropertiesDown | PropertiesUp => {
-                let n = self.property_rows().len();
-                let sel = self.property_selected();
-                self.props.selected = if matches!(cmd, PropertiesDown) {
-                    (sel + 1).min(n.saturating_sub(1))
+                // Notes (no property) are skipped.
+                let rows = self.property_rows();
+                let mut i = self.property_selected();
+                let down = matches!(cmd, PropertiesDown);
+                loop {
+                    let next = if down { i + 1 } else { i.wrapping_sub(1) };
+                    match rows.get(next) {
+                        None => break,
+                        Some(r) if r.kind == RowKind::Note => i = next,
+                        Some(_) => {
+                            i = next;
+                            break;
+                        }
+                    }
+                }
+                self.props.selected = if rows.get(i).is_some_and(|r| r.kind == RowKind::Note) {
+                    self.property_selected()
                 } else {
-                    sel.saturating_sub(1)
+                    i
                 };
             }
             PropertiesTab(Some(tab)) => self.set_property_tab(*tab),
@@ -911,6 +931,13 @@ mod tests {
     fn track_properties_follow_the_cursor_track() {
         let mut app = with_props();
         app.set_property_tab(PropTab::Tracks);
+        assert!(
+            !matches!(
+                app.property_rows()[app.property_selected()].kind,
+                RowKind::Note
+            ),
+            "the selection skips the track note"
+        );
         type_into(&mut app, Field::TrackName, "Lead");
         assert_eq!(app.buffer().score.tracks[0].name, "Lead");
         type_into(&mut app, Field::Capo, "2");

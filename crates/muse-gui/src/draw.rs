@@ -126,6 +126,8 @@ pub struct Views {
     tracks_anchor: Option<(usize, usize)>,
     /// The tracks panel's area drawn last frame.
     tracks_rect: Option<Rect>,
+    /// Clickable areas of the properties pane drawn last frame.
+    props: Vec<(Rect, PropHit)>,
     /// Tool panes on screen: clicking one focuses it.
     tool_rects: Vec<(Rect, PaneId)>,
     /// Score panes' progress bars: clicking one moves the cursor to that bar.
@@ -193,6 +195,13 @@ pub enum Pointer {
     ResizeColumns,
     /// Drag up and down.
     ResizeRows,
+}
+
+/// What a click on the properties pane does.
+#[derive(Debug, Clone, Copy, PartialEq)]
+enum PropHit {
+    Tab(muse_app::properties::PropTab),
+    Row(usize),
 }
 
 /// What a click on the tracks panel does.
@@ -892,6 +901,7 @@ pub fn build(
     views.frets.clear();
     views.keys.clear();
     views.tracks.clear();
+    views.props.clear();
     views.edges.clear();
     views.wave_rects.clear();
     views.tracks_rect = None;
@@ -1009,6 +1019,7 @@ pub fn build(
                 }
             },
             PaneKind::Tuner => draw_tuner(scene, app, rect),
+            PaneKind::Properties => draw_properties(scene, app, views, rect),
             PaneKind::Score => {}
         }
         app.views[active].score = view_score;
@@ -2420,7 +2431,7 @@ fn draw_command_line(scene: &mut Scene, app: &App, width: f64, height: f64) {
     match app.mode {
         // Typed in the command palette.
         Mode::Command | Mode::Picker => {}
-        Mode::Normal | Mode::Insert | Mode::Visual | Mode::Tracks => {
+        Mode::Normal | Mode::Insert | Mode::Visual | Mode::Tracks | Mode::Properties => {
             if let Some(m) = &app.message {
                 let c = if m.error {
                     tc(|t| t.error)
@@ -2640,6 +2651,143 @@ fn draw_speedometer(scene: &mut Scene, x: f64, cy: f64, color: Color) {
 
 /// The tuner: the note heard (big), a cents scale with a needle (green when in tune), the
 /// frequency, and the nearest string of the track's tuning.
+/// The properties pane: its tabs, then the shown tab's rows (sections, then label and value).
+fn draw_properties(scene: &mut Scene, app: &App, views: &mut Views, r: Rect) {
+    use muse_app::properties::{PropTab, RowKind};
+    let th = &app.config.theme;
+    let focused = app.focused_kind() == PaneKind::Properties;
+    fill(scene, r, col(th.panel));
+    // Tabs.
+    let mut x = r.x0 + 6.0;
+    for tab in PropTab::ALL {
+        let label = tab.name();
+        let w = label.chars().count() as f64 * 7.5 + 16.0;
+        let b = Rect::new(x, r.y0 + 3.0, x + w, r.y0 + TRACK_HEAD + 3.0);
+        let current = tab == app.props.tab;
+        if current {
+            let bg = col(if focused { th.mode_tracks } else { th.accent });
+            scene.fill(
+                Fill::NonZero,
+                Affine::IDENTITY,
+                bg,
+                None,
+                &b.to_rounded_rect(4.0),
+            );
+        }
+        let c = if current {
+            text_on(col(if focused { th.mode_tracks } else { th.accent }))
+        } else {
+            dim()
+        };
+        text(
+            scene,
+            label,
+            x + w / 2.0,
+            b.y0 + 14.0,
+            12.0,
+            Align::Center,
+            c,
+            current,
+        );
+        views.props.push((b, PropHit::Tab(tab)));
+        x += w + 4.0;
+    }
+    let top = r.y0 + TRACK_HEAD + 8.0;
+    let rows = app.property_rows();
+    let visible = (((r.y1 - top) / TRACK_ROW).floor().max(1.0)) as usize;
+    let first = app.property_window(visible);
+    let selected = app.property_selected();
+    let label_w = 120.0;
+    // Characters of a value that fit, at about 7 px each.
+    let fit = (((r.width() - label_w - 14.0) / 7.0).floor().max(1.0)) as usize;
+    for (k, row) in rows.iter().enumerate().skip(first).take(visible) {
+        let y0 = top + (k - first) as f64 * TRACK_ROW;
+        let b = Rect::new(r.x0, y0, r.x1, y0 + TRACK_ROW);
+        let cy = y0 + 14.0;
+        if k == selected {
+            let bg = if focused { th.mode_tracks } else { th.tab };
+            fill(scene, b, col(bg.with_alpha(if focused { 70 } else { 255 })));
+        }
+        match &row.kind {
+            RowKind::Header { folded, .. } => {
+                let mark = if *folded { "▸" } else { "▾" };
+                text(
+                    scene,
+                    &format!("{mark} {}", row.label),
+                    r.x0 + 8.0,
+                    cy,
+                    13.0,
+                    Align::Left,
+                    chrome_text(),
+                    true,
+                );
+            }
+            RowKind::Note => text(
+                scene,
+                &row.label,
+                r.x0 + 8.0,
+                cy,
+                12.0,
+                Align::Left,
+                dim(),
+                false,
+            ),
+            RowKind::Field { field, editable } => {
+                let c = if *editable { chrome_text() } else { dim() };
+                text(
+                    scene,
+                    &row.label,
+                    r.x0 + 18.0,
+                    cy,
+                    12.0,
+                    Align::Left,
+                    dim(),
+                    false,
+                );
+                let x = r.x0 + label_w + 8.0;
+                match app.props.edit.as_ref().filter(|e| e.field == *field) {
+                    Some(e) => {
+                        let chars: Vec<char> = e.text.chars().collect();
+                        let tail: String = chars[chars.len().saturating_sub(fit - 1)..]
+                            .iter()
+                            .collect();
+                        let field_box =
+                            Rect::new(x - 4.0, y0 + 2.0, r.x1 - 6.0, y0 + TRACK_ROW - 2.0);
+                        scene.fill(
+                            Fill::NonZero,
+                            Affine::IDENTITY,
+                            col(th.tab),
+                            None,
+                            &field_box.to_rounded_rect(3.0),
+                        );
+                        text(
+                            scene,
+                            &format!("{tail}▏"),
+                            x,
+                            cy,
+                            13.0,
+                            Align::Left,
+                            chrome_text(),
+                            false,
+                        );
+                    }
+                    None => {
+                        let shown: String = if row.value.chars().count() > fit {
+                            let mut v: String = row.value.chars().take(fit - 1).collect();
+                            v.push('…');
+                            v
+                        } else {
+                            row.value.clone()
+                        };
+                        text(scene, &shown, x, cy, 13.0, Align::Left, c, false);
+                    }
+                }
+            }
+        }
+        views.props.push((b, PropHit::Row(k)));
+    }
+}
+
 fn draw_tuner(scene: &mut Scene, app: &App, r: Rect) {
     let th = &app.config.theme;
     fill(scene, r, col(th.panel));
@@ -3304,6 +3452,22 @@ impl Views {
         })
     }
 
+    /// Mouse down over the properties pane: a tab shows, a row selects, a selected row edits.
+    /// True when the pane took the click.
+    fn click_properties(&mut self, app: &mut App, x: f64, y: f64) -> bool {
+        let Some(&(_, hit)) = self.props.iter().find(|(r, _)| r.contains((x, y))) else {
+            return false;
+        };
+        match hit {
+            PropHit::Tab(t) => app.set_property_tab(t),
+            PropHit::Row(i) if i == app.property_selected() && app.props.edit.is_none() => {
+                app.edit_property()
+            }
+            PropHit::Row(i) => app.select_property(i),
+        }
+        true
+    }
+
     /// Mouse down over the tracks panel: select, solo, mute, or start dragging a volume.
     /// True when the panel took the click.
     fn click_tracks(&mut self, app: &mut App, x: f64, y: f64, double: bool) -> bool {
@@ -3495,6 +3659,9 @@ impl Views {
         }
         if let Some(&(_, pitch)) = self.keys.iter().find(|(r, _)| r.contains((x, y))) {
             app.click_key(pitch);
+            return;
+        }
+        if self.click_properties(app, x, y) {
             return;
         }
         if self.click_tracks(app, x, y, double) {

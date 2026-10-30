@@ -75,7 +75,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - [x] FIX: Change _maximized_ indicator at right side of pane titlebar to  instead
       of just "Z"
-- [ ] Properties pane (Score, Track, and Lyrics)
+- [x] Properties pane (Score, Track, and Lyrics): docked along the right (`<leader>p`,
+      `<leader>P`, `ui.properties`), editable fields in foldable sections, undoable
+  - Scores keep their page setup (`PageSetup`), read and written by Guitar Pro 5 files
 - [ ] Add scrollbar (side for vertical, bottom for horizontal)
   - [ ] Can be toggled on/off and changed in config.toml
 - [ ] FIX: Remember last focused pane in tree so switching back to a row/column
