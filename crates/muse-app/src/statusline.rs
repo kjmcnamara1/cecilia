@@ -7,14 +7,14 @@ use crate::app::App;
 use crate::config::{InsertKind, Mode};
 use muse_core::{TrackKind, chant, staff};
 
-/// How a segment is coloured.
+/// How a segment is colored.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum SegKind {
-    /// The mode's colour behind, text that reads on it (sections `a` and `z`).
+    /// The mode's color behind, text that reads on it (sections `a` and `z`).
     Mode,
-    /// The section-b colour (`status_b`) behind, the mode's colour as text (sections `b`, `y`).
+    /// The section-b color (`status_b`) behind, the mode's color as text (sections `b`, `y`).
     ModeText,
-    /// The status line's own colour (sections `c` and `x`).
+    /// The status line's own color (sections `c` and `x`).
     Plain,
 }
 

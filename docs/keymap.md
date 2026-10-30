@@ -157,15 +157,15 @@ view pickers also work while a song plays.
 
 ## Status line
 
-As lualine.nvim: on the left the mode (in its colour), the pane's layout (in the mode's colour),
+As lualine.nvim: on the left the mode (in its color), the pane's layout (in the mode's color),
 the workspace and the file (● when changed); on the right the tempo, play time, play-along
 settings, macro recording, insert note length and zoom, then the position as `Top` / `NN%` /
-`Bot` and `bar:beat` in the mode's colour. Click the layout to cycle it, the workspace to pick
+`Bot` and `bar:beat` in the mode's color. Click the layout to cycle it, the workspace to pick
 another, the mix icon (󰣱 synth, 󰝚 audio, 󰣱 +󰝚 both) to cycle what plays, and the speed (󰓅) or
-zoom (shown only when not 100%) to reset it to 100%. The GUI draws coloured sections as rounded chips;
+zoom (shown only when not 100%) to reset it to 100%. The GUI draws colored sections as rounded chips;
 in the terminal `[statusline] separators` chooses `arrow` (default), `round` or `none` between
 them (Nerd Font glyphs when `tabline.icons = "nerd"`, flat blocks otherwise). `theme.status_b`
-colours the second sections. The tuning and capo of a fretted track are printed under the
+colors the second sections. The tuning and capo of a fretted track are printed under the
 track name at the top of the score (and in the pane title in the terminal and in the GUI's
 horizontal layout).
 
@@ -182,7 +182,7 @@ remember it), and `[toolbar] items` in config.toml chooses the buttons: any comm
 ## Themes
 
 `[theme]` in config.toml picks a built-in theme (`preset`: dark, light, nord, gruvbox,
-solarized-dark, solarized-light), an optional theme file of your own (`file`), and any colour by
+solarized-dark, solarized-light), an optional theme file of your own (`file`), and any color by
 name: the window chrome, toolbar, tabs, panels, palette, cursor, playhead, waveforms, mode
 labels, file icons, the track palette, and the score's page and ink — set a dark `page` and a
 light `ink` for light notation on dark paper. `docs/config.example.toml` lists every name.
@@ -191,8 +191,8 @@ light `ink` for light notation on dark paper. `docs/config.example.toml` lists e
 
 `<leader>F` (`:fretboard [on|off]`) shows a fretboard pane and `<leader>K` (`:piano [on|off]`) a
 piano pane, for the score pane's track: the notes at the edit cursor — or
-under the playhead while playing — as dots on the neck (named, in the track's colour; the
-cursor's string in the mode colour, a capo across its fret in `theme.capo`) and as pressed keys. The GUI's neck
+under the playhead while playing — as dots on the neck (named, in the track's color; the
+cursor's string in the mode color, a capo across its fret in `theme.capo`) and as pressed keys. The GUI's neck
 spaces its frets as a real one, with inlays; its piano has all 88 keys. `ui.fretboard` and
 `ui.piano` set the defaults, and workspaces remember them. Clicking a fret puts that note on
 that string in the cursor beat (clicking it again takes it off); clicking a key adds that pitch
@@ -213,7 +213,7 @@ included) and how far from it. `audio.tuner_a4` sets the reference pitch (440 Hz
 workspaces remember it). While no tracks pane is shown, the tracks show along the bottom for a
 second whenever a key or command changes the track (`ui.tracks_peek` sets the seconds; 0 turns
 that off). Each track of the score pane's file has a row: its number, a
-volume slider, **S**olo and **M**ute, its name and instrument, then a block per bar — coloured
+volume slider, **S**olo and **M**ute, its name and instrument, then a block per bar — colored
 where the bar has notes, faded when the track isn't heard. The edit cursor is a black dot on
 its bar's block and the red playhead runs across all tracks. Click a block to move the cursor there, click S or
 M to toggle them, drag a slider to set the volume (one undo step). Double-click a track's name
@@ -234,7 +234,7 @@ mode; while the pane has the focus its keys are `[keymap.tracks]`, then the usua
 | `h` `l` / `<Left>` `<Right>`, `gg` `G` | previous / next bar, first / last bar |
 | `s` / `m` | solo / mute the selected row |
 | `+` (`=`) / `-` | the selected row's volume up / down 5% |
-| `c` | next colour of the theme's palette for the selected track |
+| `c` | next color of the theme's palette for the selected track |
 | `t` | rename the selected track in place: type the name, `<CR>` keeps it, `<Esc>` drops it |
 | `i` | pick the selected track's instrument |
 | `<Esc>` `q` | back to the score pane |
@@ -246,7 +246,7 @@ mode; while the pane has the focus its keys are `[keymap.tracks]`, then the usua
 | `:track-rename NAME [n]` | rename track n (default: the cursor's track) |
 | `:track-instrument [PROGRAM\|drums] [n]` | set a track's General MIDI instrument (1–128) or the drum kit (only an empty track changes between drums and pitched); without a program, a picker |
 | `:track-volume 80` (`+10`, `-10`) / `:track-volume-up` / `:track-volume-down` | the track's volume in percent |
-| `:track-color #rrggbb` / `:track-color off` / `:track-color` | the track's colour (saved in `.muse` files) / back to the theme's / the next palette colour |
+| `:track-color #rrggbb` / `:track-color off` / `:track-color` | the track's color (saved in `.muse` files) / back to the theme's / the next palette color |
 | `:mute [n\|audio\|master]` / `:solo [n\|audio\|master]` | toggle mute / solo of track n (default: the cursor's), the audio track, or the synth master. A row is soloed, muted or neither: turning one on turns the other off. With any row soloed only soloed rows play; a muted row is silent. The master's mute is on when every synth track is muted (it mutes or unmutes them all); its solo is on when any synth track is soloed (it solos them all, or clears their solos) |
 
 ## Properties pane
@@ -256,13 +256,13 @@ window (`ui.properties` shows it from the start; workspaces remember it and its 
 three tabs (SCORE, TRACK, LYRICS). Each property is a label with its value in a box across the
 pane's width; they come in sections (with chevrons) that fold. In the GUI keys are the status
 line's size, values and tabs 1.2 times and section titles 1.5 times; tab titles are uppercase and
-section titles small capitals (in the terminal too, as small-capital letters). Colour and tuning
-have a narrower box with the colour's hex code or the strings' pitches beside it in grey.
+section titles small capitals (in the terminal too, as small-capital letters). Color and tuning
+have a narrower box with the color's hex code or the strings' pitches beside it in grey.
 
 - **SCORE** — *Info* (title, subtitle, artist, album, words, music, copyright, tab author,
   instructions) and *Page* (page size, margins and scale, as Guitar Pro 5 files keep them; muse
   doesn't print with them yet). Tempo and the pickup bar are edited in the score itself.
-- **TRACK** — the track under the score cursor (`n`/`p` change it): *Info* (name, kind, colour),
+- **TRACK** — the track under the score cursor (`n`/`p` change it): *Info* (name, kind, color),
   *Notation* (tuning, frets, capo, the track's staves and the cursor's staff) and *Sound*
   (instrument, MIDI channel, bank, volume, pan, mute, solo).
 - **LYRICS** — the cursor track's lyrics as one text area, in Guitar Pro lyric syntax: syllables
@@ -277,9 +277,9 @@ score pane). It stays Normal mode; while the pane has the focus its keys are
 | --- | --- |
 | `j` `k` / `<Down>` `<Up>` | select the next / previous property |
 | `l` `<Tab>` / `h` `<S-Tab>`, `1` `2` `3` | next / previous tab, the score / track / lyrics tab |
-| `<CR>` `i` `a` | edit the property (insert mode). The score updates as you type, and the edit is one undo step. `<CR>` keeps a single line, `<Esc>` and `<C-c>` cancel it; `<Left>` `<Right>` `<Home>` `<End>` move, `<C-u>` clears. The lyrics text area is edited like vim: `<Esc>` goes to normal mode (`h` `j` `k` `l` `w` `b` `0` `^` `$` `gg` `G` move; `x` `D` `dd` delete; `i` `a` `I` `A` `o` `O` `<CR>` insert; `u` `<C-r>` undo and redo), each change and each insert session an undo step; `<Esc>` in normal mode leaves it. The status line shows the current mode. Colour opens a picker of named colours, each with a swatch and its hex code; type `#rrggbb` or `rgb(r,g,b)` for your own. Tuning opens a picker of common tunings of the track's instrument (Drop D, DADGAD, Open C …), searchable by name or description; type the notes (`D2 A2 D3 G3 B3 E4`) for your own. Instrument opens its picker; mute and solo flip; a section header folds |
+| `<CR>` `i` `a` | edit the property (insert mode). The score updates as you type, and the edit is one undo step. `<CR>` keeps a single line, `<Esc>` and `<C-c>` cancel it; `<Left>` `<Right>` `<Home>` `<End>` move, `<C-u>` clears. The lyrics text area is edited like vim: `<Esc>` goes to normal mode (`h` `j` `k` `l` `w` `b` `0` `^` `$` `gg` `G` move; `x` `D` `dd` delete; `i` `a` `I` `A` `o` `O` `<CR>` insert; `u` `<C-r>` undo and redo), each change and each insert session an undo step; `<Esc>` in normal mode leaves it. The status line shows the current mode. Color opens a picker of named colors, each with a swatch and its hex code; type `#rrggbb` or `rgb(r,g,b)` for your own. Tuning opens a picker of common tunings of the track's instrument (Drop D, DADGAD, Open C …), searchable by name or description; type the notes (`D2 A2 D3 G3 B3 E4`) for your own. Instrument opens its picker; mute and solo flip; a section header folds |
 | `za` `zc` `zo` | toggle / close / open the section |
-| `x` | clear the lyrics or the track's own colour, or remove the cursor's staff |
+| `x` | clear the lyrics or the track's own color, or remove the cursor's staff |
 | `n` `p` | next / previous track |
 | `<Esc>` `q` | back to the score pane |
 | `<leader><leader>` `<leader>s` `<leader>f` `:` | play/pause, stop, follow, command line |

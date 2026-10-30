@@ -134,9 +134,9 @@ pub struct PropRow {
     pub kind: RowKind,
     pub label: String,
     pub value: String,
-    /// Read-only text beside the value box (a colour's hex code, a tuning's pitches).
+    /// Read-only text beside the value box (a color's hex code, a tuning's pitches).
     pub aside: String,
-    /// A colour shown in the value box.
+    /// A color shown in the value box.
     pub swatch: Option<crate::theme::Rgba>,
 }
 
@@ -494,7 +494,7 @@ impl App {
                         (true, Some(n)) => n,
                         (true, None) => "Custom",
                     };
-                    field(&mut rows, Field::TrackColor, "Colour", name.into(), true);
+                    field(&mut rows, Field::TrackColor, "Color", name.into(), true);
                     let last = rows.last_mut().unwrap();
                     last.aside = shown.hex();
                     last.swatch = Some(shown);
@@ -1034,7 +1034,7 @@ impl App {
         }
     }
 
-    /// Clears the selected verse, or the track's own colour.
+    /// Clears the selected verse, or the track's own color.
     fn clear_property(&mut self) {
         match self.selected_field().map(|(f, _)| f) {
             Some(Field::Lyrics) => self.run(Command::LyricsClear(None)),
@@ -1324,7 +1324,7 @@ mod tests {
         assert_eq!(app.buffer().score.tracks[0].midi.volume, 80);
         type_into(&mut app, Field::Channel, "5");
         assert_eq!(app.buffer().score.tracks[0].midi.channel, 4);
-        // Colour: a picker of named colours, with hex or rgb() typed for a custom one.
+        // Color: a picker of named colors, with hex or rgb() typed for a custom one.
         let color = |app: &App| {
             app.buffer().score.tracks[0]
                 .display_color
@@ -1334,7 +1334,7 @@ mod tests {
         app.run(Command::PropertiesEdit);
         assert_eq!(app.mode, Mode::Picker);
         let p = app.palette().unwrap();
-        assert_eq!(p.title, "Colours");
+        assert_eq!(p.title, "Colors");
         assert!(p.items.iter().all(|i| i.swatch.is_some()));
         keys(&mut app, "gold<CR>");
         assert_eq!(color(&app), Some((0xff, 0xb3, 0x00)));

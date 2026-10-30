@@ -45,7 +45,7 @@ fn normalize_gp5(s: &mut Score) {
 }
 
 /// Removes differences GPIF cannot represent: per-note dynamics within a beat, note duration
-/// percentages, fingering, barres, MIDI volume/pan, marker colours, whammy bar, trill speed.
+/// percentages, fingering, barres, MIDI volume/pan, marker colors, whammy bar, trill speed.
 fn normalize_gpif(s: &mut Score) {
     s.extras.clear();
     s.audio = None;

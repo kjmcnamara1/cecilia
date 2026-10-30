@@ -317,12 +317,12 @@ fn event_loop(terminal: &mut DefaultTerminal, app: &mut App) -> Result<()> {
     Ok(())
 }
 
-/// A theme colour for the terminal.
+/// A theme color for the terminal.
 pub(crate) fn rc(c: muse_app::theme::Rgba) -> Color {
     Color::Rgb(c.r, c.g, c.b)
 }
 
-/// Text on a theme-coloured background.
+/// Text on a theme-colored background.
 fn on(app: &App, bg: muse_app::theme::Rgba) -> Style {
     Style::default()
         .fg(rc(app.config.theme.text_on(bg)))
@@ -645,7 +645,7 @@ fn draw_palette(f: &mut Frame, app: &App, p: &muse_app::Palette, screen: Rect) {
             Style::default()
         };
         let width = row.width as usize;
-        // Colours get a swatch before their name.
+        // Colors get a swatch before their name.
         let ind = if swatches { 3 } else { 0 };
         let name: String = item
             .text
@@ -814,7 +814,7 @@ fn draw_tuner(f: &mut Frame, app: &App, area: Rect) {
 }
 
 /// The fretboard: a row per string (open note, nut, a cell per fret) and the fret numbers
-/// under it; the notes at the cursor or playhead are named in the track's colour.
+/// under it; the notes at the cursor or playhead are named in the track's color.
 fn draw_fretboard(
     f: &mut Frame,
     app: &App,
@@ -841,7 +841,7 @@ fn draw_fretboard(
     for (s, &open) in v.strings.iter().enumerate() {
         let y = area.y + s as u16;
         let cursor = v.cursor_string == Some(s);
-        // The cursor's string in the mode's colour (thin, like the others).
+        // The cursor's string in the mode's color (thin, like the others).
         let line = if cursor {
             base.fg(rc(t.mode_color(app.mode)))
         } else {
@@ -875,7 +875,7 @@ fn draw_fretboard(
                 buf.set_string(x, y, format!("{name:^3}"), note_style);
             }
         }
-        // A capo: a solid bar (in the theme's capo colour) across its fret, over the strings.
+        // A capo: a solid bar (in the theme's capo color) across its fret, over the strings.
         if v.capo > 0 && (v.capo as u16) <= frets {
             let x = nut + v.capo as u16 * 4;
             buf.set_string(x, y, "▌", base.fg(rc(t.capo)));
@@ -893,7 +893,7 @@ fn draw_fretboard(
 }
 
 /// The piano: a column per key around the notes (C4 in the middle when there are none); the
-/// notes at the cursor or playhead are in the track's colour.
+/// notes at the cursor or playhead are in the track's color.
 fn draw_piano(
     f: &mut Frame,
     app: &App,
@@ -1237,7 +1237,7 @@ fn draw_progress(
         return;
     };
     let t = &app.config.theme;
-    // Match the score background (the page colour, since TUI is always vertical/horizontal).
+    // Match the score background (the page color, since TUI is always vertical/horizontal).
     let ground = t.page;
     let label_ink = ground.mix(t.ink, 0.8);
     let segment = ground.mix(t.ink, 0.12);
@@ -1524,7 +1524,7 @@ fn draw_properties(f: &mut Frame, app: &App, area: Rect, ui: &mut Ui) {
 }
 
 /// The tracks panel: per track its number, volume, solo, mute, name and instrument, then a
-/// cell per bar (coloured where it has notes) with the edit cursor and the playhead.
+/// cell per bar (colored where it has notes) with the edit cursor and the playhead.
 fn draw_tracks(
     f: &mut Frame,
     app: &App,
@@ -1837,7 +1837,7 @@ fn draw_tracks(
 }
 
 /// The status line, as lualine.nvim: mode, layout, workspace and file on the left; the rest of
-/// the state, progress and `bar:beat` on the right, in coloured sections.
+/// the state, progress and `bar:beat` on the right, in colored sections.
 fn draw_status(
     f: &mut Frame,
     app: &App,
@@ -2246,7 +2246,7 @@ mod render_tests {
         click_properties(&mut app, tab);
         let screen = render(&mut app, 100, 30);
         assert!(
-            screen.contains("Colour") && screen.contains("Tuning"),
+            screen.contains("Color") && screen.contains("Tuning"),
             "{screen}"
         );
         assert_eq!(app.focused_kind(), PaneKind::Properties);
@@ -2269,12 +2269,12 @@ mod render_tests {
         let buf = terminal.backend().buffer().clone();
         let y = 10;
         let row: String = (0..100).map(|x| buf[(x, y)].symbol().to_string()).collect();
-        // The mode keeps its colour (it used to be painted over).
+        // The mode keeps its color (it used to be painted over).
         let mode = rc(app.config.theme.mode_color(muse_app::Mode::Normal));
         assert!(row.starts_with(" NORMAL "), "{row}");
         assert_eq!(buf[(1, y)].bg, mode);
         assert!(row.contains("vertical"), "{row}");
-        // Arrow separators with Nerd Font icons; the location on the mode colour at the end.
+        // Arrow separators with Nerd Font icons; the location on the mode color at the end.
         assert_eq!(buf[(8, y)].symbol(), "\u{e0b0}");
         assert!(row.trim_end().ends_with("1:1"), "{row}");
         assert_eq!(buf[(98, y)].bg, mode);

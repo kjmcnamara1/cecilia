@@ -659,7 +659,7 @@ pub struct Config {
     /// Insert-mode keys per notation, looked up before the shared insert keymap.
     pub insert_keymaps: HashMap<InsertKind, Keymap>,
     pub leader: Vec<Key>,
-    /// Interface colours (`[theme]`).
+    /// Interface colors (`[theme]`).
     pub theme: crate::theme::Theme,
 }
 

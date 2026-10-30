@@ -1,5 +1,5 @@
 //! The tracks panel, as in Guitar Pro or TuxGuitar: one row per track of the focused file with
-//! its number, volume, solo and mute, name and instrument, and a block per bar (coloured where
+//! its number, volume, solo and mute, name and instrument, and a block per bar (colored where
 //! the bar has notes) marking the edit cursor and the playhead. `<leader>T` shows it, `<C-w>t`
 //! focuses it (Tracks mode: `j`/`k` choose a track, `h`/`l` a bar, `s`, `m`, `+`, `-`, `c`).
 
@@ -26,7 +26,7 @@ pub struct TrackRow {
     /// Heard (not muted, and not silenced by another track's solo).
     pub audible: bool,
     pub color: Rgba,
-    /// The colour was chosen for this track (`:track-color`).
+    /// The color was chosen for this track (`:track-color`).
     pub custom_color: bool,
     /// Per bar: whether it has notes (not only rests); empty for the audio and master rows.
     pub bars: Vec<bool>,
@@ -77,7 +77,7 @@ fn to_rgba(c: Color) -> Rgba {
 }
 
 impl App {
-    /// The colour of a track of a buffer: its own, or the theme's for its position.
+    /// The color of a track of a buffer: its own, or the theme's for its position.
     pub fn track_color(&self, buffer: usize, track: usize) -> Rgba {
         self.buffers
             .get(buffer)
@@ -468,7 +468,7 @@ impl App {
                 let t = match self.selected_strip() {
                     Some(Strip::Track(t)) => t,
                     Some(_) => {
-                        self.error("track-color: the audio and master rows have no colour to set");
+                        self.error("track-color: the audio and master rows have no color to set");
                         return true;
                     }
                     None => self.pane().cursor.track,
@@ -479,11 +479,11 @@ impl App {
                     Some(hex) => match Rgba::parse(hex) {
                         Some(c) => Some(c),
                         None => {
-                            self.error(format!("track-color: '{hex}' is not a colour (#rrggbb)"));
+                            self.error(format!("track-color: '{hex}' is not a color (#rrggbb)"));
                             return true;
                         }
                     },
-                    // No colour: the next one of the theme's palette.
+                    // No color: the next one of the theme's palette.
                     None => {
                         let palette = &self.config.theme.track_colors;
                         let now = self.track_color(b, t);
@@ -965,7 +965,7 @@ mod tests {
         assert!(app.track_rows()[t].volume < v);
         app.run(Command::TrackVolume(super::VolumeChange::To(100)));
         assert_eq!(app.track_rows()[t].volume, 127);
-        // Colours: cycle the palette, set one, back to the theme's.
+        // Colors: cycle the palette, set one, back to the theme's.
         keys(&mut app, "c");
         assert!(app.track_rows()[t].custom_color);
         app.run(Command::TrackColor(Some("#123456".into())));

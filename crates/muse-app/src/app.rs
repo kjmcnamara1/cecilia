@@ -99,7 +99,7 @@ pub struct PaletteItem {
     pub text: String,
     /// Short description (of a command, or a picker entry).
     pub description: Option<String>,
-    /// A colour shown beside the text (the colour picker).
+    /// A color shown beside the text (the color picker).
     pub swatch: Option<crate::theme::Rgba>,
     /// Character positions that matched the typed text (highlighted).
     pub matched: Vec<usize>,

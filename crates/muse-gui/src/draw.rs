@@ -20,7 +20,7 @@ thread_local! {
     static THEME: std::cell::RefCell<muse_app::theme::Theme> = Default::default();
 }
 
-/// A colour of the current theme.
+/// A color of the current theme.
 fn tc(f: impl FnOnce(&muse_app::theme::Theme) -> Rgba) -> Color {
     THEME.with(|t| col(f(&t.borrow())))
 }
@@ -73,7 +73,7 @@ const UI_FONT: f64 = 14.0;
 const BASE_SCALE: f64 = 1.6;
 
 struct Cached {
-    /// (buffer, track, layout mode, width bucket, score version, chant view, page + ink colours)
+    /// (buffer, track, layout mode, width bucket, score version, chant view, page + ink colors)
     key: (usize, usize, String, i64, u64, bool, [u8; 8]),
     layout: Layout,
     scenes: Vec<Scene>,
@@ -256,7 +256,7 @@ fn clip_text(s: &str, max: usize) -> String {
 }
 
 /// The tracks panel: a row per track (number, volume, solo, mute, name, instrument) and a
-/// block per bar, coloured where the bar has notes, with the edit cursor and the playhead.
+/// block per bar, colored where the bar has notes, with the edit cursor and the playhead.
 fn draw_tracks(
     scene: &mut Scene,
     app: &App,
@@ -369,7 +369,7 @@ fn draw_tracks(
         let cy = y + TRACK_ROW / 2.0;
         let row_rect = Rect::new(r.x0, y, gx - 6.0, y + TRACK_ROW);
         let track = matches!(row.strip, Strip::Track(_));
-        // The selected row is shaded; the track the pane shows has its colour at the edge.
+        // The selected row is shaded; the track the pane shows has its color at the edge.
         let shown = track && row.index == cursor.track;
         if (focused && k == sel_row) || (!focused && shown) {
             fill(
@@ -793,8 +793,8 @@ fn draw_track_waveform(
 /// How fast the cursor glides after the playhead (per second: it covers 1 − e^(−rate·t)).
 const GLIDE_RATE: f64 = 16.0;
 
-/// An engraving colour in the theme: black and greys become shades between the page and the
-/// ink (so notation reads on dark pages too); other colours stay as engraved.
+/// An engraving color in the theme: black and greys become shades between the page and the
+/// ink (so notation reads on dark pages too); other colors stay as engraved.
 fn rgb(c: muse_engrave::display::Color, page: Rgba, ink: Rgba) -> Color {
     if c.r == c.g && c.g == c.b {
         let darkness = 1.0 - c.r as f32 / 255.0;
@@ -1024,7 +1024,7 @@ pub fn build(
         }
         app.views[active].score = view_score;
         scene.pop_layer();
-        // The focused tool pane is outlined in the mode's colour.
+        // The focused tool pane is outlined in the mode's color.
         if id == focused {
             scene.stroke(
                 &Stroke::new(2.0),
@@ -1799,7 +1799,7 @@ fn draw_pane(
         },
         buffer.version,
         app.chant_view,
-        // Pages are recoloured when the theme's page or ink change.
+        // Pages are recolored when the theme's page or ink change.
         {
             let (p, i) = (app.config.theme.page, app.config.theme.ink);
             [p.r, p.g, p.b, p.a, i.r, i.g, i.b, i.a]
@@ -1980,7 +1980,7 @@ fn draw_pane(
             _ => (pos.x, pos.width),
         };
         views.glide.insert(id, (pos.page, pos.top, x, w, now));
-        // A translucent shade in the mode's colour over just what an edit changes: the note
+        // A translucent shade in the mode's color over just what an edit changes: the note
         // place on the cursor's string, or the whole beat on staves without strings.
         let alpha = if focused { 110 } else { 45 };
         let color = tc(|t| t.mode_color(app.mode).with_alpha(alpha));
@@ -2357,7 +2357,7 @@ fn draw_palette(scene: &mut Scene, p: &muse_app::Palette, width: f64, height: f6
         }
         let base = ry + row_h / 2.0 + 4.5;
         let color = if selected { accent() } else { chrome_text() };
-        // Colours get a swatch before their name.
+        // Colors get a swatch before their name.
         let tx0 = if swatches { x0 + 48.0 } else { x0 + 16.0 };
         if let Some(c) = item.swatch {
             let sw = RoundedRect::new(x0 + 16.0, ry + 4.0, x0 + 40.0, ry + row_h - 6.0, 4.0);
@@ -2374,7 +2374,7 @@ fn draw_palette(scene: &mut Scene, p: &muse_app::Palette, width: f64, height: f6
             color,
             selected,
         );
-        // The characters that matched what was typed, over the text in a stronger colour.
+        // The characters that matched what was typed, over the text in a stronger color.
         let font = if selected {
             FontKind::Bold
         } else {
@@ -2465,7 +2465,7 @@ fn draw_command_line(scene: &mut Scene, app: &App, width: f64, height: f64) {
 }
 
 /// The status line, as lualine.nvim: mode, layout, workspace and file on the left; the rest of
-/// the state, progress and `bar:beat` on the right. Coloured sections are rounded chips.
+/// the state, progress and `bar:beat` on the right. Colored sections are rounded chips.
 fn draw_status(
     scene: &mut Scene,
     app: &App,
@@ -2811,7 +2811,7 @@ fn draw_properties(scene: &mut Scene, app: &App, views: &mut Views, r: Rect) {
                 let area = *field == Field::Lyrics;
                 let by0 = y + PROPS_UNIT;
                 let by1 = if area { bottom } else { by0 + BOX_H };
-                // A property with text beside it (a colour's code, a tuning's pitches) has a
+                // A property with text beside it (a color's code, a tuning's pitches) has a
                 // narrower box, the text in grey to its right.
                 let box_x1 = if row.aside.is_empty() {
                     bx1
@@ -3119,7 +3119,7 @@ fn draw_tuner(scene: &mut Scene, app: &App, r: Rect) {
 const PIANO_KEYS: (u8, u8) = (21, 108);
 
 /// The fretboard: the track's strings and frets (spaced as on a real neck), inlays, and the
-/// notes at the cursor or playhead as dots in the track's colour with their names.
+/// notes at the cursor or playhead as dots in the track's color with their names.
 fn draw_fretboard(
     scene: &mut Scene,
     app: &App,
@@ -3203,7 +3203,7 @@ fn draw_fretboard(
             );
         }
     }
-    // A capo across its fret (in the theme's capo colour).
+    // A capo across its fret (in the theme's capo color).
     if v.capo > 0 && v.capo <= v.frets {
         let x = fret_x(v.capo as f64) - 4.0;
         scene.fill(
@@ -3281,7 +3281,7 @@ fn draw_fretboard(
     }
 }
 
-/// The piano: 88 keys with the notes at the cursor or playhead pressed in the track's colour.
+/// The piano: 88 keys with the notes at the cursor or playhead pressed in the track's color.
 fn draw_piano_panel(
     scene: &mut Scene,
     app: &App,

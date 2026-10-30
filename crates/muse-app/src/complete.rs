@@ -838,11 +838,11 @@ pub fn describe(command: &str) -> Option<&'static str> {
         "properties-fold" => {
             "Properties pane: fold (close), unfold (open) or toggle the selected section"
         }
-        "properties-clear" => "Properties pane: clear the selected verse or colour",
+        "properties-clear" => "Properties pane: clear the selected verse or color",
         "track-volume" => "Set the track's volume: 80, +10 or -10 (percent)",
         "track-volume-up" => "Turn the track up",
         "track-volume-down" => "Turn the track down",
-        "track-color" => "Track colour in the tracks panel: #rrggbb, off, or the next one",
+        "track-color" => "Track color in the tracks panel: #rrggbb, off, or the next one",
         "pick-buffer" => "Pick a buffer of this view to show",
         "pick-view" => "Pick a view to switch to",
         "pick-workspace" => "Pick a saved workspace to open",

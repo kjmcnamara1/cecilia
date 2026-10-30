@@ -199,7 +199,7 @@ pub enum Command {
     /// Fold or unfold the selected property's section.
     /// Folds (`Some(true)`), unfolds (`Some(false)`) or toggles the selected section.
     PropertiesFold(Option<bool>),
-    /// Clear the selected property (a verse's syllables, a track's own colour).
+    /// Clear the selected property (a verse's syllables, a track's own color).
     PropertiesClear,
     /// Focus the tracks panel, or give the focus back to the score.
     TracksFocus,
@@ -217,8 +217,8 @@ pub enum Command {
     TrackInstrument(Option<String>),
     /// Volume of the cursor's track.
     TrackVolume(crate::tracks::VolumeChange),
-    /// Colour of the cursor's track in the tracks panel: `#rrggbb`, `off`, or none for the
-    /// next colour of the theme's palette.
+    /// Color of the cursor's track in the tracks panel: `#rrggbb`, `off`, or none for the
+    /// next color of the theme's palette.
     TrackColor(Option<String>),
     /// Lyrics from the cursor on (verse 1–5, default 1), in Guitar Pro syntax: spaces and
     /// hyphens separate syllables, one per note.
@@ -845,7 +845,7 @@ impl Command {
             ),
             "track-volume-up" => TrackVolume(crate::tracks::VolumeChange::Up),
             "track-volume-down" => TrackVolume(crate::tracks::VolumeChange::Down),
-            "track-color" | "track-colour" => TrackColor(arg.map(String::from)),
+            "track-color" => TrackColor(arg.map(String::from)),
             "solo" => Solo(arg.map(Strip::parse).transpose()?),
             _ => return Err(format!("unknown command: {name}")),
         })

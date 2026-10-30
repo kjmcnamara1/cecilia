@@ -20,7 +20,7 @@ pub enum PickerKind {
     Section,
     /// General MIDI instruments (and the drum kit) for a track.
     Instrument(usize),
-    /// Colours (named, or typed as `#rrggbb` or `rgb(r,g,b)`) for a track.
+    /// Colors (named, or typed as `#rrggbb` or `rgb(r,g,b)`) for a track.
     Color(usize),
     /// Common tunings of a track's instrument.
     Tuning(usize),
@@ -50,7 +50,7 @@ impl PickerKind {
             PickerKind::Keymap => "Keymaps",
             PickerKind::Section => "Sections",
             PickerKind::Instrument(_) => "Instruments",
-            PickerKind::Color(_) => "Colours",
+            PickerKind::Color(_) => "Colors",
             PickerKind::Tuning(_) => "Tunings",
         }
     }
@@ -73,11 +73,11 @@ struct Entry {
     action: Command,
     /// The description is searched too (keymaps).
     search_description: bool,
-    /// A colour shown next to the label.
+    /// A color shown next to the label.
     swatch: Option<Rgba>,
 }
 
-/// Common colours: name and hex code.
+/// Common colors: name and hex code.
 const COLORS: &[(&str, &str)] = &[
     ("Red", "#e53935"),
     ("Crimson", "#c2185b"),
@@ -114,7 +114,7 @@ const COLORS: &[(&str, &str)] = &[
     ("Black", "#212121"),
 ];
 
-/// A colour typed as `#rgb`, `#rrggbb`, or `rgb(r, g, b)`.
+/// A color typed as `#rgb`, `#rrggbb`, or `rgb(r, g, b)`.
 fn parse_color_query(q: &str) -> Option<Rgba> {
     let q = q.trim();
     if q.starts_with('#') {
@@ -132,7 +132,7 @@ fn parse_color_query(q: &str) -> Option<Rgba> {
     }
 }
 
-/// The name of a colour of the picker's list.
+/// The name of a color of the picker's list.
 pub(crate) fn color_name(c: Rgba) -> Option<&'static str> {
     COLORS
         .iter()
@@ -502,9 +502,9 @@ impl App {
                         Some(Entry {
                             label: name.into(),
                             description: if now == Some(c) {
-                                format!("{hex}  current")
+                                format!("{}  current", hex.to_uppercase())
                             } else {
-                                hex.into()
+                                hex.to_uppercase()
                             },
                             action: Command::TrackColor(Some(hex.into())),
                             search_description: true,
@@ -697,7 +697,7 @@ impl App {
             .collect()
     }
 
-    /// What the typed query itself stands for, listed first: a colour as `#rrggbb` or
+    /// What the typed query itself stands for, listed first: a color as `#rrggbb` or
     /// `rgb(r,g,b)`, or a tuning as note names for each string.
     fn custom_entry(&self, p: &Picker) -> Option<Entry> {
         match p.kind {
