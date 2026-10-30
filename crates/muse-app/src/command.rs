@@ -184,6 +184,22 @@ pub enum Command {
     Tuner(Option<bool>),
     /// Show or hide the toolbar (no argument: toggle).
     Toolbar(Option<bool>),
+    /// Show or hide the properties pane (no argument: toggle).
+    Properties(Option<bool>),
+    /// Focus the properties pane, or give the focus back to the score.
+    PropertiesFocus,
+    /// In the properties pane: select the row below / above.
+    PropertiesDown,
+    PropertiesUp,
+    /// Show a tab of the properties pane: `score`, `tracks` or `lyrics`; none for the next.
+    PropertiesTab(Option<crate::properties::PropTab>),
+    PropertiesTabPrev,
+    /// Edit the selected property (a header: fold its section).
+    PropertiesEdit,
+    /// Fold or unfold the selected property's section.
+    PropertiesFold,
+    /// Clear the selected property (a verse's syllables, a track's own colour).
+    PropertiesClear,
     /// Focus the tracks panel, or give the focus back to the score.
     TracksFocus,
     /// In the tracks panel: select the row below / above (tracks, the audio track, the master).
@@ -774,6 +790,26 @@ impl Command {
                 Some("off") => Some(false),
                 Some(a) => return Err(format!("tracks: '{a}' is not on or off")),
             }),
+            "properties" => Properties(match arg {
+                None => None,
+                Some("on") => Some(true),
+                Some("off") => Some(false),
+                Some(a) => return Err(format!("properties: '{a}' is not on or off")),
+            }),
+            "properties-focus" => PropertiesFocus,
+            "properties-down" => PropertiesDown,
+            "properties-up" => PropertiesUp,
+            "properties-tab" => PropertiesTab(match arg {
+                None => None,
+                Some(a) => Some(
+                    crate::properties::PropTab::parse(a)
+                        .ok_or_else(|| format!("properties-tab: '{a}' is not score, tracks or lyrics"))?,
+                ),
+            }),
+            "properties-tab-prev" => PropertiesTabPrev,
+            "properties-edit" => PropertiesEdit,
+            "properties-fold" => PropertiesFold,
+            "properties-clear" => PropertiesClear,
             "tracks-focus" => TracksFocus,
             "tracks-down" => TracksDown,
             "tracks-up" => TracksUp,
@@ -823,6 +859,8 @@ impl Command {
             BeatNext
                 | TracksDown
                 | TracksUp
+                | PropertiesDown
+                | PropertiesUp
                 | BeatPrev
                 | StringDown
                 | StringUp

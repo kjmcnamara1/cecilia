@@ -508,7 +508,7 @@ impl Theme {
             Mode::Visual => self.mode_visual,
             Mode::Command => self.mode_command,
             Mode::Picker => self.mode_picker,
-            Mode::Tracks => self.mode_tracks,
+            Mode::Tracks | Mode::Properties => self.mode_tracks,
         }
     }
 

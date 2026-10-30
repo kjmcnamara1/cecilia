@@ -735,6 +735,7 @@ mod tests {
         use crate::layout::{Axis, Rect};
         let (config, _) = Config::parse("[ui]\nglobal_tools = [\"tracks\"]\n").unwrap();
         let mut app = App::new(config, None);
+        app.set_tool(PaneKind::Properties, Some(false));
         app.run(Command::New);
         app.set_viewport(Rect {
             x: 0,

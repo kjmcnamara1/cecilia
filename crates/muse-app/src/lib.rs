@@ -19,6 +19,7 @@ pub mod picker;
 pub mod playalong;
 pub mod playback;
 pub mod progress;
+pub mod properties;
 pub mod statusline;
 pub mod theme;
 pub mod toolbar;

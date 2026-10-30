@@ -166,55 +166,83 @@ pub fn has_lyrics(track: &Track) -> bool {
         .any(|b| b.lyrics.iter().any(|l| !l.is_empty()))
 }
 
-/// Lyric lines (one per verse) rebuilt from a track's syllables, in Guitar Pro's text form.
-pub fn lines_from_beats(track: &Track) -> Vec<LyricLine> {
-    let verses = track
+/// How many verses a track has syllables slots for.
+pub fn verse_count(track: &Track) -> usize {
+    track
         .bars
         .iter()
         .flat_map(|b| b.voices.first())
         .flat_map(|v| &v.beats)
         .map(|b| b.lyrics.len())
         .max()
-        .unwrap_or(0);
-    let mut out = Vec::new();
-    for verse in 0..verses {
-        let Some(start) = track.bars.iter().position(|bar| {
-            bar.voices.first().is_some_and(|v| {
-                v.beats
-                    .iter()
-                    .any(|b| b.lyrics.get(verse).is_some_and(|s| !s.is_empty()))
-            })
-        }) else {
-            continue;
-        };
-        // One chunk per singing beat from the start bar; notes without a syllable are empty.
-        let mut chunks: Vec<String> = singing_beats(track, start)
-            .into_iter()
-            .map(|(b, i)| {
-                let beat = &track.bars[b].voices[0].beats[i];
-                beat.lyrics
-                    .get(verse)
-                    .cloned()
-                    .unwrap_or_default()
-                    .replace(' ', "+")
-            })
-            .collect();
-        while chunks.last().is_some_and(String::is_empty) {
-            chunks.pop();
-        }
-        let mut text = String::new();
-        for (k, chunk) in chunks.iter().enumerate() {
-            if k > 0 && !chunks[k - 1].ends_with('-') {
-                text.push(' ');
-            }
-            text.push_str(chunk);
-        }
-        out.push(LyricLine {
-            start_bar: start as u32,
-            text,
-        });
+        .unwrap_or(0)
+}
+
+/// A verse rebuilt from a track's syllables, in Guitar Pro's text form; `None` for a verse
+/// without syllables.
+pub fn verse_line(track: &Track, verse: usize) -> Option<LyricLine> {
+    let start = track.bars.iter().position(|bar| {
+        bar.voices.first().is_some_and(|v| {
+            v.beats
+                .iter()
+                .any(|b| b.lyrics.get(verse).is_some_and(|s| !s.is_empty()))
+        })
+    })?;
+    // One chunk per singing beat from the start bar; notes without a syllable are empty.
+    let mut chunks: Vec<String> = singing_beats(track, start)
+        .into_iter()
+        .map(|(b, i)| {
+            let beat = &track.bars[b].voices[0].beats[i];
+            beat.lyrics
+                .get(verse)
+                .cloned()
+                .unwrap_or_default()
+                .replace(' ', "+")
+        })
+        .collect();
+    while chunks.last().is_some_and(String::is_empty) {
+        chunks.pop();
     }
-    out
+    let mut text = String::new();
+    for (k, chunk) in chunks.iter().enumerate() {
+        if k > 0 && !chunks[k - 1].ends_with('-') {
+            text.push(' ');
+        }
+        text.push_str(chunk);
+    }
+    Some(LyricLine {
+        start_bar: start as u32,
+        text,
+    })
+}
+
+/// Lyric lines (one per verse) rebuilt from a track's syllables, in Guitar Pro's text form.
+pub fn lines_from_beats(track: &Track) -> Vec<LyricLine> {
+    (0..verse_count(track))
+        .filter_map(|verse| verse_line(track, verse))
+        .collect()
+}
+
+/// Removes a verse's syllables from a track (every verse without a number).
+pub fn clear(track: &mut Track, verse: Option<usize>) {
+    for b in track
+        .bars
+        .iter_mut()
+        .flat_map(|b| &mut b.voices)
+        .flat_map(|v| &mut v.beats)
+    {
+        match verse {
+            Some(v) => {
+                if let Some(s) = b.lyrics.get_mut(v) {
+                    s.clear();
+                }
+                while b.lyrics.last().is_some_and(String::is_empty) {
+                    b.lyrics.pop();
+                }
+            }
+            None => b.lyrics.clear(),
+        }
+    }
 }
 
 #[cfg(test)]
