@@ -179,6 +179,8 @@ pub struct PropEdit {
     pub insert: bool,
     /// The first key of a two-key normal-mode command (`d`, `g`).
     pending: Option<char>,
+    /// Where a selection (made with the mouse) began; it runs to the caret.
+    pub anchor: Option<usize>,
 }
 
 fn is_word(c: char) -> bool {
@@ -195,7 +197,14 @@ impl PropEdit {
             modal: field == Field::Lyrics,
             insert: true,
             pending: None,
+            anchor: None,
         }
+    }
+
+    /// The selected characters, from the first to one past the last.
+    pub fn selection(&self) -> Option<(usize, usize)> {
+        let a = self.anchor.filter(|&a| a != self.caret)?;
+        Some((a.min(self.caret), a.max(self.caret).min(self.len())))
     }
 
     fn chars(&self) -> Vec<char> {
@@ -720,7 +729,86 @@ impl App {
     pub fn set_text_caret(&mut self, at: usize) {
         if let Some(e) = self.props.edit.as_mut() {
             e.caret = at.min(e.len());
+            e.anchor = None;
             e.rest();
+        }
+    }
+
+    /// Whether the lyrics text area is being edited and `row` is it.
+    pub fn text_editing(&self, row: usize) -> bool {
+        self.props.edit.as_ref().is_some_and(|e| e.modal) && row == self.props.selected
+    }
+
+    /// A mouse press in the text area: the caret goes there and a selection may begin.
+    pub fn text_click(&mut self, at: usize) {
+        if let Some(e) = self.props.edit.as_mut() {
+            e.caret = at.min(e.len());
+            e.anchor = Some(e.caret);
+            e.pending = None;
+            e.rest();
+        }
+    }
+
+    /// The mouse moves with the button down: the selection grows to `at`.
+    pub fn text_drag(&mut self, at: usize) {
+        if let Some(e) = self.props.edit.as_mut() {
+            e.caret = at.min(e.len());
+        }
+    }
+
+    /// The button comes up: a press without a drag selects nothing.
+    pub fn text_release(&mut self) {
+        if let Some(e) = self.props.edit.as_mut() {
+            if e.anchor == Some(e.caret) {
+                e.anchor = None;
+            }
+        }
+    }
+
+    /// Keys while text is selected: typing replaces it, Backspace and Delete remove it, and in
+    /// normal mode `d`, `x` and `c` do. True when the key was used up.
+    fn selection_key(&mut self, key: Key) -> bool {
+        let Some(edit) = self.props.edit.as_mut() else {
+            return false;
+        };
+        let Some((a, b)) = edit.selection() else {
+            edit.anchor = None;
+            return false;
+        };
+        let insert = edit.insert;
+        let plain = !key.ctrl && !key.alt;
+        let remove = match key.code {
+            KeyCode::Backspace | KeyCode::Delete if insert => Some(false),
+            KeyCode::Char('d' | 'x') if plain && !insert => Some(false),
+            KeyCode::Char('c') if plain && !insert => Some(true),
+            KeyCode::Char(_) | KeyCode::Enter if plain && insert => {
+                // Typing over it: the key goes on after it is removed.
+                edit.remove(a, b);
+                edit.caret = a;
+                edit.anchor = None;
+                self.apply_live();
+                return false;
+            }
+            _ => None,
+        };
+        let esc = key.code == KeyCode::Esc && !insert;
+        edit.anchor = None;
+        match remove {
+            Some(then_insert) => {
+                edit.remove(a, b);
+                edit.caret = a;
+                if then_insert {
+                    edit.insert = true;
+                    self.ed.group = Some(false);
+                } else if !insert {
+                    // Each removal in normal mode is a step of its own.
+                    self.ed.group = None;
+                }
+                edit.rest();
+                self.apply_live();
+                true
+            }
+            None => esc,
         }
     }
 
@@ -860,6 +948,9 @@ impl App {
     /// Keys while a property is typed. A single line is in insert mode: `<CR>` keeps the text,
     /// `<Esc>` and `<C-c>` cancel. The lyrics are edited like vim.
     pub(crate) fn props_edit_key(&mut self, key: Key) {
+        if self.selection_key(key) {
+            return;
+        }
         let lines = self.props.visual.borrow().clone();
         let Some(edit) = self.props.edit.as_mut() else {
             return;
@@ -910,6 +1001,9 @@ impl App {
     /// Keys in the lyrics text area's normal mode: a vim subset. Each change is its own undo
     /// step, and `<Esc>` leaves the text area.
     fn text_normal_key(&mut self, key: Key) {
+        if self.selection_key(key) {
+            return;
+        }
         let lines = self.props.visual.borrow().clone();
         let Some(edit) = self.props.edit.as_mut() else {
             return;
@@ -2257,5 +2351,50 @@ mod tests {
         app.click_property(row, true);
         app.set_text_caret(4);
         assert_eq!(app.props.edit.as_ref().unwrap().caret, 4);
+    }
+
+    #[test]
+    fn the_mouse_places_the_caret_and_selects_in_the_lyrics() {
+        let mut app = with_props();
+        app.run(Command::Lyrics(0, "one two three".into()));
+        app.set_property_tab(PropTab::Lyrics);
+        keys(&mut app, "<leader>P<CR><Esc>");
+        let row = app.props.selected;
+        assert!(app.text_editing(row));
+        let edit = |app: &App| app.props.edit.clone().unwrap();
+        // A click places the caret; with no drag nothing is selected.
+        app.text_click(4);
+        assert_eq!(edit(&app).caret, 4);
+        app.text_release();
+        assert_eq!(edit(&app).selection(), None);
+        // A drag selects from the press to where it ends (backwards too).
+        app.text_click(4);
+        app.text_drag(7);
+        assert_eq!(edit(&app).selection(), Some((4, 7)));
+        app.text_release();
+        assert_eq!(edit(&app).selection(), Some((4, 7)));
+        app.text_drag(1);
+        assert_eq!(edit(&app).selection(), Some((1, 4)));
+        // Normal mode: d removes it, as one step of its own.
+        app.text_drag(7);
+        keys(&mut app, "d");
+        assert_eq!(edit(&app).text, "one  three");
+        assert_eq!(edit(&app).selection(), None);
+        // Insert mode: typing replaces the selection, Backspace removes it.
+        keys(&mut app, "i");
+        app.text_click(0);
+        app.text_drag(3);
+        keys(&mut app, "X");
+        assert_eq!(edit(&app).text, "X  three");
+        app.text_click(1);
+        app.text_drag(3);
+        keys(&mut app, "<BS>");
+        assert_eq!(edit(&app).text, "Xthree");
+        // A click clears a selection; Escape in normal mode clears it before leaving.
+        keys(&mut app, "<Esc>");
+        app.text_click(0);
+        app.text_drag(2);
+        keys(&mut app, "<Esc>");
+        assert!(app.props.edit.is_some() && edit(&app).selection().is_none());
     }
 }

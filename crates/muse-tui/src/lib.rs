@@ -76,6 +76,8 @@ struct Ui {
 /// A mouse drag in progress.
 #[derive(Debug, Clone, PartialEq)]
 enum Drag {
+    /// A selection in the lyrics text area.
+    Text,
     /// A staff row of the properties pane (where it began, and the row under the mouse now).
     Prop(usize, usize, bool),
     /// A track's volume (one undo step).
@@ -171,6 +173,11 @@ fn event_loop(terminal: &mut DefaultTerminal, app: &mut App) -> Result<()> {
                             _ => {}
                         }
                     }
+                    MouseEventKind::Drag(MouseButton::Left) if ui.drag == Some(Drag::Text) => {
+                        if let Some(at) = text_at(&ui, m.column, m.row) {
+                            app.text_drag(at);
+                        }
+                    }
                     MouseEventKind::Drag(MouseButton::Left)
                         if matches!(ui.drag, Some(Drag::Prop(..))) =>
                     {
@@ -200,6 +207,20 @@ fn event_loop(terminal: &mut DefaultTerminal, app: &mut App) -> Result<()> {
                             .map(|(_, h)| *h)
                             .unwrap();
                         match hit {
+                            // In the text area being edited: a click places the caret, a drag
+                            // selects.
+                            PropHit::Row(i)
+                                if app.text_editing(i) && text_inside(&ui, m.column, m.row) =>
+                            {
+                                let at = text_at(&ui, m.column, m.row).unwrap_or(0);
+                                if is_double(&mut ui, m.column, m.row) {
+                                    app.click_property(i, true);
+                                    app.set_text_caret(at);
+                                } else {
+                                    app.text_click(at);
+                                    ui.drag = Some(Drag::Text);
+                                }
+                            }
                             // A staff can be dragged; a plain click waits for the release.
                             PropHit::Row(i) if app.property_is_staff(i) => {
                                 if let Some(id) = app.tool_pane(PaneKind::Properties) {
@@ -237,6 +258,7 @@ fn event_loop(terminal: &mut DefaultTerminal, app: &mut App) -> Result<()> {
                     MouseEventKind::Up(MouseButton::Left) if ui.drag.is_some() => {
                         match ui.drag.take() {
                             Some(Drag::Volume) => app.group_edits(false),
+                            Some(Drag::Text) => app.text_release(),
                             Some(Drag::Prop(from, to, double)) if from == to => {
                                 app.click_property(from, double)
                             }
@@ -1416,6 +1438,21 @@ enum PropHit {
     Row(usize),
 }
 
+/// Whether a point is in the lyrics text area as drawn.
+fn text_inside(ui: &Ui, col: u16, row: u16) -> bool {
+    ui.props_text
+        .as_ref()
+        .is_some_and(|(x, y, h, ..)| col >= *x && row >= *y && row < y + h)
+}
+
+/// The character of the lyrics text at a cell (rows and columns past it go to its edges).
+fn text_at(ui: &Ui, col: u16, row: u16) -> Option<usize> {
+    let (x, y, h, lines, skip) = ui.props_text.as_ref()?;
+    let r = (row.clamp(*y, y + h - 1) - y) as usize + skip;
+    let &(s, e) = lines.get(r.min(lines.len().saturating_sub(1)))?;
+    Some(s + (col.saturating_sub(*x) as usize).min(e - s))
+}
+
 /// Whether a click at this cell follows one just before (and notes it).
 fn is_double(ui: &mut Ui, x: u16, y: u16) -> bool {
     let now = std::time::Instant::now();
@@ -1639,9 +1676,25 @@ fn draw_properties(f: &mut Frame, app: &App, area: Rect, ui: &mut Ui) {
                         box_h as usize,
                     );
                     ui.props_text = Some((bx + 1, by, box_h, lines.clone(), skip));
+                    // The selection, behind the text.
+                    let selection = typing.and_then(|e| e.selection());
                     for (n, &(s, e)) in lines.iter().enumerate().skip(skip).take(box_h as usize) {
                         let line: String = chars[s..e].iter().collect();
                         buf.set_string(bx + 1, by + (n - skip) as u16, line, text_style);
+                        if let Some((a, z)) = selection {
+                            let (lo, hi) = (a.max(s), z.min(e));
+                            if lo < hi {
+                                buf.set_style(
+                                    Rect {
+                                        x: bx + 1 + (lo - s) as u16,
+                                        y: by + (n - skip) as u16,
+                                        width: (hi - lo) as u16,
+                                        height: 1,
+                                    },
+                                    Style::default().bg(rc(t.mode_normal.with_alpha(255))),
+                                );
+                            }
+                        }
                     }
                     if let Some((r, c)) = caret.filter(|&(r, _)| r >= skip) {
                         let (cx, cy) = (bx + 1 + c as u16, by + (r - skip) as u16);

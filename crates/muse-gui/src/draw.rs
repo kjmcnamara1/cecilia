@@ -181,6 +181,8 @@ enum Edge {
 /// A mouse drag in progress.
 #[derive(Debug, Clone, PartialEq)]
 enum Drag {
+    /// A selection in the lyrics text area.
+    Text,
     /// A staff row of the properties pane (where it began, and the row under the mouse now).
     Prop(usize, usize, bool),
     /// A row's volume slider (row, left, right).
@@ -3194,6 +3196,25 @@ fn draw_properties(scene: &mut Scene, app: &App, views: &mut Views, r: Rect) {
                         lines: lines.clone(),
                         chars: chars.clone(),
                     });
+                    // The selection, behind the text.
+                    if let Some((a, z)) = typing.and_then(|e| e.selection()) {
+                        for (n, &(s, e)) in lines.iter().enumerate().skip(skip).take(shown) {
+                            let (lo, hi) = (a.max(s), z.min(e));
+                            if lo < hi || (a < s && z > e && s == e) {
+                                let before: String = chars[s..lo.max(s)].iter().collect();
+                                let inside: String = chars[lo.max(s)..hi.max(lo)].iter().collect();
+                                let x0 = tx + width_of(&before, size);
+                                // An empty line inside the selection shows a sliver.
+                                let w = width_of(&inside, size).max(if s == e { 6.0 } else { 0.0 });
+                                let ly = by0 + 7.0 + line_h * (n - skip) as f64;
+                                fill(
+                                    scene,
+                                    Rect::new(x0, ly + 2.0, x0 + w, ly + size + 4.0),
+                                    col(th.mode_normal.with_alpha(110)),
+                                );
+                            }
+                        }
+                    }
                     for (n, &(s, e)) in lines.iter().enumerate().skip(skip).take(shown) {
                         let line: String = chars[s..e].iter().collect();
                         let ly = by0 + 7.0 + line_h * (n - skip) as f64 + size;
@@ -4008,6 +4029,23 @@ impl Views {
         match hit {
             PropHit::Tab(t) => app.set_property_tab(t),
             // A staff can be dragged to another place; a plain click waits for the release.
+            PropHit::Row(i)
+                if app.text_editing(i)
+                    && self
+                        .props_text
+                        .as_ref()
+                        .is_some_and(|p| p.area.contains((x, y))) =>
+            {
+                // In the text area being edited: a click places the caret, a drag selects.
+                let at = self.props_text.as_ref().map_or(0, |p| p.at(x, y));
+                if double {
+                    app.click_property(i, true);
+                    app.set_text_caret(at);
+                } else {
+                    app.text_click(at);
+                    self.drag = Some(Drag::Text);
+                }
+            }
             PropHit::Row(i) if app.property_is_staff(i) => {
                 self.drag = Some(Drag::Prop(i, i, double));
             }
@@ -4062,6 +4100,17 @@ impl Views {
     /// Mouse moved with the button down: drags a slider, a pane border or a panel's edge.
     pub fn drag_to(&mut self, app: &mut App, x: f64, y: f64) -> bool {
         match self.drag.clone() {
+            Some(Drag::Text) => {
+                if let Some(pt) = &self.props_text {
+                    // Past the top or bottom of the text scrolls it.
+                    if y < pt.area.y0 {
+                        app.scroll_properties(-1);
+                    } else if y > pt.area.y1 {
+                        app.scroll_properties(1);
+                    }
+                    app.text_drag(pt.at(x, y));
+                }
+            }
             Some(Drag::Prop(from, _, double)) => {
                 let over = self.props.iter().find_map(|(r, h)| match h {
                     PropHit::Row(i) if r.contains((x, y)) => Some(*i),
@@ -4111,6 +4160,7 @@ impl Views {
     pub fn release(&mut self, app: &mut App) {
         match self.drag.take() {
             Some(Drag::Volume(..)) => app.group_edits(false),
+            Some(Drag::Text) => app.text_release(),
             // Released on another staff: it moves there; on the same one: a click.
             Some(Drag::Prop(from, to, double)) if from == to => app.click_property(from, double),
             Some(Drag::Prop(from, to, _)) => app.drag_property(from, to),

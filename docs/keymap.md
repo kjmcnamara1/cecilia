@@ -288,7 +288,7 @@ score pane). It stays Normal mode; while the pane has the focus its keys are
 | `<Esc>` `q` | back to the score pane |
 | `<leader><leader>` `<leader>s` `<leader>f` `:` | play/pause, stop, follow, command line |
 
-Clicking a tab shows it, a row selects it and a double click edits it; a click on a switch flips it. Instruments and staves are shown with an icon (a guitar for every kind of guitar, and so on). The wheel scrolls the pane and moves the selection in pickers. In the lyrics text area `j` and `k` move by the lines as wrapped on screen.
+Clicking a tab shows it, a row selects it and a double click edits it; a click on a switch flips it. Instruments and staves are shown with an icon (a guitar for every kind of guitar, and so on). In the lyrics text area being edited the mouse works as in any text field: a click places the caret, a drag selects (past the top or bottom it scrolls), typing replaces the selection, `<BS>`, `<Del>` and in normal mode `d` `x` remove it and `c` changes it, and a double click enters insert mode. The wheel scrolls the pane and moves the selection in pickers. In the lyrics text area `j` and `k` move by the lines as wrapped on screen.
 
 | command | |
 | --- | --- |
