@@ -15,7 +15,7 @@ use muse_core::{Score, Track};
 
 use crate::display::{Align, BeatRef, Color, FontKind, Hit, Item, Page};
 use crate::fonts::fonts;
-use crate::layout::{BeatPos, Layout, Mode, Options};
+use crate::layout::{BeatPos, Layout, Mode, Options, StaffPos};
 
 const FLAT: char = '\u{E260}';
 const NATURAL: char = '\u{E261}';
@@ -420,7 +420,12 @@ impl Ctx<'_> {
                         width: rect.width(),
                         top: ymap(top) - 1.5 * sp,
                         bottom: text_y + 0.4 * self.text_size,
-                        strings: Vec::new(),
+                        staves: vec![StaffPos::Lines {
+                            staff: 0,
+                            y0: ymap(0),
+                            step: sp / 2.0,
+                            range: (i32::MIN, i32::MAX),
+                        }],
                     };
                     if let Some(bar) = layout.bars.get_mut(beat.bar) {
                         *bar = (page_index, bar.1.min(rect.x0), bar.2.max(rect.x1));
@@ -429,6 +434,7 @@ impl Ctx<'_> {
                         rect: Rect::new(rect.x0, pos.top, rect.x1, pos.bottom),
                         beat,
                         string: None,
+                        staff: 0,
                     });
                     layout.beats.insert(beat, pos);
                 }

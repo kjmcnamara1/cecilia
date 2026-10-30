@@ -152,6 +152,60 @@ impl ChantClef {
         (position - self.do_position()).rem_euclid(7)
     }
 
+    /// The clef and octave shift (semitones) that keep pitches on the four-line staff, for
+    /// showing ordinary notes as chant.
+    pub fn fitting(pitches: &[u8]) -> (ChantClef, i32) {
+        let clefs = [
+            (ClefKind::Do, 4),
+            (ClefKind::Do, 3),
+            (ClefKind::Fa, 3),
+            (ClefKind::Do, 2),
+            (ClefKind::Fa, 4),
+            (ClefKind::Do, 1),
+        ];
+        let mut best: Option<(f64, ChantClef, i32)> = None;
+        for (order, &(kind, line)) in clefs.iter().enumerate() {
+            let clef = ChantClef {
+                kind,
+                line,
+                flat: false,
+            };
+            for octave in [-24, -12, 0, 12, 24] {
+                let cost: f64 = pitches
+                    .iter()
+                    .map(|&p| {
+                        let (pos, _) = clef.place(p, octave);
+                        if !(0..=12).contains(&pos) {
+                            10.0
+                        } else if !(2..=10).contains(&pos) {
+                            1.0
+                        } else {
+                            0.0
+                        }
+                    })
+                    .sum::<f64>()
+                    + (octave as f64).abs() * 0.02
+                    + order as f64 * 0.01;
+                if best.as_ref().is_none_or(|b| cost < b.0) {
+                    best = Some((cost, clef, octave));
+                }
+            }
+        }
+        best.map_or((ChantClef::default(), 0), |b| (b.1, b.2))
+    }
+
+    /// Where a pitch, shifted by `octave` semitones, is written: `(position, alteration)`,
+    /// a flat or sharp marking a pitch between two positions.
+    pub fn place(&self, pitch: u8, octave: i32) -> (i32, i32) {
+        let target = (pitch as i32 + octave).clamp(0, 127) as u8;
+        let (pos, alter) = self.position_of(target, false);
+        if self.midi(pos, alter) == target {
+            (pos, alter)
+        } else {
+            (pos, 1)
+        }
+    }
+
     /// The position nearest to a MIDI pitch: `(position, alteration)`, preferring a flat ti for
     /// B♭ and rounding other chromatic pitches up or down.
     pub fn position_of(&self, pitch: u8, round_up: bool) -> (i32, i32) {

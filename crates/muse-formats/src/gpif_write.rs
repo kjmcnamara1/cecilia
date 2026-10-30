@@ -11,6 +11,8 @@ use crate::{Error, Result};
 
 /// Encodes a score as a GP7 `.gp` archive.
 pub fn write_gp7(score: &Score) -> Result<Vec<u8>> {
+    // A grand staff is written as one instrument with two staves.
+    let score = &score.split_grand();
     let xml = write_gpif(score);
     let mut zip = zip::ZipWriter::new(std::io::Cursor::new(Vec::new()));
     let options = zip::write::SimpleFileOptions::default()
@@ -67,6 +69,7 @@ fn asset_path(audio: &AudioSync) -> Option<String> {
 
 /// Encodes a score as a GP6 `.gpx` file.
 pub fn write_gpx(score: &Score) -> Result<Vec<u8>> {
+    let score = &score.split_grand();
     let xml = write_gpif_flavour(score, true);
     let part = part_configuration(score);
     let layout = layout_configuration(score.parts().len());
@@ -149,16 +152,7 @@ fn pitch_xml(midi: u8) -> String {
 }
 
 fn dynamic(velocity: u8) -> &'static str {
-    match velocity {
-        0..=22 => "PPP",
-        23..=38 => "PP",
-        39..=54 => "P",
-        55..=70 => "MP",
-        71..=86 => "MF",
-        87..=102 => "F",
-        103..=118 => "FF",
-        _ => "FFF",
-    }
+    dynamic_name(velocity)
 }
 
 fn note_value(v: DurationValue) -> &'static str {
@@ -752,7 +746,7 @@ fn write_master_bar(x: &mut String, mb: &MasterBar, bar_ids: &[usize]) {
         let _ = writeln!(
             x,
             "<Section><Letter>{}</Letter><Text>{}</Text></Section>",
-            cdata(""),
+            cdata(&m.letter),
             cdata(&m.title)
         );
     }
@@ -955,6 +949,19 @@ fn write_beat(
     if fx.fade_in {
         b.push_str("<Fadding>FadeIn</Fadding>");
     }
+    match fx.hairpin {
+        Some(Hairpin::Crescendo) => b.push_str("<Hairpin>Crescendo</Hairpin>"),
+        Some(Hairpin::Decrescendo) => b.push_str("<Hairpin>Decrescendo</Hairpin>"),
+        None => {}
+    }
+    if let Some(s) = fx.stroke.filter(|s| s.arpeggio) {
+        let d = if s.direction == StrokeDirection::Up {
+            "Up"
+        } else {
+            "Down"
+        };
+        let _ = write!(b, "<Arpeggio>{d}</Arpeggio>");
+    }
     let ottava = match fx.ottava {
         Ottava::None => None,
         Ottava::Ottava => Some("8va"),
@@ -981,7 +988,7 @@ fn write_beat(
             "Down"
         }
     };
-    if let Some(s) = fx.stroke {
+    if let Some(s) = fx.stroke.filter(|s| !s.arpeggio) {
         let _ = write!(
             props,
             "<Property name=\"Brush\"><Direction>{}</Direction></Property>",

@@ -114,6 +114,9 @@ pub struct Color {
 pub struct Marker {
     pub title: String,
     pub color: Color,
+    /// Section letter (Guitar Pro's `A`, `B` …), shown boxed before the title.
+    #[serde(default, skip_serializing_if = "String::is_empty")]
+    pub letter: String,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
@@ -256,8 +259,10 @@ pub struct Track {
     pub solo: bool,
     /// One bar per master bar. On a chant track these hold the transcription of `chant`.
     pub bars: Vec<Bar>,
-    /// A further staff of the part begun by the previous track (e.g. the left hand of a piano
-    /// grand staff). Parts are engraved together and saved as one multi-staff instrument.
+    /// A further staff of the part begun by the previous track, as files store multi-staff
+    /// instruments (a piano's left hand). Only readers and writers see such tracks: they are
+    /// merged into one track after reading ([`Score::merge_staves`]) and split again for
+    /// writing ([`Score::split_grand`]).
     #[serde(default, skip_serializing_if = "std::ops::Not::not")]
     pub extra_staff: bool,
     /// Clef of the standard staff when the source file sets one that differs from the default
@@ -267,7 +272,150 @@ pub struct Track {
     /// Chant notation (chant tracks only).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub chant: Option<Box<crate::chant::Chant>>,
+    /// The staves showing the track's notes, top first; empty means the default
+    /// ([`Track::default_staves`]).
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub staves: Vec<Staff>,
     pub extras: Extras,
+}
+
+/// A staff showing a track's notes; a track has one or more, top first.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+pub enum Staff {
+    /// Standard notation.
+    Standard(Clef),
+    /// Tablature without rhythm.
+    Tab,
+    /// Tablature with rhythm stems below it.
+    TabRhythm,
+    /// Rhythm slashes.
+    Slash,
+    /// Gregorian square notation.
+    Chant,
+}
+
+/// Clef of a standard staff. Fretted tracks read an octave above their sound (the small 8
+/// under the clef).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+pub enum Clef {
+    Treble,
+    Bass,
+    /// Treble and bass staves joined by a brace: notes from `split` (a MIDI pitch) up on the
+    /// treble staff, lower ones on the bass staff.
+    Grand {
+        split: u8,
+    },
+}
+
+/// Default split of a grand staff: middle C.
+pub const GRAND_SPLIT: u8 = 60;
+
+impl Clef {
+    pub fn name(self) -> String {
+        match self {
+            Clef::Treble => "treble".into(),
+            Clef::Bass => "bass".into(),
+            Clef::Grand { split } if split == GRAND_SPLIT => "grand".into(),
+            Clef::Grand { split } => format!("grand {}", pitch_name(split)),
+        }
+    }
+}
+
+/// Scientific pitch name of a MIDI pitch (middle C = C4), with sharps.
+pub fn pitch_name(midi: u8) -> String {
+    const NAMES: [&str; 12] = [
+        "C", "C#", "D", "D#", "E", "F", "F#", "G", "G#", "A", "A#", "B",
+    ];
+    format!("{}{}", NAMES[midi as usize % 12], midi as i32 / 12 - 1)
+}
+
+/// MIDI pitch of a note name such as `C4`, `F#3`, `Bb2` (middle C = C4), or a number.
+pub fn parse_pitch(s: &str) -> Option<u8> {
+    if let Ok(n) = s.parse::<u8>() {
+        return (n <= 127).then_some(n);
+    }
+    let mut chars = s.chars();
+    let step = match chars.next()?.to_ascii_uppercase() {
+        'C' => 0,
+        'D' => 2,
+        'E' => 4,
+        'F' => 5,
+        'G' => 7,
+        'A' => 9,
+        'B' => 11,
+        _ => return None,
+    };
+    let rest: String = chars.collect();
+    let (alter, octave) = match rest.chars().next() {
+        Some('#') => (1, &rest[1..]),
+        Some('b') => (-1, &rest[1..]),
+        _ => (0, rest.as_str()),
+    };
+    let octave: i32 = octave.parse().ok()?;
+    u8::try_from((octave + 1) * 12 + step + alter).ok()
+}
+
+impl Staff {
+    /// Every kind, as typed: `standard`, `tab`, `tab+`, `slash`, `chant`.
+    pub const KINDS: [&str; 5] = ["standard", "tab", "tab+", "slash", "chant"];
+
+    /// Parses `standard [treble|bass|grand [split]]`, `tab`, `tab+`, `slash` or `chant`;
+    /// `standard` alone takes `clef`.
+    pub fn parse(s: &str, clef: Clef) -> Result<Staff, String> {
+        let words: Vec<&str> = s.split_whitespace().collect();
+        Ok(match words.as_slice() {
+            ["standard" | "std", rest @ ..] => Staff::Standard(match rest {
+                [] => clef,
+                ["treble"] => Clef::Treble,
+                ["bass"] => Clef::Bass,
+                ["grand"] => Clef::Grand { split: GRAND_SPLIT },
+                ["grand", note] => Clef::Grand {
+                    split: parse_pitch(note)
+                        .ok_or_else(|| format!("'{note}' is not a note (e.g. C4, F#3)"))?,
+                },
+                _ => return Err("standard takes treble, bass or grand [split note]".into()),
+            }),
+            ["tab"] => Staff::Tab,
+            ["tab+"] => Staff::TabRhythm,
+            ["slash"] => Staff::Slash,
+            ["chant"] => Staff::Chant,
+            _ => {
+                return Err(format!(
+                    "'{s}' is not a staff (standard [treble|bass|grand [split]], tab, tab+, slash, chant)"
+                ));
+            }
+        })
+    }
+
+    pub fn name(self) -> String {
+        match self {
+            Staff::Standard(c) => format!("standard {}", c.name()),
+            Staff::Tab => "tab".into(),
+            Staff::TabRhythm => "tab+".into(),
+            Staff::Slash => "slash".into(),
+            Staff::Chant => "chant".into(),
+        }
+    }
+
+    pub fn is_tab(self) -> bool {
+        matches!(self, Staff::Tab | Staff::TabRhythm)
+    }
+}
+
+/// Chant signs kept with a note, for chant staves of ordinary tracks.
+#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
+pub struct ChantMarks {
+    /// Punctum inclinatum (diamond).
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub inclinatum: bool,
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub initio_debilis: bool,
+    /// The note begins a new neume.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub neume_start: bool,
+    /// GABC modifiers (`v` `s` `o` `q` `w` `~` `.` `_` `'` …), in written order.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub mods: Vec<String>,
 }
 
 impl Track {
@@ -304,6 +452,52 @@ impl Track {
     /// Clef of the standard staff: the one from the source file, else for fretted instruments
     /// the octave-down treble clef, or bass clef when the highest string is low (bass
     /// guitars); for other parts treble or bass by how low their notes are.
+    /// The staves shown when none were chosen: chant as chant; fretted tracks as standard
+    /// notation over tab; others as standard notation in the clef that suits their range.
+    pub fn default_staves(&self) -> Vec<Staff> {
+        if self.chant.is_some() {
+            return vec![Staff::Chant];
+        }
+        let clef = if self.staff_clef().is_bass() {
+            Clef::Bass
+        } else {
+            Clef::Treble
+        };
+        if self.kind == TrackKind::Fretted && !self.strings.is_empty() {
+            vec![Staff::Standard(clef), Staff::Tab]
+        } else {
+            vec![Staff::Standard(clef)]
+        }
+    }
+
+    /// The track's staves, top first (never empty).
+    pub fn staves(&self) -> Vec<Staff> {
+        if self.staves.is_empty() {
+            self.default_staves()
+        } else {
+            self.staves.clone()
+        }
+    }
+
+    /// The staves, made explicit so they can be changed.
+    pub fn staves_mut(&mut self) -> &mut Vec<Staff> {
+        if self.staves.is_empty() {
+            self.staves = self.default_staves();
+        }
+        &mut self.staves
+    }
+
+    /// The clef a standard staff with `clef` shows (one half of a grand staff for `bass`).
+    pub fn written_clef(&self, clef: Clef, bass: bool) -> StaffClef {
+        let octave_down = self.staff_clef().octave_down();
+        let bass = match clef {
+            Clef::Treble => false,
+            Clef::Bass => true,
+            Clef::Grand { .. } => bass,
+        };
+        StaffClef::new(bass, octave_down)
+    }
+
     pub fn staff_clef(&self) -> StaffClef {
         if let Some(c) = self.clef {
             return c;
@@ -361,6 +555,9 @@ pub struct Beat {
     pub effects: BeatEffects,
     /// Lyric syllables, one per lyric line (empty strings for lines without a syllable here).
     pub lyrics: Vec<String>,
+    /// A chant division after this beat (`,` `;` `:` `::`), for chant staves.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub chant_division: Option<String>,
 }
 
 impl Beat {
@@ -398,6 +595,9 @@ pub struct Stroke {
     pub direction: StrokeDirection,
     /// Total time over which the strings are struck.
     pub duration: DurationValue,
+    /// An arpeggio (a rolled chord, drawn wavy) rather than a brush stroke.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub arpeggio: bool,
 }
 
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
@@ -429,6 +629,15 @@ pub struct BeatEffects {
     pub rasgueado: bool,
     pub tremolo_bar: Option<Bend>,
     pub ottava: Ottava,
+    /// Crescendo or decrescendo through this beat; consecutive beats form one hairpin.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub hairpin: Option<Hairpin>,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+pub enum Hairpin {
+    Crescendo,
+    Decrescendo,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -462,6 +671,9 @@ pub struct Note {
     pub effects: NoteEffects,
     /// Playback length as a fraction of the written duration (1.0 = full).
     pub duration_percent: f32,
+    /// Chant signs, when the track has a chant staff.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub chant: Option<Box<ChantMarks>>,
 }
 
 impl Note {
@@ -477,6 +689,20 @@ impl Note {
 }
 
 pub const DEFAULT_VELOCITY: u8 = 95;
+
+/// Dynamic marking for a velocity, in Guitar Pro's upper-case names ("PPP" to "FFF").
+pub fn dynamic_name(velocity: u8) -> &'static str {
+    match velocity {
+        0..=22 => "PPP",
+        23..=38 => "PP",
+        39..=54 => "P",
+        55..=70 => "MP",
+        71..=86 => "MF",
+        87..=102 => "F",
+        103..=118 => "FF",
+        _ => "FFF",
+    }
+}
 
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
 pub enum Accent {
@@ -630,6 +856,117 @@ impl Score {
             end += 1;
         }
         start..end
+    }
+
+    /// Folds each multi-staff instrument read from a file (a track followed by `extra_staff`
+    /// tracks) into one track: the further staves' voices join its bars, and a pitched
+    /// instrument is shown on a grand staff.
+    pub fn merge_staves(&mut self) {
+        let mut t = 0;
+        while t < self.tracks.len() {
+            let part = self.part_tracks(t);
+            if part.len() > 1 {
+                let extra: Vec<Track> = self.tracks.drain(part.start + 1..part.end).collect();
+                let first = &mut self.tracks[part.start];
+                for staff in extra {
+                    for (bar, more) in first.bars.iter_mut().zip(staff.bars) {
+                        // Placeholder voices (only empty beats) are left out.
+                        bar.voices.extend(
+                            more.voices
+                                .into_iter()
+                                .filter(|v| v.beats.iter().any(|b| !b.empty)),
+                        );
+                    }
+                }
+                if first.kind == TrackKind::Pitched {
+                    first.staves = vec![Staff::Standard(Clef::Grand { split: GRAND_SPLIT })];
+                    first.clef = None;
+                }
+                // Tracks after the merged ones move up.
+                let removed = part.len() - 1;
+                if let Some(l) = self.lyrics.as_mut() {
+                    l.track = l.track.map(|i| match i {
+                        i if i >= part.end => i - removed,
+                        i if i > part.start => part.start,
+                        i => i,
+                    });
+                }
+            }
+            t = part.start + 1;
+        }
+    }
+
+    /// The score as files store it: a track on a grand staff becomes two tracks of one part
+    /// (treble, then bass as an `extra_staff`), its notes split at the grand staff's split.
+    /// A voice with no notes on one side is left out there.
+    pub fn split_grand(&self) -> Score {
+        let mut out = self.clone();
+        let mut t = 0;
+        while t < out.tracks.len() {
+            let split = out.tracks[t].staves().iter().find_map(|s| match s {
+                Staff::Standard(Clef::Grand { split }) => Some(*split),
+                _ => None,
+            });
+            let Some(split) = split.filter(|_| out.tracks[t].kind != TrackKind::Drums) else {
+                t += 1;
+                continue;
+            };
+            let both = out.tracks[t].clone();
+            let pitch = |n: &Note| both.pitch_of(n);
+            let half = |high: bool| -> Track {
+                let mut tr = both.clone();
+                let keep = |n: &Note| (pitch(n) >= split) == high;
+                // Voices with a note on this side, anywhere in the track.
+                let voices = tr.bars.iter().map(|b| b.voices.len()).max().unwrap_or(0);
+                let used: Vec<bool> = (0..voices)
+                    .map(|v| {
+                        tr.bars.iter().any(|b| {
+                            b.voices
+                                .get(v)
+                                .is_some_and(|v| v.beats.iter().flat_map(|b| &b.notes).any(keep))
+                        })
+                    })
+                    .collect();
+                for bar in &mut tr.bars {
+                    let mut kept: Vec<Voice> = Vec::new();
+                    for (v, voice) in std::mem::take(&mut bar.voices).into_iter().enumerate() {
+                        if used.get(v) == Some(&true) {
+                            let mut voice = voice;
+                            for beat in &mut voice.beats {
+                                beat.notes.retain(keep);
+                            }
+                            kept.push(voice);
+                        }
+                    }
+                    if kept.is_empty() {
+                        kept.push(Voice {
+                            beats: vec![Beat {
+                                empty: true,
+                                ..Beat::default()
+                            }],
+                        });
+                    }
+                    bar.voices = kept;
+                }
+                tr.clef = Some(StaffClef::new(!high, both.staff_clef().octave_down()));
+                tr.staves = vec![Staff::Standard(if high {
+                    Clef::Treble
+                } else {
+                    Clef::Bass
+                })];
+                tr
+            };
+            let (upper, mut lower) = (half(true), half(false));
+            lower.name = format!("{} (2)", both.name.trim());
+            lower.extra_staff = true;
+            out.tracks[t] = upper;
+            out.tracks.insert(t + 1, lower);
+            if let Some(l) = out.lyrics.as_mut() {
+                l.track = l.track.map(|i| if i > t { i + 1 } else { i });
+            }
+            t += 2;
+        }
+        out
     }
 
     /// The parts of the score as track ranges, in order.

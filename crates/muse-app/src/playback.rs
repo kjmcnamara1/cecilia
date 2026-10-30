@@ -163,6 +163,40 @@ impl Playback {
         }
     }
 
+    /// Loudness (0–1) of a buffer's audio under each bar, once the audio has loaded.
+    pub fn bar_levels(&mut self, app: &App, buffer: usize) -> Option<Vec<f32>> {
+        let peaks = self.loaded_audio(buffer)?.peaks.clone();
+        let score = &app.buffers.get(buffer)?.score;
+        let n = score.master_bars.len();
+        let last = n.checked_sub(1)?;
+        let end = crate::tracks::bar_ticks(score, last);
+        let times: Vec<Option<f64>> = (0..=n)
+            .map(|b| {
+                if b < n {
+                    self.time_of(app, buffer, b, 0)
+                } else {
+                    self.time_of(app, buffer, last, end)
+                }
+            })
+            .collect();
+        Some(
+            (0..n)
+                .map(|b| match (times[b], times[b + 1]) {
+                    (Some(a), Some(z)) => {
+                        let (a, z) = ((a * 100.0).max(0.0) as usize, (z * 100.0).max(0.0) as usize);
+                        peaks
+                            .get(a.min(peaks.len())..z.max(a + 1).min(peaks.len()))
+                            .unwrap_or_default()
+                            .iter()
+                            .map(|&(lo, hi)| lo.abs().max(hi.abs()))
+                            .fold(0.0, f32::max)
+                    }
+                    _ => 0.0,
+                })
+                .collect(),
+        )
+    }
+
     pub fn audio_loading(&self, buffer: usize) -> bool {
         matches!(self.audio.get(&buffer), Some(AudioState::Loading(_)))
     }
@@ -186,14 +220,13 @@ impl Playback {
         let Some(buffer) = app.playing_buffer.or(Some(app.pane().buffer)) else {
             return;
         };
-        let has_audio = app
-            .buffers
-            .get(buffer)
-            .is_some_and(|b| b.score.audio.is_some());
+        let Some(score) = app.buffers.get(buffer).map(|b| &b.score) else {
+            return;
+        };
         let seq = self.sequences.get(&buffer).cloned();
         let Some(player) = &self.player else { return };
         player.set_speed(app.config.file.audio.speed);
-        player.set_mix(app.pa.levels(has_audio));
+        player.set_mix(app.pa.levels(score));
         player.set_metronome(app.pa.metronome);
         player.set_transpose(app.pa.transpose);
         player.set_trainer(

@@ -7,7 +7,8 @@ use crate::Result;
 /// Encodes a score as a GP5 file. Pitched tracks are fingered onto a fretboard, and only the
 /// first two voices of each bar are kept (GP5's limit).
 pub fn write_gp5(score: &Score) -> Result<Vec<u8>> {
-    let mut score = score.clone();
+    // Guitar Pro 5 has one staff per track: a grand staff's halves become two tracks.
+    let mut score = score.split_grand();
     for t in &mut score.tracks {
         muse_convert::pitched_to_fretted(t);
         if t.kind == TrackKind::Chant {

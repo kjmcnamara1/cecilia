@@ -10,7 +10,7 @@ Items marked _(M1)_ are implemented in the first milestone; the rest are the pla
 | keys                      | command                                                                                                                                                  |        |
 | ------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------- | ------ |
 | `h` / `l`                 | previous / next beat                                                                                                                                     | _(M1)_ |
-| `j` / `k`                 | next / previous string (lower / higher)                                                                                                                  | _(M1)_ |
+| `j` / `k`                 | next / previous row: tab strings and staff lines and spaces, on through the staves of the part (down from a staff's last row is the next staff's first) | _(M1)_ |
 | `w` / `b`                 | next / previous beat with notes                                                                                                                          | _(M1)_ |
 | `}` / `{`                 | next / previous bar                                                                                                                                      | _(M1)_ |
 | `0` / `$`                 | first / last beat of bar                                                                                                                                 | _(M1)_ |
@@ -35,9 +35,9 @@ Items marked _(M1)_ are implemented in the first milestone; the rest are the pla
 | `<leader>-` / `<leader>=`   | speed −5% / +5%                                                                                                                                                                                                         | _(M5)_ |
 | `<leader>a`                 | cycle mix: audio + MIDI / audio only / MIDI only                                                                                                                                                                        | _(M5)_ |
 | `<leader>t`                 | sync tap: place the next bar at the current audio time                                                                                                                                                                  | _(M5)_ |
-| `<leader>w`                 | show / hide the waveform strip of the focused pane (GUI); with `ui.global_waveform = true` panes have no strip and this toggles the window waveform bar instead | _(M5)_ |
+| `<leader>w`                 | show / hide the waveform tool pane (`:waveform`) | _(M5)_ |
 | `<leader>v`                 | cycle the focused pane's score layout (vertical / page / horizontal); new splits and views copy it                                                                                                                      | _(M3)_ |
-| `<C-=>` / `<C-->` / `<C-0>` | zoom in / out / reset (GUI; also Ctrl+wheel)                                                                                                                                                                            | _(M3)_ |
+| `<C-=>` / `<C-->` / `<C-0>` | zoom the focused pane in / out / reset (GUI); Ctrl+wheel zooms the pane under the mouse                                                                                                                                                                        | _(M3)_ |
 
 ### Buffers, panes, views
 
@@ -74,13 +74,28 @@ unless forced (`:bdelete!`).
 | `<C-w>x`            | swap the pane with the next one (`:pane-exchange`) | |
 | `<C-w>r` / `<C-w>R` | rotate the panes of this split forwards / backwards (`:pane-rotate`, `:pane-rotate-back`) | |
 | `<leader>>` / `<leader><` | move this file's tab right / left in the tabline (`:buffer-move-next`, `:buffer-move-prev`; `:buffer-move N`, `+N`, `-N`) | |
-| `<C-m>` / `<C-w>z`  | maximize the pane / restore the others (`:maximize`); focusing another pane restores them too. Terminals often send `<C-m>` as Enter, so in the TUI use `<C-w>z` | |
+| `<A-m>` / `<C-w>z`  | maximize the pane / restore the others (`:maximize`); focusing another pane restores them too | |
+
+Besides scores, a pane can show a **tool**: the tracks (`:tracks`), the audio waveform
+(`:waveform`), the piano (`:piano`), the fretboard (`:fretboard`) or the tuner
+(`:tuner`). Each command shows its tool, or hides it. A tool listed in `ui.global_tools` (all
+of them by default; `:global-tool TOOL` switches one between global and local, moving it if it
+is open) docks along the bottom of the whole view, above the status line, as wide as
+the window, and shows the score pane worked on last. Any other tool opens at the bottom of the
+score pane worked on last, as wide as it, and always shows that pane's score (focusing it
+makes that pane the one worked on again); it closes with its score pane. `<Esc>` in a tool
+pane goes back to the score pane worked on last. A tool
+pane keeps its own size — the height (or width) its contents need, until you drag its border or
+`:resize` it — while panes come and go; score panes share the room left, equally when split.
+Tool panes are panes like the others: `<C-w>h/j/k/l` focus them, `<C-w>H/J/K/L`
+dock them along any edge, and they swap, rotate, resize, maximize and close (`:q`) like score
+panes. They work on the view's score pane — the one focused last — and editing keys typed in
+a tool pane go to it. Closing the last score pane closes the view.
 
 Drag a tab along the tabline to reorder the files. Drag the border between two panes with the
-mouse to resize them, and the top edge of the
-tracks panel or of a waveform to make it taller or shorter (`:tracks-resize N` sets the tracks
-it shows, `:waveform-resize N` the waveform height in pixels). Pane sizes, the tracks panel's
-rows and the waveform height are saved in workspaces. Over the tracks panel the mouse wheel
+mouse to resize them, and the top edge of a pane's waveform strip to make it taller or shorter
+(`:tracks-resize N` resizes the tracks pane, `:waveform-resize N` sets the strips' height in
+pixels). Panes, their sizes and the waveform height are saved in workspaces. Over the tracks pane the mouse wheel
 scrolls through tracks, and sideways (or with Shift) through bars; over a waveform both wheels
 move along the timeline and Ctrl+wheel zooms it. They follow the cursor or playhead again once
 that moves.
@@ -174,8 +189,8 @@ light `ink` for light notation on dark paper. `docs/config.example.toml` lists e
 
 ## Fretboard and piano
 
-`<leader>F` (`:fretboard [on|off]`) shows a fretboard and `<leader>K` (`:piano [on|off]`) piano
-keys above the tracks panel, for the focused pane's track: the notes at the edit cursor — or
+`<leader>F` (`:fretboard [on|off]`) shows a fretboard pane and `<leader>K` (`:piano [on|off]`) a
+piano pane, for the score pane's track: the notes at the edit cursor — or
 under the playhead while playing — as dots on the neck (named, in the track's colour; the
 cursor's string in the mode colour, a capo across its fret in `theme.capo`) and as pressed keys. The GUI's neck
 spaces its frets as a real one, with inlays; its piano has all 88 keys. `ui.fretboard` and
@@ -186,7 +201,7 @@ drum on a drum track.
 
 ## Tuner
 
-`<leader>u` (`:tuner [on|off]`) shows a tuner above the other panels and listens to the default
+`<leader>u` (`:tuner [on|off]`) shows a tuner pane and listens to the default
 audio input (a microphone or an instrument input) while it is shown. It names the note it
 hears, shows how many cents off it is on a −50…+50 scale (green within 3 cents, then yellow,
 red past 15), the frequency, and the nearest open string of the focused track's tuning (capo
@@ -194,33 +209,45 @@ included) and how far from it. `audio.tuner_a4` sets the reference pitch (440 Hz
 
 ## Tracks panel
 
-`<leader>T` shows or hides the tracks panel at the bottom of the window (`ui.tracks_panel` sets
-the default; workspaces remember it). While hidden, it shows for a second whenever a key or
-command changes the track (`ui.tracks_peek` sets the seconds; 0 turns that off). Each track of the focused file has a row: its number, a
+`<leader>T` shows or hides the tracks pane (`ui.tracks_panel` shows it from the start;
+workspaces remember it). While no tracks pane is shown, the tracks show along the bottom for a
+second whenever a key or command changes the track (`ui.tracks_peek` sets the seconds; 0 turns
+that off). Each track of the score pane's file has a row: its number, a
 volume slider, **S**olo and **M**ute, its name and instrument, then a block per bar — coloured
 where the bar has notes, faded when the track isn't heard. The edit cursor is a black dot on
 its bar's block and the red playhead runs across all tracks. Click a block to move the cursor there, click S or
-M to toggle them, drag a slider to set the volume (one undo step).
+M to toggle them, drag a slider to set the volume (one undo step). Double-click a track's name
+to rename it in place, or its instrument to pick another.
 
-`<C-w>t` focuses the panel (**TRACKS** in the status line); its keys are `[keymap.tracks]`:
+Below the tracks come the **audio track** (when the file has one), drawn as a simplified
+waveform under the bars, and the **synth master**, showing the section markers (a flag, or the
+section's letter in a box, then its title). Their sliders set the audio level and the master
+level, which scales the final output without changing any track's volume.
+
+`<C-w>t` focuses the tracks pane (opening it; again, back to the score pane). It stays Normal
+mode; while the pane has the focus its keys are `[keymap.tracks]`, then the usual ones:
 
 | keys | command |
 | --- | --- |
-| `j` `k` / `<Down>` `<Up>` | next / previous track |
+| `j` `k` / `<Down>` `<Up>` | select the next / previous row (tracks, then the audio track and the master); the pane keeps showing its track |
+| `<CR>` | show the selected track in the pane |
 | `h` `l` / `<Left>` `<Right>`, `gg` `G` | previous / next bar, first / last bar |
-| `s` / `m` | solo / mute the track |
-| `+` (`=`) / `-` | volume up / down 5% |
-| `c` | next colour of the theme's palette for the track |
-| `<CR>` `<Esc>` `q` `<C-w>k` | back to the score |
-| `<C-w>+` / `<C-w>-` | show more / fewer tracks |
+| `s` / `m` | solo / mute the selected row |
+| `+` (`=`) / `-` | the selected row's volume up / down 5% |
+| `c` | next colour of the theme's palette for the selected track |
+| `t` | rename the selected track in place: type the name, `<CR>` keeps it, `<Esc>` drops it |
+| `i` | pick the selected track's instrument |
+| `<Esc>` `q` | back to the score pane |
 | `<leader><leader>` `<leader>s` `<leader>f` `:` | play/pause, stop, follow, command line |
 
 | command | |
 | --- | --- |
-| `:tracks [on\|off]` / `:tracks-focus` | show or hide the panel / focus it (again: back to the score) |
+| `:tracks [on\|off]` / `:tracks-focus` | show or hide the tracks pane / focus it (again: back to the score pane) |
+| `:track-rename NAME [n]` | rename track n (default: the cursor's track) |
+| `:track-instrument [PROGRAM\|drums] [n]` | set a track's General MIDI instrument (1–128) or the drum kit (only an empty track changes between drums and pitched); without a program, a picker |
 | `:track-volume 80` (`+10`, `-10`) / `:track-volume-up` / `:track-volume-down` | the track's volume in percent |
 | `:track-color #rrggbb` / `:track-color off` / `:track-color` | the track's colour (saved in `.muse` files) / back to the theme's / the next palette colour |
-| `:mute [n]` / `:solo [n]` | toggle mute / solo of track n (default: the cursor's) |
+| `:mute [n\|audio\|master]` / `:solo [n\|audio\|master]` | toggle mute / solo of track n (default: the cursor's), the audio track, or the synth master. A row is soloed, muted or neither: turning one on turns the other off. With any row soloed only soloed rows play; a muted row is silent. The master's mute is on when every synth track is muted (it mutes or unmutes them all); its solo is on when any synth track is soloed (it solos them all, or clears their solos) |
 
 ## Playing
 
@@ -237,21 +264,61 @@ shows ▶ (⏸ when paused) in place of its file-type icon.
 
 ## Insert mode (M4, done)
 
-| keys                                        | command                                                                                        |
-| ------------------------------------------- | ---------------------------------------------------------------------------------------------- |
-| `0`–`9`                                     | fret on the cursor string (two quick digits = two-digit fret; MIDI key on drum/pitched tracks) |
-| `<Space>` / `<Right>`                       | next beat, appending one (or moving to the next bar) at the end                                |
-| `<Left>` / `<Up>` / `<Down>`                | previous beat / string up / string down                                                        |
-| `<CR>`                                      | new beat after the cursor                                                                      |
-| `<BS>` / `<Del>`                            | delete the note                                                                                |
-| `h` `b` `s` `~` `x` `m` `l` `g` `a` `n` `t` | hammer/pull, bend, slide, vibrato, dead, palm mute, let ring, ghost, accent, harmonic, tie     |
-| `r` / `.` / `<C-t>`                         | rest / dot / triplet                                                                           |
-| `+` / `-` / `<A-1>`…`<A-7>`                 | longer / shorter / whole … 64th                                                                |
-| `<Esc>`                                     | back to Normal (the whole session is one undo step)                                            |
+Insert-mode keys depend on where the cursor is: on a **tab** (or drum lanes), on a **standard**
+staff, on a **slash** staff or on **chant**. Each has its own keymap, looked up first
+(`[keymap.insert-tab]`, `[keymap.insert-standard]`, `[keymap.insert-slash]`,
+`[keymap.insert-chant]` in `config.toml`), then the keys shared by all (`[keymap.insert]`).
+The status line shows where the cursor is (`string 3`, `G4`, `slash`, `chant h`).
+
+Shared keys:
+
+| keys                         | command                                                         |
+| ---------------------------- | --------------------------------------------------------------- |
+| `<Space>` / `<Right>`        | next beat, appending one (or moving to the next bar) at the end |
+| `<Left>` / `<Up>` / `<Down>` | previous beat / row up / row down (across staves, as `k` / `j`) |
+| `<CR>`                       | new beat after the cursor                                       |
+| `<BS>` / `<Del>`             | delete the note                                                 |
+| `r` / `.` / `<C-t>`          | rest / dot / triplet                                            |
+| `+` / `-` / `<A-1>`…`<A-7>`  | longer / shorter / whole … 64th                                 |
+| `<C-a>` / `<C-x>`            | the cursor note a semitone up / down                            |
+| `<Esc>`                      | back to Normal (the whole session is one undo step)             |
+
+On a **tab**:
+
+| keys                                        | command                                                                                    |
+| ------------------------------------------- | ------------------------------------------------------------------------------------------ |
+| `0`–`9`                                     | fret on the cursor string (two quick digits = two-digit fret)                              |
+| `h` `b` `s` `~` `x` `m` `l` `g` `a` `n` `t` | hammer/pull, bend, slide, vibrato, dead, palm mute, let ring, ghost, accent, harmonic, tie |
 
 On drum tracks _(M7)_, letters add or remove an instrument on the cursor beat: `k` bass drum,
 `s` snare, `h` closed hi-hat, `o` open hi-hat, `p` pedal hi-hat, `c` crash, `d` ride, `t` high
 tom, `m` mid tom, `f` floor tom (`r` is still a rest, `g`/`a` ghost and accent).
+
+On a **standard** staff the cursor sits on a line or space (`<Up>`/`<Down>` move it a step; past
+the staff they go on to the tab below or the next staff):
+
+| keys                                  | command                                                                                                                                                   |
+| ------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `a`–`g`                               | that note, in the key, nearest the cursor (`:note-letter`): it replaces the note the cursor is on, or joins the chord; the cursor moves onto it. Fretted tracks pick a string |
+| `#` / `&` / `=`                       | the cursor note sharp / flat / natural (`:accidental`)                                                                                                    |
+| `t` `h` `s` `~` `>` `(` `x`           | tie, hammer/pull, slide, vibrato, accent, ghost, dead                                                                                                     |
+
+On a **slash** staff: `/` puts a slash on the beat (`:slash`); `t` tie, `>` accent.
+
+On **chant**, the cursor is on a note. On a chant track (opened from GABC) these edit the chant
+itself; on any other track they edit the track's notes (shown on its other staves too) and keep
+the chant signs with them, the syllables coming from its lyrics:
+
+| keys                                      | command                                                                         |
+| ----------------------------------------- | ------------------------------------------------------------------------------- |
+| `a`–`m` / `A`–`M`                         | the cursor note's GABC pitch / as a punctum inclinatum (`:chant-note`)           |
+| `<Space>` / `/`                           | a new note after the cursor note, in the same neume / starting a new neume      |
+| `<CR>`                                    | a new syllable after the cursor syllable                                        |
+| `v` `s` `o` `q` `w` `~`                   | virga, stropha, oriscus, quadratum, quilisma, liquescent (toggles, `:chant-mod`) |
+| `.` `_` `'` `-`                           | mora, episema, ictus, initio debilis                                            |
+| `,` `;` `:`                               | a division after the syllable (`:` again makes `::`; `:chant-bar`)              |
+| `<BS>` / `<Del>`                          | delete the note                                                                 |
+| `<Right>`                                 | next note                                                                       |
 
 ## Command mode (selected)
 
@@ -287,7 +354,10 @@ e.g. `"<C-g>" = "completion-ignore-case"`, `"<C-f>" = "completion-fuzzy"`.
 | `:note C#4` / `:voice 2`                                             | set the cursor note's pitch / edit another voice                                                                                                                                            |
 | `:tuning drop-d` or `:tuning D2 A2 D3 G3 B3 E4` / `:capo 2`          | retune keeping pitches                                                                                                                                                                      |
 | `:refinger` / `:transpose 2`                                         | re-finger the track to minimise hand movement / transpose                                                                                                                                   |
-| `:track-add bass` / `:track-delete` / `:new`                         | tracks and new scores (`:track-add piano` adds a grand staff: two staves of one part)                                                                                                       |
+| `:track-add bass` / `:track-delete` / `:new`                         | tracks and new scores (`:track-add piano` gets a grand staff)                                                                                                                                 |
+| `:staff-add [staff]`                                                | add a staff at the bottom of the cursor's track; staves only show the track's notes, so each track can have as many as you like |
+| `:staff {staff}`                                                     | show the cursor's staff another way: `standard [treble\|bass\|grand [split]]` (`standard` alone takes `score.clef` from the config, treble by default; a grand staff splits at middle C, C4, unless a note such as `G3` is given), `tab`, `tab+` (tab with rhythm stems), `slash`, `chant`. A tab on a track without strings puts its notes on strings (refused if one would not fit) |
+| `:staff-remove [n]` / `:staff-move {n\|+N\|-N}`                      | remove a staff (1 = top; the cursor's by default; the last one stays) / move the cursor's staff to position n, or down / up |
 | `:lyrics [verse] TEXT` _(M7)_                                        | syllables from the cursor on, one per note, in Guitar Pro syntax: spaces and hyphens separate syllables (`he-si-tate`), an extra space skips a note, `+` joins words on one note; verse 1–5 |
 | `:lyrics-clear [verse]` _(M7)_                                       | remove a verse (all verses without a number) from the track                                                                                                                                 |
 | `:speed 75`                                                          | playback speed in percent                                                                                                                                                                   |
@@ -295,7 +365,7 @@ e.g. `"<C-g>" = "completion-ignore-case"`, `"<C-f>" = "completion-fuzzy"`.
 ### Workspaces
 
 A workspace saves the views — each with its pane splits, name and bufferline of loaded files —
-and each pane's file, cursor, recent files, layout and waveform strip, plus zoom, follow, chant
+and each pane's file, cursor, recent files, layout and waveform strip, each pane's zoom, follow, chant
 view, the window waveform bar, marks (of saved files) and recorded macros, to
 `~/.local/share/muse/workspaces/NAME.toml` (or a path). A workspace is always active, and is
 saved again whenever the session changes and when muse quits. Until you choose one, it is
@@ -333,12 +403,14 @@ flat or natural when needed), `x` deletes it and `u` undoes, as on any track.
 | `:sync-tap` / `:sync-clear`                | add a sync point at the playing bar / remove all sync points                                                                                                                                             |
 | `:sync-detect`                             | beat-detection assist: fill in sync points from the last existing one (tap the first downbeat first for best results)                                                                                    |
 | `:mix [both\|audio\|midi]`                 | what plays when a recording is attached (no argument cycles)                                                                                                                                             |
-| `:volume midi\|audio\|metronome {percent}` | source levels                                                                                                                                                                                            |
-| `:mute [n]` / `:solo [n]`                  | toggle a track's mute / solo (cursor track by default)                                                                                                                                                   |
+| `:volume midi\|audio\|metronome\|master {percent}` | source levels (`master` scales the whole output)                                                                                                                                                                                            |
+| `:mute` / `:solo [n\|audio\|master]`       | toggle a track's (cursor track by default), the audio track's or the master's mute / solo                                                                                                                                                |
 | `:loop [a b]` / `:loop-toggle`             | loop bars a–b (1-based), or the selection / cursor bar                                                                                                                                                   |
 | `:trainer start target step`               | speed trainer: start at `start`%, add `step`% each loop up to `target`% (e.g. `:trainer 60 100 5`)                                                                                                       |
 | `:pitch {semitones}`                       | shift the recording's pitch (−12…12, keeps tempo)                                                                                                                                                        |
-| `:metronome` / `:count-in` / `:waveform`   | toggles (`:waveform`: the focused pane's strip, or the window bar when `ui.global_waveform` is set) |
-| `:waveform-global [on\|off]`               | a waveform bar across the window above the status line, for the focused pane's file, marking the play position (or the cursor when stopped); no argument toggles (`ui.global_waveform` sets the default) |
+| `:metronome` / `:count-in` / `:waveform-strip` | toggles (`:waveform-strip`: the focused pane's strip) |
+| `:waveform [on\|off]`                      | the waveform tool pane: the score pane's audio waveform, marking the play position (or the cursor when stopped); no argument toggles |
+| `:global-tool TOOL`                        | switch a tool (tracks, waveform, fretboard, piano, tuner) between global (along the window bottom) and local (under its score pane) |
+| `:progress-bar [on\|off]`                  | the progress bar along the bottom of every score pane: the sections (letter and title), a translucent red mark at the play position (or the cursor), and the time; clicking it moves the cursor to that bar. `ui.progress_bar` sets the default (on) |
 | `:export {file}`                           | export by extension                                                                                                                                                                                      |
 | `:layout [page\|vertical\|horizontal]`     | GUI score layout of the focused pane _(M3)_                                                                                                                                                              |

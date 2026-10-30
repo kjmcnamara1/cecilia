@@ -87,7 +87,8 @@ pub fn detect(bytes: &[u8], path: Option<&Path>) -> Option<Format> {
     }
 }
 
-/// Reads a score from bytes, detecting the format.
+/// Reads a score from bytes, detecting the format. Readers of multi-staff instruments give
+/// one track each ([`Score::merge_staves`]).
 pub fn read_bytes(bytes: &[u8], path: Option<&Path>) -> Result<Score> {
     match detect(bytes, path) {
         Some(Format::GuitarPro3To5) => gp::read(bytes),
@@ -108,7 +109,8 @@ pub fn read_file(path: &Path) -> Result<Score> {
     read_bytes(&bytes, Some(path))
 }
 
-/// Output formats, chosen by file extension.
+/// Output formats, chosen by file extension. Guitar Pro and MusicXML writers store a grand
+/// staff as two staves of one instrument ([`Score::split_grand`]).
 pub fn write_bytes(score: &Score, extension: &str) -> Result<Vec<u8>> {
     match extension.to_ascii_lowercase().as_str() {
         "gp5" => gp_write::write_gp5(score),

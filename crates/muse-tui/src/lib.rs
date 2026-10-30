@@ -7,7 +7,7 @@ use std::time::{Duration, Instant};
 
 use anyhow::Result;
 use muse_app::playback::Playback;
-use muse_app::{App, Key, KeyCode, Mode};
+use muse_app::{App, Key, KeyCode, Mode, PaneKind, Strip};
 use muse_audio::Location;
 use ratatui::crossterm::event::{
     self, DisableMouseCapture, EnableMouseCapture, Event, KeyEvent, KeyEventKind, KeyModifiers,
@@ -35,6 +35,10 @@ pub fn run(mut app: App) -> Result<()> {
 /// Mouse state between frames: what was drawn where, and where the mouse is.
 #[derive(Default)]
 struct Ui {
+    /// The last click in the tracks pane (when and where), to tell a double click.
+    last_click: Option<(std::time::Instant, u16, u16)>,
+    /// Loudness of the focused file's audio under each bar, for the tracks panel.
+    audio_levels: Option<Vec<f32>>,
     /// Fretboard cells (string, frets from the nut) and piano keys (pitch): clicks enter notes.
     frets: Vec<(Rect, usize, u8)>,
     keys: Vec<(Rect, u8)>,
@@ -65,8 +69,6 @@ enum Drag {
     Volume,
     /// A border between panes, grabbed this far from its position.
     Divider(muse_app::layout::Divider, i32),
-    /// The tracks panel's header: the row grabbed and the rows shown then.
-    Tracks(u16, usize),
     /// A buffer tab being dragged along the tabline (its position now).
     Tab(usize),
 }
@@ -105,9 +107,14 @@ fn event_loop(terminal: &mut DefaultTerminal, app: &mut App) -> Result<()> {
                 app.follow_playback(buffer, loc.bar, loc.tick);
             }
         }
+        ui.audio_levels = if app.has_tool(PaneKind::Tracks) || app.has_tool(PaneKind::Audio) {
+            playback.bar_levels(app, app.pane().buffer)
+        } else {
+            None
+        };
         terminal.draw(|f| draw(f, app, play_loc, &mut ui))?;
 
-        let timeout = if app.playing || app.tuner_panel {
+        let timeout = if app.playing || app.has_tool(PaneKind::Tuner) {
             Duration::from_millis(16)
         } else {
             Duration::from_millis(250)
@@ -124,10 +131,7 @@ fn event_loop(terminal: &mut DefaultTerminal, app: &mut App) -> Result<()> {
                     // Dragging a pane border or the tracks panel's header resizes them; a
                     // tab moves along the tabline.
                     MouseEventKind::Drag(MouseButton::Left)
-                        if matches!(
-                            ui.drag,
-                            Some(Drag::Divider(..) | Drag::Tracks(..) | Drag::Tab(_))
-                        ) =>
+                        if matches!(ui.drag, Some(Drag::Divider(..) | Drag::Tab(_))) =>
                     {
                         match ui.drag.clone() {
                             Some(Drag::Tab(n)) => {
@@ -151,22 +155,8 @@ fn event_loop(terminal: &mut DefaultTerminal, app: &mut App) -> Result<()> {
                                 };
                                 app.drag_divider(&d, (along as i32 + off).max(0) as u16);
                             }
-                            Some(Drag::Tracks(y0, rows0)) => {
-                                let rows = rows0 as i64 + y0 as i64 - m.row as i64;
-                                app.run(muse_app::Command::TracksResize(
-                                    muse_app::command::Amount::To(rows.max(1) as u32),
-                                ));
-                            }
                             _ => {}
                         }
-                    }
-                    MouseEventKind::Down(MouseButton::Left)
-                        if ui
-                            .tracks_area
-                            .is_some_and(|r| m.row == r.y && contains(r, m.column, m.row)) =>
-                    {
-                        let n = app.buffer().score.tracks.len();
-                        ui.drag = Some(Drag::Tracks(m.row, n.clamp(1, app.tracks_rows.max(1))));
                     }
                     MouseEventKind::Down(MouseButton::Left)
                         if divider_at(app, m.column, m.row).is_some() =>
@@ -201,8 +191,11 @@ fn event_loop(terminal: &mut DefaultTerminal, app: &mut App) -> Result<()> {
                             | (MouseEventKind::ScrollRight, _) => (0, 4),
                             _ => (0, -4),
                         };
-                        let n = app.buffer().score.tracks.len();
-                        let visible = n.clamp(1, app.tracks_rows.max(1));
+                        let n = app.track_rows().len();
+                        let fit = ui
+                            .tracks_area
+                            .map_or(1, |r| r.height.saturating_sub(1).max(1));
+                        let visible = n.clamp(1, fit as usize);
                         let (first, first_bar) = ui.tracks_scroll;
                         ui.tracks_scroll = (
                             (first as i64 + rows).clamp(0, n.saturating_sub(visible) as i64)
@@ -279,7 +272,7 @@ fn event_loop(terminal: &mut DefaultTerminal, app: &mut App) -> Result<()> {
                         } else if let Some(hit) =
                             ui.hits.iter().find(|h| contains(h.area, m.column, m.row))
                         {
-                            app.views[app.active_view].focus = hit.pane;
+                            app.set_focus(hit.pane);
                             if let Some(p) = app.panes.get_mut(&hit.pane) {
                                 p.cursor = hit.cursor;
                             }
@@ -288,7 +281,7 @@ fn event_loop(terminal: &mut DefaultTerminal, app: &mut App) -> Result<()> {
                             .into_iter()
                             .find(|(_, r)| contains(to_rect(*r), m.column, m.row))
                         {
-                            app.views[app.active_view].focus = id;
+                            app.set_focus(id);
                         }
                     }
                     MouseEventKind::ScrollDown => app.run(muse_app::Command::BarNext),
@@ -371,90 +364,88 @@ fn convert_key(k: KeyEvent) -> Option<Key> {
 
 fn draw(f: &mut Frame, app: &mut App, play: Option<(usize, Location, f64, f64)>, ui: &mut Ui) {
     ui.hits.clear();
-    let tracks_h = if app.tracks_shown() {
-        1 + app
-            .buffer()
-            .score
-            .tracks
-            .len()
-            .clamp(1, app.tracks_rows.max(1)) as u16
+    // The tracks peeking after a change of track (no tracks pane shown) take the bottom.
+    let peek_h = if app.tracks_peeking() {
+        app.peek_height().saturating_sub(2)
     } else {
         0
     };
-    // The fretboard and piano panels, above the tracks panel.
-    let instrument = app.instrument_view(play.map(|(b, loc, ..)| (b, loc.bar, loc.tick)));
-    let fret_h = match &instrument {
-        Some(v) if app.fretboard_panel => {
-            if v.fretted {
-                v.strings.len() as u16 + 1
-            } else {
-                1
-            }
-        }
-        _ => 0,
-    };
-    let piano_h = if app.piano_panel && instrument.is_some() {
-        2
-    } else {
-        0
-    };
-    let tuner_h = if app.tuner_panel { 2 } else { 0 };
-    let [
-        toolbar,
-        tabline,
-        main,
-        tuner,
-        fretboard,
-        piano,
-        tracks,
-        status,
-        cmdline,
-    ] = Layout::vertical([
+    let [toolbar, tabline, main, peek, status, cmdline] = Layout::vertical([
         Constraint::Length(u16::from(app.toolbar)),
         Constraint::Length(1),
         Constraint::Min(3),
-        Constraint::Length(tuner_h),
-        Constraint::Length(fret_h),
-        Constraint::Length(piano_h),
-        Constraint::Length(tracks_h),
+        Constraint::Length(peek_h),
         Constraint::Length(1),
         Constraint::Length(1),
     ])
     .areas(f.area());
     ui.tracks.clear();
-    if tracks_h > 0 {
-        draw_tracks(f, app, tracks, play, ui);
-    }
-    if tuner_h > 0 {
-        draw_tuner(f, app, tuner);
+    ui.tracks_area = None;
+    if peek_h > 0 {
+        draw_tracks(f, app, peek, play, ui);
     }
     ui.frets.clear();
     ui.keys.clear();
-    if let Some(v) = &instrument {
-        if fret_h > 0 {
-            draw_fretboard(f, app, v, fretboard, ui);
-        }
-        if piano_h > 0 {
-            draw_piano(f, app, v, piano, ui);
-        }
-    }
 
-    app.viewport = muse_app::layout::Rect {
+    app.set_viewport(muse_app::layout::Rect {
         x: main.x,
         y: main.y,
         w: main.width,
         h: main.height,
-    };
+    });
     draw_tabline(f, app, tabline, ui);
     ui.toolbar.clear();
     ui.tooltip = None;
     if app.toolbar {
         draw_toolbar(f, app, toolbar, ui);
     }
+    // Tool panes: a frame named after the tool around it.
+    let focused = app.window_focus();
+    for (id, r) in app.layout() {
+        let kind = app.panes.get(&id).map_or(PaneKind::Score, |p| p.kind);
+        if kind == PaneKind::Score {
+            continue;
+        }
+        let area = to_rect(r);
+        let style = if id == focused {
+            Style::default().fg(rc(app.config.theme.mode_color(app.mode)))
+        } else {
+            Style::default().fg(rc(app.config.theme.dim))
+        };
+        let block = Block::bordered()
+            .border_type(BorderType::Rounded)
+            .border_style(style)
+            .title(format!(" {} ", kind.name()));
+        let inner = block.inner(area);
+        f.render_widget(block, area);
+        // Drawn for its score pane (its own for a local tool), as if that were the view's.
+        let view_score = app.view().score;
+        let active = app.active_view;
+        app.views[active].score = app.tool_score(id);
+        let instrument = app.instrument_view(play.map(|(b, loc, ..)| (b, loc.bar, loc.tick)));
+        match kind {
+            PaneKind::Tracks => draw_tracks(f, app, inner, play, ui),
+            PaneKind::Tuner => draw_tuner(f, app, inner),
+            PaneKind::Fretboard | PaneKind::Piano => match &instrument {
+                Some(v) if kind == PaneKind::Fretboard => draw_fretboard(f, app, v, inner, ui),
+                Some(v) => draw_piano(f, app, v, inner, ui),
+                None => f.render_widget(Paragraph::new(" no instrument on this track"), inner),
+            },
+            PaneKind::Audio => draw_audio(f, app, inner, ui),
+            PaneKind::Score => {}
+        }
+        app.views[active].score = view_score;
+    }
     let hits = &mut ui.hits;
 
-    let focused = app.focused();
     for (id, r) in app.layout() {
+        if app
+            .panes
+            .get(&id)
+            .is_some_and(|p| p.kind != PaneKind::Score)
+        {
+            continue;
+        }
         let area = to_rect(r);
         let pane = app.panes[&id].clone();
         let buffer = &app.buffers[pane.buffer];
@@ -480,7 +471,7 @@ fn draw(f: &mut Frame, app: &mut App, play: Option<(usize, Location, f64, f64)>,
             }
             None => format!(" {} ", buffer.name),
         };
-        let border_style = if id == focused && app.mode != Mode::Tracks {
+        let border_style = if id == focused {
             Style::default().fg(rc(app.config.theme.accent))
         } else {
             Style::default().fg(rc(app.config.theme.dim))
@@ -489,8 +480,28 @@ fn draw(f: &mut Frame, app: &mut App, play: Option<(usize, Location, f64, f64)>,
             .border_type(BorderType::Rounded)
             .border_style(border_style)
             .title(title);
-        let inner = block.inner(area);
+        let zoom_indicator = app.is_maximized(id);
+        let block = if zoom_indicator {
+            block.title(
+                Line::from("  ")
+                    .right_aligned()
+                    .style(Style::default().fg(rc(app.config.theme.accent)).bold()),
+            )
+        } else {
+            block
+        };
+        let mut inner = block.inner(area);
         f.render_widget(block, area);
+        // The progress bar on the pane's last row.
+        if app.progress_bar && inner.height > 4 {
+            let row = Rect {
+                y: inner.y + inner.height - 1,
+                height: 1,
+                ..inner
+            };
+            inner.height -= 1;
+            draw_progress(f, app, id, row, play);
+        }
         if let Some(track) = track {
             app.page_bars = page_bars(inner, track);
         }
@@ -1117,15 +1128,30 @@ const TRACK_INFO_W: u16 = 48;
 /// What a click on the tracks panel does.
 #[derive(Debug, Clone, Copy, PartialEq)]
 enum TracksHit {
-    /// A volume slider (track, first column, width).
-    Volume(usize, u16, u16),
-    Solo(usize),
-    Mute(usize),
+    /// A volume slider (row, first column, width).
+    Volume(Strip, u16, u16),
+    Solo(Strip),
+    Mute(Strip),
+    Name(usize),
+    Instrument(usize),
     Row(usize),
     Bar(usize, usize),
 }
 
 fn click_tracks(app: &mut App, ui: &mut Ui, x: u16, y: u16, kind: MouseEventKind) {
+    // A click in the tracks pane focuses it; a second one soon after on the same cell is a
+    // double click.
+    let mut double = false;
+    if matches!(kind, MouseEventKind::Down(_)) {
+        if let Some(id) = app.tool_pane(PaneKind::Tracks) {
+            app.set_focus(id);
+        }
+        let now = std::time::Instant::now();
+        double = ui.last_click.is_some_and(|(t, x0, y0)| {
+            now.duration_since(t) < std::time::Duration::from_millis(400) && (x0, y0) == (x, y)
+        });
+        ui.last_click = Some((now, x, y));
+    }
     // While dragging a volume, its slider follows the mouse anywhere along the row.
     let hit = ui
         .tracks
@@ -1140,21 +1166,132 @@ fn click_tracks(app: &mut App, ui: &mut Ui, x: u16, y: u16, kind: MouseEventKind
         .map(|(_, h)| *h);
     let drag = matches!(kind, MouseEventKind::Drag(_));
     match hit {
-        Some(TracksHit::Volume(t, x0, w)) => {
+        Some(TracksHit::Volume(strip, x0, w)) => {
             if ui.drag != Some(Drag::Volume) {
-                app.select_track_bar(t, None);
+                if let Strip::Track(t) = strip {
+                    app.select_track_bar(t, None);
+                }
                 app.group_edits(true);
                 ui.drag = Some(Drag::Volume);
             }
             let frac = (x.saturating_sub(x0) as f64 / (w.max(2) - 1) as f64).clamp(0.0, 1.0);
-            app.set_track_volume(t, (frac * 127.0).round() as u8);
+            app.set_strip_volume(strip, frac);
         }
         _ if drag => {}
-        Some(TracksHit::Solo(t)) => app.run(muse_app::Command::Solo(Some(t + 1))),
-        Some(TracksHit::Mute(t)) => app.run(muse_app::Command::Mute(Some(t + 1))),
-        Some(TracksHit::Row(t)) => app.select_track_bar(t, None),
+        Some(TracksHit::Solo(strip)) => app.run(muse_app::Command::Solo(Some(strip))),
+        Some(TracksHit::Mute(strip)) => app.run(muse_app::Command::Mute(Some(strip))),
+        Some(TracksHit::Name(t) | TracksHit::Instrument(t)) if double => {
+            app.tracks_selected = t;
+            app.run(if matches!(hit, Some(TracksHit::Name(_))) {
+                muse_app::Command::TrackRenameStart
+            } else {
+                muse_app::Command::TrackInstrument(None)
+            });
+        }
+        Some(TracksHit::Row(t) | TracksHit::Name(t) | TracksHit::Instrument(t)) => {
+            app.tracks_selected = t;
+            app.select_track_bar(t, None)
+        }
         Some(TracksHit::Bar(t, b)) => app.select_track_bar(t, Some(b)),
         None => {}
+    }
+}
+
+/// A score pane's progress bar: its sections as `[A] Title` cells, the play position (or the
+/// cursor's) shaded red, and the time on the right.
+fn draw_progress(
+    f: &mut Frame,
+    app: &App,
+    id: muse_app::layout::PaneId,
+    area: Rect,
+    play: Option<(usize, Location, f64, f64)>,
+) {
+    let play = play.map(|(b, loc, t, total)| (b, loc.bar, loc.tick, t, total));
+    let Some(p) = app.progress(id, play) else {
+        return;
+    };
+    let t = &app.config.theme;
+    // Match the score background (the page colour, since TUI is always vertical/horizontal).
+    let ground = t.page;
+    let label_ink = ground.mix(t.ink, 0.8);
+    let segment = ground.mix(t.ink, 0.12);
+    let base = Style::default().bg(rc(ground)).fg(rc(label_ink));
+    let time = format!(
+        " {} / {} ",
+        muse_app::progress::clock(p.now),
+        muse_app::progress::clock(p.total)
+    );
+    let buf = f.buffer_mut();
+    buf.set_style(area, base);
+    let tw = time.chars().count() as u16;
+    if area.width <= tw + 4 {
+        return;
+    }
+    buf.set_string(area.x + area.width - tw, area.y, &time, base);
+    let w = (area.width - tw - 1) as f64;
+    let col = |f: f64| area.x + (w * f.clamp(0.0, 1.0)).round() as u16;
+    let seg = Style::default().bg(rc(segment)).fg(rc(label_ink));
+    for sec in &p.sections {
+        let (x0, x1) = (col(sec.start), col(sec.end));
+        if x1 <= x0 + 1 {
+            continue;
+        }
+        let width = (x1 - x0 - 1) as usize;
+        let label = match (sec.letter.is_empty(), sec.title.is_empty()) {
+            (false, false) => format!("[{}] {}", sec.letter, sec.title),
+            (false, true) => format!("[{}]", sec.letter),
+            (true, _) => sec.title.clone(),
+        };
+        let label: String = label.chars().take(width).collect();
+        buf.set_string(x0, area.y, format!("{label:<width$}"), seg);
+    }
+    // The position: a red shade under whatever character is there.
+    let x = col(p.at).min(area.x + w as u16);
+    let cell = &mut buf[(x, area.y)];
+    let under = cell.bg;
+    let shade = match under {
+        Color::Rgb(r, g, b) => {
+            let red = t.playhead;
+            Color::Rgb(
+                ((r as u16 + red.r as u16) / 2) as u8,
+                ((g as u16 + red.g as u16) / 2) as u8,
+                ((b as u16 + red.b as u16) / 2) as u8,
+            )
+        }
+        _ => rc(t.playhead),
+    };
+    cell.set_bg(shade);
+}
+
+/// The audio pane: the audio's loudness under each bar, from the cursor's bar on.
+fn draw_audio(f: &mut Frame, app: &App, area: Rect, ui: &Ui) {
+    const LEVELS: [&str; 8] = ["▁", "▂", "▃", "▄", "▅", "▆", "▇", "█"];
+    let style = Style::default().fg(rc(app.config.theme.accent));
+    let Some(levels) = ui.audio_levels.as_ref() else {
+        let name = &app.buffer().name;
+        let text = if app.buffer().score.audio.is_some() {
+            format!(" {name}: audio loading…")
+        } else {
+            format!(" {name}: no audio attached (:audio FILE)")
+        };
+        f.render_widget(
+            Paragraph::new(text).style(Style::default().fg(rc(app.config.theme.dim))),
+            area,
+        );
+        return;
+    };
+    let first = app.pane().cursor.bar;
+    let buf = f.buffer_mut();
+    for (c, l) in levels
+        .iter()
+        .skip(first)
+        .take(area.width as usize)
+        .enumerate()
+    {
+        let ch = LEVELS[((l.clamp(0.0, 1.0) * 7.0).round() as usize).min(7)];
+        for y in 0..area.height {
+            buf.set_string(area.x + c as u16, area.y + y, ch, style);
+        }
     }
 }
 
@@ -1168,13 +1305,15 @@ fn draw_tracks(
     ui: &mut Ui,
 ) {
     let t = app.config.theme.clone();
-    let focused = app.mode == Mode::Tracks;
+    let focused = app.focused_kind() == PaneKind::Tracks;
     let base = Style::default().bg(rc(t.panel)).fg(rc(t.chrome_text));
     f.render_widget(Paragraph::new("").style(base), area);
     let rows = app.track_rows();
     let buffer = app.pane().buffer;
     let cursor = app.pane().cursor;
-    let visible = rows.len().clamp(1, app.tracks_rows.max(1));
+    let visible = rows
+        .len()
+        .clamp(1, area.height.saturating_sub(1).max(1) as usize);
     ui.tracks_area = Some(area);
     let (mut first, mut first_bar) = ui.tracks_scroll;
     let gx = area.x + TRACK_INFO_W;
@@ -1185,12 +1324,19 @@ fn draw_tracks(
         _ => cursor.bar,
     };
     // Scroll to the cursor's track and bar when they move (the wheel scrolls freely between).
-    if ui.tracks_anchor != Some((cursor.track, follow_bar)) {
-        ui.tracks_anchor = Some((cursor.track, follow_bar));
-        if cursor.track < first {
-            first = cursor.track;
-        } else if cursor.track >= first + visible {
-            first = cursor.track + 1 - visible;
+    // The row to keep in view: the panel's selection while it has the focus, else the
+    // pane's track.
+    let sel_row = if focused {
+        app.tracks_selected
+    } else {
+        cursor.track
+    };
+    if ui.tracks_anchor != Some((sel_row, follow_bar)) {
+        ui.tracks_anchor = Some((sel_row, follow_bar));
+        if sel_row < first {
+            first = sel_row;
+        } else if sel_row >= first + visible {
+            first = sel_row + 1 - visible;
         }
         if follow_bar < first_bar {
             first_bar = follow_bar.saturating_sub(4);
@@ -1238,7 +1384,9 @@ fn draw_tracks(
         if y >= area.y + area.height {
             break;
         }
-        let selected = row.index == cursor.track;
+        let track = matches!(row.strip, Strip::Track(_));
+        let shown = track && row.index == cursor.track;
+        let selected = if focused { k == sel_row } else { shown };
         let row_style = if selected {
             Style::default().bg(rc(t.tab)).fg(rc(t.chrome_text))
         } else {
@@ -1259,7 +1407,9 @@ fn draw_tracks(
             row_style,
         );
         buf.set_string(area.x, y, "▌", row_style.fg(rc(row.color)));
-        buf.set_string(area.x + 1, y, format!("{:>2}", row.index + 1), fg);
+        if track {
+            buf.set_string(area.x + 1, y, format!("{:>2}", row.index + 1), fg);
+        }
         // Volume: 6 cells.
         let filled = ((row.volume as f64 / 127.0) * 6.0).round() as usize;
         for i in 0..6u16 {
@@ -1277,7 +1427,7 @@ fn draw_tracks(
                 width: 6,
                 height: 1,
             },
-            TracksHit::Volume(row.index, area.x + 4, 6),
+            TracksHit::Volume(row.strip, area.x + 4, 6),
         ));
         for (x, on_, label, color, hit) in [
             (
@@ -1285,9 +1435,9 @@ fn draw_tracks(
                 row.solo,
                 "S",
                 t.mode_insert,
-                TracksHit::Solo(row.index),
+                TracksHit::Solo(row.strip),
             ),
-            (13, row.mute, "M", t.playhead, TracksHit::Mute(row.index)),
+            (13, row.mute, "M", t.playhead, TracksHit::Mute(row.strip)),
         ] {
             let st = if on_ {
                 on(app, color)
@@ -1305,15 +1455,103 @@ fn draw_tracks(
                 hit,
             ));
         }
-        let name: String = row.name.chars().take(14).collect();
-        let st = if selected {
-            fg.add_modifier(Modifier::BOLD)
-        } else {
-            fg
+        // The name, or the name being typed (with a caret) while it is renamed.
+        let renaming = app
+            .renaming
+            .as_ref()
+            .filter(|(t, _)| track && *t == row.index);
+        let (name, st) = match renaming {
+            Some((_, typed)) => {
+                let shown: String = typed
+                    .chars()
+                    .rev()
+                    .take(13)
+                    .collect::<Vec<_>>()
+                    .into_iter()
+                    .rev()
+                    .collect();
+                (
+                    format!("{shown}▏"),
+                    Style::default().fg(rc(t.ink)).bg(rc(t.page)),
+                )
+            }
+            None => (
+                row.name.chars().take(14).collect(),
+                if selected {
+                    fg.add_modifier(Modifier::BOLD)
+                } else {
+                    fg
+                },
+            ),
         };
         buf.set_string(area.x + 15, y, format!("{name:<14}"), st);
         let instr: String = row.instrument.chars().take(16).collect();
         buf.set_string(area.x + 30, y, instr, row_style.fg(rc(t.dim)));
+        buf.set_string(gx - 1, y, "│", dim.bg(row_style.bg.unwrap_or(rc(t.panel))));
+        let cells = gw.min(bars.saturating_sub(first_bar));
+        match row.strip {
+            // The audio: its loudness under each bar.
+            Strip::Audio => {
+                const LEVELS: [&str; 8] = ["▁", "▂", "▃", "▄", "▅", "▆", "▇", "█"];
+                let st = row_style.fg(rc(if row.audible {
+                    row.color
+                } else {
+                    row.color.mix(t.panel, 0.6)
+                }));
+                for c in 0..cells {
+                    let level = ui
+                        .audio_levels
+                        .as_ref()
+                        .and_then(|l| l.get(first_bar + c))
+                        .copied();
+                    let ch = level.map_or("·", |l| {
+                        LEVELS[((l.clamp(0.0, 1.0) * 7.0).round() as usize).min(7)]
+                    });
+                    buf.set_string(gx + c as u16, y, ch, st);
+                }
+                continue;
+            }
+            // The master: each section's letter (or a flag) and title from its bar on.
+            Strip::Master => {
+                let mut until = 0;
+                for (b, letter, title) in &row.markers {
+                    if *b < first_bar || *b >= first_bar + cells {
+                        continue;
+                    }
+                    let start = b - first_bar;
+                    if start < until {
+                        continue;
+                    }
+                    let head = if letter.is_empty() {
+                        "⚑".to_string()
+                    } else {
+                        format!("[{letter}]")
+                    };
+                    let label = format!("{head} {title}");
+                    let room = cells - start;
+                    let label: String = label.chars().take(room).collect();
+                    until = start + label.chars().count() + 1;
+                    buf.set_string(gx + start as u16, y, label, row_style);
+                }
+                continue;
+            }
+            Strip::Track(_) => {}
+        }
+        // The name and instrument cells: a double click renames / picks an instrument.
+        for (x, width, hit) in [
+            (15, 14, TracksHit::Name(row.index)),
+            (30, 16, TracksHit::Instrument(row.index)),
+        ] {
+            ui.tracks.push((
+                Rect {
+                    x: area.x + x,
+                    y,
+                    width,
+                    height: 1,
+                },
+                hit,
+            ));
+        }
         ui.tracks.push((
             Rect {
                 x: area.x,
@@ -1323,7 +1561,6 @@ fn draw_tracks(
             },
             TracksHit::Row(row.index),
         ));
-        buf.set_string(gx - 1, y, "│", dim.bg(row_style.bg.unwrap_or(rc(t.panel))));
         for c in 0..gw.min(bars.saturating_sub(first_bar)) {
             let bar = first_bar + c;
             let x = gx + c as u16;
@@ -1344,7 +1581,7 @@ fn draw_tracks(
                 st = st.bg(rc(t.playhead));
             }
             // The edit cursor: a black dot on its bar's block.
-            let ch = if selected && bar == cursor.bar && !app.cursor_hidden(buffer) {
+            let ch = if shown && bar == cursor.bar && !app.cursor_hidden(buffer) {
                 let block = if notes { row.color } else { t.empty_bar };
                 st = Style::default()
                     .fg(Color::Black)
@@ -1674,7 +1911,7 @@ mod render_tests {
         terminal.draw(|f| draw(f, &mut app, None, &mut ui)).unwrap();
         assert!(ui.tooltip.as_deref().unwrap().contains("tracks panel"));
         app.run_toolbar(i);
-        assert!(app.tracks_panel);
+        assert!(app.has_tool(PaneKind::Tracks));
         // Hidden with :toolbar.
         app.run(muse_app::Command::Toolbar(Some(false)));
         let screen = render(&mut app, 120, 20);
@@ -1689,6 +1926,8 @@ mod render_tests {
         for k in muse_app::keys::parse_keys("i3<Down>5<Esc>", &[]).unwrap() {
             app.handle_key(k);
         }
+        // (The first frame sets the size panes are fitted to.)
+        render(&mut app, 100, 24);
         app.run(muse_app::Command::Fretboard(Some(true)));
         app.run(muse_app::Command::Piano(Some(true)));
         let screen = render(&mut app, 100, 24);
@@ -1734,7 +1973,7 @@ mod render_tests {
     fn the_tuner_panel_shows_the_reading() {
         let mut app = App::new(muse_app::Config::default(), None);
         app.run(muse_app::Command::New);
-        app.tuner_panel = true;
+        app.set_tool(PaneKind::Tuner, Some(true));
         app.tuner_reading = Some(muse_audio::tuner::Reading {
             freq: 109.0,
             clarity: 0.95,
@@ -1991,7 +2230,10 @@ mod render_tests {
         let screen = render(&mut app, 100, 20);
         assert!(screen.contains("volume S M track"), "{screen}");
         assert!(screen.contains("Lead"), "{screen}");
-        assert!(screen.contains("TRACKS"), "{screen}");
+        assert!(
+            screen.contains(" tracks ") && screen.contains("NORMAL"),
+            "{screen}"
+        );
         assert!(screen.contains('■') || screen.contains('·'), "{screen}");
     }
 }

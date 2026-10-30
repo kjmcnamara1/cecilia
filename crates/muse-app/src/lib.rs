@@ -18,6 +18,7 @@ pub mod marks;
 pub mod picker;
 pub mod playalong;
 pub mod playback;
+pub mod progress;
 pub mod statusline;
 pub mod theme;
 pub mod toolbar;
@@ -25,10 +26,10 @@ pub mod tracks;
 pub mod workspace;
 
 pub use app::{
-    App, Buffer, BufferTab, Cursor, Effect, Message, Palette, PaletteItem, Pane, View,
-    beat_at_tick, beats, cursor_tick, file_kind, truncate_middle,
+    App, Buffer, BufferTab, Cursor, Effect, Message, Palette, PaletteItem, Pane, PaneKind, View,
+    beat_at_tick, beats, cursor_tick, file_kind, staff_index, truncate_middle,
 };
-pub use command::Command;
+pub use command::{Command, Strip};
 pub use config::{Config, Mode};
 pub use editor::Clip;
 pub use keys::{Key, KeyCode};

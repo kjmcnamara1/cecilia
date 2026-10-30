@@ -4,7 +4,8 @@
 //! separators chosen in `[statusline] separators`.
 
 use crate::app::App;
-use crate::config::Mode;
+use crate::config::{InsertKind, Mode};
+use muse_core::{TrackKind, chant, staff};
 
 /// How a segment is coloured.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -98,6 +99,41 @@ fn fmt_time(t: f64) -> String {
 }
 
 impl App {
+    /// Where the cursor is across the staff: a string, a staff position (as the note a
+    /// letter would enter there), a slash staff or a chant pitch letter.
+    fn cursor_place(&self) -> Option<String> {
+        let c = self.pane().cursor;
+        let score = &self.buffer().score;
+        let track = score.tracks.get(c.track)?;
+        Some(match self.insert_kind() {
+            InsertKind::Tab if track.kind == TrackKind::Drums => return None,
+            InsertKind::Tab => format!("string {}", c.string + 1),
+            InsertKind::Slash => "slash".into(),
+            InsertKind::Chant => format!(
+                "chant {}",
+                chant::pitch_letter(c.line.clamp(0, 13) as u8, false)
+            ),
+            InsertKind::Standard => {
+                let d = c.line;
+                let key = score
+                    .master_bars
+                    .get(c.bar)
+                    .map_or(0, |m| m.key_signature.accidentals);
+                let step = d.rem_euclid(7) as usize;
+                let sign = match staff::key_alters(key)[step] {
+                    1 => "#",
+                    -1 => "b",
+                    _ => "",
+                };
+                format!(
+                    "{}{sign}{}",
+                    "CDEFGAB".as_bytes()[step] as char,
+                    d.div_euclid(7)
+                )
+            }
+        })
+    }
+
     /// The status line. `play` is the playing time and length (from the frontend's player),
     /// `zoom` whether to show the zoom level (GUI).
     pub fn statusline(&self, play: Option<(f64, f64)>, zoom: bool) -> StatusLine {
@@ -139,6 +175,9 @@ impl App {
         }
         if let Some(r) = self.recording_macro() {
             x.push(format!("rec @{r}"));
+        }
+        if let Some(place) = self.cursor_place() {
+            x.push(place);
         }
         if self.mode == Mode::Insert {
             let d = self.insert_duration();
@@ -184,11 +223,11 @@ impl App {
         }
         right.push(Segment::new(x.join("  "), SegKind::Plain));
         // The zoom, while it isn't 100%.
-        if zoom && (self.zoom - 1.0).abs() > 1e-6 {
+        if zoom && (self.zoom() - 1.0).abs() > 1e-6 {
             right.push(
                 Segment {
                     icon: Some(StatusIcon::Zoom),
-                    ..Segment::new(format!("{:.0}%", self.zoom * 100.0), SegKind::Plain)
+                    ..Segment::new(format!("{:.0}%", self.zoom() * 100.0), SegKind::Plain)
                 }
                 .on_click(crate::command::Command::ZoomReset),
             );
@@ -275,10 +314,22 @@ mod tests {
         assert_eq!(app.pane().layout, "page");
         click(&mut app, Some(StatusIcon::Synth), None);
         assert_ne!(mix(&app), Some(StatusIcon::Synth));
-        app.zoom = 1.3;
+        app.pane_mut().zoom = 1.3;
         click(&mut app, Some(StatusIcon::Zoom), None);
-        assert_eq!(app.zoom, 1.0);
+        assert_eq!(app.zoom(), 1.0);
         assert_eq!(progress(3, 8), "50%");
         assert_eq!(progress(7, 8), "Bot");
+    }
+
+    #[test]
+    fn zoom_is_per_pane() {
+        let mut app = App::new(Config::default(), None);
+        let first = app.focused();
+        app.run(Command::Split);
+        let second = app.focused();
+        assert_ne!(first, second);
+        app.zoom_pane(first, 2.0);
+        assert_eq!(app.panes[&first].zoom, 2.0);
+        assert_eq!(app.panes[&second].zoom, 1.0);
     }
 }
