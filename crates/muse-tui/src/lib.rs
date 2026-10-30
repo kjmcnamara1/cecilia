@@ -32,6 +32,10 @@ pub fn run(mut app: App) -> Result<()> {
     result
 }
 
+/// The lyrics text area as drawn: its left, its first line's row, its height, the wrapped lines
+/// and the first one shown.
+type PropsText = (u16, u16, u16, Vec<(usize, usize)>, usize);
+
 /// Mouse state between frames: what was drawn where, and where the mouse is.
 #[derive(Default)]
 struct Ui {
@@ -62,11 +66,7 @@ struct Ui {
     /// The lyrics text area as drawn: its left, its first line's row and height, the wrapped
     /// lines and the first one shown.
     props_text: Option<PropsText>,
-    /// The lyrics text area as drawn: its left, its first line's row, its height, the wrapped lines
-/// and the first one shown.
-type PropsText = (u16, u16, u16, Vec<(usize, usize)>, usize);
-
-/// A mouse drag in progress.
+    /// A mouse drag in progress.
     drag: Option<Drag>,
     hits: Vec<Hit>,
     tabline: Vec<(Rect, TablineHit)>,
