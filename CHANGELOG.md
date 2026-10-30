@@ -7,6 +7,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- Scrollbars on score panes (`:scrollbar`, `ui.scrollbar`): pill-shaped thumbs in a light tint of
+  the background, in their own gutter so they never overlap the notation. Click or drag to
+  scroll, in the GUI and TUI.
+- GUI: score panes scroll both ways when the score is bigger than the pane (a narrow vertical
+  layout, a tall horizontal layout, a zoomed page), with a scrollbar for each direction. The
+  vertical wheel scrolls down and the horizontal wheel (or Shift) across, in every layout.
+
+### Fixed
+
+- GUI: the vertical layout fits panes narrower than 300pt instead of cutting off the bars.
+
 ## [0.2.0] - 2026-10-30
 
 ### Added

@@ -333,7 +333,7 @@ impl ApplicationHandler for Gui {
                             .zoom_pane(id, if dy < 0.0 { 1.15 } else { 1.0 / 1.15 });
                     }
                 } else {
-                    self.views.scroll(&self.app, mx, my, dx, dy);
+                    self.views.scroll(mx, my, dx, dy);
                 }
                 self.after_input();
             }

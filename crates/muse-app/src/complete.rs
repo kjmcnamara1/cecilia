@@ -113,6 +113,7 @@ pub const COMMANDS: &[&str] = &[
     "fretboard",
     "piano",
     "progress-bar",
+    "scrollbar",
     "tuner",
     "buffer-move",
     "buffer-move-next",
@@ -274,9 +275,11 @@ fn values(command: &str) -> Option<&'static [&'static str]> {
         ],
         "tracks" | "toolbar" | "fretboard" | "piano" | "tuner" => &["off", "on"],
         "track-color" => &["off"],
-        "completion-ignore-case" | "completion-fuzzy" | "waveform" | "progress-bar" => {
-            &["off", "on", "toggle"]
-        }
+        "completion-ignore-case"
+        | "completion-fuzzy"
+        | "waveform"
+        | "progress-bar"
+        | "scrollbar" => &["off", "on", "toggle"],
         "duration" => &["1", "2", "4", "8", "16", "32", "64"],
         "tuning" => &[
             "7-string", "bass", "bass5", "d", "dadgad", "drop-d", "eb", "open-d", "open-e",
@@ -924,6 +927,7 @@ pub fn describe(command: &str) -> Option<&'static str> {
             "Toggle whether a tool pane (tracks, audio, fretboard, piano, tuner) is global"
         }
         "progress-bar" => "Show or hide the progress bar along the score panes",
+        "scrollbar" => "Show or hide the scrollbar on the score panes",
         "wq" | "x" | "write-quit" => "Write every changed file and quit",
         "workspace-save" => "Save the views, panes and open files as a workspace",
         "workspace-open" => "Open a saved workspace",
