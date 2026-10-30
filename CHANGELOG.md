@@ -9,8 +9,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### AGENTS.md
 
-- [ ] Run /init to generate AGENTS.md
-- [ ] Use conventional commits
+- [x] Run /init to generate AGENTS.md
+- [x] Use conventional commits
 - [ ] Implement new features in feature branches before merging back into main.
       Ask me for when to do so.
 - [ ] Use semantic versioning and tag commits for releases. I will say when to
@@ -53,6 +53,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Editing
 
 - [ ] TODO: Deep dive on editing workflow
+- [ ] Editing toolbar
 
 ### Keymaps
 
@@ -73,6 +74,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - [ ] FIX: Change _maximized_ indicator at right side of pane titlebar to  instead
       of just "Z"
+- [ ] Properties pane (Score, Track, and Lyrics)
 - [ ] Add scrollbar (side for vertical, bottom for horizontal)
   - [ ] Can be toggled on/off and changed in config.toml
 - [ ] FIX: Remember last focused pane in tree so switching back to a row/column

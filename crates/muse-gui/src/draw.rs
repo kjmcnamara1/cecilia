@@ -1702,16 +1702,7 @@ fn draw_pane(
     );
     // Zoom indicator on the right of the title bar when this pane is in the zoom state.
     if app.is_zoomed(id) {
-        text(
-            scene,
-            "",
-            rect.x1 - 14.0,
-            rect.y0 + 17.0,
-            13.0,
-            Align::Center,
-            accent(),
-            true,
-        );
+        draw_magnifier(scene, rect.x1 - 24.0, rect.y0 + TITLE / 2.0, accent());
     }
     let mut content = Rect::new(rect.x0 + 2.0, rect.y0 + TITLE, rect.x1 - 2.0, rect.y1 - 2.0);
     // The progress bar along the bottom, under the waveform strip.
