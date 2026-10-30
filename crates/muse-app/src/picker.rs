@@ -24,6 +24,8 @@ pub enum PickerKind {
     Color(usize),
     /// Common tunings of a track's instrument.
     Tuning(usize),
+    /// The kinds of staff for a track's staff (its index; one past the last adds one).
+    Staff(usize, usize),
 }
 
 impl PickerKind {
@@ -52,6 +54,7 @@ impl PickerKind {
             PickerKind::Instrument(_) => "Instruments",
             PickerKind::Color(_) => "Colors",
             PickerKind::Tuning(_) => "Tunings",
+            PickerKind::Staff(..) => "Staves",
         }
     }
 }
@@ -540,6 +543,60 @@ impl App {
                         }
                     })
                     .collect()
+            }
+            PickerKind::Staff(t, i) => {
+                let Some(track) = self.buffer().score.tracks.get(t) else {
+                    return Vec::new();
+                };
+                let staves = track.staves();
+                let here = staves.get(i).copied();
+                let tab_ok = track.kind == muse_core::TrackKind::Fretted
+                    || track.kind == muse_core::TrackKind::Pitched;
+                let kinds = [
+                    ("standard treble", "Standard notation, treble clef"),
+                    ("standard bass", "Standard notation, bass clef"),
+                    (
+                        "standard grand",
+                        "Standard notation, treble and bass joined",
+                    ),
+                    ("tab", "Tablature"),
+                    ("tab+", "Tablature with rhythm stems"),
+                    ("slash", "Rhythm slashes"),
+                    ("chant", "Gregorian square notation"),
+                ];
+                let clef = self.config.default_clef();
+                let mut out: Vec<Entry> = kinds
+                    .into_iter()
+                    .filter(|(k, _)| tab_ok || !k.starts_with("tab"))
+                    .map(|(kind, about)| {
+                        let staff = muse_core::Staff::parse(kind, clef).ok();
+                        Entry {
+                            label: kind.into(),
+                            description: if staff.is_some() && staff == here {
+                                format!("{about}  (current)")
+                            } else {
+                                about.into()
+                            },
+                            action: if here.is_some() {
+                                Command::Staff(kind.into())
+                            } else {
+                                Command::StaffAdd(Some(kind.into()))
+                            },
+                            search_description: true,
+                            swatch: None,
+                        }
+                    })
+                    .collect();
+                if here.is_some() && staves.len() > 1 {
+                    out.push(Entry {
+                        label: "remove".into(),
+                        description: "Remove this staff".into(),
+                        action: Command::StaffRemove(None),
+                        search_description: true,
+                        swatch: None,
+                    });
+                }
+                out
             }
             PickerKind::Section => {
                 let bars = &self.buffer().score.master_bars;

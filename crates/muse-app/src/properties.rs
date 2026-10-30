@@ -100,10 +100,8 @@ pub enum Field {
     Tuning,
     FretCount,
     Capo,
-    /// The staves of the track (read-only).
-    Staves,
-    /// The cursor's staff.
-    Staff,
+    /// The track's staff at this index; the one past the last adds a staff.
+    StaffAt(usize),
     Program,
     Channel,
     Bank,
@@ -517,18 +515,22 @@ impl App {
                         field(&mut rows, Field::Capo, "Capo", t.capo.to_string(), true);
                     }
                     let staves = t.staves();
-                    let names: Vec<String> = staves.iter().map(|s| s.name()).collect();
-                    field(&mut rows, Field::Staves, "Staves", names.join(", "), false);
-                    let here = cursor.staff.min(staves.len().saturating_sub(1));
-                    if let Some(s) = staves.get(here) {
+                    for (i, s) in staves.iter().enumerate() {
                         field(
                             &mut rows,
-                            Field::Staff,
-                            &format!("Staff {}", here + 1),
+                            Field::StaffAt(i),
+                            &format!("Staff {}", i + 1),
                             s.name(),
                             true,
                         );
                     }
+                    field(
+                        &mut rows,
+                        Field::StaffAt(staves.len()),
+                        "Add staff",
+                        String::new(),
+                        true,
+                    );
                 }
                 if section(&mut rows, Section::TrackSound) {
                     field(
@@ -687,6 +689,11 @@ impl App {
             Field::Solo => self.run(Command::Solo(Some(Strip::Track(t)))),
             Field::Program => self.run(Command::TrackInstrument(None)),
             Field::TrackColor => self.open_picker(PickerKind::Color(t)),
+            Field::StaffAt(i) => {
+                // The staff chosen is the cursor's, which the picker's commands work on.
+                self.pane_mut().cursor.staff = i;
+                self.open_picker(PickerKind::Staff(t, i));
+            }
             Field::Tuning => self.open_picker(PickerKind::Tuning(t)),
             _ => {
                 self.props.edit = Some(PropEdit::new(field, row.value.clone()));
@@ -714,7 +721,7 @@ impl App {
         let Some(PropEdit { field, text, .. }) = self.props.edit.clone() else {
             return;
         };
-        if !matches!(field, Field::Capo | Field::Staff) {
+        if field != Field::Capo {
             self.commit_property(field, text.trim(), true);
         }
     }
@@ -962,7 +969,6 @@ impl App {
                     });
                 }
             }
-            Field::Staff => self.run(Command::Staff(text.to_string())),
             Field::Channel => {
                 if let Some(n) = number(self, "channel", 1, 16) {
                     self.edit(|cx| {
@@ -992,7 +998,7 @@ impl App {
             }
             Field::Lyrics => self.set_lyrics(t, text),
             Field::TrackKind
-            | Field::Staves
+            | Field::StaffAt(_)
             | Field::TrackColor
             | Field::Tuning
             | Field::Mute
@@ -1034,12 +1040,96 @@ impl App {
         }
     }
 
+    /// Moves a staff of the cursor's track to another place; the selection follows it.
+    pub fn move_property_staff(&mut self, from: usize, to: usize) {
+        let rows = self.property_rows();
+        let row_of = |f: Field| {
+            rows.iter()
+                .position(|r| matches!(r.kind, RowKind::Field { field, .. } if field == f))
+        };
+        let (Some(a), Some(b)) = (row_of(Field::StaffAt(from)), row_of(Field::StaffAt(to))) else {
+            return;
+        };
+        self.pane_mut().cursor.staff = from;
+        self.run(Command::StaffMove(format!("{}", to + 1)));
+        self.props.selected = b;
+        let _ = a;
+    }
+
+    /// Whether a row is a staff that can be dragged.
+    pub fn property_is_staff(&self, row: usize) -> bool {
+        let n = self
+            .buffer()
+            .score
+            .tracks
+            .get(self.pane().cursor.track)
+            .map_or(0, |t| t.staves().len());
+        matches!(
+            self.property_rows().get(row).map(|r| &r.kind),
+            Some(RowKind::Field { field: Field::StaffAt(i), .. }) if *i < n
+        )
+    }
+
+    /// A click on a row: it selects the row, and a click on the selected row edits it; a toggle
+    /// flips at once.
+    pub fn click_property(&mut self, row: usize) {
+        let toggle = matches!(
+            self.property_rows().get(row).map(|r| &r.kind),
+            Some(RowKind::Field {
+                field: Field::Mute | Field::Solo,
+                ..
+            })
+        );
+        if toggle {
+            self.select_property(row);
+            self.edit_property();
+        } else if row == self.property_selected() && self.props.edit.is_none() {
+            self.edit_property();
+        } else {
+            self.select_property(row);
+        }
+    }
+
+    /// A drag from one row to another: a staff takes the other's place.
+    pub fn drag_property(&mut self, from: usize, to: usize) {
+        let rows = self.property_rows();
+        let at = |r: usize| match rows.get(r).map(|r| &r.kind) {
+            Some(RowKind::Field {
+                field: Field::StaffAt(i),
+                ..
+            }) => Some(*i),
+            _ => None,
+        };
+        if let (Some(a), Some(b)) = (at(from), at(to)) {
+            if a != b && self.property_is_staff(from) && self.property_is_staff(to) {
+                self.move_property_staff(a, b);
+            }
+        }
+    }
+
     /// Clears the selected verse, or the track's own color.
     fn clear_property(&mut self) {
         match self.selected_field().map(|(f, _)| f) {
             Some(Field::Lyrics) => self.run(Command::LyricsClear(None)),
             Some(Field::TrackColor) => self.run(Command::TrackColor(Some("off".into()))),
-            Some(Field::Staff) => self.run(Command::StaffRemove(None)),
+            Some(Field::StaffAt(i)) => {
+                self.pane_mut().cursor.staff = i;
+                self.run(Command::StaffRemove(None));
+            }
+            // A text property is emptied, as one undo step.
+            Some(
+                f @ (Field::Title
+                | Field::Subtitle
+                | Field::Artist
+                | Field::Album
+                | Field::Words
+                | Field::Music
+                | Field::Copyright
+                | Field::TabAuthor
+                | Field::Instructions),
+            ) => {
+                self.commit_property(f, "", false);
+            }
             _ => self.info("nothing to clear here"),
         }
     }
@@ -1109,6 +1199,29 @@ impl App {
             PropertiesEdit => self.edit_property(),
             PropertiesFold(fold) => self.fold_property(*fold),
             PropertiesClear => self.clear_property(),
+            PropertiesChange => {
+                self.edit_property();
+                // Text is cleared (as the score follows); pickers and toggles just open.
+                if let Some(e) = self.props.edit.as_mut() {
+                    e.text.clear();
+                    e.caret = 0;
+                    self.apply_live();
+                }
+            }
+            PropertiesStaffMove(by) => {
+                if let Some((Field::StaffAt(i), _)) = self.selected_field() {
+                    let n = self
+                        .buffer()
+                        .score
+                        .tracks
+                        .get(self.pane().cursor.track)
+                        .map_or(0, |t| t.staves().len());
+                    let to = i as isize + by;
+                    if i < n && (0..n as isize).contains(&to) {
+                        self.move_property_staff(i, to as usize);
+                    }
+                }
+            }
             _ => return false,
         }
         true
@@ -1237,11 +1350,11 @@ mod tests {
         assert_eq!(app.props.tab, PropTab::Score);
         keys(&mut app, "2");
         assert_eq!(app.props.tab, PropTab::Tracks);
-        keys(&mut app, "l");
+        keys(&mut app, "L");
         assert_eq!(app.props.tab, PropTab::Lyrics);
-        keys(&mut app, "l");
+        keys(&mut app, "L");
         assert_eq!(app.props.tab, PropTab::Score, "tabs wrap");
-        keys(&mut app, "h");
+        keys(&mut app, "H");
         assert_eq!(app.props.tab, PropTab::Lyrics);
         keys(&mut app, "1");
         let before = app.property_rows().len();
@@ -1457,5 +1570,80 @@ mod tests {
         type_into(&mut app, Field::PageScale, "x");
         assert_eq!(app.buffer().score.page.scale, 100);
         assert!(app.props.edit.is_none());
+    }
+
+    #[test]
+    fn staves_are_rows_with_a_picker_and_reorder() {
+        let mut app = with_props();
+        app.set_property_tab(PropTab::Tracks);
+        let names = |app: &App| {
+            app.buffer().score.tracks[0]
+                .staves()
+                .iter()
+                .map(|s| s.name())
+                .collect::<Vec<_>>()
+        };
+        assert_eq!(names(&app), ["standard treble", "tab"]);
+        // An empty row at the bottom adds a staff through the picker.
+        app.props.selected = field_row(&app, Field::StaffAt(2));
+        assert_eq!(
+            app.property_rows()[app.property_selected()].label,
+            "Add staff"
+        );
+        app.run(Command::PropertiesEdit);
+        assert_eq!(app.palette().unwrap().title, "Staves");
+        keys(&mut app, "slash<CR>");
+        assert_eq!(names(&app), ["standard treble", "tab", "slash"]);
+        // A filled row picks another kind.
+        app.props.selected = field_row(&app, Field::StaffAt(1));
+        app.run(Command::PropertiesEdit);
+        keys(&mut app, "tab+<CR>");
+        assert_eq!(names(&app)[1], "tab+");
+        // Alt-j / alt-k swap with the staff below / above; the selection follows.
+        keys(&mut app, "<leader>P");
+        app.props.selected = field_row(&app, Field::StaffAt(0));
+        keys(&mut app, "<A-j>");
+        assert_eq!(names(&app), ["tab+", "standard treble", "slash"]);
+        assert_eq!(app.props.selected, field_row(&app, Field::StaffAt(1)));
+        keys(&mut app, "<A-k>");
+        assert_eq!(names(&app), ["standard treble", "tab+", "slash"]);
+        // Dragging a row onto another moves it.
+        let (a, b) = (
+            field_row(&app, Field::StaffAt(0)),
+            field_row(&app, Field::StaffAt(2)),
+        );
+        assert!(
+            app.property_is_staff(a) && !app.property_is_staff(field_row(&app, Field::StaffAt(3)))
+        );
+        app.drag_property(a, b);
+        assert_eq!(names(&app), ["tab+", "slash", "standard treble"]);
+    }
+
+    #[test]
+    fn keys_for_tabs_clearing_and_toggles() {
+        let mut app = with_props();
+        keys(&mut app, "<leader>P");
+        keys(&mut app, "L");
+        assert_eq!(app.props.tab, PropTab::Tracks);
+        keys(&mut app, "<C-Tab>");
+        assert_eq!(app.props.tab, PropTab::Lyrics);
+        keys(&mut app, "<C-S-Tab>H");
+        assert_eq!(app.props.tab, PropTab::Score);
+        // `d` empties a text property; `c` empties it and starts typing.
+        type_into(&mut app, Field::Title, "Song");
+        app.props.selected = field_row(&app, Field::Title);
+        keys(&mut app, "d");
+        assert_eq!(app.buffer().score.meta.title, "");
+        type_into(&mut app, Field::Title, "Song");
+        app.props.selected = field_row(&app, Field::Title);
+        keys(&mut app, "cNew");
+        assert_eq!(app.display_mode(), Mode::Insert);
+        assert_eq!(app.buffer().score.meta.title, "New");
+        keys(&mut app, "<CR>");
+        // A click on a switch flips it at once.
+        app.set_property_tab(PropTab::Tracks);
+        let mute = field_row(&app, Field::Mute);
+        app.click_property(mute);
+        assert!(app.buffer().score.tracks[0].mute);
     }
 }

@@ -177,6 +177,8 @@ enum Edge {
 /// A mouse drag in progress.
 #[derive(Debug, Clone, PartialEq)]
 enum Drag {
+    /// A staff row of the properties pane (where it began, and the row under the mouse now).
+    Prop(usize, usize),
     /// A row's volume slider (row, left, right).
     Volume(Strip, f64, f64),
     /// A border between panes.
@@ -2813,15 +2815,43 @@ fn draw_properties(scene: &mut Scene, app: &App, views: &mut Views, r: Rect) {
                 let by1 = if area { bottom } else { by0 + BOX_H };
                 // A property with text beside it (a color's code, a tuning's pitches) has a
                 // narrower box, the text in grey to its right.
-                let box_x1 = if row.aside.is_empty() {
+                let toggle = matches!(field, Field::Mute | Field::Solo);
+                let box_x1 = if toggle {
+                    bx0 + 52.0
+                } else if row.aside.is_empty() {
                     bx1
                 } else {
                     let aside_w = width_of(&row.aside, PROPS_VALUE);
                     (bx1 - aside_w - 14.0).min(bx0 + (bx1 - bx0) * 0.62)
                 };
-                let b = Rect::new(bx0, by0, box_x1, by1);
-                let shape = b.to_rounded_rect(6.0);
-                scene.fill(Fill::NonZero, Affine::IDENTITY, col(th.tab), None, &shape);
+                let on = row.value == "on";
+                // A toggle is a switch: a pill with a knob, and on/off printed beside it.
+                let b = if toggle {
+                    Rect::new(bx0, by0 + 6.0, box_x1, by0 + 30.0)
+                } else {
+                    Rect::new(bx0, by0, box_x1, by1)
+                };
+                let shape = b.to_rounded_rect(if toggle { 12.0 } else { 6.0 });
+                let track = if toggle && on { th.accent } else { th.tab };
+                scene.fill(Fill::NonZero, Affine::IDENTITY, col(track), None, &shape);
+                if toggle {
+                    let kx = if on { b.x1 - 12.0 } else { b.x0 + 12.0 };
+                    let knob = Circle::new((kx, b.y0 + 12.0), 9.0);
+                    let kc = if on { text_on(col(th.accent)) } else { dim() };
+                    scene.fill(Fill::NonZero, Affine::IDENTITY, kc, None, &knob);
+                    let ty = b.y0 + 12.0 + PROPS_VALUE * 0.35;
+                    let word = if on { "on" } else { "off" };
+                    text(
+                        scene,
+                        word,
+                        b.x1 + 12.0,
+                        ty,
+                        PROPS_VALUE,
+                        Align::Left,
+                        chrome_text(),
+                        false,
+                    );
+                }
                 if sel {
                     let a = if typing.is_some() { 80 } else { 40 };
                     scene.fill(
@@ -2919,7 +2949,11 @@ fn draw_properties(scene: &mut Scene, app: &App, views: &mut Views, r: Rect) {
                             );
                         }
                         None => {
-                            let mut shown: String = row.value.clone();
+                            let mut shown: String = if toggle {
+                                String::new()
+                            } else {
+                                row.value.clone()
+                            };
                             if width_of(&shown, size) > inner {
                                 while width_of(&format!("{shown}…"), size) > inner
                                     && !shown.is_empty()
@@ -3613,10 +3647,11 @@ impl Views {
         };
         match hit {
             PropHit::Tab(t) => app.set_property_tab(t),
-            PropHit::Row(i) if i == app.property_selected() && app.props.edit.is_none() => {
-                app.edit_property()
+            // A staff can be dragged to another place; a plain click waits for the release.
+            PropHit::Row(i) if app.property_is_staff(i) => {
+                self.drag = Some(Drag::Prop(i, i));
             }
-            PropHit::Row(i) => app.select_property(i),
+            PropHit::Row(i) => app.click_property(i),
         }
         true
     }
@@ -3659,6 +3694,15 @@ impl Views {
     /// Mouse moved with the button down: drags a slider, a pane border or a panel's edge.
     pub fn drag_to(&mut self, app: &mut App, x: f64, y: f64) -> bool {
         match self.drag.clone() {
+            Some(Drag::Prop(from, _)) => {
+                let over = self.props.iter().find_map(|(r, h)| match h {
+                    PropHit::Row(i) if r.contains((x, y)) => Some(*i),
+                    _ => None,
+                });
+                if let Some(i) = over {
+                    self.drag = Some(Drag::Prop(from, i));
+                }
+            }
             Some(Drag::Volume(strip, x0, x1)) => {
                 app.set_strip_volume(strip, (x - x0) / (x1 - x0));
             }
@@ -3697,8 +3741,12 @@ impl Views {
 
     /// Mouse up: ends a drag (a volume drag is one undo step).
     pub fn release(&mut self, app: &mut App) {
-        if let Some(Drag::Volume(..)) = self.drag.take() {
-            app.group_edits(false);
+        match self.drag.take() {
+            Some(Drag::Volume(..)) => app.group_edits(false),
+            // Released on another staff: it moves there; on the same one: a click.
+            Some(Drag::Prop(from, to)) if from == to => app.click_property(from),
+            Some(Drag::Prop(from, to)) => app.drag_property(from, to),
+            _ => {}
         }
     }
 

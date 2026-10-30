@@ -263,7 +263,7 @@ have a narrower box with the color's hex code or the strings' pitches beside it 
   instructions) and *Page* (page size, margins and scale, as Guitar Pro 5 files keep them; muse
   doesn't print with them yet). Tempo and the pickup bar are edited in the score itself.
 - **TRACK** — the track under the score cursor (`n`/`p` change it): *Info* (name, kind, color),
-  *Notation* (tuning, frets, capo, the track's staves and the cursor's staff) and *Sound*
+  *Notation* (tuning, frets, capo, and one row per staff, with an empty one at the bottom to add a staff; each opens a picker of staff kinds, and rows drag to reorder) and *Sound*
   (instrument, MIDI channel, bank, volume, pan, mute, solo).
 - **LYRICS** — the cursor track's lyrics as one text area, in Guitar Pro lyric syntax: syllables
   split by spaces and hyphens, laid onto the notes from the bar the verse started at (the
@@ -276,10 +276,12 @@ score pane). It stays Normal mode; while the pane has the focus its keys are
 | keys | command |
 | --- | --- |
 | `j` `k` / `<Down>` `<Up>` | select the next / previous property |
-| `l` `<Tab>` / `h` `<S-Tab>`, `1` `2` `3` | next / previous tab, the score / track / lyrics tab |
-| `<CR>` `i` `a` | edit the property (insert mode). The score updates as you type, and the edit is one undo step. `<CR>` keeps a single line, `<Esc>` and `<C-c>` cancel it; `<Left>` `<Right>` `<Home>` `<End>` move, `<C-u>` clears. The lyrics text area is edited like vim: `<Esc>` goes to normal mode (`h` `j` `k` `l` `w` `b` `0` `^` `$` `gg` `G` move; `x` `D` `dd` delete; `i` `a` `I` `A` `o` `O` `<CR>` insert; `u` `<C-r>` undo and redo), each change and each insert session an undo step; `<Esc>` in normal mode leaves it. The status line shows the current mode. Color opens a picker of named colors, each with a swatch and its hex code; type `#rrggbb` or `rgb(r,g,b)` for your own. Tuning opens a picker of common tunings of the track's instrument (Drop D, DADGAD, Open C …), searchable by name or description; type the notes (`D2 A2 D3 G3 B3 E4`) for your own. Instrument opens its picker; mute and solo flip; a section header folds |
+| `L` `<Tab>` `<C-Tab>` / `H` `<S-Tab>` `<C-S-Tab>`, `1` `2` `3` | next / previous tab, the score / track / lyrics tab |
+| `<CR>` `i` `a` | edit the property (insert mode). The score updates as you type, and the edit is one undo step. `<CR>` keeps a single line, `<Esc>` and `<C-c>` cancel it; `<Left>` `<Right>` `<Home>` `<End>` move, `<C-u>` clears. The lyrics text area is edited like vim: `<Esc>` goes to normal mode (`h` `j` `k` `l` `w` `b` `0` `^` `$` `gg` `G` move; `x` `D` `dd` delete; `i` `a` `I` `A` `o` `O` `<CR>` insert; `u` `<C-r>` undo and redo), each change and each insert session an undo step; `<Esc>` in normal mode leaves it. The status line shows the current mode. Color opens a picker of named colors, each with a swatch and its hex code; type `#rrggbb` or `rgb(r,g,b)` for your own. Tuning opens a picker of common tunings of the track's instrument (Drop D, DADGAD, Open C …), searchable by name or description; type the notes (`D2 A2 D3 G3 B3 E4`) for your own. Instrument opens its picker; mute and solo are switches (a click flips them, with on/off beside them); a section header folds |
+| `c` / `d` | clear the property's text and edit it / just clear it |
+| `<A-j>` `<A-k>` | swap the selected staff with the one below / above |
 | `za` `zc` `zo` | toggle / close / open the section |
-| `x` | clear the lyrics or the track's own color, or remove the cursor's staff |
+| `x` | same as `d`: clear the text, lyrics or the track's own color, or remove the selected staff |
 | `n` `p` | next / previous track |
 | `<Esc>` `q` | back to the score pane |
 | `<leader><leader>` `<leader>s` `<leader>f` `:` | play/pause, stop, follow, command line |

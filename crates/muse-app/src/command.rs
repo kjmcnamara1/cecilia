@@ -201,6 +201,10 @@ pub enum Command {
     PropertiesFold(Option<bool>),
     /// Clear the selected property (a verse's syllables, a track's own color).
     PropertiesClear,
+    /// Clears the selected property's text and edits it.
+    PropertiesChange,
+    /// Moves the selected staff down (+1) or up (-1) among the track's staves.
+    PropertiesStaffMove(isize),
     /// Focus the tracks panel, or give the focus back to the score.
     TracksFocus,
     /// In the tracks panel: select the row below / above (tracks, the audio track, the master).
@@ -810,6 +814,11 @@ impl Command {
                 Some(a) => return Err(format!("properties-fold: '{a}' is not open or close")),
             }),
             "properties-clear" => PropertiesClear,
+            "properties-change" => PropertiesChange,
+            "properties-staff-move" => PropertiesStaffMove(
+                arg.and_then(|a| a.trim().parse().ok())
+                    .ok_or("properties-staff-move: expected +1 or -1")?,
+            ),
             "tracks-focus" => TracksFocus,
             "tracks-down" => TracksDown,
             "tracks-up" => TracksUp,

@@ -67,6 +67,8 @@ struct Ui {
 /// A mouse drag in progress.
 #[derive(Debug, Clone, PartialEq)]
 enum Drag {
+    /// A staff row of the properties pane (where it began, and the row under the mouse now).
+    Prop(usize, usize),
     /// A track's volume (one undo step).
     Volume,
     /// A border between panes, grabbed this far from its position.
@@ -160,6 +162,17 @@ fn event_loop(terminal: &mut DefaultTerminal, app: &mut App) -> Result<()> {
                             _ => {}
                         }
                     }
+                    MouseEventKind::Drag(MouseButton::Left)
+                        if matches!(ui.drag, Some(Drag::Prop(..))) =>
+                    {
+                        let over = ui.props.iter().find_map(|(r, h)| match h {
+                            PropHit::Row(i) if contains(*r, m.column, m.row) => Some(*i),
+                            _ => None,
+                        });
+                        if let (Some(i), Some(Drag::Prop(from, _))) = (over, ui.drag.clone()) {
+                            ui.drag = Some(Drag::Prop(from, i));
+                        }
+                    }
                     MouseEventKind::Down(MouseButton::Left)
                         if divider_at(app, m.column, m.row).is_some() =>
                     {
@@ -175,7 +188,16 @@ fn event_loop(terminal: &mut DefaultTerminal, app: &mut App) -> Result<()> {
                             .find(|(r, _)| contains(*r, m.column, m.row))
                             .map(|(_, h)| *h)
                             .unwrap();
-                        click_properties(app, hit);
+                        match hit {
+                            // A staff can be dragged; a plain click waits for the release.
+                            PropHit::Row(i) if app.property_is_staff(i) => {
+                                if let Some(id) = app.tool_pane(PaneKind::Properties) {
+                                    app.set_focus(id);
+                                }
+                                ui.drag = Some(Drag::Prop(i, i));
+                            }
+                            _ => click_properties(app, hit),
+                        }
                     }
                     MouseEventKind::Down(MouseButton::Left)
                     | MouseEventKind::Drag(MouseButton::Left)
@@ -185,8 +207,11 @@ fn event_loop(terminal: &mut DefaultTerminal, app: &mut App) -> Result<()> {
                         click_tracks(app, &mut ui, m.column, m.row, m.kind);
                     }
                     MouseEventKind::Up(MouseButton::Left) if ui.drag.is_some() => {
-                        if ui.drag.take() == Some(Drag::Volume) {
-                            app.group_edits(false);
+                        match ui.drag.take() {
+                            Some(Drag::Volume) => app.group_edits(false),
+                            Some(Drag::Prop(from, to)) if from == to => app.click_property(from),
+                            Some(Drag::Prop(from, to)) => app.drag_property(from, to),
+                            _ => {}
                         }
                     }
                     // The wheel over the tracks panel scrolls its rows (sideways: its bars).
@@ -1334,13 +1359,7 @@ fn click_properties(app: &mut App, hit: PropHit) {
     match hit {
         PropHit::Tab(t) => app.set_property_tab(t),
         // A click selects a property; another on the selected one edits it.
-        PropHit::Row(i) => {
-            if i == app.property_selected() && app.props.edit.is_none() {
-                app.edit_property();
-            } else {
-                app.select_property(i);
-            }
-        }
+        PropHit::Row(i) => app.click_property(i),
     }
 }
 
@@ -1454,8 +1473,14 @@ fn draw_properties(f: &mut Frame, app: &App, area: Rect, ui: &mut Ui) {
                     1
                 };
                 // A property with text beside it has a narrower box, the text dim to its right.
+                let toggle = matches!(
+                    field,
+                    muse_app::properties::Field::Mute | muse_app::properties::Field::Solo
+                );
                 let aside = row.aside.chars().count();
-                let box_w = if aside == 0 {
+                let box_w = if toggle {
+                    6
+                } else if aside == 0 {
                     width
                 } else {
                     width.saturating_sub(aside + 2).min(width * 62 / 100)
@@ -1465,6 +1490,25 @@ fn draw_properties(f: &mut Frame, app: &App, area: Rect, ui: &mut Ui) {
                 }
                 if aside > 0 {
                     buf.set_string(x0 + box_w as u16 + 2, y + 1, &row.aside, dim);
+                }
+                if toggle {
+                    // A switch: the knob at the end that says which, and on/off beside it.
+                    let on_now = row.value == "on";
+                    let (knob, bg) = if on_now {
+                        (" ●", t.accent)
+                    } else {
+                        ("● ", t.tab)
+                    };
+                    buf.set_string(x0, y + 1, "      ", Style::default().bg(rc(bg)));
+                    buf.set_string(
+                        x0 + if on_now { 3 } else { 1 },
+                        y + 1,
+                        knob.trim(),
+                        Style::default()
+                            .fg(rc(if on_now { t.text_on(t.accent) } else { t.dim }))
+                            .bg(rc(bg)),
+                    );
+                    buf.set_string(x0 + 8, y + 1, if on_now { "on" } else { "off" }, base);
                 }
                 let mut text_x = x0 + 1;
                 if let Some(c) = row.swatch {
@@ -1514,7 +1558,9 @@ fn draw_properties(f: &mut Frame, app: &App, area: Rect, ui: &mut Ui) {
                         }
                         None => clip(&row.value, inner),
                     };
-                    buf.set_string(text_x, y + 1, shown, text_style);
+                    if !toggle {
+                        buf.set_string(text_x, y + 1, shown, text_style);
+                    }
                 }
             }
         }
