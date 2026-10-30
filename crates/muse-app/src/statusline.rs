@@ -135,6 +135,15 @@ impl App {
         })
     }
 
+    /// The mode as shown: typing into a property of the properties pane is insert mode.
+    pub fn display_mode(&self) -> Mode {
+        if self.props.edit.is_some() {
+            Mode::Insert
+        } else {
+            self.mode
+        }
+    }
+
     /// The status line. `play` is the playing time and length (from the frontend's player),
     /// `zoom` whether to show the zoom level (GUI).
     pub fn statusline(&self, play: Option<(f64, f64)>, zoom: bool) -> StatusLine {
@@ -142,7 +151,7 @@ impl App {
         let buffer = self.buffer();
         let score = &buffer.score;
         let mut left = vec![
-            Segment::new(mode_label(self.mode), SegKind::Mode),
+            Segment::new(mode_label(self.display_mode()), SegKind::Mode),
             // Click: the next layout.
             Segment::new(pane.layout.clone(), SegKind::ModeText)
                 .on_click(crate::command::Command::Layout(None)),

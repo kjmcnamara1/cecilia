@@ -99,6 +99,8 @@ pub struct PaletteItem {
     pub text: String,
     /// Short description (of a command, or a picker entry).
     pub description: Option<String>,
+    /// A colour shown beside the text (the colour picker).
+    pub swatch: Option<crate::theme::Rgba>,
     /// Character positions that matched the typed text (highlighted).
     pub matched: Vec<usize>,
 }
@@ -1647,6 +1649,7 @@ impl App {
                     None
                 },
                 text,
+                swatch: None,
                 matched,
             })
             .collect();

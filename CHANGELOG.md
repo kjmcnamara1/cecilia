@@ -9,7 +9,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
-- Properties pane along the right of the window (`<leader>p` shows it, `<leader>P` focuses it, `ui.properties`, `:properties`) with three tabs: score (metadata, tempo, pickup bar, page setup), tracks (name, kind, colour, tuning, frets, capo, staves, instrument, channel, bank, volume, pan, mute, solo) and lyrics (verses as text). Fields edit in place as undoable edits; sections fold.
+- Properties pane along the right of the window (`<leader>p` shows it, `<leader>P` focuses it, `ui.properties`, `:properties`) with three tabs: SCORE (metadata, page setup), TRACK (name, kind, colour, tuning, frets, capo, staves, instrument, channel, bank, volume, pan, mute, solo) and LYRICS (a text area in Guitar Pro lyric syntax, laid onto the notes). Each property is a label over a full-width value box, in sections that fold (`za`, `zc`, `zo`). Editing a value is insert mode. Colour opens a picker of named colours with swatches and hex codes (type `#rrggbb` or `rgb(r,g,b)` for a custom one); tuning opens a picker of common tunings for the track's instrument (type notes for a custom one). Edits are undoable.
 - Scores keep their page setup, read and written by Guitar Pro 5 files.
 
 ## [0.2.0] - 2026-10-30

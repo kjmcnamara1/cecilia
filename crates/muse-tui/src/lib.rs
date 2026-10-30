@@ -631,6 +631,7 @@ fn draw_palette(f: &mut Frame, app: &App, p: &muse_app::Palette, screen: Rect) {
         Some(sel) if sel >= rows => sel + 1 - rows,
         _ => 0,
     };
+    let swatches = p.items.iter().any(|i| i.swatch.is_some());
     for (k, item) in p.items.iter().enumerate().skip(first).take(rows) {
         let row = Rect {
             y: inner.y + 2 + (k - first) as u16,
@@ -644,8 +645,14 @@ fn draw_palette(f: &mut Frame, app: &App, p: &muse_app::Palette, screen: Rect) {
             Style::default()
         };
         let width = row.width as usize;
-        let name: String = item.text.chars().take(width.saturating_sub(1)).collect();
-        let mut line = format!(" {name}");
+        // Colours get a swatch before their name.
+        let ind = if swatches { 3 } else { 0 };
+        let name: String = item
+            .text
+            .chars()
+            .take(width.saturating_sub(1 + ind))
+            .collect();
+        let mut line = format!(" {}{name}", " ".repeat(ind));
         if let Some(d) = &item.description {
             let room = width.saturating_sub(line.chars().count() + 3);
             let d: String = d.chars().take(room).collect();
@@ -655,6 +662,10 @@ fn draw_palette(f: &mut Frame, app: &App, p: &muse_app::Palette, screen: Rect) {
             line.push(' ');
         }
         f.render_widget(Paragraph::new(line).style(style), row);
+        if let Some(c) = item.swatch {
+            f.buffer_mut()
+                .set_string(row.x + 1, row.y, "██", Style::default().fg(rc(c)));
+        }
         // Highlight the characters that matched what was typed.
         let hl = if selected {
             Style::default()
@@ -666,7 +677,7 @@ fn draw_palette(f: &mut Frame, app: &App, p: &muse_app::Palette, screen: Rect) {
                 .add_modifier(Modifier::BOLD)
         };
         for &i in &item.matched {
-            let x = row.x + 1 + i as u16;
+            let x = row.x + 1 + i as u16 + if swatches { 3 } else { 0 };
             if x < row.x + row.width {
                 f.buffer_mut().set_style(Rect { x, width: 1, ..row }, hl);
             }
@@ -1343,33 +1354,36 @@ fn clip(text: &str, width: usize) -> String {
     out
 }
 
-/// The properties pane: its tabs, then the shown tab's rows (sections, then label and value).
+/// The properties pane: its tabs, then the shown tab's rows (section titles, and per property
+/// its label above a box holding the value), with a margin all round.
 fn draw_properties(f: &mut Frame, app: &App, area: Rect, ui: &mut Ui) {
-    use muse_app::properties::{PropTab, RowKind};
+    use muse_app::properties::{PropTab, RowKind, caret_in, small_caps, wrap_ranges};
+    const PAD: u16 = 2;
     let t = app.config.theme.clone();
-    let focused = app.focused_kind() == PaneKind::Properties;
     let base = Style::default().bg(rc(t.panel)).fg(rc(t.chrome_text));
     let dim = Style::default().fg(rc(t.dim)).bg(rc(t.panel));
     f.render_widget(Paragraph::new("").style(base), area);
-    if area.height < 2 || area.width < 8 {
+    if area.height < 6 || area.width < 12 {
         return;
     }
     let buf = f.buffer_mut();
+    let x0 = area.x + PAD;
+    let width = (area.width - 2 * PAD) as usize;
     // Tabs.
-    let mut x = area.x;
+    let mut x = x0;
     for tab in PropTab::ALL {
-        let label = format!(" {} ", tab.name());
+        let label = format!(" {} ", tab.title());
         let w = label.chars().count() as u16;
         let style = if tab == app.props.tab {
-            on(app, if focused { t.mode_tracks } else { t.accent })
+            on(app, t.accent).add_modifier(Modifier::BOLD)
         } else {
             Style::default().fg(rc(t.dim)).bg(rc(t.tab))
         };
-        buf.set_string(x, area.y, &label, style);
+        buf.set_string(x, area.y + 1, &label, style);
         ui.props.push((
             Rect {
                 x,
-                y: area.y,
+                y: area.y + 1,
                 width: w,
                 height: 1,
             },
@@ -1378,86 +1392,110 @@ fn draw_properties(f: &mut Frame, app: &App, area: Rect, ui: &mut Ui) {
         x += w + 1;
     }
     let rows = app.property_rows();
-    let visible = (area.height - 1) as usize;
-    let first = app.property_window(visible);
+    let top = area.y + 3;
+    let bottom = area.y + area.height - 1;
+    let first = app.property_window((bottom - top) as usize);
     let selected = app.property_selected();
-    let label_w = 14usize.min(area.width as usize / 2);
-    let value_w = (area.width as usize).saturating_sub(label_w + 1);
-    for (k, row) in rows.iter().enumerate().skip(first).take(visible) {
-        let y = area.y + 1 + (k - first) as u16;
+    let mut y = top;
+    for (k, row) in rows.iter().enumerate().skip(first) {
+        let h = row.height() as u16;
+        if y >= bottom {
+            break;
+        }
         let sel = k == selected;
-        let style = match (sel, focused) {
-            (true, true) => on(app, t.mode_tracks),
-            (true, false) => Style::default().bg(rc(t.tab)).fg(rc(t.chrome_text)),
-            _ => base,
+        let hit = Rect {
+            x: area.x,
+            y,
+            width: area.width,
+            height: h.min(bottom - y),
         };
-        buf.set_style(
-            Rect {
-                x: area.x,
-                y,
-                width: area.width,
-                height: 1,
-            },
-            style,
-        );
         match &row.kind {
             RowKind::Header { folded, .. } => {
                 let mark = if *folded { '▸' } else { '▾' };
+                let title = format!("{mark} {}", small_caps(&row.label));
+                let style = if sel {
+                    on(app, t.accent)
+                } else {
+                    base.fg(rc(t.accent))
+                };
                 buf.set_string(
-                    area.x,
-                    y,
-                    clip(&format!("{mark} {}", row.label), area.width as usize),
+                    x0,
+                    y + h - 1,
+                    clip(&title, width),
                     style.add_modifier(Modifier::BOLD),
                 );
             }
-            RowKind::Note => buf.set_string(
-                area.x,
-                y,
-                clip(&row.label, area.width as usize),
-                if sel { style } else { dim },
-            ),
+            RowKind::Note => buf.set_string(x0, y, clip(&row.label, width), dim),
             RowKind::Field { field, editable } => {
-                buf.set_string(
-                    area.x + 1,
-                    y,
-                    clip(&row.label, label_w.saturating_sub(1)),
-                    if sel || *editable {
-                        style
-                    } else {
-                        style.fg(rc(t.dim))
-                    },
-                );
                 let typing = app.props.edit.as_ref().filter(|e| e.field == *field);
-                let value = match typing {
-                    Some(e) => {
-                        // The tail of the text stays in view, with the caret after it.
-                        let chars: Vec<char> = e.text.chars().collect();
-                        let keep = value_w.saturating_sub(1);
-                        let tail: String =
-                            chars[chars.len().saturating_sub(keep)..].iter().collect();
-                        format!("{tail}▏")
-                    }
-                    None => clip(&row.value, value_w),
-                };
-                let vstyle = if typing.is_some() {
-                    Style::default().fg(rc(t.chrome_text)).bg(rc(t.tab))
-                } else if *editable {
-                    style
+                let label_style = if sel {
+                    base.fg(rc(t.accent)).add_modifier(Modifier::BOLD)
                 } else {
-                    style.fg(rc(t.dim))
+                    dim
                 };
-                buf.set_string(area.x + label_w as u16 + 1, y, value, vstyle);
+                buf.set_string(x0, y, clip(&row.label, width), label_style);
+                let box_bg = if typing.is_some() {
+                    t.tab.mix(t.accent, 0.5)
+                } else if sel {
+                    t.tab.mix(t.accent, 0.25)
+                } else {
+                    t.tab
+                };
+                let text_style = Style::default().bg(rc(box_bg)).fg(rc(if *editable {
+                    t.chrome_text
+                } else {
+                    t.dim
+                }));
+                // The box takes the pane's width; the text area also its remaining height.
+                let box_h = if *field == muse_app::properties::Field::Lyrics {
+                    (bottom - y - 1).max(1)
+                } else {
+                    1
+                };
+                for by in 0..box_h {
+                    buf.set_string(x0, y + 1 + by, " ".repeat(width), text_style);
+                }
+                let inner = width.saturating_sub(2);
+                if *field == muse_app::properties::Field::Lyrics {
+                    let text = typing.map_or(row.value.as_str(), |e| e.text.as_str());
+                    let lines = wrap_ranges(text, |l| l.chars().count() <= inner);
+                    let chars: Vec<char> = text.chars().collect();
+                    let caret = typing.map(|e| caret_in(&lines, e.caret));
+                    // Keep the caret's line in view.
+                    let skip = caret.map_or(0, |(r, _)| (r + 1).saturating_sub(box_h as usize));
+                    for (n, &(s, e)) in lines.iter().enumerate().skip(skip).take(box_h as usize) {
+                        let line: String = chars[s..e].iter().collect();
+                        buf.set_string(x0 + 1, y + 1 + (n - skip) as u16, line, text_style);
+                    }
+                    if let Some((r, c)) = caret.filter(|&(r, _)| r >= skip) {
+                        buf.set_string(
+                            x0 + 1 + c as u16,
+                            y + 1 + (r - skip) as u16,
+                            "▏",
+                            text_style.fg(rc(t.accent)),
+                        );
+                    }
+                } else {
+                    let shown = match typing {
+                        Some(e) => {
+                            // The tail stays in view, with the caret in the text.
+                            let chars: Vec<char> = e.text.chars().collect();
+                            let keep = inner.saturating_sub(1);
+                            let from = e.caret.saturating_sub(keep);
+                            let mut line: String =
+                                chars[from..e.caret.min(chars.len())].iter().collect();
+                            line.push('▏');
+                            line.extend(chars[e.caret.min(chars.len())..].iter().take(keep));
+                            line.chars().take(inner).collect()
+                        }
+                        None => clip(&row.value, inner),
+                    };
+                    buf.set_string(x0 + 1, y + 1, shown, text_style);
+                }
             }
         }
-        ui.props.push((
-            Rect {
-                x: area.x,
-                y,
-                width: area.width,
-                height: 1,
-            },
-            PropHit::Row(k),
-        ));
+        ui.props.push((hit, PropHit::Row(k)));
+        y += h;
     }
 }
 
@@ -1793,7 +1831,7 @@ fn draw_status(
         ("round", "nerd") => Some(("\u{e0b4}", "\u{e0b6}")),
         _ => None,
     };
-    let mode = t.mode_color(app.mode);
+    let mode = t.mode_color(app.display_mode());
     let bg_of = |k: SegKind| match k {
         SegKind::Mode => mode,
         SegKind::ModeText => t.status_b,
@@ -2164,17 +2202,14 @@ mod render_tests {
         let screen = render(&mut app, 100, 30);
         assert!(screen.contains("properties"), "{screen}");
         assert!(
-            screen.contains("score") && screen.contains("lyrics"),
+            screen.contains("SCORE") && screen.contains("TRACK") && screen.contains("LYRICS"),
             "{screen}"
         );
         assert!(
-            screen.contains("▾ Info") && screen.contains("Title"),
+            screen.contains("▾ Iɴꜰᴏ") && screen.contains("Title"),
             "{screen}"
         );
-        assert!(
-            screen.contains("Tempo") && screen.contains("Width (mm)"),
-            "{screen}"
-        );
+        assert!(!screen.contains("Tempo"), "{screen}");
         // Clicking the tracks tab shows the cursor track's properties.
         let tab = ui
             .props
@@ -2187,7 +2222,7 @@ mod render_tests {
         click_properties(&mut app, tab);
         let screen = render(&mut app, 100, 30);
         assert!(
-            screen.contains("Instrument") && screen.contains("Tuning"),
+            screen.contains("Colour") && screen.contains("Tuning"),
             "{screen}"
         );
         assert_eq!(app.focused_kind(), PaneKind::Properties);

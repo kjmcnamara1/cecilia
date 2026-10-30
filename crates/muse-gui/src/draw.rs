@@ -2342,6 +2342,7 @@ fn draw_palette(scene: &mut Scene, p: &muse_app::Palette, width: f64, height: f6
         Some(sel) if sel >= rows => sel + 1 - rows,
         _ => 0,
     };
+    let swatches = p.items.iter().any(|i| i.swatch.is_some());
     for (k, item) in p.items.iter().enumerate().skip(first).take(rows) {
         let ry = y0 + input_h + 5.0 + (k - first) as f64 * row_h;
         let selected = p.selected == Some(k);
@@ -2356,10 +2357,17 @@ fn draw_palette(scene: &mut Scene, p: &muse_app::Palette, width: f64, height: f6
         }
         let base = ry + row_h / 2.0 + 4.5;
         let color = if selected { accent() } else { chrome_text() };
+        // Colours get a swatch before their name.
+        let tx0 = if swatches { x0 + 48.0 } else { x0 + 16.0 };
+        if let Some(c) = item.swatch {
+            let sw = RoundedRect::new(x0 + 16.0, ry + 4.0, x0 + 40.0, ry + row_h - 6.0, 4.0);
+            scene.fill(Fill::NonZero, Affine::IDENTITY, col(c), None, &sw);
+            scene.stroke(&Stroke::new(1.0), Affine::IDENTITY, dim(), None, &sw);
+        }
         text(
             scene,
             &item.text,
-            x0 + 16.0,
+            tx0,
             base,
             14.0,
             Align::Left,
@@ -2381,7 +2389,7 @@ fn draw_palette(scene: &mut Scene, p: &muse_app::Palette, width: f64, height: f6
         for &i in &item.matched {
             let Some(c) = chars.get(i) else { continue };
             let before: String = chars[..i].iter().collect();
-            let cx = x0 + 16.0 + fonts.text_width(font, &before, 14.0);
+            let cx = tx0 + fonts.text_width(font, &before, 14.0);
             text(
                 scene,
                 &c.to_string(),
@@ -2471,7 +2479,7 @@ fn draw_status(
     fill(scene, Rect::new(0.0, y0, width, height), chrome());
     let line = app.statusline(play.map(|(_, _, now, total)| (now, total)), true);
     let th = app.config.theme.clone();
-    let mode = th.mode_color(app.mode);
+    let mode = th.mode_color(app.display_mode());
     let bg_of = |k: SegKind| match k {
         SegKind::Mode => mode,
         SegKind::ModeText => th.status_b,
@@ -2649,145 +2657,243 @@ fn draw_speedometer(scene: &mut Scene, x: f64, cy: f64, color: Color) {
     );
 }
 
-/// The tuner: the note heard (big), a cents scale with a needle (green when in tune), the
-/// frequency, and the nearest string of the track's tuning.
-/// The properties pane: its tabs, then the shown tab's rows (sections, then label and value).
+/// The properties pane's base text size: one and a half times the status line's.
+const PROPS_FONT: f64 = 13.0 * 1.5;
+/// One line unit of a row's height (see `PropRow::height`).
+const PROPS_UNIT: f64 = 24.0;
+
+/// `s` in small capitals starting at `x`: a word's first letter full size, the rest capitals at
+/// four fifths of it. Returns where it ends.
+#[allow(clippy::too_many_arguments)]
+fn text_small_caps(
+    scene: &mut Scene,
+    s: &str,
+    mut x: f64,
+    y: f64,
+    size: f64,
+    color: Color,
+    bold: bool,
+) -> f64 {
+    let fonts = muse_engrave::fonts::fonts();
+    let font = if bold { FontKind::Bold } else { FontKind::Text };
+    let mut start = true;
+    for c in s.chars() {
+        let (shown, sz) = if !start && c.is_lowercase() {
+            (c.to_uppercase().to_string(), size * 0.8)
+        } else {
+            (c.to_string(), size)
+        };
+        text(scene, &shown, x, y, sz, Align::Left, color, bold);
+        x += fonts.text_width(font, &shown, sz) + size * 0.04;
+        start = !c.is_alphanumeric();
+    }
+    x
+}
+
+/// The properties pane: its tabs, then the shown tab's rows (section titles, and per property
+/// its label above a box holding the value), with room around everything.
 fn draw_properties(scene: &mut Scene, app: &App, views: &mut Views, r: Rect) {
-    use muse_app::properties::{PropTab, RowKind};
+    use muse_app::properties::{Field, PropTab, RowKind, caret_in, wrap_ranges};
+    const PAD: f64 = 16.0;
+    const BOX_H: f64 = 36.0;
     let th = &app.config.theme;
-    let focused = app.focused_kind() == PaneKind::Properties;
+    let fonts = muse_engrave::fonts::fonts();
+    let width_of = |s: &str, size: f64| fonts.text_width(FontKind::Text, s, size);
     fill(scene, r, col(th.panel));
     // Tabs.
-    let mut x = r.x0 + 6.0;
+    let tab_size = PROPS_FONT * 1.1;
+    let mut x = r.x0 + PAD;
+    let tab_y = r.y0 + 14.0;
     for tab in PropTab::ALL {
-        let label = tab.name();
-        let w = label.chars().count() as f64 * 7.5 + 16.0;
-        let b = Rect::new(x, r.y0 + 3.0, x + w, r.y0 + TRACK_HEAD + 3.0);
+        let label = tab.title();
+        let w = fonts.text_width(FontKind::Bold, &label, tab_size) + 20.0;
+        let b = Rect::new(x, tab_y, x + w, tab_y + 36.0);
         let current = tab == app.props.tab;
         if current {
-            let bg = col(if focused { th.mode_tracks } else { th.accent });
             scene.fill(
                 Fill::NonZero,
                 Affine::IDENTITY,
-                bg,
+                col(th.accent),
                 None,
-                &b.to_rounded_rect(4.0),
+                &b.to_rounded_rect(6.0),
             );
         }
         let c = if current {
-            text_on(col(if focused { th.mode_tracks } else { th.accent }))
+            text_on(col(th.accent))
         } else {
             dim()
         };
         text(
             scene,
-            label,
+            &label,
             x + w / 2.0,
-            b.y0 + 14.0,
-            12.0,
+            b.y0 + 25.0,
+            tab_size,
             Align::Center,
             c,
-            current,
+            true,
         );
         views.props.push((b, PropHit::Tab(tab)));
-        x += w + 4.0;
+        x += w + 6.0;
     }
-    let top = r.y0 + TRACK_HEAD + 8.0;
+    let top = tab_y + 36.0 + 14.0;
+    let bottom = r.y1 - 12.0;
     let rows = app.property_rows();
-    let visible = (((r.y1 - top) / TRACK_ROW).floor().max(1.0)) as usize;
-    let first = app.property_window(visible);
+    let first = app.property_window(((bottom - top) / PROPS_UNIT).floor().max(1.0) as usize);
     let selected = app.property_selected();
-    let label_w = 120.0;
-    // Characters of a value that fit, at about 7 px each.
-    let fit = (((r.width() - label_w - 14.0) / 7.0).floor().max(1.0)) as usize;
-    for (k, row) in rows.iter().enumerate().skip(first).take(visible) {
-        let y0 = top + (k - first) as f64 * TRACK_ROW;
-        let b = Rect::new(r.x0, y0, r.x1, y0 + TRACK_ROW);
-        let cy = y0 + 14.0;
-        if k == selected {
-            let bg = if focused { th.mode_tracks } else { th.tab };
-            fill(scene, b, col(bg.with_alpha(if focused { 70 } else { 255 })));
+    let (bx0, bx1) = (r.x0 + PAD, r.x1 - PAD);
+    let inner = bx1 - bx0 - 20.0;
+    let mut y = top;
+    for (k, row) in rows.iter().enumerate().skip(first) {
+        if y >= bottom {
+            break;
         }
+        let h = row.height() as f64 * PROPS_UNIT;
+        let sel = k == selected;
+        let hit = Rect::new(r.x0, y, r.x1, (y + h).min(bottom));
         match &row.kind {
             RowKind::Header { folded, .. } => {
                 let mark = if *folded { "▸" } else { "▾" };
-                text(
+                let c = col(if sel { th.accent } else { th.chrome_text });
+                let size = PROPS_FONT * 1.1;
+                let by = y + h - 8.0;
+                text(scene, mark, bx0, by, size * 0.8, Align::Left, c, true);
+                let end = text_small_caps(scene, &row.label, bx0 + size, by, size, c, true);
+                // A rule after the title.
+                fill(
                     scene,
-                    &format!("{mark} {}", row.label),
-                    r.x0 + 8.0,
-                    cy,
-                    13.0,
-                    Align::Left,
-                    chrome_text(),
-                    true,
+                    Rect::new(end + 10.0, by - size * 0.3, bx1, by - size * 0.3 + 1.0),
+                    col(th.tab),
                 );
             }
             RowKind::Note => text(
                 scene,
                 &row.label,
-                r.x0 + 8.0,
-                cy,
-                12.0,
+                bx0,
+                y + 20.0,
+                PROPS_FONT * 0.8,
                 Align::Left,
                 dim(),
                 false,
             ),
             RowKind::Field { field, editable } => {
-                let c = if *editable { chrome_text() } else { dim() };
+                let typing = app.props.edit.as_ref().filter(|e| e.field == *field);
+                let label_c = if sel { col(th.accent) } else { dim() };
                 text(
                     scene,
                     &row.label,
-                    r.x0 + 18.0,
-                    cy,
-                    12.0,
+                    bx0,
+                    y + 18.0,
+                    PROPS_FONT * 0.8,
                     Align::Left,
-                    dim(),
-                    false,
+                    label_c,
+                    sel,
                 );
-                let x = r.x0 + label_w + 8.0;
-                match app.props.edit.as_ref().filter(|e| e.field == *field) {
-                    Some(e) => {
-                        let chars: Vec<char> = e.text.chars().collect();
-                        let tail: String = chars[chars.len().saturating_sub(fit - 1)..]
-                            .iter()
-                            .collect();
-                        let field_box =
-                            Rect::new(x - 4.0, y0 + 2.0, r.x1 - 6.0, y0 + TRACK_ROW - 2.0);
-                        scene.fill(
-                            Fill::NonZero,
-                            Affine::IDENTITY,
-                            col(th.tab),
-                            None,
-                            &field_box.to_rounded_rect(3.0),
-                        );
-                        text(
+                let area = *field == Field::Lyrics;
+                let by0 = y + PROPS_UNIT;
+                let by1 = if area { bottom } else { by0 + BOX_H };
+                let b = Rect::new(bx0, by0, bx1, by1);
+                let shape = b.to_rounded_rect(6.0);
+                scene.fill(Fill::NonZero, Affine::IDENTITY, col(th.tab), None, &shape);
+                if sel {
+                    let a = if typing.is_some() { 80 } else { 40 };
+                    scene.fill(
+                        Fill::NonZero,
+                        Affine::IDENTITY,
+                        col(th.accent.with_alpha(a)),
+                        None,
+                        &shape,
+                    );
+                    scene.stroke(
+                        &Stroke::new(1.0),
+                        Affine::IDENTITY,
+                        col(th.accent),
+                        None,
+                        &shape,
+                    );
+                }
+                let c = if *editable { chrome_text() } else { dim() };
+                let size = PROPS_FONT;
+                let tx = bx0 + 10.0;
+                if area {
+                    let value = typing.map_or(row.value.as_str(), |e| e.text.as_str());
+                    let lines = wrap_ranges(value, |l| width_of(l, size) <= inner);
+                    let chars: Vec<char> = value.chars().collect();
+                    let line_h = size * 1.35;
+                    let shown = (((by1 - by0 - 14.0) / line_h).floor().max(1.0)) as usize;
+                    let caret = typing.map(|e| caret_in(&lines, e.caret));
+                    let skip = caret.map_or(0, |(r, _)| (r + 1).saturating_sub(shown));
+                    for (n, &(s, e)) in lines.iter().enumerate().skip(skip).take(shown) {
+                        let line: String = chars[s..e].iter().collect();
+                        let ly = by0 + 7.0 + line_h * (n - skip) as f64 + size;
+                        text(scene, &line, tx, ly, size, Align::Left, c, false);
+                    }
+                    if let Some((cr, cc)) = caret.filter(|&(r, _)| r >= skip) {
+                        let (s, _) = lines[cr];
+                        let before: String = chars[s..s + cc].iter().collect();
+                        let cx = tx + width_of(&before, size);
+                        let ly = by0 + 7.0 + line_h * (cr - skip) as f64;
+                        fill(
                             scene,
-                            &format!("{tail}▏"),
-                            x,
-                            cy,
-                            13.0,
-                            Align::Left,
-                            chrome_text(),
-                            false,
+                            Rect::new(cx, ly + 2.0, cx + 2.0, ly + size + 4.0),
+                            col(th.accent),
                         );
                     }
-                    None => {
-                        let shown: String = if row.value.chars().count() > fit {
-                            let mut v: String = row.value.chars().take(fit - 1).collect();
-                            v.push('…');
-                            v
-                        } else {
-                            row.value.clone()
-                        };
-                        text(scene, &shown, x, cy, 13.0, Align::Left, c, false);
+                } else {
+                    let ty = by0 + BOX_H / 2.0 + size * 0.35;
+                    match typing {
+                        Some(e) => {
+                            // Start far enough in that the caret stays in the box.
+                            let chars: Vec<char> = e.text.chars().collect();
+                            let mut from = 0;
+                            let upto = e.caret.min(chars.len());
+                            while from < upto {
+                                let seg: String = chars[from..upto].iter().collect();
+                                if width_of(&seg, size) <= inner - 4.0 {
+                                    break;
+                                }
+                                from += 1;
+                            }
+                            let mut shown = String::new();
+                            for &ch in &chars[from..] {
+                                shown.push(ch);
+                                if width_of(&shown, size) > inner {
+                                    shown.pop();
+                                    break;
+                                }
+                            }
+                            text(scene, &shown, tx, ty, size, Align::Left, c, false);
+                            let before: String = chars[from..upto].iter().collect();
+                            let cx = tx + width_of(&before, size);
+                            fill(
+                                scene,
+                                Rect::new(cx, by0 + 7.0, cx + 2.0, by1 - 7.0),
+                                col(th.accent),
+                            );
+                        }
+                        None => {
+                            let mut shown: String = row.value.clone();
+                            if width_of(&shown, size) > inner {
+                                while width_of(&format!("{shown}…"), size) > inner
+                                    && !shown.is_empty()
+                                {
+                                    shown.pop();
+                                }
+                                shown.push('…');
+                            }
+                            text(scene, &shown, tx, ty, size, Align::Left, c, false);
+                        }
                     }
                 }
             }
         }
-        views.props.push((b, PropHit::Row(k)));
+        views.props.push((hit, PropHit::Row(k)));
+        y += h;
     }
 }
 
+/// The tuner: the note heard (big), a cents scale with a needle (green when in tune), the
+/// frequency, and the nearest string of the track's tuning.
 fn draw_tuner(scene: &mut Scene, app: &App, r: Rect) {
     let th = &app.config.theme;
     fill(scene, r, col(th.panel));

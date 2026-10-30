@@ -835,7 +835,9 @@ pub fn describe(command: &str) -> Option<&'static str> {
         "properties-down" => "Properties pane: select the next property",
         "properties-up" => "Properties pane: select the previous property",
         "properties-edit" => "Properties pane: edit the selected property",
-        "properties-fold" => "Properties pane: fold or unfold the selected section",
+        "properties-fold" => {
+            "Properties pane: fold (close), unfold (open) or toggle the selected section"
+        }
         "properties-clear" => "Properties pane: clear the selected verse or colour",
         "track-volume" => "Set the track's volume: 80, +10 or -10 (percent)",
         "track-volume-up" => "Turn the track up",

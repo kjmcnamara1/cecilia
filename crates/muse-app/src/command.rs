@@ -197,7 +197,8 @@ pub enum Command {
     /// Edit the selected property (a header: fold its section).
     PropertiesEdit,
     /// Fold or unfold the selected property's section.
-    PropertiesFold,
+    /// Folds (`Some(true)`), unfolds (`Some(false)`) or toggles the selected section.
+    PropertiesFold(Option<bool>),
     /// Clear the selected property (a verse's syllables, a track's own colour).
     PropertiesClear,
     /// Focus the tracks panel, or give the focus back to the score.
@@ -797,12 +798,17 @@ impl Command {
                 None => None,
                 Some(a) => Some(
                     crate::properties::PropTab::parse(a)
-                        .ok_or_else(|| format!("properties-tab: '{a}' is not score, tracks or lyrics"))?,
+                        .ok_or_else(|| format!("properties-tab: '{a}' is not score, track or lyrics"))?,
                 ),
             }),
             "properties-tab-prev" => PropertiesTabPrev,
             "properties-edit" => PropertiesEdit,
-            "properties-fold" => PropertiesFold,
+            "properties-fold" => PropertiesFold(match arg {
+                None => None,
+                Some("close") => Some(true),
+                Some("open") => Some(false),
+                Some(a) => return Err(format!("properties-fold: '{a}' is not open or close")),
+            }),
             "properties-clear" => PropertiesClear,
             "tracks-focus" => TracksFocus,
             "tracks-down" => TracksDown,

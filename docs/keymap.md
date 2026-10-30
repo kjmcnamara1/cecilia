@@ -253,16 +253,20 @@ mode; while the pane has the focus its keys are `[keymap.tracks]`, then the usua
 
 `<leader>p` shows or hides the properties pane, docked full height along the right of the
 window (`ui.properties` shows it from the start; workspaces remember it and its tab). It has
-three tabs, drawn as rows of label and value, in sections that fold:
+three tabs (SCORE, TRACK, LYRICS). Each property is a label with its value in a box across the
+pane's width; they come in sections that fold. In the GUI the text is one and a half times the
+status line's, tab titles are uppercase and section titles small capitals, both larger; in the
+terminal the same titles are uppercase and in small-capital letters.
 
-- **score** — *Info* (title, subtitle, artist, album, words, music, copyright, tab author,
-  instructions), *Tempo* (the initial tempo and the pickup bar) and *Page* (page size, margins
-  and scale, as Guitar Pro 5 files keep them; muse doesn't print with them yet).
-- **tracks** — the track under the score cursor (`n`/`p` change it): *Info* (name, kind, colour),
+- **SCORE** — *Info* (title, subtitle, artist, album, words, music, copyright, tab author,
+  instructions) and *Page* (page size, margins and scale, as Guitar Pro 5 files keep them; muse
+  doesn't print with them yet). Tempo and the pickup bar are edited in the score itself.
+- **TRACK** — the track under the score cursor (`n`/`p` change it): *Info* (name, kind, colour),
   *Notation* (tuning, frets, capo, the track's staves and the cursor's staff) and *Sound*
   (instrument, MIDI channel, bank, volume, pan, mute, solo).
-- **lyrics** — one row per verse of the cursor track, as Guitar Pro lyric text (syllables split
-  by spaces and hyphens, one per note); `+ Verse` adds one at the cursor's bar.
+- **LYRICS** — the cursor track's lyrics as one text area, in Guitar Pro lyric syntax: syllables
+  split by spaces and hyphens, laid onto the notes from the bar the verse started at (the
+  cursor's bar for a new one). Separate verses by a blank line.
 
 Every edit is an ordinary, undoable score edit. `<leader>P` focuses the pane (again: back to the
 score pane). It stays Normal mode; while the pane has the focus its keys are
@@ -271,10 +275,10 @@ score pane). It stays Normal mode; while the pane has the focus its keys are
 | keys | command |
 | --- | --- |
 | `j` `k` / `<Down>` `<Up>` | select the next / previous property |
-| `l` `<Tab>` / `h` `<S-Tab>`, `1` `2` `3` | next / previous tab, the score / tracks / lyrics tab |
-| `<CR>` `i` `a` | edit the property: type, `<CR>` keeps it, `<Esc>` drops it, `<C-u>` clears the text. Toggles (pickup bar, mute, solo) flip; the instrument opens its picker; a section header folds |
-| `za` | fold / unfold the section |
-| `x` | clear the verse or the track's own colour, or remove the cursor's staff |
+| `l` `<Tab>` / `h` `<S-Tab>`, `1` `2` `3` | next / previous tab, the score / track / lyrics tab |
+| `<CR>` `i` `a` | edit the property. Text is typed in insert mode (the status line says INSERT): `<Left>` `<Right>` `<Home>` `<End>` move, `<C-u>` clears, `<CR>` or `<Esc>` keeps it (in the lyrics `<CR>` starts a line), `<C-c>` drops it. Colour opens a picker of named colours, each with a swatch and its hex code; type `#rrggbb` or `rgb(r,g,b)` for your own. Tuning opens a picker of common tunings of the track's instrument (Drop D, DADGAD, Open C …), searchable by name or description; type the notes (`D2 A2 D3 G3 B3 E4`) for your own. Instrument opens its picker; mute and solo flip; a section header folds |
+| `za` `zc` `zo` | toggle / close / open the section |
+| `x` | clear the lyrics or the track's own colour, or remove the cursor's staff |
 | `n` `p` | next / previous track |
 | `<Esc>` `q` | back to the score pane |
 | `<leader><leader>` `<leader>s` `<leader>f` `:` | play/pause, stop, follow, command line |
@@ -284,7 +288,8 @@ Clicking a tab shows it, a row selects it and a second click on the selected row
 | command | |
 | --- | --- |
 | `:properties [on\|off]` / `:properties-focus` | show or hide the pane / focus it |
-| `:properties-tab [score\|tracks\|lyrics]` | show a tab (none: the next) |
+| `:properties-tab [score\|track\|lyrics]` | show a tab (none: the next) |
+| `:properties-fold [open\|close]` | open, close or (no argument) toggle the selected section |
 
 ## Playing
 

@@ -10,10 +10,11 @@ use crate::app::{App, PaneKind};
 use crate::command::{Command, Strip};
 use crate::config::Mode;
 use crate::keys::{Key, KeyCode};
+use crate::picker::PickerKind;
 use muse_core::TrackKind;
 
 /// Width of the pane, in columns.
-pub const WIDTH: u16 = 44;
+pub const WIDTH: u16 = 48;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Default)]
 pub enum PropTab {
@@ -29,13 +30,21 @@ impl PropTab {
     pub fn name(self) -> &'static str {
         match self {
             PropTab::Score => "score",
-            PropTab::Tracks => "tracks",
+            PropTab::Tracks => "track",
             PropTab::Lyrics => "lyrics",
         }
     }
 
+    /// The tab's title as drawn.
+    pub fn title(self) -> String {
+        self.name().to_uppercase()
+    }
+
     pub fn parse(s: &str) -> Option<PropTab> {
-        PropTab::ALL.into_iter().find(|t| t.name() == s.trim())
+        let s = s.trim();
+        // "tracks" is the tab's old name (saved workspaces).
+        let s = if s == "tracks" { "track" } else { s };
+        PropTab::ALL.into_iter().find(|t| t.name() == s)
     }
 
     fn step(self, by: isize) -> PropTab {
@@ -48,24 +57,20 @@ impl PropTab {
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum Section {
     ScoreInfo,
-    ScoreTempo,
     ScorePage,
     TrackInfo,
     TrackNotation,
     TrackSound,
-    Verses,
 }
 
 impl Section {
     pub fn name(self) -> &'static str {
         match self {
             Section::ScoreInfo => "Info",
-            Section::ScoreTempo => "Tempo",
             Section::ScorePage => "Page",
             Section::TrackInfo => "Info",
             Section::TrackNotation => "Notation",
             Section::TrackSound => "Sound",
-            Section::Verses => "Verses",
         }
     }
 }
@@ -82,8 +87,6 @@ pub enum Field {
     Copyright,
     TabAuthor,
     Instructions,
-    Tempo,
-    Pickup,
     PageWidth,
     PageHeight,
     MarginLeft,
@@ -108,8 +111,8 @@ pub enum Field {
     Pan,
     Mute,
     Solo,
-    Verse(usize),
-    NewVerse,
+    /// All the track's verses as one text.
+    Lyrics,
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -133,11 +136,86 @@ pub struct PropRow {
     pub value: String,
 }
 
-/// A property being typed.
+/// Row heights, in lines (the frontends scale them): a section title with room above, a
+/// property (label, value box, room below), a note, and the lyrics' text area at least.
+const HEADER_H: usize = 2;
+const FIELD_H: usize = 3;
+const NOTE_H: usize = 2;
+pub const TEXT_AREA_H: usize = 8;
+
+impl PropRow {
+    pub fn height(&self) -> usize {
+        match self.kind {
+            RowKind::Header { .. } => HEADER_H,
+            RowKind::Note => NOTE_H,
+            RowKind::Field {
+                field: Field::Lyrics,
+                ..
+            } => TEXT_AREA_H,
+            RowKind::Field { .. } => FIELD_H,
+        }
+    }
+}
+
+/// A property being typed (the pane is in insert mode): the text and the caret, as a
+/// character index.
 #[derive(Debug, Clone, PartialEq)]
 pub struct PropEdit {
     pub field: Field,
     pub text: String,
+    pub caret: usize,
+}
+
+impl PropEdit {
+    fn new(field: Field, text: String) -> Self {
+        let caret = text.chars().count();
+        Self { field, text, caret }
+    }
+
+    fn byte(&self, caret: usize) -> usize {
+        self.text
+            .char_indices()
+            .nth(caret)
+            .map_or(self.text.len(), |(i, _)| i)
+    }
+
+    fn insert(&mut self, c: char) {
+        let at = self.byte(self.caret);
+        self.text.insert(at, c);
+        self.caret += 1;
+    }
+
+    fn backspace(&mut self) {
+        if self.caret > 0 {
+            self.caret -= 1;
+            let at = self.byte(self.caret);
+            self.text.remove(at);
+        }
+    }
+
+    fn delete(&mut self) {
+        let at = self.byte(self.caret);
+        if at < self.text.len() {
+            self.text.remove(at);
+        }
+    }
+
+    /// The caret's (line, column), lines being split at newlines.
+    pub fn line_col(&self) -> (usize, usize) {
+        let before: Vec<char> = self.text.chars().take(self.caret).collect();
+        let line = before.iter().filter(|&&c| c == '\n').count();
+        let col = before.iter().rev().take_while(|&&c| c != '\n').count();
+        (line, col)
+    }
+
+    /// Moves the caret `by` lines, keeping the column where the line is long enough.
+    fn move_lines(&mut self, by: isize) {
+        let (line, col) = self.line_col();
+        let lens: Vec<usize> = self.text.split('\n').map(|l| l.chars().count()).collect();
+        let to = (line as isize + by).clamp(0, lens.len() as isize - 1) as usize;
+        let start: usize = lens[..to].iter().map(|l| l + 1).sum();
+        self.caret = start + col.min(lens[to]);
+    }
 }
 
 #[derive(Debug, Default)]
@@ -149,6 +227,70 @@ pub struct PropsState {
     pub edit: Option<PropEdit>,
     /// First row shown; kept by [`App::property_window`].
     scroll: Cell<usize>,
+}
+
+/// Small capitals for terminals: each word's first letter stays, the rest turn to small caps.
+pub fn small_caps(text: &str) -> String {
+    const SMALL: [char; 26] = [
+        'ᴀ', 'ʙ', 'ᴄ', 'ᴅ', 'ᴇ', 'ꜰ', 'ɢ', 'ʜ', 'ɪ', 'ᴊ', 'ᴋ', 'ʟ', 'ᴍ', 'ɴ', 'ᴏ', 'ᴘ', 'ǫ', 'ʀ',
+        'ꜱ', 'ᴛ', 'ᴜ', 'ᴠ', 'ᴡ', 'x', 'ʏ', 'ᴢ',
+    ];
+    let mut start = true;
+    text.chars()
+        .map(|c| {
+            let out = if !start && c.is_ascii_lowercase() {
+                SMALL[(c as u8 - b'a') as usize]
+            } else {
+                c
+            };
+            start = !c.is_alphanumeric();
+            out
+        })
+        .collect()
+}
+
+/// The lines `text` wraps to as character ranges (end exclusive): at newlines, and at the last
+/// space (else anywhere) once a line no longer `fits`.
+pub fn wrap_ranges(text: &str, fits: impl Fn(&str) -> bool) -> Vec<(usize, usize)> {
+    let chars: Vec<char> = text.chars().collect();
+    let mut out = Vec::new();
+    let (mut start, mut i, mut last_space) = (0, 0, None);
+    while i <= chars.len() {
+        if i == chars.len() || chars[i] == '\n' {
+            out.push((start, i));
+            start = i + 1;
+            last_space = None;
+            i += 1;
+            continue;
+        }
+        if chars[i] == ' ' {
+            last_space = Some(i);
+        }
+        let line: String = chars[start..=i].iter().collect();
+        if i > start && !fits(&line) {
+            match last_space.filter(|&s| s > start) {
+                Some(s) => {
+                    out.push((start, s));
+                    start = s + 1;
+                    i = start;
+                }
+                None => {
+                    out.push((start, i));
+                    start = i;
+                }
+            }
+            last_space = None;
+            continue;
+        }
+        i += 1;
+    }
+    out
+}
+
+/// The (line, column) of a caret in [`wrap_ranges`]' lines.
+pub fn caret_in(lines: &[(usize, usize)], caret: usize) -> (usize, usize) {
+    let row = lines.iter().rposition(|&(s, _)| s <= caret).unwrap_or(0);
+    (row, caret - lines.get(row).map_or(0, |l| l.0))
 }
 
 fn onoff(b: bool) -> String {
@@ -218,22 +360,6 @@ impl App {
                     ] {
                         field(&mut rows, f, l, v.clone(), true);
                     }
-                }
-                if section(&mut rows, Section::ScoreTempo) {
-                    field(
-                        &mut rows,
-                        Field::Tempo,
-                        "Tempo",
-                        score.tempo.to_string(),
-                        true,
-                    );
-                    field(
-                        &mut rows,
-                        Field::Pickup,
-                        "Pickup bar",
-                        onoff(score.anacrusis),
-                        true,
-                    );
                 }
                 if section(&mut rows, Section::ScorePage) {
                     let p = &score.page;
@@ -350,19 +476,16 @@ impl App {
                     t.name.trim().to_string()
                 };
                 rows.push(note(&format!("Lyrics of {name}")));
-                if section(&mut rows, Section::Verses) {
-                    for v in 0..muse_core::lyrics::verse_count(t) {
-                        let text = muse_core::lyrics::verse_line(t, v).map(|l| l.text);
-                        field(
-                            &mut rows,
-                            Field::Verse(v),
-                            &format!("Verse {}", v + 1),
-                            text.unwrap_or_default(),
-                            true,
-                        );
-                    }
-                    field(&mut rows, Field::NewVerse, "+ Verse", String::new(), true);
-                }
+                let verses: Vec<String> = (0..muse_core::lyrics::verse_count(t))
+                    .map(|v| muse_core::lyrics::verse_line(t, v).map_or(String::new(), |l| l.text))
+                    .collect();
+                field(
+                    &mut rows,
+                    Field::Lyrics,
+                    "Lyrics",
+                    verses.join("\n\n"),
+                    true,
+                );
             }
         }
         rows
@@ -375,18 +498,20 @@ impl App {
             .min(self.property_rows().len().saturating_sub(1))
     }
 
-    /// Which rows of `visible` fit are shown: the first row index, kept so the selected row
-    /// stays in view.
+    /// The first row to draw so the selected row is in view, given `visible` lines of room.
     pub fn property_window(&self, visible: usize) -> usize {
+        let rows = self.property_rows();
         let sel = self.property_selected();
-        let mut first = self.props.scroll.get();
-        if sel < first {
-            first = sel;
-        } else if visible > 0 && sel >= first + visible {
-            first = sel + 1 - visible;
+        let height = |r: &PropRow| r.height();
+        let mut first = self.props.scroll.get().min(sel);
+        // Scroll down until the selected row fits.
+        while first < sel && rows[first..=sel].iter().map(height).sum::<usize>() > visible {
+            first += 1;
         }
-        let total = self.property_rows().len();
-        first = first.min(total.saturating_sub(visible));
+        // Don't leave room empty below the last row.
+        while first > 0 && rows[first - 1..].iter().map(height).sum::<usize>() <= visible {
+            first -= 1;
+        }
         self.props.scroll.set(first);
         first
     }
@@ -416,11 +541,12 @@ impl App {
         }
         self.props.selected = row;
         if matches!(rows[row].kind, RowKind::Header { .. }) {
-            self.fold_property();
+            self.fold_property(None);
         }
     }
 
-    fn fold_property(&mut self) {
+    /// Folds (`Some(true)`), unfolds (`Some(false)`) or toggles the selected row's section.
+    fn fold_property(&mut self, fold: Option<bool>) {
         let rows = self.property_rows();
         let sel = self.property_selected();
         let section = rows[..=sel.min(rows.len().saturating_sub(1))]
@@ -431,9 +557,11 @@ impl App {
                 _ => None,
             });
         if let Some(s) = section {
-            if !self.props.folded.remove(&s) {
-                self.props.folded.insert(s);
-            }
+            let folded = self.props.folded.contains(&s);
+            match fold.unwrap_or(!folded) {
+                true => self.props.folded.insert(s),
+                false => self.props.folded.remove(&s),
+            };
             // The selection stays on the header.
             let rows = self.property_rows();
             self.props.selected = rows
@@ -459,60 +587,87 @@ impl App {
             return;
         };
         let (field, editable) = match row.kind {
-            RowKind::Header { .. } => return self.fold_property(),
+            RowKind::Header { .. } => return self.fold_property(None),
             RowKind::Note => return,
             RowKind::Field { field, editable } => (field, editable),
         };
         let t = self.pane().cursor.track;
         match field {
             _ if !editable => self.info(format!("{}: can't be edited here", row.label)),
-            Field::Pickup => self.edit_pickup(),
             Field::Mute => self.run(Command::Mute(Some(Strip::Track(t)))),
             Field::Solo => self.run(Command::Solo(Some(Strip::Track(t)))),
             Field::Program => self.run(Command::TrackInstrument(None)),
-            Field::TrackColor if row.value == "auto" => {
-                self.props.edit = Some(PropEdit {
-                    field,
-                    text: String::new(),
-                })
-            }
-            _ => {
-                self.props.edit = Some(PropEdit {
-                    field,
-                    text: row.value.clone(),
-                })
-            }
+            Field::TrackColor => self.open_picker(PickerKind::Color(t)),
+            Field::Tuning => self.open_picker(PickerKind::Tuning(t)),
+            _ => self.props.edit = Some(PropEdit::new(field, row.value.clone())),
         }
     }
 
-    fn edit_pickup(&mut self) {
-        self.edit(|cx| {
-            let s = cx.whole();
-            s.anacrusis = !s.anacrusis;
-            Ok(())
-        });
-    }
-
-    /// Keys while a property is typed: they edit its text; Enter keeps it, Escape drops it.
+    /// Keys while a property is typed (insert mode): they edit its text; Escape keeps it, and
+    /// so does Enter except in the lyrics, where it starts a new line; Ctrl-C drops it.
     pub(crate) fn props_edit_key(&mut self, key: Key) {
         let Some(edit) = self.props.edit.as_mut() else {
             return;
         };
-        match key.code {
-            KeyCode::Esc => self.props.edit = None,
+        let multiline = edit.field == Field::Lyrics;
+        let keep = match key.code {
+            KeyCode::Esc => true,
+            KeyCode::Enter if !multiline => true,
             KeyCode::Enter => {
-                let PropEdit { field, text } = self.props.edit.take().unwrap();
-                self.commit_property(field, text.trim());
+                edit.insert('\n');
+                false
             }
             KeyCode::Backspace => {
-                edit.text.pop();
+                edit.backspace();
+                false
             }
-            _ if key.ctrl && key.as_char() == Some('u') => edit.text.clear(),
+            KeyCode::Delete => {
+                edit.delete();
+                false
+            }
+            KeyCode::Left => {
+                edit.caret = edit.caret.saturating_sub(1);
+                false
+            }
+            KeyCode::Right => {
+                edit.caret = (edit.caret + 1).min(edit.text.chars().count());
+                false
+            }
+            KeyCode::Up if multiline => {
+                edit.move_lines(-1);
+                false
+            }
+            KeyCode::Down if multiline => {
+                edit.move_lines(1);
+                false
+            }
+            KeyCode::Home => {
+                edit.caret -= edit.line_col().1;
+                false
+            }
+            KeyCode::End => {
+                let rest = edit.text.chars().skip(edit.caret);
+                edit.caret += rest.take_while(|&c| c != '\n').count();
+                false
+            }
+            KeyCode::Char('c') if key.ctrl => {
+                self.props.edit = None;
+                return;
+            }
+            KeyCode::Char('u') if key.ctrl => {
+                *edit = PropEdit::new(edit.field, String::new());
+                false
+            }
             _ => {
                 if let Some(c) = key.as_char().filter(|_| !key.ctrl) {
-                    edit.text.push(c);
+                    edit.insert(c);
                 }
+                false
             }
+        };
+        if keep {
+            let PropEdit { field, text, .. } = self.props.edit.take().unwrap();
+            self.commit_property(field, text.trim());
         }
     }
 
@@ -556,14 +711,6 @@ impl App {
                     Ok(())
                 });
             }
-            Field::Tempo => {
-                if let Some(n) = number(self, "tempo", 10, 999) {
-                    self.edit(|cx| {
-                        cx.whole().tempo = n;
-                        Ok(())
-                    });
-                }
-            }
             Field::PageWidth
             | Field::PageHeight
             | Field::MarginLeft
@@ -593,11 +740,6 @@ impl App {
                 }
             }
             Field::TrackName => self.run(Command::TrackRename(format!("{text} {}", t + 1))),
-            Field::TrackColor => {
-                let arg = if text.is_empty() { "off" } else { text };
-                self.run(Command::TrackColor(Some(arg.to_string())));
-            }
-            Field::Tuning => self.run(Command::Tuning(text.to_string())),
             Field::Capo => {
                 if let Some(n) = number(self, "capo", 0, 36) {
                     self.run(Command::Capo(n as u8));
@@ -640,52 +782,53 @@ impl App {
                     self.set_track_volume(t, n as u8);
                 }
             }
-            Field::Verse(v) => self.set_verse(t, v, text),
-            Field::NewVerse => {
-                let verse = self
-                    .buffer()
-                    .score
-                    .tracks
-                    .get(t)
-                    .map_or(0, muse_core::lyrics::verse_count);
-                self.set_verse(t, verse, text);
-            }
+            Field::Lyrics => self.set_lyrics(t, text),
             Field::TrackKind
             | Field::Staves
-            | Field::Pickup
+            | Field::TrackColor
+            | Field::Tuning
             | Field::Mute
             | Field::Solo
             | Field::Program => {}
         }
     }
 
-    /// Replaces a verse of a track with `text` (Guitar Pro lyric syntax), placed from the bar
-    /// the verse started at, or the cursor's bar for a new one: one undo step.
-    fn set_verse(&mut self, track: usize, verse: usize, text: &str) {
-        let syllables = muse_core::lyrics::syllables(text);
+    /// Replaces the verses of a track with `text` (Guitar Pro lyric syntax; verses are separated
+    /// by blank lines), each placed from the bar the verse started at, or the cursor's bar for a
+    /// new one: one undo step.
+    fn set_lyrics(&mut self, track: usize, text: &str) {
+        let verses: Vec<Vec<String>> = text
+            .replace("\r\n", "\n")
+            .split("\n\n")
+            .filter(|v| !v.trim().is_empty())
+            .map(muse_core::lyrics::syllables)
+            .collect();
         let cursor_bar = self.pane().cursor.bar;
-        let placed = self.edit(|cx| {
+        let unplaced = self.edit(|cx| {
             let score = cx.whole();
             let t = score.tracks.get_mut(track).ok_or("no such track")?;
-            let start = muse_core::lyrics::verse_line(t, verse)
-                .map_or(cursor_bar, |l| l.start_bar as usize);
-            muse_core::lyrics::clear(t, Some(verse));
-            let n = muse_core::lyrics::place(t, verse, start, 0, &syllables);
+            let starts: Vec<usize> = (0..verses.len())
+                .map(|v| {
+                    muse_core::lyrics::verse_line(t, v).map_or(cursor_bar, |l| l.start_bar as usize)
+                })
+                .collect();
+            muse_core::lyrics::clear(t, None);
+            let mut unplaced = 0;
+            for (v, (syllables, start)) in verses.iter().zip(starts).enumerate() {
+                unplaced += syllables.len() - muse_core::lyrics::place(t, v, start, 0, syllables);
+            }
             crate::editor::refresh_lyric_lines(score, track);
-            Ok(n)
+            Ok(unplaced)
         });
-        if let Some(n) = placed.filter(|&n| n < syllables.len()) {
-            self.error(format!(
-                "lyrics: {} syllables did not fit",
-                syllables.len() - n
-            ));
+        if let Some(n) = unplaced.filter(|&n| n > 0) {
+            self.error(format!("lyrics: {n} syllables did not fit"));
         }
     }
 
     /// Clears the selected verse, or the track's own colour.
     fn clear_property(&mut self) {
         match self.selected_field().map(|(f, _)| f) {
-            Some(Field::Verse(v)) => self.run(Command::LyricsClear(Some(v))),
+            Some(Field::Lyrics) => self.run(Command::LyricsClear(None)),
             Some(Field::TrackColor) => self.run(Command::TrackColor(Some("off".into()))),
             Some(Field::Staff) => self.run(Command::StaffRemove(None)),
             _ => self.info("nothing to clear here"),
@@ -755,7 +898,7 @@ impl App {
             PropertiesTab(None) => self.set_property_tab(self.props.tab.step(1)),
             PropertiesTabPrev => self.set_property_tab(self.props.tab.step(-1)),
             PropertiesEdit => self.edit_property(),
-            PropertiesFold => self.fold_property(),
+            PropertiesFold(fold) => self.fold_property(*fold),
             PropertiesClear => self.clear_property(),
             _ => return false,
         }
@@ -794,7 +937,7 @@ mod tests {
         app.props.selected = field_row(app, f);
         app.run(Command::PropertiesEdit);
         assert!(app.props.edit.is_some());
-        app.props.edit.as_mut().unwrap().text.clear();
+        *app.props.edit.as_mut().unwrap() = PropEdit::new(f, String::new());
         for c in text.chars() {
             app.props_edit_key(Key::char(c));
         }
@@ -896,6 +1039,42 @@ mod tests {
         assert!(after < before, "folding the info section hides its rows");
         keys(&mut app, "za");
         assert_eq!(app.property_rows().len(), before);
+        // zc closes a section and stays closed; zo opens it.
+        keys(&mut app, "zczc");
+        assert_eq!(app.property_rows().len(), after);
+        keys(&mut app, "zozo");
+        assert_eq!(app.property_rows().len(), before);
+    }
+
+    #[test]
+    fn titles_and_heights() {
+        assert_eq!(PropTab::Tracks.name(), "track");
+        assert_eq!(PropTab::Tracks.title(), "TRACK");
+        assert_eq!(PropTab::parse("tracks"), Some(PropTab::Tracks));
+        assert_eq!(small_caps("Page setup"), "Pᴀɢᴇ sᴇᴛᴜᴘ");
+        let mut app = with_props();
+        let rows = app.property_rows();
+        assert!(
+            !rows
+                .iter()
+                .any(|r| r.label == "Tempo" || r.label == "Pickup bar"),
+            "the score tab has no tempo section"
+        );
+        // Scrolling keeps the selected row in view.
+        let last = rows.len() - 1;
+        app.props.selected = last;
+        let first = app.property_window(10);
+        let used: usize = rows[first..=last].iter().map(PropRow::height).sum();
+        assert!(first > 0 && used <= 10, "{first} {used}");
+    }
+
+    #[test]
+    fn text_wraps_and_the_caret_is_found() {
+        let lines = wrap_ranges("ab cd\nef", |l| l.chars().count() <= 4);
+        assert_eq!(lines, [(0, 2), (3, 5), (6, 8)]);
+        assert_eq!(caret_in(&lines, 4), (1, 1));
+        assert_eq!(caret_in(&lines, 8), (2, 2));
+        assert_eq!(wrap_ranges("", |_| true), [(0, 0)]);
     }
 
     #[test]
@@ -903,13 +1082,6 @@ mod tests {
         let mut app = with_props();
         type_into(&mut app, Field::Title, "My Song");
         assert_eq!(app.buffer().score.meta.title, "My Song");
-        type_into(&mut app, Field::Tempo, "90");
-        assert_eq!(app.buffer().score.tempo, 90);
-        // The tempo field is the score's, wherever the cursor is.
-        app.pane_mut().cursor.bar = 3;
-        type_into(&mut app, Field::Tempo, "100");
-        assert_eq!(app.buffer().score.tempo, 100);
-        assert!(app.buffer().score.master_bars[3].tempo_changes.is_empty());
         type_into(&mut app, Field::MarginLeft, "25");
         assert_eq!(app.buffer().score.page.margin_left, 25);
         type_into(&mut app, Field::PageScale, "x");
@@ -918,11 +1090,6 @@ mod tests {
             100,
             "bad numbers are refused"
         );
-        app.props.selected = field_row(&app, Field::Pickup);
-        app.run(Command::PropertiesEdit);
-        assert!(app.buffer().score.anacrusis);
-        app.run(Command::Undo);
-        assert!(!app.buffer().score.anacrusis);
         app.run(Command::Undo);
         assert_eq!(app.buffer().score.page.margin_left, 10);
     }
@@ -946,12 +1113,44 @@ mod tests {
         assert_eq!(app.buffer().score.tracks[0].midi.volume, 80);
         type_into(&mut app, Field::Channel, "5");
         assert_eq!(app.buffer().score.tracks[0].midi.channel, 4);
-        type_into(&mut app, Field::TrackColor, "#102030");
-        assert_eq!(
+        // Colour: a picker of named colours, with hex or rgb() typed for a custom one.
+        let color = |app: &App| {
             app.buffer().score.tracks[0]
                 .display_color
-                .map(|c| (c.r, c.g, c.b)),
-            Some((0x10, 0x20, 0x30))
+                .map(|c| (c.r, c.g, c.b))
+        };
+        app.props.selected = field_row(&app, Field::TrackColor);
+        app.run(Command::PropertiesEdit);
+        assert_eq!(app.mode, Mode::Picker);
+        let p = app.palette().unwrap();
+        assert_eq!(p.title, "Colours");
+        assert!(p.items.iter().all(|i| i.swatch.is_some()));
+        keys(&mut app, "gold<CR>");
+        assert_eq!(color(&app), Some((0xff, 0xb3, 0x00)));
+        app.props.selected = field_row(&app, Field::TrackColor);
+        app.run(Command::PropertiesEdit);
+        keys(&mut app, "#102030");
+        assert_eq!(app.palette().unwrap().items[0].text, "Custom");
+        keys(&mut app, "<CR>");
+        assert_eq!(color(&app), Some((0x10, 0x20, 0x30)));
+        app.run(Command::PropertiesEdit);
+        keys(&mut app, "rgb(1, 2, 3)<CR>");
+        assert_eq!(color(&app), Some((1, 2, 3)));
+        assert_eq!(app.mode, Mode::Normal);
+        // Tuning: a picker of the instrument's tunings.
+        app.props.selected = field_row(&app, Field::Tuning);
+        app.run(Command::PropertiesEdit);
+        assert_eq!(app.palette().unwrap().title, "Tunings");
+        keys(&mut app, "drop d<CR>");
+        assert_eq!(app.buffer().score.tracks[0].strings[5], 38);
+        app.props.selected = field_row(&app, Field::Tuning);
+        app.run(Command::PropertiesEdit);
+        keys(&mut app, "E2 A2 D3 G3 B3 E4");
+        assert_eq!(app.palette().unwrap().items[0].text, "Custom");
+        keys(&mut app, "<CR>");
+        assert_eq!(
+            app.buffer().score.tracks[0].strings,
+            [64, 59, 55, 50, 45, 40]
         );
         app.props.selected = field_row(&app, Field::Mute);
         app.run(Command::PropertiesEdit);
@@ -970,46 +1169,66 @@ mod tests {
     }
 
     #[test]
-    fn lyrics_verses_edit_as_text_in_one_undo_step() {
+    fn lyrics_are_one_text_area_in_one_undo_step() {
         let mut app = with_props();
         app.run(Command::Lyrics(0, "Hel-lo world".into()));
         app.set_property_tab(PropTab::Lyrics);
         let rows = app.property_rows();
         assert!(
             rows.iter()
-                .any(|r| r.label == "Verse 1" && r.value == "Hel-lo world"),
+                .any(|r| r.label == "Lyrics" && r.value == "Hel-lo world"),
             "{rows:?}"
         );
-        type_into(&mut app, Field::Verse(0), "Good-bye moon");
-        let line = muse_core::lyrics::verse_line(&app.buffer().score.tracks[0], 0).unwrap();
-        assert_eq!(line.text, "Good-bye moon");
-        type_into(&mut app, Field::NewVerse, "la la");
-        assert!(muse_core::lyrics::verse_line(&app.buffer().score.tracks[0], 1).is_some());
+        // Verses are separated by a blank line; Enter inside starts a line; Esc keeps it.
+        keys(&mut app, "<leader>P");
+        keys(&mut app, "i");
+        assert_eq!(app.display_mode(), Mode::Insert);
+        keys(&mut app, "<C-u>Good-bye moon<CR><CR>la la<Esc>");
+        assert!(app.props.edit.is_none());
+        let t = &app.buffer().score.tracks[0];
+        assert_eq!(
+            muse_core::lyrics::verse_line(t, 0).unwrap().text,
+            "Good-bye moon"
+        );
+        assert_eq!(muse_core::lyrics::verse_line(t, 1).unwrap().text, "la la");
         app.run(Command::Undo);
-        assert!(muse_core::lyrics::verse_line(&app.buffer().score.tracks[0], 1).is_none());
-        app.run(Command::Undo);
-        let line = muse_core::lyrics::verse_line(&app.buffer().score.tracks[0], 0).unwrap();
-        assert_eq!(line.text, "Hel-lo world");
-        // `x` clears the selected verse.
-        app.props.selected = field_row(&app, Field::Verse(0));
+        let t = &app.buffer().score.tracks[0];
+        assert_eq!(
+            muse_core::lyrics::verse_line(t, 0).unwrap().text,
+            "Hel-lo world"
+        );
+        assert!(muse_core::lyrics::verse_line(t, 1).is_none());
+        // `x` clears the verses.
         app.run(Command::PropertiesClear);
         assert!(muse_core::lyrics::verse_line(&app.buffer().score.tracks[0], 0).is_none());
     }
 
     #[test]
-    fn typing_takes_every_key_and_escape_drops_it() {
+    fn editing_is_insert_mode() {
         let mut app = with_props();
         keys(&mut app, "<leader>P");
         app.props.selected = field_row(&app, Field::Title);
-        keys(&mut app, "ijq<Esc>");
-        assert!(app.props.edit.is_none(), "Escape ends the edit");
-        assert_eq!(app.buffer().score.meta.title, "");
+        assert_eq!(app.display_mode(), Mode::Normal);
+        keys(&mut app, "ijq");
+        assert_eq!(app.display_mode(), Mode::Insert, "every key is typed");
+        assert_eq!(app.props.edit.as_ref().unwrap().text, "jq");
+        // The caret moves; typing goes in at it.
+        keys(&mut app, "<Left>x<Home>y");
+        assert_eq!(app.props.edit.as_ref().unwrap().text, "yjxq");
+        keys(&mut app, "<Esc>");
+        assert!(app.props.edit.is_none());
+        assert_eq!(app.display_mode(), Mode::Normal);
         assert_eq!(
-            app.focused_kind(),
-            PaneKind::Properties,
-            "and keeps the focus in the pane"
+            app.buffer().score.meta.title,
+            "yjxq",
+            "Escape keeps the text"
         );
+        assert_eq!(app.focused_kind(), PaneKind::Properties);
         keys(&mut app, "iAB<CR>");
-        assert_eq!(app.buffer().score.meta.title, "AB");
+        assert_eq!(app.buffer().score.meta.title, "yjxqAB");
+        // Ctrl-C drops it.
+        keys(&mut app, "iZ<C-c>");
+        assert_eq!(app.buffer().score.meta.title, "yjxqAB");
+        assert!(app.props.edit.is_none());
     }
 }
