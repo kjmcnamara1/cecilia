@@ -15,7 +15,7 @@ tracks_panel = false     # start with the tracks pane (mixer and bar overview) d
 toolbar = true           # the toolbar of common commands at the top of the window (:toolbar, <leader>B)
 fretboard = false        # start with a fretboard pane: the notes at the cursor or playhead (<leader>F)
 piano = false            # piano keys likewise (<leader>K)
-global_tools = ["tracks", "audio", "fretboard", "piano", "tuner"]   # tool panes docked along the
+global_tools = ["tracks", "waveform", "fretboard", "piano", "tuner"]   # tool panes docked along the
                          # bottom of the window at full width (showing the last active score);
                          # others open under their score pane and always show it
 tracks_peek = 1.0        # seconds the tracks show when the track changes, while no tracks pane is

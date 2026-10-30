@@ -166,7 +166,7 @@ pub struct UiConfig {
     /// The tracks panel (tracks with mixer and a bar overview) at the bottom of the window.
     pub tracks_panel: bool,
     /// Tool panes that dock along the bottom of the whole view, at its full width, and show
-    /// the last active score pane ("tracks", "audio", "fretboard", "piano", "tuner"); the
+    /// the last active score pane ("tracks", "waveform", "fretboard", "piano", "tuner"); the
     /// others dock under the score pane they open from, as wide as it, and always show it.
     pub global_tools: Vec<String>,
     /// Seconds the tracks show along the bottom after a key or command changes the track,
@@ -195,7 +195,7 @@ impl Default for UiConfig {
             global_waveform: None,
             progress_bar: true,
             tracks_panel: false,
-            global_tools: ["tracks", "audio", "fretboard", "piano", "tuner"]
+            global_tools: ["tracks", "waveform", "fretboard", "piano", "tuner"]
                 .map(String::from)
                 .to_vec(),
             tracks_peek: 1.0,
@@ -385,7 +385,7 @@ const DEFAULT_NORMAL: &[(&str, &str)] = &[
     ("<leader>=", "speed-up"),
     ("<leader>l", "loop-toggle"),
     ("<leader>t", "sync-tap"),
-    ("<leader>w", "waveform"),
+    ("<leader>w", "waveform-strip"),
     ("<C-=>", "zoom-in"),
     ("<C-+>", "zoom-in"),
     ("<C-->", "zoom-out"),
@@ -726,7 +726,7 @@ impl Config {
         );
         if file.ui.global_waveform.is_some() {
             errors.push(
-                "ui.global_waveform: no longer used; list \"audio\" in ui.global_tools and open it with :audio-pane".into(),
+                "ui.global_waveform: no longer used; list \"waveform\" in ui.global_tools and open it with :waveform".into(),
             );
         }
         if !file.keymap.play.is_empty() {

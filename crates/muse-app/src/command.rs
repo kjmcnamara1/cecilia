@@ -657,8 +657,8 @@ impl Command {
             "sync-tap" => SyncTap,
             "sync-clear" => SyncClear,
             "sync-detect" => SyncDetect,
-            "waveform" => Waveform,
-            "audio-pane" | "progress-bar" => {
+            "waveform-strip" => Waveform,
+            "waveform" | "audio-pane" | "progress-bar" => {
                 let on = match arg {
                     None | Some("toggle") => None,
                     Some("on" | "true" | "yes") => Some(true),
@@ -667,14 +667,14 @@ impl Command {
                         return Err(format!("{name}: expected on, off or toggle, not '{other}'"));
                     }
                 };
-                if name == "audio-pane" {
+                if name != "progress-bar" {
                     AudioPane(on)
                 } else {
                     ProgressBar(on)
                 }
             }
             "global-tool" => GlobalTool(
-                arg.ok_or("global-tool: expected tracks, audio, fretboard, piano or tuner")?
+                arg.ok_or("global-tool: expected tracks, waveform, fretboard, piano or tuner")?
                     .to_string(),
             ),
             "volume" => {

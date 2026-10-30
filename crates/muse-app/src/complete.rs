@@ -18,7 +18,6 @@ pub const COMMANDS: &[&str] = &[
     "accidental",
     "append",
     "audio",
-    "audio-pane",
     "bar",
     "bar-delete",
     "bar-end",
@@ -216,6 +215,7 @@ pub const COMMANDS: &[&str] = &[
     "vsplit",
     "w",
     "waveform",
+    "waveform-strip",
     "workspace-close",
     "workspace-open",
     "workspace-open!",
@@ -248,7 +248,7 @@ fn values(command: &str) -> Option<&'static [&'static str]> {
         "clef" => &[
             "c1", "c2", "c3", "c4", "cb2", "cb3", "cb4", "f1", "f2", "f3", "f4",
         ],
-        "global-tool" => &["audio", "fretboard", "piano", "tracks", "tuner"],
+        "global-tool" => &["fretboard", "piano", "tracks", "tuner", "waveform"],
         "track-add" => &["bass", "drums", "guitar", "piano", "voice"],
         "staff" | "staff-add" => &[
             "chant",
@@ -274,7 +274,7 @@ fn values(command: &str) -> Option<&'static [&'static str]> {
         ],
         "tracks" | "toolbar" | "fretboard" | "piano" | "tuner" => &["off", "on"],
         "track-color" => &["off"],
-        "completion-ignore-case" | "completion-fuzzy" | "audio-pane" | "progress-bar" => {
+        "completion-ignore-case" | "completion-fuzzy" | "waveform" | "progress-bar" => {
             &["off", "on", "toggle"]
         }
         "duration" => &["1", "2", "4", "8", "16", "32", "64"],
@@ -920,8 +920,8 @@ pub fn describe(command: &str) -> Option<&'static str> {
         "volume" => "Level of midi, audio or metronome",
         "vsplit" => "Split the pane vertically",
         "w" | "write" => "Save (or save as / export by extension)",
-        "waveform" => "Toggle this pane's waveform strip",
-        "audio-pane" => "Show or hide the audio (waveform) pane",
+        "waveform-strip" => "Toggle this pane's waveform strip",
+        "waveform" => "Show or hide the waveform tool pane",
         "global-tool" => {
             "Toggle whether a tool pane (tracks, audio, fretboard, piano, tuner) is global"
         }

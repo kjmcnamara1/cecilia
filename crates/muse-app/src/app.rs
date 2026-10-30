@@ -157,7 +157,7 @@ impl PaneKind {
         match self {
             PaneKind::Score => "score",
             PaneKind::Tracks => "tracks",
-            PaneKind::Audio => "audio",
+            PaneKind::Audio => "waveform",
             PaneKind::Piano => "piano",
             PaneKind::Fretboard => "fretboard",
             PaneKind::Tuner => "tuner",
@@ -168,7 +168,7 @@ impl PaneKind {
         Some(match s {
             "score" => PaneKind::Score,
             "tracks" => PaneKind::Tracks,
-            "audio" => PaneKind::Audio,
+            "waveform" | "audio" => PaneKind::Audio,
             "piano" => PaneKind::Piano,
             "fretboard" => PaneKind::Fretboard,
             "tuner" => PaneKind::Tuner,
@@ -606,7 +606,7 @@ impl App {
             .ui
             .global_tools
             .iter()
-            .any(|t| t == kind.name())
+            .any(|t| PaneKind::parse(t) == Some(kind))
     }
 
     /// `:global-tool`: makes a tool global or local. Making global closes all local panes of
@@ -615,12 +615,12 @@ impl App {
     fn toggle_global_tool(&mut self, name: &str) {
         let Some(kind) = PaneKind::parse(name).filter(|k| *k != PaneKind::Score) else {
             return self.error(format!(
-                "global-tool: '{name}' is not a tool (tracks, audio, fretboard, piano, tuner)"
+                "global-tool: '{name}' is not a tool (tracks, waveform, fretboard, piano, tuner)"
             ));
         };
         let was_open = self.tool_pane(kind).is_some();
         let tools = &mut self.config.file.ui.global_tools;
-        let going_global = !tools.iter().any(|t| t == kind.name());
+        let going_global = !tools.iter().any(|t| PaneKind::parse(t) == Some(kind));
         if going_global {
             // Close ALL local panes of this tool kind (across all views).
             let locals: Vec<PaneId> = self
@@ -660,7 +660,7 @@ impl App {
                 }
                 self.panes.remove(id);
             }
-            if let Some(i) = tools.iter().position(|t| t == kind.name()) {
+            if let Some(i) = tools.iter().position(|t| PaneKind::parse(t) == Some(kind)) {
                 tools.remove(i);
             }
             // Open a local one under the current score pane.
@@ -1145,6 +1145,30 @@ impl App {
         let mut c = pane.cursor;
         clamp_cursor(&self.buffers[buffer].score, &mut c);
         self.panes.get_mut(&pane_id).unwrap().cursor = c;
+        self.fit_tracks_panes();
+    }
+
+    /// Gives each tracks pane of the active view the height its score's rows need (after
+    /// the score it shows changed).
+    fn fit_tracks_panes(&mut self) {
+        if !self.viewport_known {
+            return;
+        }
+        let active = self.active_view;
+        let saved = self.views[active].score;
+        for id in self.views[active].root.panes() {
+            if self
+                .panes
+                .get(&id)
+                .is_none_or(|p| p.kind != PaneKind::Tracks)
+            {
+                continue;
+            }
+            self.views[active].score = self.tool_score(id);
+            let (h, _) = self.natural_size(PaneKind::Tracks);
+            self.panes.get_mut(&id).unwrap().size.0 = Some(h);
+        }
+        self.views[active].score = saved;
     }
 
     /// Shows the buffer `steps` tabs along the bufferline (wrapping) in the focused pane.
@@ -2746,11 +2770,11 @@ mod tests {
         assert_eq!(app.window_focus(), second);
         // :global-tool moves the open pane under its score pane, and back.
         assert!(app.is_global(PaneKind::Audio));
-        app.run(Command::GlobalTool("audio".into()));
+        app.run(Command::GlobalTool("waveform".into()));
         assert!(!app.is_global(PaneKind::Audio));
         let local = app.tool_pane(PaneKind::Audio).unwrap();
         assert_eq!(app.panes[&local].owner, Some(second));
-        app.run(Command::GlobalTool("audio".into()));
+        app.run(Command::GlobalTool("waveform".into()));
         assert!(
             app.panes[&app.tool_pane(PaneKind::Audio).unwrap()]
                 .owner

@@ -19,10 +19,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Progress Bar
 
-- [ ] FIX: Change style of progress bar to look like Go Playalong
+- [x] FIX: Change style of progress bar to look like Go Playalong
       screenshot. Same background as the score (paper). Get rid of bluishness.
       Solid black divider lines.
-- [ ] FIX: Halve the width of the red indicator in the progress bar in the gui
+- [x] FIX: Halve the width of the red indicator in the progress bar in the gui
 
 ### Engraving
 
@@ -99,6 +99,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
     - cursor jumps to [# of displayed combo staves] / 2. round up. minimum 1.
       - so if there are 3 combined staves displayed in the pane, move the
         cursor vertically down by 2 staves.
+- [ ] Allow modifying the bar layout in "page layout". i.e. design mode
 
 ### TUI
 

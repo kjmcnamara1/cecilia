@@ -89,7 +89,7 @@ impl App {
                     "metronome" => self.pa.metronome,
                     "count-in" => self.pa.count_in,
                     "tracks" => self.has_tool(crate::app::PaneKind::Tracks),
-                    "audio-pane" => self.has_tool(crate::app::PaneKind::Audio),
+                    "waveform" => self.has_tool(crate::app::PaneKind::Audio),
                     "progress-bar" => self.progress_bar,
                     "maximize" => self.maximized().is_some(),
                     _ => false,
