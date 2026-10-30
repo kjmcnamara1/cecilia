@@ -295,7 +295,7 @@ const DEFAULT_NORMAL: &[(&str, &str)] = &[
     ("<leader>s", "stop"),
     ("<leader>f", "follow-toggle"),
     ("<C-o>", "open"),
-    ("<C-q>", "quitall"),
+    ("<C-q>", "quit"),
     ("<C-w>s", "split"),
     ("<C-w>+", "resize +5"),
     ("<C-w>-", "resize -5"),
@@ -328,8 +328,8 @@ const DEFAULT_NORMAL: &[(&str, &str)] = &[
     ("<C-w>j", "focus-down"),
     ("<C-w>k", "focus-up"),
     ("<C-w>l", "focus-right"),
-    ("<C-w>q", "close-pane"),
-    ("<C-w>c", "close-pane"),
+    ("<C-w>q", "pane-close"),
+    ("<C-w>c", "pane-close"),
     ("gt", "view-next"),
     ("gT", "view-prev"),
     ("L", "buffer-next"),
@@ -343,7 +343,7 @@ const DEFAULT_NORMAL: &[(&str, &str)] = &[
     ("<leader>W", "pick-workspace"),
     (":", "command-mode"),
     ("ZQ", "quit!"),
-    ("ZZ", "wq"),
+    ("ZZ", "write-quit"),
     // Editing
     ("i", "insert"),
     ("a", "append"),
@@ -540,7 +540,7 @@ const DEFAULT_TRACKS: &[(&str, &str)] = &[
     ("<leader>f", "follow-toggle"),
     ("<leader>T", "tracks"),
     ("<leader>?", "pick-keymap"),
-    ("<C-q>", "quitall"),
+    ("<C-q>", "quit"),
     (":", "command-mode"),
 ];
 

@@ -1840,8 +1840,7 @@ impl App {
                 }
             }
             ClosePane => self.close_pane(false),
-            Quit { force } => self.close_pane(force),
-            QuitAll { force } => {
+            Quit { force } => {
                 if self.may_quit(force) {
                     self.autosave_workspace();
                     self.quit = true;
@@ -1850,7 +1849,7 @@ impl App {
             WriteAll => {
                 self.write_all();
             }
-            WriteQuitAll => {
+            WriteQuit => {
                 if self.write_all() && self.may_quit(false) {
                     self.autosave_workspace();
                     self.quit = true;
@@ -1928,15 +1927,6 @@ impl App {
                 self.effects.push(Effect::OpenDialog { dir });
             }
             Write(path) => self.write(path),
-            WriteQuit => {
-                if self.buffer().modified {
-                    self.write(None);
-                    if self.message.as_ref().is_some_and(|m| m.error) {
-                        return;
-                    }
-                }
-                self.close_pane(false);
-            }
             Source => self.reload_config(),
             CommandMode => {
                 self.mode = Mode::Command;
@@ -2480,7 +2470,7 @@ fn set_row(c: &mut Cursor, row: Row) {
     }
 }
 
-/// One row down or up: through the track's staves, then on to the neighbouring track.
+/// One row down or up through the track's staves; it stops at the first and last row.
 fn move_row(score: &Score, c: &mut Cursor, down: bool) {
     let here = rows(score, c);
     if let Some(t) = score.tracks.get(c.track) {
@@ -2501,21 +2491,7 @@ fn move_row(score: &Score, c: &mut Cursor, down: bool) {
         _ => None,
     };
     if let Some(r) = target {
-        return set_row(c, r);
-    }
-    let next = if down {
-        Some(c.track + 1).filter(|&t| t < score.tracks.len())
-    } else {
-        c.track.checked_sub(1)
-    };
-    if let Some(t) = next {
-        set_track(score, c, t);
-        c.staff = 0;
-        let there = rows(score, c);
-        let entry = if down { there.first() } else { there.last() };
-        if let Some(&r) = entry {
-            set_row(c, r);
-        }
+        set_row(c, r);
     }
 }
 
@@ -2645,7 +2621,7 @@ mod tests {
         let right = app.focused();
         keys(&mut app, "<C-w>h");
         assert_ne!(app.focused(), right);
-        keys(&mut app, ":q<CR>");
+        keys(&mut app, ":pane-close<CR>");
         assert_eq!(app.view().root.panes(), vec![right]);
         assert!(!app.quit);
         keys(&mut app, ":view-new<CR>gt");
@@ -2927,7 +2903,7 @@ mod tests {
         app.run(Command::Edit(file.clone()));
         keys(&mut app, "<C-q>");
         assert!(app.quit);
-        // A change: <C-q>, :qa and :q on the last pane refuse…
+        // A change: <C-q>, :q refuse…
         let mut app = App::new(Config::default(), None);
         app.run(Command::Edit(file.clone()));
         keys(&mut app, "i5<Esc>");
@@ -2936,18 +2912,18 @@ mod tests {
         app.run(Command::Quit { force: false });
         assert!(!app.quit);
         // …:qa! discards, :wqa writes it first.
-        app.run(Command::QuitAll { force: true });
+        app.run(Command::Quit { force: true });
         assert!(app.quit);
         let mut app = App::new(Config::default(), None);
         app.run(Command::Edit(file.clone()));
         keys(&mut app, "i7<Esc>");
-        app.run(Command::WriteQuitAll);
+        app.run(Command::WriteQuit);
         assert!(app.quit && !app.buffer().modified);
         // An unnamed new score can't be written by :wqa.
         let mut app = App::new(Config::default(), None);
         app.run(Command::New);
         keys(&mut app, "i5<Esc>");
-        app.run(Command::WriteQuitAll);
+        app.run(Command::WriteQuit);
         assert!(!app.quit);
         std::fs::remove_dir_all(dir).ok();
     }

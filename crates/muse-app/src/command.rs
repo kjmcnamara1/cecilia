@@ -313,15 +313,12 @@ pub enum Command {
     OpenDialog,
     /// Write the buffer, to its own file or (exporting) to another path.
     Write(Option<PathBuf>),
-    WriteQuit,
     /// Write every changed file (`:wall`).
     WriteAll,
-    /// Write every changed file, then quit (`:wqall`).
-    WriteQuitAll,
+    /// Write every changed file, then quit (`:write-quit`).
+    WriteQuit,
+    /// Quit muse; refused while files have unsaved changes unless forced.
     Quit {
-        force: bool,
-    },
-    QuitAll {
         force: bool,
     },
     Source,
@@ -442,7 +439,7 @@ impl Command {
             "pane-exchange" => PaneExchange,
             "pane-rotate" => PaneRotate(true),
             "pane-rotate-back" => PaneRotate(false),
-            "close-pane" | "close" | "clo" => ClosePane,
+            "pane-close" | "close" | "clo" => ClosePane,
             "view-next" => ViewNext,
             "view-prev" => ViewPrev,
             "view" => ViewGoto(number("view number")?),
@@ -465,13 +462,10 @@ impl Command {
             },
             "open-dialog" => OpenDialog,
             "write" | "w" => Write(arg.map(expand_tilde)),
-            "wq" | "x" | "write-quit" => WriteQuit,
             "wall" | "wa" => WriteAll,
-            "wqall" | "wqa" | "xall" | "xa" => WriteQuitAll,
-            "quit" | "q" => Quit { force: false },
-            "quit!" | "q!" => Quit { force: true },
-            "quitall" | "qa" => QuitAll { force: false },
-            "quitall!" | "qa!" => QuitAll { force: true },
+            "write-quit" | "wq" | "x" | "wqall" | "wqa" | "xall" | "xa" => WriteQuit,
+            "quit" | "q" | "quitall" | "qa" => Quit { force: false },
+            "quit!" | "q!" | "quitall!" | "qa!" => Quit { force: true },
             "source" | "so" => Source,
             "command-mode" => CommandMode,
             "normal" => Normal,
