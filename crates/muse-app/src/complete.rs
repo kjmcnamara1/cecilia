@@ -840,6 +840,9 @@ pub fn describe(command: &str) -> Option<&'static str> {
         }
         "properties-staff-move" => "Properties pane: move the selected staff down (+1) or up (-1)",
         "properties-change" => "Properties pane: clear the selected property and edit it",
+        "properties-step" => {
+            "Properties pane: switch off (-1) / on (+1), or the previous / next choice"
+        }
         "properties-clear" => {
             "Properties pane: clear the selected text, lyrics or color, or remove the staff"
         }

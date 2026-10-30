@@ -553,6 +553,8 @@ const DEFAULT_PROPERTIES: &[(&str, &str)] = &[
     ("<Down>", "properties-down"),
     ("k", "properties-up"),
     ("<Up>", "properties-up"),
+    ("l", "properties-step +1"),
+    ("h", "properties-step -1"),
     ("L", "properties-tab"),
     ("<Right>", "properties-tab"),
     ("<Tab>", "properties-tab"),

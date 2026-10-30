@@ -136,6 +136,10 @@ pub struct PropRow {
     pub aside: String,
     /// A color shown in the value box.
     pub swatch: Option<crate::theme::Rgba>,
+    /// An icon before the value.
+    pub icon: Option<crate::icons::Icon>,
+    /// Dim text shown when the value is empty.
+    pub placeholder: &'static str,
 }
 
 /// Row heights, in lines (the frontends scale them): a section title with room above, a
@@ -154,6 +158,8 @@ impl PropRow {
                 field: Field::Lyrics,
                 ..
             } => TEXT_AREA_H,
+            // A staff after the first has no label of its own.
+            RowKind::Field { .. } if self.label.is_empty() => FIELD_H - 1,
             RowKind::Field { .. } => FIELD_H,
         }
     }
@@ -251,6 +257,18 @@ impl PropEdit {
         self.caret + rest.take_while(|&c| c != '\n').count()
     }
 
+    /// Moves the caret `by` visual lines (as the text area wraps them), if the lines drawn are
+    /// those of this text; else by lines of the text.
+    fn move_visual(&mut self, by: isize, lines: &[(usize, usize)]) {
+        if lines.last().map(|l| l.1) != Some(self.len()) {
+            return self.move_lines(by);
+        }
+        let (row, col) = caret_in(lines, self.caret);
+        let to = (row as isize + by).clamp(0, lines.len() as isize - 1) as usize;
+        let (start, end) = lines[to];
+        self.caret = start + col.min(end - start);
+    }
+
     /// Moves the caret `by` lines, keeping the column where the line is long enough.
     fn move_lines(&mut self, by: isize) {
         let (line, col) = self.line_col();
@@ -317,6 +335,9 @@ pub struct PropsState {
     pub selected: usize,
     pub folded: HashSet<Section>,
     pub edit: Option<PropEdit>,
+    /// The lines the lyrics text is wrapped to as last drawn (character ranges), for moving
+    /// by visual line.
+    pub visual: std::cell::RefCell<Vec<(usize, usize)>>,
     /// First row shown; kept by [`App::property_window`].
     scroll: Cell<usize>,
 }
@@ -425,6 +446,8 @@ impl App {
                 value: String::new(),
                 aside: String::new(),
                 swatch: None,
+                icon: None,
+                placeholder: "",
             });
             !f
         };
@@ -435,6 +458,8 @@ impl App {
                 value,
                 aside: String::new(),
                 swatch: None,
+                icon: None,
+                placeholder: "",
             })
         };
         match self.props.tab {
@@ -515,22 +540,26 @@ impl App {
                         field(&mut rows, Field::Capo, "Capo", t.capo.to_string(), true);
                     }
                     let staves = t.staves();
+                    // One key, "Staves", over a field per staff and an empty one to add another.
                     for (i, s) in staves.iter().enumerate() {
+                        let label = if i == 0 { "Staves" } else { "" };
                         field(
                             &mut rows,
                             Field::StaffAt(i),
-                            &format!("Staff {}", i + 1),
-                            s.name(),
+                            label,
+                            crate::picker::staff_label(*s),
                             true,
                         );
+                        rows.last_mut().unwrap().icon = Some(crate::icons::Icon::of_staff(*s));
                     }
                     field(
                         &mut rows,
                         Field::StaffAt(staves.len()),
-                        "Add staff",
+                        "",
                         String::new(),
                         true,
                     );
+                    rows.last_mut().unwrap().placeholder = "Add Staff";
                 }
                 if section(&mut rows, Section::TrackSound) {
                     field(
@@ -540,6 +569,7 @@ impl App {
                         crate::tracks::instrument_name(t),
                         true,
                     );
+                    rows.last_mut().unwrap().icon = Some(crate::icons::Icon::of_track(t));
                     field(
                         &mut rows,
                         Field::Channel,
@@ -729,6 +759,7 @@ impl App {
     /// Keys while a property is typed. A single line is in insert mode: `<CR>` keeps the text,
     /// `<Esc>` and `<C-c>` cancel. The lyrics are edited like vim.
     pub(crate) fn props_edit_key(&mut self, key: Key) {
+        let lines = self.props.visual.borrow().clone();
         let Some(edit) = self.props.edit.as_mut() else {
             return;
         };
@@ -759,8 +790,8 @@ impl App {
             KeyCode::Delete => edit.delete(),
             KeyCode::Left => edit.caret = edit.caret.saturating_sub(1),
             KeyCode::Right => edit.caret = (edit.caret + 1).min(edit.len()),
-            KeyCode::Up if multiline => edit.move_lines(-1),
-            KeyCode::Down if multiline => edit.move_lines(1),
+            KeyCode::Up if multiline => edit.move_visual(-1, &lines),
+            KeyCode::Down if multiline => edit.move_visual(1, &lines),
             KeyCode::Home => edit.caret = edit.line_start(),
             KeyCode::End => edit.caret = edit.line_end(),
             KeyCode::Char('u') if key.ctrl => *edit = PropEdit::new(edit.field, String::new()),
@@ -778,6 +809,7 @@ impl App {
     /// Keys in the lyrics text area's normal mode: a vim subset. Each change is its own undo
     /// step, and `<Esc>` leaves the text area.
     fn text_normal_key(&mut self, key: Key) {
+        let lines = self.props.visual.borrow().clone();
         let Some(edit) = self.props.edit.as_mut() else {
             return;
         };
@@ -795,15 +827,15 @@ impl App {
             (_, KeyCode::Enter) => insert = true,
             (_, KeyCode::Left) => edit.caret = edit.caret.saturating_sub(1),
             (_, KeyCode::Right) => edit.caret += 1,
-            (_, KeyCode::Up) => edit.move_lines(-1),
-            (_, KeyCode::Down) => edit.move_lines(1),
+            (_, KeyCode::Up) => edit.move_visual(-1, &lines),
+            (_, KeyCode::Down) => edit.move_visual(1, &lines),
             (_, KeyCode::Home) => edit.caret = edit.line_start(),
             (_, KeyCode::End) => edit.caret = edit.line_end(),
             (_, KeyCode::Char(c)) if !key.ctrl && !key.alt => match c {
                 'h' => edit.caret = edit.caret.saturating_sub(1),
                 'l' => edit.caret += 1,
-                'j' => edit.move_lines(1),
-                'k' => edit.move_lines(-1),
+                'j' => edit.move_visual(1, &lines),
+                'k' => edit.move_visual(-1, &lines),
                 'w' => edit.word_forward(),
                 'b' => edit.word_back(),
                 '0' => edit.caret = edit.line_start(),
@@ -1040,6 +1072,35 @@ impl App {
         }
     }
 
+    /// `h` / `l`: a switch goes off / on; a choice moves to the previous / next one.
+    fn step_property(&mut self, by: isize) {
+        let t = self.pane().cursor.track;
+        let Some((field, _)) = self.selected_field() else {
+            return;
+        };
+        let on = by > 0;
+        let track = self.buffer().score.tracks.get(t);
+        match field {
+            Field::Mute | Field::Solo => {
+                let now = track.is_some_and(|k| if field == Field::Mute { k.mute } else { k.solo });
+                if now != on {
+                    self.edit_property();
+                }
+            }
+            Field::TrackColor => self.step_choice(PickerKind::Color(t), by),
+            Field::Tuning => self.step_choice(PickerKind::Tuning(t), by),
+            Field::Program => self.step_choice(PickerKind::Instrument(t), by),
+            Field::StaffAt(i) => {
+                let n = track.map_or(0, |k| k.staves().len());
+                if i < n {
+                    self.pane_mut().cursor.staff = i;
+                    self.step_choice(PickerKind::Staff(t, i), by);
+                }
+            }
+            _ => {}
+        }
+    }
+
     /// Moves a staff of the cursor's track to another place; the selection follows it.
     pub fn move_property_staff(&mut self, from: usize, to: usize) {
         let rows = self.property_rows();
@@ -1070,9 +1131,8 @@ impl App {
         )
     }
 
-    /// A click on a row: it selects the row, and a click on the selected row edits it; a toggle
-    /// flips at once.
-    pub fn click_property(&mut self, row: usize) {
+    /// A click on a row: it selects it, and a double click edits it. A switch flips at once.
+    pub fn click_property(&mut self, row: usize, double: bool) {
         let toggle = matches!(
             self.property_rows().get(row).map(|r| &r.kind),
             Some(RowKind::Field {
@@ -1080,14 +1140,28 @@ impl App {
                 ..
             })
         );
-        if toggle {
-            self.select_property(row);
+        self.select_property(row);
+        // (A double click on a switch is two clicks: it would flip it back.)
+        if toggle != double {
             self.edit_property();
-        } else if row == self.property_selected() && self.props.edit.is_none() {
-            self.edit_property();
-        } else {
-            self.select_property(row);
         }
+    }
+
+    /// Whether the row is selected, or is one of the staff rows while one is (they are all the
+    /// value of the key "Staves").
+    pub fn property_row_selected(&self, row: usize) -> bool {
+        let rows = self.property_rows();
+        let staff = |r: usize| {
+            matches!(
+                rows.get(r).map(|r| &r.kind),
+                Some(RowKind::Field {
+                    field: Field::StaffAt(_),
+                    ..
+                })
+            )
+        };
+        let sel = self.property_selected();
+        row == sel || (staff(row) && staff(sel))
     }
 
     /// A drag from one row to another: a staff takes the other's place.
@@ -1199,6 +1273,7 @@ impl App {
             PropertiesEdit => self.edit_property(),
             PropertiesFold(fold) => self.fold_property(*fold),
             PropertiesClear => self.clear_property(),
+            PropertiesStep(by) => self.step_property(*by),
             PropertiesChange => {
                 self.edit_property();
                 // Text is cleared (as the score follows); pickers and toggles just open.
@@ -1235,6 +1310,8 @@ fn note(text: &str) -> PropRow {
         value: String::new(),
         aside: String::new(),
         swatch: None,
+        icon: None,
+        placeholder: "",
     }
 }
 
@@ -1242,6 +1319,7 @@ fn note(text: &str) -> PropRow {
 mod tests {
     use super::*;
     use crate::app::tests::{keys, test_app};
+    use crate::icons::Icon;
     use crate::layout::{Axis, Node};
 
     fn with_props() -> App {
@@ -1580,20 +1658,21 @@ mod tests {
             app.buffer().score.tracks[0]
                 .staves()
                 .iter()
-                .map(|s| s.name())
+                .map(|s| crate::picker::staff_label(*s))
                 .collect::<Vec<_>>()
         };
-        assert_eq!(names(&app), ["standard treble", "tab"]);
+        assert_eq!(names(&app), ["treble", "tab"]);
         // An empty row at the bottom adds a staff through the picker.
         app.props.selected = field_row(&app, Field::StaffAt(2));
-        assert_eq!(
-            app.property_rows()[app.property_selected()].label,
-            "Add staff"
-        );
+        let add = &app.property_rows()[app.property_selected()];
+        assert_eq!((add.label.as_str(), add.placeholder), ("", "Add Staff"));
+        let first = &app.property_rows()[field_row(&app, Field::StaffAt(0))];
+        assert_eq!(first.label, "Staves");
+        assert!(first.icon.is_some());
         app.run(Command::PropertiesEdit);
         assert_eq!(app.palette().unwrap().title, "Staves");
         keys(&mut app, "slash<CR>");
-        assert_eq!(names(&app), ["standard treble", "tab", "slash"]);
+        assert_eq!(names(&app), ["treble", "tab", "slash"]);
         // A filled row picks another kind.
         app.props.selected = field_row(&app, Field::StaffAt(1));
         app.run(Command::PropertiesEdit);
@@ -1603,10 +1682,10 @@ mod tests {
         keys(&mut app, "<leader>P");
         app.props.selected = field_row(&app, Field::StaffAt(0));
         keys(&mut app, "<A-j>");
-        assert_eq!(names(&app), ["tab+", "standard treble", "slash"]);
+        assert_eq!(names(&app), ["tab+", "treble", "slash"]);
         assert_eq!(app.props.selected, field_row(&app, Field::StaffAt(1)));
         keys(&mut app, "<A-k>");
-        assert_eq!(names(&app), ["standard treble", "tab+", "slash"]);
+        assert_eq!(names(&app), ["treble", "tab+", "slash"]);
         // Dragging a row onto another moves it.
         let (a, b) = (
             field_row(&app, Field::StaffAt(0)),
@@ -1616,7 +1695,7 @@ mod tests {
             app.property_is_staff(a) && !app.property_is_staff(field_row(&app, Field::StaffAt(3)))
         );
         app.drag_property(a, b);
-        assert_eq!(names(&app), ["tab+", "slash", "standard treble"]);
+        assert_eq!(names(&app), ["tab+", "slash", "treble"]);
     }
 
     #[test]
@@ -1643,7 +1722,69 @@ mod tests {
         // A click on a switch flips it at once.
         app.set_property_tab(PropTab::Tracks);
         let mute = field_row(&app, Field::Mute);
-        app.click_property(mute);
+        app.click_property(mute, false);
         assert!(app.buffer().score.tracks[0].mute);
+        // h / l set a switch off / on, and keep it so.
+        keys(&mut app, "hh");
+        assert!(!app.buffer().score.tracks[0].mute);
+        keys(&mut app, "ll");
+        assert!(app.buffer().score.tracks[0].mute);
+        // Only a double click edits; one click selects.
+        let name = field_row(&app, Field::TrackName);
+        app.click_property(name, false);
+        assert!(app.props.edit.is_none() && app.property_selected() == name);
+        app.click_property(name, true);
+        assert!(app.props.edit.is_some());
+        keys(&mut app, "<Esc>");
+    }
+
+    #[test]
+    fn choices_step_without_wrapping_and_the_staff_group_highlights() {
+        let mut app = with_props();
+        app.set_property_tab(PropTab::Tracks);
+        keys(&mut app, "<leader>P");
+        // h / l on a choice: the previous / next one, stopping at the ends.
+        app.props.selected = field_row(&app, Field::Tuning);
+        let strings = |app: &App| app.buffer().score.tracks[0].strings.clone();
+        assert_eq!(strings(&app), [64, 59, 55, 50, 45, 40]);
+        keys(&mut app, "h");
+        assert_eq!(
+            strings(&app),
+            [64, 59, 55, 50, 45, 40],
+            "no wrapping before the first"
+        );
+        keys(&mut app, "l");
+        assert_eq!(strings(&app), [63, 58, 54, 49, 44, 39], "the next tuning");
+        app.props.selected = field_row(&app, Field::Program);
+        let before = app.buffer().score.tracks[0].midi.program;
+        keys(&mut app, "l");
+        assert_eq!(app.buffer().score.tracks[0].midi.program, before + 1);
+        // Every staff row is lit with the selected one.
+        app.props.selected = field_row(&app, Field::StaffAt(1));
+        assert!(app.property_row_selected(field_row(&app, Field::StaffAt(0))));
+        assert!(app.property_row_selected(field_row(&app, Field::StaffAt(2))));
+        assert!(!app.property_row_selected(field_row(&app, Field::Capo)));
+        // The staff kind steps too.
+        keys(&mut app, "l");
+        assert_eq!(
+            crate::picker::staff_label(app.buffer().score.tracks[0].staves()[1]),
+            "tab+"
+        );
+        assert_eq!(Icon::of_program(25), Icon::Guitar);
+    }
+
+    #[test]
+    fn j_and_k_move_by_visual_lines() {
+        let mut app = with_props();
+        app.run(Command::Lyrics(0, "aa bb cc dd".into()));
+        app.set_property_tab(PropTab::Lyrics);
+        keys(&mut app, "<leader>P<CR><Esc>");
+        // As drawn: two visual lines of one logical line.
+        *app.props.visual.borrow_mut() = vec![(0, 5), (6, 11)];
+        app.props.edit.as_mut().unwrap().caret = 1;
+        keys(&mut app, "j");
+        assert_eq!(app.props.edit.as_ref().unwrap().caret, 7);
+        keys(&mut app, "k");
+        assert_eq!(app.props.edit.as_ref().unwrap().caret, 1);
     }
 }

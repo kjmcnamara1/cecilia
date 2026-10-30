@@ -101,6 +101,8 @@ pub struct PaletteItem {
     pub description: Option<String>,
     /// A color shown beside the text (the color picker).
     pub swatch: Option<crate::theme::Rgba>,
+    /// An icon shown beside the text.
+    pub icon: Option<crate::icons::Icon>,
     /// Character positions that matched the typed text (highlighted).
     pub matched: Vec<usize>,
 }
@@ -1650,6 +1652,7 @@ impl App {
                 },
                 text,
                 swatch: None,
+                icon: None,
                 matched,
             })
             .collect();

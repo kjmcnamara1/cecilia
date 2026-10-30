@@ -4,6 +4,7 @@
 use crate::app::{App, Palette, PaletteItem};
 use crate::command::Command;
 use crate::config::Mode;
+use crate::icons::Icon;
 use crate::keys::{Key, KeyCode};
 use crate::theme::Rgba;
 
@@ -78,6 +79,10 @@ struct Entry {
     search_description: bool,
     /// A color shown next to the label.
     swatch: Option<Rgba>,
+    /// An icon shown next to the label.
+    icon: Option<Icon>,
+    /// The choice now in force (the properties pane steps from it).
+    current: bool,
 }
 
 /// Common colors: name and hex code.
@@ -132,6 +137,14 @@ fn parse_color_query(q: &str) -> Option<Rgba> {
     match n.as_slice() {
         &[r, g, b] => Some(Rgba::rgb(r, g, b)),
         _ => None,
+    }
+}
+
+/// A staff as the properties pane shows it: `treble`, `bass`, `grand`, `tab` …
+pub(crate) fn staff_label(staff: muse_core::Staff) -> String {
+    match staff {
+        muse_core::Staff::Standard(c) => c.name(),
+        other => other.name(),
     }
 }
 
@@ -385,6 +398,8 @@ impl App {
                         action: Command::BufferGoto(i + 1),
                         search_description: false,
                         swatch: None,
+                        icon: None,
+                        current: false,
                     }
                 })
                 .collect(),
@@ -416,6 +431,8 @@ impl App {
                         action: Command::ViewGoto(i + 1),
                         search_description: false,
                         swatch: None,
+                        icon: None,
+                        current: false,
                     }
                 })
                 .collect(),
@@ -434,6 +451,8 @@ impl App {
                     action: Command::GotoMark(m.name),
                     search_description: false,
                     swatch: None,
+                    icon: None,
+                    current: false,
                 })
                 .collect(),
             PickerKind::Macro => {
@@ -447,6 +466,8 @@ impl App {
                         action: Command::RunMacro(*r),
                         search_description: false,
                         swatch: None,
+                        icon: None,
+                        current: false,
                     })
                     .collect()
             }
@@ -466,16 +487,20 @@ impl App {
                     .map(|(p, name)| Entry {
                         label: format!("{:>3} {name}", p + 1),
                         description: mark(current == Some(p)),
+                        icon: Some(Icon::of_program(p)),
                         action: Command::TrackInstrument(Some(format!("{} {n}", p + 1))),
                         search_description: false,
                         swatch: None,
+                        current: current == Some(p),
                     })
                     .chain(std::iter::once(Entry {
                         label: "    Drum Kit".into(),
                         description: mark(current == Some(usize::MAX)),
+                        icon: Some(Icon::Drums),
                         action: Command::TrackInstrument(Some(format!("drums {n}"))),
                         search_description: false,
                         swatch: None,
+                        current: current == Some(usize::MAX),
                     }))
                     .collect()
             }
@@ -498,6 +523,8 @@ impl App {
                     action: Command::TrackColor(Some("off".into())),
                     search_description: false,
                     swatch: Some(self.track_color(self.pane().buffer, t)),
+                    icon: None,
+                    current: now.is_none(),
                 };
                 std::iter::once(auto)
                     .chain(COLORS.iter().filter_map(|&(name, hex)| {
@@ -512,6 +539,8 @@ impl App {
                             action: Command::TrackColor(Some(hex.into())),
                             search_description: true,
                             swatch: Some(c),
+                            icon: None,
+                            current: now == Some(c),
                         })
                     }))
                     .collect()
@@ -540,6 +569,8 @@ impl App {
                             action: Command::Tuning(tuning_notes(&strings)),
                             search_description: true,
                             swatch: None,
+                            icon: None,
+                            current: here,
                         }
                     })
                     .collect()
@@ -553,26 +584,39 @@ impl App {
                 let tab_ok = track.kind == muse_core::TrackKind::Fretted
                     || track.kind == muse_core::TrackKind::Pitched;
                 let kinds = [
-                    ("standard treble", "Standard notation, treble clef"),
-                    ("standard bass", "Standard notation, bass clef"),
+                    (
+                        "standard treble",
+                        "treble",
+                        "Standard notation, treble clef",
+                    ),
+                    ("standard bass", "bass", "Standard notation, bass clef"),
                     (
                         "standard grand",
+                        "grand",
                         "Standard notation, treble and bass joined",
                     ),
-                    ("tab", "Tablature"),
-                    ("tab+", "Tablature with rhythm stems"),
-                    ("slash", "Rhythm slashes"),
-                    ("chant", "Gregorian square notation"),
+                    ("tab", "tab", "Tablature"),
+                    ("tab+", "tab+", "Tablature with rhythm"),
+                    ("slash", "slash", "Rhythm slashes"),
+                    ("chant", "chant", "Gregorian square notation"),
                 ];
                 let clef = self.config.default_clef();
                 let mut out: Vec<Entry> = kinds
                     .into_iter()
-                    .filter(|(k, _)| tab_ok || !k.starts_with("tab"))
-                    .map(|(kind, about)| {
+                    .filter(|(k, ..)| tab_ok || !k.starts_with("tab"))
+                    .map(|(kind, label, about)| {
                         let staff = muse_core::Staff::parse(kind, clef).ok();
+                        // A grand staff counts whatever its split.
+                        let same = match (staff, here) {
+                            (
+                                Some(muse_core::Staff::Standard(muse_core::Clef::Grand { .. })),
+                                Some(muse_core::Staff::Standard(muse_core::Clef::Grand { .. })),
+                            ) => true,
+                            (a, b) => a.is_some() && a == b,
+                        };
                         Entry {
-                            label: kind.into(),
-                            description: if staff.is_some() && staff == here {
+                            label: label.into(),
+                            description: if same {
                                 format!("{about}  (current)")
                             } else {
                                 about.into()
@@ -584,6 +628,8 @@ impl App {
                             },
                             search_description: true,
                             swatch: None,
+                            icon: staff.map(Icon::of_staff),
+                            current: same,
                         }
                     })
                     .collect();
@@ -594,6 +640,8 @@ impl App {
                         action: Command::StaffRemove(None),
                         search_description: true,
                         swatch: None,
+                        icon: None,
+                        current: false,
                     });
                 }
                 out
@@ -635,6 +683,8 @@ impl App {
                             action: Command::GotoBar(b + 1),
                             search_description: false,
                             swatch: None,
+                            icon: None,
+                            current: false,
                         })
                     })
                     .collect()
@@ -685,6 +735,8 @@ impl App {
                             action,
                             search_description: true,
                             swatch: None,
+                            icon: None,
+                            current: false,
                         });
                     }
                 }
@@ -719,10 +771,34 @@ impl App {
                             description,
                             search_description: false,
                             swatch: None,
+                            icon: None,
+                            current: false,
                         }
                     })
                     .collect()
             }
+        }
+    }
+
+    /// Moves a choice (a color, tuning, instrument or staff kind) to the previous (`by` < 0) or
+    /// next one, without wrapping around.
+    pub fn step_choice(&mut self, kind: PickerKind, by: isize) {
+        let entries: Vec<Entry> = self
+            .picker_entries(kind)
+            .into_iter()
+            .filter(|e| e.label != "remove")
+            .collect();
+        let next = match entries.iter().position(|e| e.current) {
+            Some(i) => i as isize + by.signum(),
+            // Not one of the list (a custom value): forwards starts at the first.
+            None if by > 0 => 0,
+            None => return,
+        };
+        if let Some(e) = usize::try_from(next)
+            .ok()
+            .and_then(|n| entries.into_iter().nth(n))
+        {
+            self.run(e.action);
         }
     }
 
@@ -766,6 +842,8 @@ impl App {
                     action: Command::TrackColor(Some(c.hex())),
                     search_description: false,
                     swatch: Some(c),
+                    icon: None,
+                    current: false,
                 })
             }
             PickerKind::Tuning(t) => {
@@ -784,6 +862,8 @@ impl App {
                     action: Command::Tuning(tuning_notes(&strings)),
                     search_description: false,
                     swatch: None,
+                    icon: None,
+                    current: false,
                 })
             }
             _ => None,
@@ -805,6 +885,7 @@ impl App {
                     text: e.label,
                     description: Some(e.description),
                     swatch: e.swatch,
+                    icon: e.icon,
                     matched,
                 })
                 .collect(),

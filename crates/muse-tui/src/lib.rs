@@ -68,7 +68,7 @@ struct Ui {
 #[derive(Debug, Clone, PartialEq)]
 enum Drag {
     /// A staff row of the properties pane (where it began, and the row under the mouse now).
-    Prop(usize, usize),
+    Prop(usize, usize, bool),
     /// A track's volume (one undo step).
     Volume,
     /// A border between panes, grabbed this far from its position.
@@ -169,8 +169,10 @@ fn event_loop(terminal: &mut DefaultTerminal, app: &mut App) -> Result<()> {
                             PropHit::Row(i) if contains(*r, m.column, m.row) => Some(*i),
                             _ => None,
                         });
-                        if let (Some(i), Some(Drag::Prop(from, _))) = (over, ui.drag.clone()) {
-                            ui.drag = Some(Drag::Prop(from, i));
+                        if let (Some(i), Some(Drag::Prop(from, _, double))) =
+                            (over, ui.drag.clone())
+                        {
+                            ui.drag = Some(Drag::Prop(from, i, double));
                         }
                     }
                     MouseEventKind::Down(MouseButton::Left)
@@ -194,9 +196,13 @@ fn event_loop(terminal: &mut DefaultTerminal, app: &mut App) -> Result<()> {
                                 if let Some(id) = app.tool_pane(PaneKind::Properties) {
                                     app.set_focus(id);
                                 }
-                                ui.drag = Some(Drag::Prop(i, i));
+                                let double = is_double(&mut ui, m.column, m.row);
+                                ui.drag = Some(Drag::Prop(i, i, double));
                             }
-                            _ => click_properties(app, hit),
+                            _ => {
+                                let double = is_double(&mut ui, m.column, m.row);
+                                click_properties(app, hit, double)
+                            }
                         }
                     }
                     MouseEventKind::Down(MouseButton::Left)
@@ -209,8 +215,10 @@ fn event_loop(terminal: &mut DefaultTerminal, app: &mut App) -> Result<()> {
                     MouseEventKind::Up(MouseButton::Left) if ui.drag.is_some() => {
                         match ui.drag.take() {
                             Some(Drag::Volume) => app.group_edits(false),
-                            Some(Drag::Prop(from, to)) if from == to => app.click_property(from),
-                            Some(Drag::Prop(from, to)) => app.drag_property(from, to),
+                            Some(Drag::Prop(from, to, double)) if from == to => {
+                                app.click_property(from, double)
+                            }
+                            Some(Drag::Prop(from, to, _)) => app.drag_property(from, to),
                             _ => {}
                         }
                     }
@@ -656,7 +664,10 @@ fn draw_palette(f: &mut Frame, app: &App, p: &muse_app::Palette, screen: Rect) {
         Some(sel) if sel >= rows => sel + 1 - rows,
         _ => 0,
     };
-    let swatches = p.items.iter().any(|i| i.swatch.is_some());
+    let swatches = p
+        .items
+        .iter()
+        .any(|i| i.swatch.is_some() || i.icon.is_some());
     for (k, item) in p.items.iter().enumerate().skip(first).take(rows) {
         let row = Rect {
             y: inner.y + 2 + (k - first) as u16,
@@ -690,6 +701,10 @@ fn draw_palette(f: &mut Frame, app: &App, p: &muse_app::Palette, screen: Rect) {
         if let Some(c) = item.swatch {
             f.buffer_mut()
                 .set_string(row.x + 1, row.y, "██", Style::default().fg(rc(c)));
+        }
+        if let Some(icon) = item.icon {
+            f.buffer_mut()
+                .set_string(row.x + 1, row.y, icon.glyph(), Style::default());
         }
         // Highlight the characters that matched what was typed.
         let hl = if selected {
@@ -1352,14 +1367,24 @@ enum PropHit {
     Row(usize),
 }
 
-fn click_properties(app: &mut App, hit: PropHit) {
+/// Whether a click at this cell follows one just before (and notes it).
+fn is_double(ui: &mut Ui, x: u16, y: u16) -> bool {
+    let now = std::time::Instant::now();
+    let double = ui.last_click.is_some_and(|(t, x0, y0)| {
+        now.duration_since(t) < std::time::Duration::from_millis(400) && (x0, y0) == (x, y)
+    });
+    ui.last_click = Some((now, x, y));
+    double
+}
+
+fn click_properties(app: &mut App, hit: PropHit, double: bool) {
     if let Some(id) = app.tool_pane(PaneKind::Properties) {
         app.set_focus(id);
     }
     match hit {
         PropHit::Tab(t) => app.set_property_tab(t),
         // A click selects a property; another on the selected one edits it.
-        PropHit::Row(i) => app.click_property(i),
+        PropHit::Row(i) => app.click_property(i, double),
     }
 }
 
@@ -1414,14 +1439,15 @@ fn draw_properties(f: &mut Frame, app: &App, area: Rect, ui: &mut Ui) {
     let top = area.y + 3;
     let bottom = area.y + area.height - 1;
     let first = app.property_window((bottom - top) as usize);
-    let selected = app.property_selected();
     let mut y = top;
+    // The staff rows: row, line of the box, whether a label sits above.
+    let mut staff_rows: Vec<(usize, u16, bool)> = Vec::new();
     for (k, row) in rows.iter().enumerate().skip(first) {
         let h = row.height() as u16;
         if y >= bottom {
             break;
         }
-        let sel = k == selected;
+        let sel = app.property_row_selected(k);
         let hit = Rect {
             x: area.x,
             y,
@@ -1453,7 +1479,21 @@ fn draw_properties(f: &mut Frame, app: &App, area: Rect, ui: &mut Ui) {
                 } else {
                     dim
                 };
-                buf.set_string(x0, y, clip(&row.label, width), label_style);
+                // A staff after the first has no label: its box takes the label's place.
+                let labelled = !row.label.is_empty();
+                if labelled {
+                    buf.set_string(x0, y, clip(&row.label, width), label_style);
+                }
+                let by = if labelled { y + 1 } else { y };
+                // Staff fields have a drag handle before them (the empty one, a gap).
+                let staff = matches!(field, muse_app::properties::Field::StaffAt(_));
+                let bx = if staff { x0 + 2 } else { x0 };
+                if staff {
+                    if !row.value.is_empty() {
+                        buf.set_string(x0, by, "⠿", dim);
+                    }
+                    staff_rows.push((k, by, labelled));
+                }
                 let box_bg = if typing.is_some() {
                     t.tab.mix(t.accent, 0.5)
                 } else if sel {
@@ -1468,7 +1508,7 @@ fn draw_properties(f: &mut Frame, app: &App, area: Rect, ui: &mut Ui) {
                 }));
                 // The box takes the pane's width; the text area also its remaining height.
                 let box_h = if *field == muse_app::properties::Field::Lyrics {
-                    (bottom - y - 1).max(1)
+                    (bottom - by).max(1)
                 } else {
                     1
                 };
@@ -1481,15 +1521,17 @@ fn draw_properties(f: &mut Frame, app: &App, area: Rect, ui: &mut Ui) {
                 let box_w = if toggle {
                     6
                 } else if aside == 0 {
-                    width
+                    width - (bx - x0) as usize
                 } else {
-                    width.saturating_sub(aside + 2).min(width * 62 / 100)
+                    width
+                        .saturating_sub(aside + 2 + (bx - x0) as usize)
+                        .min(width * 62 / 100)
                 };
-                for by in 0..box_h {
-                    buf.set_string(x0, y + 1 + by, " ".repeat(box_w), text_style);
+                for dy in 0..box_h {
+                    buf.set_string(bx, by + dy, " ".repeat(box_w), text_style);
                 }
                 if aside > 0 {
-                    buf.set_string(x0 + box_w as u16 + 2, y + 1, &row.aside, dim);
+                    buf.set_string(bx + box_w as u16 + 2, by, &row.aside, dim);
                 }
                 if toggle {
                     // A switch: the knob at the end that says which, and on/off beside it.
@@ -1499,41 +1541,46 @@ fn draw_properties(f: &mut Frame, app: &App, area: Rect, ui: &mut Ui) {
                     } else {
                         ("● ", t.tab)
                     };
-                    buf.set_string(x0, y + 1, "      ", Style::default().bg(rc(bg)));
+                    buf.set_string(bx, by, "      ", Style::default().bg(rc(bg)));
                     buf.set_string(
-                        x0 + if on_now { 3 } else { 1 },
-                        y + 1,
+                        bx + if on_now { 3 } else { 1 },
+                        by,
                         knob.trim(),
                         Style::default()
                             .fg(rc(if on_now { t.text_on(t.accent) } else { t.dim }))
                             .bg(rc(bg)),
                     );
-                    buf.set_string(x0 + 8, y + 1, if on_now { "on" } else { "off" }, base);
+                    buf.set_string(bx + 8, by, if on_now { "on" } else { "off" }, base);
                 }
-                let mut text_x = x0 + 1;
+                let mut text_x = bx + 1;
                 if let Some(c) = row.swatch {
-                    buf.set_string(
-                        text_x,
-                        y + 1,
-                        "██",
-                        Style::default().fg(rc(c)).bg(rc(box_bg)),
-                    );
+                    buf.set_string(text_x, by, "██", Style::default().fg(rc(c)).bg(rc(box_bg)));
                     text_x += 3;
                 }
-                let inner = box_w.saturating_sub((text_x - x0) as usize + 1);
+                if let Some(icon) = row.icon {
+                    let g = icon.glyph();
+                    buf.set_string(text_x, by, g, Style::default().bg(rc(box_bg)));
+                    text_x += if g.chars().any(|c| c as u32 >= 0x1F000) {
+                        3
+                    } else {
+                        2
+                    };
+                }
+                let inner = box_w.saturating_sub((text_x - bx) as usize + 1);
                 if *field == muse_app::properties::Field::Lyrics {
                     let text = typing.map_or(row.value.as_str(), |e| e.text.as_str());
                     let lines = wrap_ranges(text, |l| l.chars().count() <= inner);
+                    *app.props.visual.borrow_mut() = lines.clone();
                     let chars: Vec<char> = text.chars().collect();
                     let caret = typing.map(|e| caret_in(&lines, e.caret));
                     // Keep the caret's line in view.
                     let skip = caret.map_or(0, |(r, _)| (r + 1).saturating_sub(box_h as usize));
                     for (n, &(s, e)) in lines.iter().enumerate().skip(skip).take(box_h as usize) {
                         let line: String = chars[s..e].iter().collect();
-                        buf.set_string(x0 + 1, y + 1 + (n - skip) as u16, line, text_style);
+                        buf.set_string(bx + 1, by + (n - skip) as u16, line, text_style);
                     }
                     if let Some((r, c)) = caret.filter(|&(r, _)| r >= skip) {
-                        let (cx, cy) = (x0 + 1 + c as u16, y + 1 + (r - skip) as u16);
+                        let (cx, cy) = (bx + 1 + c as u16, by + (r - skip) as u16);
                         if typing.is_some_and(|e| e.modal && !e.insert) {
                             // Normal mode: the character under the caret is a block.
                             let under = lines.get(r).and_then(|&(s, _)| chars.get(s + c));
@@ -1556,16 +1603,41 @@ fn draw_properties(f: &mut Frame, app: &App, area: Rect, ui: &mut Ui) {
                             line.extend(chars[e.caret.min(chars.len())..].iter().take(keep));
                             line.chars().take(inner).collect()
                         }
+                        None if row.value.is_empty() => row.placeholder.to_string(),
                         None => clip(&row.value, inner),
                     };
                     if !toggle {
-                        buf.set_string(text_x, y + 1, shown, text_style);
+                        buf.set_string(text_x, by, shown, text_style);
                     }
                 }
             }
         }
         ui.props.push((hit, PropHit::Row(k)));
         y += h;
+    }
+    // While a staff is dragged: a line in the accent color where it would land.
+    if let Some(Drag::Prop(from, to, _)) = ui.drag {
+        if from != to {
+            if let Some(&(_, line, labelled)) = staff_rows.iter().find(|r| r.0 == to) {
+                let ly = if to > from {
+                    line + 1
+                } else {
+                    line.saturating_sub(1)
+                };
+                let from_x = if labelled && to < from {
+                    x0 + 10
+                } else {
+                    x0 + 2
+                };
+                let w = width.saturating_sub((from_x - x0) as usize);
+                f.buffer_mut().set_string(
+                    from_x,
+                    ly,
+                    "━".repeat(w),
+                    Style::default().fg(rc(t.accent)).bg(rc(t.panel)),
+                );
+            }
+        }
     }
 }
 
@@ -2289,7 +2361,7 @@ mod render_tests {
                 _ => None,
             })
             .unwrap();
-        click_properties(&mut app, tab);
+        click_properties(&mut app, tab, false);
         let screen = render(&mut app, 100, 30);
         assert!(
             screen.contains("Color") && screen.contains("Tuning"),
@@ -2297,9 +2369,9 @@ mod render_tests {
         );
         assert_eq!(app.focused_kind(), PaneKind::Properties);
         // A click on a row selects it; another edits it.
-        click_properties(&mut app, PropHit::Row(2));
+        click_properties(&mut app, PropHit::Row(2), false);
         assert_eq!(app.property_selected(), 2);
-        click_properties(&mut app, PropHit::Row(2));
+        click_properties(&mut app, PropHit::Row(2), true);
         assert!(app.props.edit.is_some());
         let screen = render(&mut app, 100, 30);
         assert!(screen.contains('▏'), "{screen}");

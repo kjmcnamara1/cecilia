@@ -178,7 +178,7 @@ enum Edge {
 #[derive(Debug, Clone, PartialEq)]
 enum Drag {
     /// A staff row of the properties pane (where it began, and the row under the mouse now).
-    Prop(usize, usize),
+    Prop(usize, usize, bool),
     /// A row's volume slider (row, left, right).
     Volume(Strip, f64, f64),
     /// A border between panes.
@@ -2344,7 +2344,10 @@ fn draw_palette(scene: &mut Scene, p: &muse_app::Palette, width: f64, height: f6
         Some(sel) if sel >= rows => sel + 1 - rows,
         _ => 0,
     };
-    let swatches = p.items.iter().any(|i| i.swatch.is_some());
+    let swatches = p
+        .items
+        .iter()
+        .any(|i| i.swatch.is_some() || i.icon.is_some());
     for (k, item) in p.items.iter().enumerate().skip(first).take(rows) {
         let ry = y0 + input_h + 5.0 + (k - first) as f64 * row_h;
         let selected = p.selected == Some(k);
@@ -2365,6 +2368,15 @@ fn draw_palette(scene: &mut Scene, p: &muse_app::Palette, width: f64, height: f6
             let sw = RoundedRect::new(x0 + 16.0, ry + 4.0, x0 + 40.0, ry + row_h - 6.0, 4.0);
             scene.fill(Fill::NonZero, Affine::IDENTITY, col(c), None, &sw);
             scene.stroke(&Stroke::new(1.0), Affine::IDENTITY, dim(), None, &sw);
+        }
+        if let Some(icon) = item.icon {
+            draw_icon(
+                scene,
+                icon,
+                x0 + 18.0,
+                ry + (row_h - 18.0) / 2.0 - 1.0,
+                color,
+            );
         }
         text(
             scene,
@@ -2665,6 +2677,145 @@ const PROPS_KEY: f64 = 13.0;
 const PROPS_VALUE: f64 = 13.0 * 1.2;
 const PROPS_SECTION: f64 = 13.0 * 1.5;
 
+/// An icon in an 18 px square with its corner at (`x`, `y`).
+fn draw_icon(scene: &mut Scene, icon: muse_app::icons::Icon, x: f64, y: f64, c: Color) {
+    use muse_app::icons::Icon;
+    use vello::kurbo::{Cap, Ellipse, Line};
+    let (cx, cy) = (x + 9.0, y + 9.0);
+    let line = |scene: &mut Scene, a: (f64, f64), b: (f64, f64), w: f64| {
+        let stroke = Stroke::new(w).with_caps(Cap::Round);
+        scene.stroke(&stroke, Affine::IDENTITY, c, None, &Line::new(a, b));
+    };
+    fn outline(scene: &mut Scene, c: Color, shape: &impl Shape) {
+        scene.stroke(&Stroke::new(1.3), Affine::IDENTITY, c, None, shape);
+    }
+    fn solid(scene: &mut Scene, c: Color, shape: &impl Shape) {
+        scene.fill(Fill::NonZero, Affine::IDENTITY, c, None, shape);
+    }
+    let letter = |scene: &mut Scene, s: &str, lx: f64, ly: f64, size: f64| {
+        text(scene, s, lx, ly, size, Align::Center, c, true);
+    };
+    match icon {
+        Icon::Treble | Icon::Bass | Icon::Grand => {
+            for dy in [-5.0, 0.0, 5.0] {
+                line(scene, (x + 1.0, cy + dy), (x + 17.0, cy + dy), 0.8);
+            }
+            let (s, size) = match icon {
+                Icon::Treble => ("G", 14.0),
+                Icon::Bass => ("F", 14.0),
+                _ => ("GF", 10.5),
+            };
+            letter(scene, s, cx, cy + size * 0.36, size);
+        }
+        Icon::Tab | Icon::TabRhythm => {
+            for (i, l) in ["T", "A", "B"].into_iter().enumerate() {
+                letter(scene, l, cx - 2.0, y + 6.0 + i as f64 * 5.5, 6.5);
+            }
+            if icon == Icon::TabRhythm {
+                line(scene, (x + 14.0, y + 3.0), (x + 14.0, y + 15.0), 1.2);
+                line(scene, (x + 14.0, y + 15.0), (x + 17.0, y + 12.0), 1.2);
+            }
+        }
+        Icon::Slash => line(scene, (x + 4.0, y + 15.0), (x + 14.0, y + 3.0), 2.4),
+        Icon::Chant => {
+            for dy in [-6.0, -2.0, 2.0, 6.0] {
+                line(scene, (x + 1.0, cy + dy), (x + 17.0, cy + dy), 0.8);
+            }
+            solid(scene, c, &Rect::new(cx - 3.0, cy - 3.0, cx + 3.0, cy + 3.0));
+        }
+        Icon::Guitar => {
+            outline(scene, c, &Circle::new((cx - 3.0, cy + 3.5), 5.5));
+            outline(scene, c, &Circle::new((cx - 1.0, cy - 1.0), 3.5));
+            line(scene, (cx, cy - 2.0), (x + 16.0, y + 2.0), 1.8);
+            solid(scene, c, &Circle::new((cx - 3.0, cy + 3.5), 1.6));
+        }
+        Icon::Piano => {
+            outline(scene, c, &Rect::new(x + 1.0, y + 4.0, x + 17.0, y + 14.0));
+            for bx in [5.0, 9.0, 13.0] {
+                solid(
+                    scene,
+                    c,
+                    &Rect::new(x + bx - 1.0, y + 4.0, x + bx + 1.0, y + 10.0),
+                );
+            }
+        }
+        Icon::Organ => {
+            for (px, h) in [(3.0, 10.0), (8.0, 14.0), (13.0, 8.0)] {
+                outline(
+                    scene,
+                    c,
+                    &Rect::new(x + px, y + 16.0 - h, x + px + 3.0, y + 16.0),
+                );
+            }
+        }
+        Icon::Drums => {
+            outline(scene, c, &Ellipse::new((cx, y + 8.0), (7.0, 3.0), 0.0));
+            line(scene, (x + 2.0, y + 8.0), (x + 2.0, y + 14.0), 1.3);
+            line(scene, (x + 16.0, y + 8.0), (x + 16.0, y + 14.0), 1.3);
+            outline(scene, c, &Ellipse::new((cx, y + 14.0), (7.0, 3.0), 0.0));
+            line(scene, (x + 5.0, y + 1.0), (cx - 1.0, y + 7.0), 1.3);
+            line(scene, (x + 13.0, y + 1.0), (cx + 1.0, y + 7.0), 1.3);
+        }
+        Icon::Violin => {
+            outline(
+                scene,
+                c,
+                &Ellipse::new((cx - 2.0, cy + 3.0), (4.5, 6.0), 0.0),
+            );
+            line(scene, (cx - 2.0, cy - 3.0), (cx - 2.0, y + 1.0), 1.6);
+            line(scene, (x + 14.0, y + 2.0), (x + 16.0, y + 16.0), 1.2);
+        }
+        Icon::Voice => {
+            outline(
+                scene,
+                c,
+                &RoundedRect::new(cx - 3.0, y + 1.0, cx + 3.0, y + 10.0, 3.0),
+            );
+            let mut arc = BezPath::new();
+            arc.move_to((cx - 5.5, y + 7.0));
+            arc.quad_to((cx, y + 17.0), (cx + 5.5, y + 7.0));
+            outline(scene, c, &arc);
+            line(scene, (cx, y + 12.0), (cx, y + 16.0), 1.3);
+            line(scene, (cx - 3.0, y + 16.5), (cx + 3.0, y + 16.5), 1.3);
+        }
+        Icon::Brass => {
+            line(scene, (x + 1.0, cy), (x + 11.0, cy), 1.8);
+            let mut bell = BezPath::new();
+            bell.move_to((x + 11.0, cy - 1.0));
+            bell.line_to((x + 17.0, cy - 6.0));
+            bell.line_to((x + 17.0, cy + 6.0));
+            bell.line_to((x + 11.0, cy + 1.0));
+            bell.close_path();
+            outline(scene, c, &bell);
+            line(scene, (x + 5.0, cy), (x + 5.0, cy - 4.0), 1.3);
+            line(scene, (x + 8.0, cy), (x + 8.0, cy - 4.0), 1.3);
+        }
+        Icon::Wind => {
+            line(scene, (x + 2.0, y + 15.0), (x + 15.0, y + 3.0), 2.4);
+            for t in [0.35, 0.55, 0.75] {
+                let (px, py) = (x + 2.0 + 13.0 * t, y + 15.0 - 12.0 * t);
+                solid(scene, c, &Circle::new((px + 2.0, py + 2.0), 1.1));
+            }
+        }
+        Icon::Synth => {
+            let mut wave = BezPath::new();
+            wave.move_to((x + 1.0, cy));
+            wave.curve_to((x + 4.0, cy - 9.0), (x + 7.0, cy - 9.0), (x + 9.0, cy));
+            wave.curve_to((x + 11.0, cy + 9.0), (x + 14.0, cy + 9.0), (x + 17.0, cy));
+            outline(scene, c, &wave);
+        }
+        Icon::Note => {
+            solid(
+                scene,
+                c,
+                &Ellipse::new((cx - 2.0, cy + 4.0), (3.4, 2.5), -0.4),
+            );
+            line(scene, (cx + 1.0, cy + 3.5), (cx + 1.0, y + 2.0), 1.3);
+            line(scene, (cx + 1.0, y + 2.0), (cx + 5.0, y + 6.0), 1.3);
+        }
+    }
+}
+
 /// A chevron centred on (`x`, `y`): pointing right, or down when `open`.
 fn draw_chevron(scene: &mut Scene, x: f64, y: f64, open: bool, color: Color) {
     let mut path = BezPath::new();
@@ -2763,15 +2914,16 @@ fn draw_properties(scene: &mut Scene, app: &App, views: &mut Views, r: Rect) {
     let bottom = r.y1 - 12.0;
     let rows = app.property_rows();
     let first = app.property_window(((bottom - top) / PROPS_UNIT).floor().max(1.0) as usize);
-    let selected = app.property_selected();
     let (bx0, bx1) = (r.x0 + PAD, r.x1 - PAD);
     let mut y = top;
+    // The staff rows' boxes: row, left, top, bottom, and whether a label sits above.
+    let mut staff_rows: Vec<(usize, f64, f64, f64, bool)> = Vec::new();
     for (k, row) in rows.iter().enumerate().skip(first) {
         if y >= bottom {
             break;
         }
         let h = row.height() as f64 * PROPS_UNIT;
-        let sel = k == selected;
+        let sel = app.property_row_selected(k);
         let hit = Rect::new(r.x0, y, r.x1, (y + h).min(bottom));
         match &row.kind {
             RowKind::Header { folded, .. } => {
@@ -2800,36 +2952,54 @@ fn draw_properties(scene: &mut Scene, app: &App, views: &mut Views, r: Rect) {
             RowKind::Field { field, editable } => {
                 let typing = app.props.edit.as_ref().filter(|e| e.field == *field);
                 let label_c = if sel { col(th.accent) } else { dim() };
-                text(
-                    scene,
-                    &row.label,
-                    bx0,
-                    y + 18.0,
-                    PROPS_KEY,
-                    Align::Left,
-                    label_c,
-                    sel,
-                );
+                // A staff after the first has no label: its box takes the label's place.
+                let labelled = !row.label.is_empty();
+                if labelled {
+                    text(
+                        scene,
+                        &row.label,
+                        bx0,
+                        y + 18.0,
+                        PROPS_KEY,
+                        Align::Left,
+                        label_c,
+                        sel,
+                    );
+                }
                 let area = *field == Field::Lyrics;
-                let by0 = y + PROPS_UNIT;
+                let by0 = if labelled { y + PROPS_UNIT } else { y };
+                // Staff fields have a drag handle before them (the empty one, a gap).
+                let staff = matches!(field, Field::StaffAt(_));
+                let box_x0 = if staff { bx0 + 22.0 } else { bx0 };
+                if staff && !row.value.is_empty() {
+                    for dy in [-6.0, 0.0, 6.0] {
+                        for dx in [-3.0, 3.0] {
+                            let dot = Circle::new((bx0 + 9.0 + dx, by0 + BOX_H / 2.0 + dy), 1.6);
+                            scene.fill(Fill::NonZero, Affine::IDENTITY, dim(), None, &dot);
+                        }
+                    }
+                }
+                if staff {
+                    staff_rows.push((k, box_x0, by0, by0 + BOX_H, labelled));
+                }
                 let by1 = if area { bottom } else { by0 + BOX_H };
                 // A property with text beside it (a color's code, a tuning's pitches) has a
                 // narrower box, the text in grey to its right.
                 let toggle = matches!(field, Field::Mute | Field::Solo);
                 let box_x1 = if toggle {
-                    bx0 + 52.0
+                    box_x0 + 52.0
                 } else if row.aside.is_empty() {
                     bx1
                 } else {
                     let aside_w = width_of(&row.aside, PROPS_VALUE);
-                    (bx1 - aside_w - 14.0).min(bx0 + (bx1 - bx0) * 0.62)
+                    (bx1 - aside_w - 14.0).min(box_x0 + (bx1 - box_x0) * 0.62)
                 };
                 let on = row.value == "on";
                 // A toggle is a switch: a pill with a knob, and on/off printed beside it.
                 let b = if toggle {
-                    Rect::new(bx0, by0 + 6.0, box_x1, by0 + 30.0)
+                    Rect::new(box_x0, by0 + 6.0, box_x1, by0 + 30.0)
                 } else {
-                    Rect::new(bx0, by0, box_x1, by1)
+                    Rect::new(box_x0, by0, box_x1, by1)
                 };
                 let shape = b.to_rounded_rect(if toggle { 12.0 } else { 6.0 });
                 let track = if toggle && on { th.accent } else { th.tab };
@@ -2871,12 +3041,16 @@ fn draw_properties(scene: &mut Scene, app: &App, views: &mut Views, r: Rect) {
                 }
                 let c = if *editable { chrome_text() } else { dim() };
                 let size = PROPS_VALUE;
-                let mut tx = bx0 + 10.0;
-                let inner = box_x1 - bx0 - 20.0;
+                let mut tx = box_x0 + 10.0;
+                let inner = box_x1 - box_x0 - 20.0;
                 if let Some(c) = row.swatch {
                     let sw = RoundedRect::new(tx, by0 + 9.0, tx + 18.0, by0 + BOX_H - 9.0, 4.0);
                     scene.fill(Fill::NonZero, Affine::IDENTITY, col(c), None, &sw);
                     scene.stroke(&Stroke::new(1.0), Affine::IDENTITY, dim(), None, &sw);
+                    tx += 28.0;
+                }
+                if let Some(icon) = row.icon {
+                    draw_icon(scene, icon, tx, by0 + (BOX_H - 18.0) / 2.0, c);
                     tx += 28.0;
                 }
                 if !row.aside.is_empty() {
@@ -2886,6 +3060,7 @@ fn draw_properties(scene: &mut Scene, app: &App, views: &mut Views, r: Rect) {
                 if area {
                     let value = typing.map_or(row.value.as_str(), |e| e.text.as_str());
                     let lines = wrap_ranges(value, |l| width_of(l, size) <= inner);
+                    *app.props.visual.borrow_mut() = lines.clone();
                     let chars: Vec<char> = value.chars().collect();
                     let line_h = size * 1.35;
                     let shown = (((by1 - by0 - 14.0) / line_h).floor().max(1.0)) as usize;
@@ -2954,6 +3129,18 @@ fn draw_properties(scene: &mut Scene, app: &App, views: &mut Views, r: Rect) {
                             } else {
                                 row.value.clone()
                             };
+                            if shown.is_empty() && !row.placeholder.is_empty() {
+                                text(
+                                    scene,
+                                    row.placeholder,
+                                    tx,
+                                    ty,
+                                    size,
+                                    Align::Left,
+                                    dim(),
+                                    false,
+                                );
+                            }
                             if width_of(&shown, size) > inner {
                                 while width_of(&format!("{shown}…"), size) > inner
                                     && !shown.is_empty()
@@ -2970,6 +3157,20 @@ fn draw_properties(scene: &mut Scene, app: &App, views: &mut Views, r: Rect) {
         }
         views.props.push((hit, PropHit::Row(k)));
         y += h;
+    }
+    // While a staff is dragged: a line in the accent color where it would land.
+    if let Some(Drag::Prop(from, to, _)) = views.drag {
+        if from != to {
+            if let Some(&(_, x0, top, bottom, labelled)) = staff_rows.iter().find(|r| r.0 == to) {
+                let ly = if to > from { bottom + 6.0 } else { top - 6.0 };
+                let x0 = if labelled && to < from { x0 + 44.0 } else { x0 };
+                fill(
+                    scene,
+                    Rect::new(x0, ly - 1.5, bx1, ly + 1.5),
+                    col(th.accent),
+                );
+            }
+        }
     }
 }
 
@@ -3641,7 +3842,7 @@ impl Views {
 
     /// Mouse down over the properties pane: a tab shows, a row selects, a selected row edits.
     /// True when the pane took the click.
-    fn click_properties(&mut self, app: &mut App, x: f64, y: f64) -> bool {
+    fn click_properties(&mut self, app: &mut App, x: f64, y: f64, double: bool) -> bool {
         let Some(&(_, hit)) = self.props.iter().find(|(r, _)| r.contains((x, y))) else {
             return false;
         };
@@ -3649,9 +3850,9 @@ impl Views {
             PropHit::Tab(t) => app.set_property_tab(t),
             // A staff can be dragged to another place; a plain click waits for the release.
             PropHit::Row(i) if app.property_is_staff(i) => {
-                self.drag = Some(Drag::Prop(i, i));
+                self.drag = Some(Drag::Prop(i, i, double));
             }
-            PropHit::Row(i) => app.click_property(i),
+            PropHit::Row(i) => app.click_property(i, double),
         }
         true
     }
@@ -3694,13 +3895,13 @@ impl Views {
     /// Mouse moved with the button down: drags a slider, a pane border or a panel's edge.
     pub fn drag_to(&mut self, app: &mut App, x: f64, y: f64) -> bool {
         match self.drag.clone() {
-            Some(Drag::Prop(from, _)) => {
+            Some(Drag::Prop(from, _, double)) => {
                 let over = self.props.iter().find_map(|(r, h)| match h {
                     PropHit::Row(i) if r.contains((x, y)) => Some(*i),
                     _ => None,
                 });
                 if let Some(i) = over {
-                    self.drag = Some(Drag::Prop(from, i));
+                    self.drag = Some(Drag::Prop(from, i, double));
                 }
             }
             Some(Drag::Volume(strip, x0, x1)) => {
@@ -3744,8 +3945,8 @@ impl Views {
         match self.drag.take() {
             Some(Drag::Volume(..)) => app.group_edits(false),
             // Released on another staff: it moves there; on the same one: a click.
-            Some(Drag::Prop(from, to)) if from == to => app.click_property(from),
-            Some(Drag::Prop(from, to)) => app.drag_property(from, to),
+            Some(Drag::Prop(from, to, double)) if from == to => app.click_property(from, double),
+            Some(Drag::Prop(from, to, _)) => app.drag_property(from, to),
             _ => {}
         }
     }
@@ -3862,7 +4063,7 @@ impl Views {
             app.click_key(pitch);
             return;
         }
-        if self.click_properties(app, x, y) {
+        if self.click_properties(app, x, y, double) {
             return;
         }
         if self.click_tracks(app, x, y, double) {
