@@ -386,6 +386,8 @@ pub struct App {
     /// Score panes show the progress bar along their bottom (`ui.progress_bar`,
     /// `:progress-bar`).
     pub progress_bar: bool,
+    /// Score panes show a scrollbar (`ui.scrollbar`, `:scrollbar`).
+    pub scrollbar: bool,
     /// The tuner's latest reading while a tuner pane is shown (set by the frontend).
     pub tuner_reading: Option<muse_audio::tuner::Reading>,
     /// Why the tuner can't listen, if it can't.
@@ -442,6 +444,7 @@ impl App {
         let completion_fuzzy = config.file.ui.completion_fuzzy;
         let toolbar = config.file.ui.toolbar;
         let progress_bar = config.file.ui.progress_bar;
+        let scrollbar = config.file.ui.scrollbar;
         let (score_layout, zoom) = (config.file.ui.layout.clone(), config.file.ui.zoom);
         let config_mtime = config_path.as_deref().and_then(mtime);
         let theme_mtime = config
@@ -508,6 +511,7 @@ impl App {
             completion_fuzzy,
             toolbar,
             progress_bar,
+            scrollbar,
             tuner_reading: None,
             tuner_error: None,
             tracks_selected: 0,
@@ -1862,6 +1866,7 @@ impl App {
             Fretboard(on) => self.set_tool(PaneKind::Fretboard, on),
             GlobalTool(name) => self.toggle_global_tool(&name),
             ProgressBar(on) => self.progress_bar = on.unwrap_or(!self.progress_bar),
+            Scrollbar(on) => self.scrollbar = on.unwrap_or(!self.scrollbar),
             Piano(on) => self.set_tool(PaneKind::Piano, on),
             Tuner(on) => self.set_tool(PaneKind::Tuner, on),
             Maximize => {
@@ -2548,7 +2553,7 @@ fn set_row(c: &mut Cursor, row: Row) {
     }
 }
 
-/// One row down or up: through the track's staves, then on to the neighbouring track.
+/// One row down or up through the track's staves; it stops at the first and last row.
 fn move_row(score: &Score, c: &mut Cursor, down: bool) {
     let here = rows(score, c);
     if let Some(t) = score.tracks.get(c.track) {
@@ -2569,21 +2574,7 @@ fn move_row(score: &Score, c: &mut Cursor, down: bool) {
         _ => None,
     };
     if let Some(r) = target {
-        return set_row(c, r);
-    }
-    let next = if down {
-        Some(c.track + 1).filter(|&t| t < score.tracks.len())
-    } else {
-        c.track.checked_sub(1)
-    };
-    if let Some(t) = next {
-        set_track(score, c, t);
-        c.staff = 0;
-        let there = rows(score, c);
-        let entry = if down { there.first() } else { there.last() };
-        if let Some(&r) = entry {
-            set_row(c, r);
-        }
+        set_row(c, r);
     }
 }
 
@@ -2868,6 +2859,12 @@ pub(crate) mod tests {
         // The old setting still loads, with a warning.
         let (_, errors) = Config::parse("[ui]\nglobal_waveform = true\n").unwrap();
         assert!(errors[0].contains("ui.global_waveform"), "{errors:?}");
+        // The scrollbar is on by default and toggles.
+        assert!(app.scrollbar);
+        app.run(Command::Scrollbar(None));
+        assert!(!app.scrollbar);
+        app.run(Command::Scrollbar(Some(true)));
+        assert!(app.scrollbar);
         // The progress bar is on by default and toggles.
         assert!(app.progress_bar);
         app.run(Command::ProgressBar(None));

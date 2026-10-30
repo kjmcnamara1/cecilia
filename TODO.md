@@ -37,11 +37,11 @@ Planned work. Finished items move to `CHANGELOG.md` under `[Unreleased]`.
 - [ ] Different keymap for moving between staves
   - This allows moving to notes above or below standard staff without going to
     another staff
+- [ ] FIX: ctrl-c in any pane (score,tool,properties,etc.) should close that pane.
+- [ ] ctrl-w ctrl-w switches focus back and forth between panes
 
 ### UI
 
-- [ ] Add scrollbar (side for vertical, bottom for horizontal)
-  - [ ] Can be toggled on/off and changed in config.toml
 - [ ] FIX: Remember last focused pane in tree so switching back to a row/column
       refocuses the last pane before focusing another row/column
 - [ ] Allow grouping scores in tabline into groups and ability to (auto)

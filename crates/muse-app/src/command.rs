@@ -167,6 +167,7 @@ pub enum Command {
     GlobalTool(String),
     /// Show or hide the progress bar of the score panes.
     ProgressBar(Option<bool>),
+    Scrollbar(Option<bool>),
     /// Level of "midi", "audio" or "metronome" in percent.
     Volume(String, u32),
     /// Mute / solo a track (the cursor's when not given), the audio track or the synth master
@@ -683,7 +684,7 @@ impl Command {
             "sync-clear" => SyncClear,
             "sync-detect" => SyncDetect,
             "waveform-strip" => Waveform,
-            "waveform" | "progress-bar" => {
+            "waveform" | "progress-bar" | "scrollbar" => {
                 let on = match arg {
                     None | Some("toggle") => None,
                     Some("on" | "true" | "yes") => Some(true),
@@ -692,10 +693,10 @@ impl Command {
                         return Err(format!("{name}: expected on, off or toggle, not '{other}'"));
                     }
                 };
-                if name != "progress-bar" {
-                    AudioPane(on)
-                } else {
-                    ProgressBar(on)
+                match name {
+                    "progress-bar" => ProgressBar(on),
+                    "scrollbar" => Scrollbar(on),
+                    _ => AudioPane(on),
                 }
             }
             "global-tool" => GlobalTool(

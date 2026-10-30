@@ -165,6 +165,9 @@ pub struct UiConfig {
     pub global_waveform: Option<bool>,
     /// A progress bar along the bottom of every score pane: sections and the play position.
     pub progress_bar: bool,
+    /// A scrollbar on each score pane: down its right side, or along the bottom in the
+    /// horizontal layout.
+    pub scrollbar: bool,
     /// The tracks panel (tracks with mixer and a bar overview) at the bottom of the window.
     pub tracks_panel: bool,
     /// The properties pane (score, tracks and lyrics) along the right of the window.
@@ -200,6 +203,7 @@ impl Default for UiConfig {
             completion_fuzzy: true,
             global_waveform: None,
             progress_bar: true,
+            scrollbar: true,
             tracks_panel: false,
             properties: false,
             global_tools: ["tracks", "waveform", "fretboard", "piano", "tuner"]
