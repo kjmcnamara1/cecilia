@@ -135,12 +135,14 @@ impl App {
         })
     }
 
-    /// The mode as shown: typing into a property of the properties pane is insert mode.
+    /// The mode as shown: typing into a property of the properties pane is insert mode (the
+    /// lyrics text area has normal mode too).
     pub fn display_mode(&self) -> Mode {
-        if self.props.edit.is_some() {
-            Mode::Insert
-        } else {
-            self.mode
+        match &self.props.edit {
+            // The lyrics text area has vim's normal mode too.
+            Some(e) if e.modal && !e.insert => Mode::Normal,
+            Some(_) => Mode::Insert,
+            None => self.mode,
         }
     }
 

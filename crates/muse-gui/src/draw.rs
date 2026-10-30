@@ -2657,8 +2657,29 @@ fn draw_speedometer(scene: &mut Scene, x: f64, cy: f64, color: Color) {
     );
 }
 
-/// The properties pane's base text size: one and a half times the status line's.
-const PROPS_FONT: f64 = 13.0 * 1.5;
+/// The properties pane's text sizes: keys as the status line's, values and tabs 1.2 times,
+/// section titles 1.5 times.
+const PROPS_KEY: f64 = 13.0;
+const PROPS_VALUE: f64 = 13.0 * 1.2;
+const PROPS_SECTION: f64 = 13.0 * 1.5;
+
+/// A chevron centred on (`x`, `y`): pointing right, or down when `open`.
+fn draw_chevron(scene: &mut Scene, x: f64, y: f64, open: bool, color: Color) {
+    let mut path = BezPath::new();
+    if open {
+        path.move_to((x - 4.5, y - 2.5));
+        path.line_to((x, y + 2.5));
+        path.line_to((x + 4.5, y - 2.5));
+    } else {
+        path.move_to((x - 2.5, y - 4.5));
+        path.line_to((x + 2.5, y));
+        path.line_to((x - 2.5, y + 4.5));
+    }
+    let stroke = Stroke::new(2.0)
+        .with_caps(vello::kurbo::Cap::Round)
+        .with_join(vello::kurbo::Join::Round);
+    scene.stroke(&stroke, Affine::IDENTITY, color, None, &path);
+}
 /// One line unit of a row's height (see `PropRow::height`).
 const PROPS_UNIT: f64 = 24.0;
 
@@ -2701,7 +2722,7 @@ fn draw_properties(scene: &mut Scene, app: &App, views: &mut Views, r: Rect) {
     let width_of = |s: &str, size: f64| fonts.text_width(FontKind::Text, s, size);
     fill(scene, r, col(th.panel));
     // Tabs.
-    let tab_size = PROPS_FONT * 1.1;
+    let tab_size = PROPS_VALUE;
     let mut x = r.x0 + PAD;
     let tab_y = r.y0 + 14.0;
     for tab in PropTab::ALL {
@@ -2742,7 +2763,6 @@ fn draw_properties(scene: &mut Scene, app: &App, views: &mut Views, r: Rect) {
     let first = app.property_window(((bottom - top) / PROPS_UNIT).floor().max(1.0) as usize);
     let selected = app.property_selected();
     let (bx0, bx1) = (r.x0 + PAD, r.x1 - PAD);
-    let inner = bx1 - bx0 - 20.0;
     let mut y = top;
     for (k, row) in rows.iter().enumerate().skip(first) {
         if y >= bottom {
@@ -2753,12 +2773,11 @@ fn draw_properties(scene: &mut Scene, app: &App, views: &mut Views, r: Rect) {
         let hit = Rect::new(r.x0, y, r.x1, (y + h).min(bottom));
         match &row.kind {
             RowKind::Header { folded, .. } => {
-                let mark = if *folded { "▸" } else { "▾" };
                 let c = col(if sel { th.accent } else { th.chrome_text });
-                let size = PROPS_FONT * 1.1;
+                let size = PROPS_SECTION;
                 let by = y + h - 8.0;
-                text(scene, mark, bx0, by, size * 0.8, Align::Left, c, true);
-                let end = text_small_caps(scene, &row.label, bx0 + size, by, size, c, true);
+                draw_chevron(scene, bx0 + 6.0, by - size * 0.3, !*folded, c);
+                let end = text_small_caps(scene, &row.label, bx0 + 20.0, by, size, c, true);
                 // A rule after the title.
                 fill(
                     scene,
@@ -2771,7 +2790,7 @@ fn draw_properties(scene: &mut Scene, app: &App, views: &mut Views, r: Rect) {
                 &row.label,
                 bx0,
                 y + 20.0,
-                PROPS_FONT * 0.8,
+                PROPS_KEY,
                 Align::Left,
                 dim(),
                 false,
@@ -2784,7 +2803,7 @@ fn draw_properties(scene: &mut Scene, app: &App, views: &mut Views, r: Rect) {
                     &row.label,
                     bx0,
                     y + 18.0,
-                    PROPS_FONT * 0.8,
+                    PROPS_KEY,
                     Align::Left,
                     label_c,
                     sel,
@@ -2792,7 +2811,15 @@ fn draw_properties(scene: &mut Scene, app: &App, views: &mut Views, r: Rect) {
                 let area = *field == Field::Lyrics;
                 let by0 = y + PROPS_UNIT;
                 let by1 = if area { bottom } else { by0 + BOX_H };
-                let b = Rect::new(bx0, by0, bx1, by1);
+                // A property with text beside it (a colour's code, a tuning's pitches) has a
+                // narrower box, the text in grey to its right.
+                let box_x1 = if row.aside.is_empty() {
+                    bx1
+                } else {
+                    let aside_w = width_of(&row.aside, PROPS_VALUE);
+                    (bx1 - aside_w - 14.0).min(bx0 + (bx1 - bx0) * 0.62)
+                };
+                let b = Rect::new(bx0, by0, box_x1, by1);
                 let shape = b.to_rounded_rect(6.0);
                 scene.fill(Fill::NonZero, Affine::IDENTITY, col(th.tab), None, &shape);
                 if sel {
@@ -2813,8 +2840,19 @@ fn draw_properties(scene: &mut Scene, app: &App, views: &mut Views, r: Rect) {
                     );
                 }
                 let c = if *editable { chrome_text() } else { dim() };
-                let size = PROPS_FONT;
-                let tx = bx0 + 10.0;
+                let size = PROPS_VALUE;
+                let mut tx = bx0 + 10.0;
+                let inner = box_x1 - bx0 - 20.0;
+                if let Some(c) = row.swatch {
+                    let sw = RoundedRect::new(tx, by0 + 9.0, tx + 18.0, by0 + BOX_H - 9.0, 4.0);
+                    scene.fill(Fill::NonZero, Affine::IDENTITY, col(c), None, &sw);
+                    scene.stroke(&Stroke::new(1.0), Affine::IDENTITY, dim(), None, &sw);
+                    tx += 28.0;
+                }
+                if !row.aside.is_empty() {
+                    let ay = by0 + BOX_H / 2.0 + size * 0.35;
+                    text(scene, &row.aside, bx1, ay, size, Align::Right, dim(), false);
+                }
                 if area {
                     let value = typing.map_or(row.value.as_str(), |e| e.text.as_str());
                     let lines = wrap_ranges(value, |l| width_of(l, size) <= inner);
@@ -2833,10 +2871,19 @@ fn draw_properties(scene: &mut Scene, app: &App, views: &mut Views, r: Rect) {
                         let before: String = chars[s..s + cc].iter().collect();
                         let cx = tx + width_of(&before, size);
                         let ly = by0 + 7.0 + line_h * (cr - skip) as f64;
+                        // Normal mode: a block over the character; insert mode: a bar.
+                        let wide = match typing {
+                            Some(e) if e.modal && !e.insert => {
+                                let ch = chars.get(s + cc).filter(|c| **c != '\n');
+                                ch.map_or(8.0, |c| width_of(&c.to_string(), size))
+                            }
+                            _ => 2.0,
+                        };
+                        let a = if wide > 2.0 { 150 } else { 255 };
                         fill(
                             scene,
-                            Rect::new(cx, ly + 2.0, cx + 2.0, ly + size + 4.0),
-                            col(th.accent),
+                            Rect::new(cx, ly + 2.0, cx + wide, ly + size + 4.0),
+                            col(th.accent.with_alpha(a)),
                         );
                     }
                 } else {

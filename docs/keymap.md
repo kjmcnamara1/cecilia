@@ -254,9 +254,10 @@ mode; while the pane has the focus its keys are `[keymap.tracks]`, then the usua
 `<leader>p` shows or hides the properties pane, docked full height along the right of the
 window (`ui.properties` shows it from the start; workspaces remember it and its tab). It has
 three tabs (SCORE, TRACK, LYRICS). Each property is a label with its value in a box across the
-pane's width; they come in sections that fold. In the GUI the text is one and a half times the
-status line's, tab titles are uppercase and section titles small capitals, both larger; in the
-terminal the same titles are uppercase and in small-capital letters.
+pane's width; they come in sections (with chevrons) that fold. In the GUI keys are the status
+line's size, values and tabs 1.2 times and section titles 1.5 times; tab titles are uppercase and
+section titles small capitals (in the terminal too, as small-capital letters). Colour and tuning
+have a narrower box with the colour's hex code or the strings' pitches beside it in grey.
 
 - **SCORE** — *Info* (title, subtitle, artist, album, words, music, copyright, tab author,
   instructions) and *Page* (page size, margins and scale, as Guitar Pro 5 files keep them; muse
@@ -276,7 +277,7 @@ score pane). It stays Normal mode; while the pane has the focus its keys are
 | --- | --- |
 | `j` `k` / `<Down>` `<Up>` | select the next / previous property |
 | `l` `<Tab>` / `h` `<S-Tab>`, `1` `2` `3` | next / previous tab, the score / track / lyrics tab |
-| `<CR>` `i` `a` | edit the property. Text is typed in insert mode (the status line says INSERT): `<Left>` `<Right>` `<Home>` `<End>` move, `<C-u>` clears, `<CR>` or `<Esc>` keeps it (in the lyrics `<CR>` starts a line), `<C-c>` drops it. Colour opens a picker of named colours, each with a swatch and its hex code; type `#rrggbb` or `rgb(r,g,b)` for your own. Tuning opens a picker of common tunings of the track's instrument (Drop D, DADGAD, Open C …), searchable by name or description; type the notes (`D2 A2 D3 G3 B3 E4`) for your own. Instrument opens its picker; mute and solo flip; a section header folds |
+| `<CR>` `i` `a` | edit the property (insert mode). The score updates as you type, and the edit is one undo step. `<CR>` keeps a single line, `<Esc>` and `<C-c>` cancel it; `<Left>` `<Right>` `<Home>` `<End>` move, `<C-u>` clears. The lyrics text area is edited like vim: `<Esc>` goes to normal mode (`h` `j` `k` `l` `w` `b` `0` `^` `$` `gg` `G` move; `x` `D` `dd` delete; `i` `a` `I` `A` `o` `O` `<CR>` insert; `u` `<C-r>` undo and redo), each change and each insert session an undo step; `<Esc>` in normal mode leaves it. The status line shows the current mode. Colour opens a picker of named colours, each with a swatch and its hex code; type `#rrggbb` or `rgb(r,g,b)` for your own. Tuning opens a picker of common tunings of the track's instrument (Drop D, DADGAD, Open C …), searchable by name or description; type the notes (`D2 A2 D3 G3 B3 E4`) for your own. Instrument opens its picker; mute and solo flip; a section header folds |
 | `za` `zc` `zo` | toggle / close / open the section |
 | `x` | clear the lyrics or the track's own colour, or remove the cursor's staff |
 | `n` `p` | next / previous track |

@@ -132,6 +132,22 @@ fn parse_color_query(q: &str) -> Option<Rgba> {
     }
 }
 
+/// The name of a colour of the picker's list.
+pub(crate) fn color_name(c: Rgba) -> Option<&'static str> {
+    COLORS
+        .iter()
+        .find(|(_, hex)| Rgba::parse(hex) == Some(c))
+        .map(|(n, _)| *n)
+}
+
+/// The name of a tuning of the picker's lists (strings highest first).
+pub(crate) fn tuning_name(strings: &[u8]) -> Option<&'static str> {
+    tunings(tuning_family(strings), strings.len())
+        .into_iter()
+        .find(|(_, _, s)| s == strings)
+        .map(|(n, _, _)| n)
+}
+
 /// The instrument family a track's tuning is picked from, by its strings.
 #[derive(Clone, Copy, PartialEq)]
 enum Family {
@@ -309,7 +325,7 @@ fn tunings(family: Family, strings: usize) -> Vec<(&'static str, &'static str, V
 }
 
 /// Notes of a tuning from the lowest string up, as `:tuning` takes them.
-fn tuning_notes(strings: &[u8]) -> String {
+pub(crate) fn tuning_notes(strings: &[u8]) -> String {
     strings
         .iter()
         .rev()

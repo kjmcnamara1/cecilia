@@ -1411,7 +1411,8 @@ fn draw_properties(f: &mut Frame, app: &App, area: Rect, ui: &mut Ui) {
         };
         match &row.kind {
             RowKind::Header { folded, .. } => {
-                let mark = if *folded { '▸' } else { '▾' };
+                // Chevrons (Nerd Font): right when folded, down when open.
+                let mark = if *folded { '\u{f054}' } else { '\u{f078}' };
                 let title = format!("{mark} {}", small_caps(&row.label));
                 let style = if sel {
                     on(app, t.accent)
@@ -1452,10 +1453,30 @@ fn draw_properties(f: &mut Frame, app: &App, area: Rect, ui: &mut Ui) {
                 } else {
                     1
                 };
+                // A property with text beside it has a narrower box, the text dim to its right.
+                let aside = row.aside.chars().count();
+                let box_w = if aside == 0 {
+                    width
+                } else {
+                    width.saturating_sub(aside + 2).min(width * 62 / 100)
+                };
                 for by in 0..box_h {
-                    buf.set_string(x0, y + 1 + by, " ".repeat(width), text_style);
+                    buf.set_string(x0, y + 1 + by, " ".repeat(box_w), text_style);
                 }
-                let inner = width.saturating_sub(2);
+                if aside > 0 {
+                    buf.set_string(x0 + box_w as u16 + 2, y + 1, &row.aside, dim);
+                }
+                let mut text_x = x0 + 1;
+                if let Some(c) = row.swatch {
+                    buf.set_string(
+                        text_x,
+                        y + 1,
+                        "██",
+                        Style::default().fg(rc(c)).bg(rc(box_bg)),
+                    );
+                    text_x += 3;
+                }
+                let inner = box_w.saturating_sub((text_x - x0) as usize + 1);
                 if *field == muse_app::properties::Field::Lyrics {
                     let text = typing.map_or(row.value.as_str(), |e| e.text.as_str());
                     let lines = wrap_ranges(text, |l| l.chars().count() <= inner);
@@ -1468,12 +1489,15 @@ fn draw_properties(f: &mut Frame, app: &App, area: Rect, ui: &mut Ui) {
                         buf.set_string(x0 + 1, y + 1 + (n - skip) as u16, line, text_style);
                     }
                     if let Some((r, c)) = caret.filter(|&(r, _)| r >= skip) {
-                        buf.set_string(
-                            x0 + 1 + c as u16,
-                            y + 1 + (r - skip) as u16,
-                            "▏",
-                            text_style.fg(rc(t.accent)),
-                        );
+                        let (cx, cy) = (x0 + 1 + c as u16, y + 1 + (r - skip) as u16);
+                        if typing.is_some_and(|e| e.modal && !e.insert) {
+                            // Normal mode: the character under the caret is a block.
+                            let under = lines.get(r).and_then(|&(s, _)| chars.get(s + c));
+                            let ch = under.filter(|c| **c != '\n').copied().unwrap_or(' ');
+                            buf.set_string(cx, cy, ch.to_string(), on(app, t.accent));
+                        } else {
+                            buf.set_string(cx, cy, "▏", text_style.fg(rc(t.accent)));
+                        }
                     }
                 } else {
                     let shown = match typing {
@@ -1490,7 +1514,7 @@ fn draw_properties(f: &mut Frame, app: &App, area: Rect, ui: &mut Ui) {
                         }
                         None => clip(&row.value, inner),
                     };
-                    buf.set_string(x0 + 1, y + 1, shown, text_style);
+                    buf.set_string(text_x, y + 1, shown, text_style);
                 }
             }
         }
@@ -2206,7 +2230,7 @@ mod render_tests {
             "{screen}"
         );
         assert!(
-            screen.contains("▾ Iɴꜰᴏ") && screen.contains("Title"),
+            screen.contains("\u{f078} Iɴꜰᴏ") && screen.contains("Title"),
             "{screen}"
         );
         assert!(!screen.contains("Tempo"), "{screen}");

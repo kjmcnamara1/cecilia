@@ -134,6 +134,10 @@ pub struct PropRow {
     pub kind: RowKind,
     pub label: String,
     pub value: String,
+    /// Read-only text beside the value box (a colour's hex code, a tuning's pitches).
+    pub aside: String,
+    /// A colour shown in the value box.
+    pub swatch: Option<crate::theme::Rgba>,
 }
 
 /// Row heights, in lines (the frontends scale them): a section title with room above, a
@@ -157,19 +161,45 @@ impl PropRow {
     }
 }
 
-/// A property being typed (the pane is in insert mode): the text and the caret, as a
-/// character index.
+/// A property being typed. A single line is typed in insert mode; the lyrics text area is
+/// edited like vim (`modal`): insert and normal mode.
 #[derive(Debug, Clone, PartialEq)]
 pub struct PropEdit {
     pub field: Field,
     pub text: String,
+    /// The caret, as a character index.
     pub caret: usize,
+    /// Edited with vim's modes (the lyrics).
+    pub modal: bool,
+    /// In insert mode (else normal mode of a modal edit).
+    pub insert: bool,
+    /// The first key of a two-key normal-mode command (`d`, `g`).
+    pending: Option<char>,
+}
+
+fn is_word(c: char) -> bool {
+    c.is_alphanumeric() || c == '_'
 }
 
 impl PropEdit {
     fn new(field: Field, text: String) -> Self {
         let caret = text.chars().count();
-        Self { field, text, caret }
+        Self {
+            field,
+            text,
+            caret,
+            modal: field == Field::Lyrics,
+            insert: true,
+            pending: None,
+        }
+    }
+
+    fn chars(&self) -> Vec<char> {
+        self.text.chars().collect()
+    }
+
+    fn len(&self) -> usize {
+        self.text.chars().count()
     }
 
     fn byte(&self, caret: usize) -> usize {
@@ -179,7 +209,7 @@ impl PropEdit {
             .map_or(self.text.len(), |(i, _)| i)
     }
 
-    fn insert(&mut self, c: char) {
+    fn insert_char(&mut self, c: char) {
         let at = self.byte(self.caret);
         self.text.insert(at, c);
         self.caret += 1;
@@ -200,12 +230,27 @@ impl PropEdit {
         }
     }
 
+    /// Removes the characters `from..to`.
+    fn remove(&mut self, from: usize, to: usize) {
+        let (a, b) = (self.byte(from), self.byte(to));
+        self.text.replace_range(a..b, "");
+    }
+
     /// The caret's (line, column), lines being split at newlines.
     pub fn line_col(&self) -> (usize, usize) {
         let before: Vec<char> = self.text.chars().take(self.caret).collect();
         let line = before.iter().filter(|&&c| c == '\n').count();
         let col = before.iter().rev().take_while(|&&c| c != '\n').count();
         (line, col)
+    }
+
+    fn line_start(&self) -> usize {
+        self.caret - self.line_col().1
+    }
+
+    fn line_end(&self) -> usize {
+        let rest = self.text.chars().skip(self.caret);
+        self.caret + rest.take_while(|&c| c != '\n').count()
     }
 
     /// Moves the caret `by` lines, keeping the column where the line is long enough.
@@ -215,6 +260,55 @@ impl PropEdit {
         let to = (line as isize + by).clamp(0, lens.len() as isize - 1) as usize;
         let start: usize = lens[..to].iter().map(|l| l + 1).sum();
         self.caret = start + col.min(lens[to]);
+    }
+
+    /// In normal mode the caret rests on a character, not past the end of its line.
+    fn rest(&mut self) {
+        if !self.insert && self.caret > self.line_start() && self.caret >= self.line_end() {
+            self.caret -= 1;
+        }
+    }
+
+    /// The start of the next word.
+    fn word_forward(&mut self) {
+        let c = self.chars();
+        let mut i = self.caret;
+        while i < c.len() && is_word(c[i]) {
+            i += 1;
+        }
+        while i < c.len() && !is_word(c[i]) {
+            i += 1;
+        }
+        self.caret = i.min(c.len());
+    }
+
+    /// The start of this word, or the previous one.
+    fn word_back(&mut self) {
+        let c = self.chars();
+        let mut i = self.caret;
+        while i > 0 && !is_word(c[i - 1]) {
+            i -= 1;
+        }
+        while i > 0 && is_word(c[i - 1]) {
+            i -= 1;
+        }
+        self.caret = i;
+    }
+
+    /// Deletes the caret's line.
+    fn delete_line(&mut self) {
+        let (mut from, to) = (self.line_start(), self.line_end());
+        let to = if to < self.len() {
+            to + 1
+        } else {
+            // The last line takes the newline before it.
+            from = from.saturating_sub(1);
+            to
+        };
+        self.remove(from, to);
+        self.caret = from.min(self.len());
+        self.caret = self.line_start();
+        self.rest();
     }
 }
 
@@ -297,6 +391,14 @@ fn onoff(b: bool) -> String {
     if b { "on" } else { "off" }.into()
 }
 
+/// A track's verses as one text, a blank line between them.
+fn lyrics_text(t: &muse_core::Track) -> String {
+    let verses: Vec<String> = (0..muse_core::lyrics::verse_count(t))
+        .map(|v| muse_core::lyrics::verse_line(t, v).map_or(String::new(), |l| l.text))
+        .collect();
+    verses.join("\n\n")
+}
+
 fn kind_name(k: TrackKind) -> &'static str {
     match k {
         TrackKind::Fretted => "fretted",
@@ -304,16 +406,6 @@ fn kind_name(k: TrackKind) -> &'static str {
         TrackKind::Pitched => "pitched",
         TrackKind::Chant => "chant",
     }
-}
-
-/// A tuning as note names from the lowest string up (what `:tuning` takes).
-fn tuning_text(strings: &[u8]) -> String {
-    strings
-        .iter()
-        .rev()
-        .map(|&p| muse_core::pitch_name(p))
-        .collect::<Vec<_>>()
-        .join(" ")
 }
 
 impl App {
@@ -333,6 +425,8 @@ impl App {
                 },
                 label: s.name().into(),
                 value: String::new(),
+                aside: String::new(),
+                swatch: None,
             });
             !f
         };
@@ -341,6 +435,8 @@ impl App {
                 kind: RowKind::Field { field: f, editable },
                 label: label.into(),
                 value,
+                aside: String::new(),
+                swatch: None,
             })
         };
         match self.props.tab {
@@ -391,22 +487,24 @@ impl App {
                         kind_name(t.kind).into(),
                         false,
                     );
-                    let color = match t.display_color {
-                        Some(c) => format!("#{:02x}{:02x}{:02x}", c.r, c.g, c.b),
-                        None => "auto".into(),
+                    let shown = self.track_color(self.pane().buffer, cursor.track);
+                    let custom = t.display_color.is_some();
+                    let name = match (custom, crate::picker::color_name(shown)) {
+                        (false, _) => "Automatic",
+                        (true, Some(n)) => n,
+                        (true, None) => "Custom",
                     };
-                    field(&mut rows, Field::TrackColor, "Colour", color, true);
+                    field(&mut rows, Field::TrackColor, "Colour", name.into(), true);
+                    let last = rows.last_mut().unwrap();
+                    last.aside = shown.hex();
+                    last.swatch = Some(shown);
                 }
                 if section(&mut rows, Section::TrackNotation) {
                     let fretted = t.kind == TrackKind::Fretted;
                     if t.kind != TrackKind::Drums && !t.strings.is_empty() {
-                        field(
-                            &mut rows,
-                            Field::Tuning,
-                            "Tuning",
-                            tuning_text(&t.strings),
-                            true,
-                        );
+                        let name = crate::picker::tuning_name(&t.strings).unwrap_or("Custom");
+                        field(&mut rows, Field::Tuning, "Tuning", name.into(), true);
+                        rows.last_mut().unwrap().aside = crate::picker::tuning_notes(&t.strings);
                     }
                     if fretted {
                         field(
@@ -476,16 +574,7 @@ impl App {
                     t.name.trim().to_string()
                 };
                 rows.push(note(&format!("Lyrics of {name}")));
-                let verses: Vec<String> = (0..muse_core::lyrics::verse_count(t))
-                    .map(|v| muse_core::lyrics::verse_line(t, v).map_or(String::new(), |l| l.text))
-                    .collect();
-                field(
-                    &mut rows,
-                    Field::Lyrics,
-                    "Lyrics",
-                    verses.join("\n\n"),
-                    true,
-                );
+                field(&mut rows, Field::Lyrics, "Lyrics", lyrics_text(t), true);
             }
         }
         rows
@@ -525,13 +614,13 @@ impl App {
                 .position(|r| r.kind != RowKind::Note)
                 .unwrap_or(0);
             self.props.scroll.set(0);
-            self.props.edit = None;
+            self.end_edit(false);
         }
     }
 
     /// Selects a row (a click); a section header folds or unfolds.
     pub fn select_property(&mut self, row: usize) {
-        self.props.edit = None;
+        self.end_edit(false);
         let rows = self.property_rows();
         if row >= rows.len() {
             return;
@@ -599,87 +688,205 @@ impl App {
             Field::Program => self.run(Command::TrackInstrument(None)),
             Field::TrackColor => self.open_picker(PickerKind::Color(t)),
             Field::Tuning => self.open_picker(PickerKind::Tuning(t)),
-            _ => self.props.edit = Some(PropEdit::new(field, row.value.clone())),
+            _ => {
+                self.props.edit = Some(PropEdit::new(field, row.value.clone()));
+                // The edit is one undo step, made as it is typed.
+                self.ed.group = Some(false);
+            }
         }
     }
 
-    /// Keys while a property is typed (insert mode): they edit its text; Escape keeps it, and
-    /// so does Enter except in the lyrics, where it starts a new line; Ctrl-C drops it.
+    /// Ends the edit. Cancelling takes back what it changed.
+    fn end_edit(&mut self, cancel: bool) {
+        if self.props.edit.is_none() {
+            return;
+        }
+        let edited = self.ed.group == Some(true);
+        self.ed.group = None;
+        self.props.edit = None;
+        if cancel && edited {
+            self.run(Command::Undo);
+        }
+    }
+
+    /// Applies the typed text as it is (fields that can't take half-typed text wait for Enter).
+    fn apply_live(&mut self) {
+        let Some(PropEdit { field, text, .. }) = self.props.edit.clone() else {
+            return;
+        };
+        if !matches!(field, Field::Capo | Field::Staff) {
+            self.commit_property(field, text.trim(), true);
+        }
+    }
+
+    /// Keys while a property is typed. A single line is in insert mode: `<CR>` keeps the text,
+    /// `<Esc>` and `<C-c>` cancel. The lyrics are edited like vim.
     pub(crate) fn props_edit_key(&mut self, key: Key) {
         let Some(edit) = self.props.edit.as_mut() else {
             return;
         };
-        let multiline = edit.field == Field::Lyrics;
-        let keep = match key.code {
-            KeyCode::Esc => true,
-            KeyCode::Enter if !multiline => true,
-            KeyCode::Enter => {
-                edit.insert('\n');
-                false
-            }
-            KeyCode::Backspace => {
-                edit.backspace();
-                false
-            }
-            KeyCode::Delete => {
-                edit.delete();
-                false
-            }
-            KeyCode::Left => {
-                edit.caret = edit.caret.saturating_sub(1);
-                false
-            }
-            KeyCode::Right => {
-                edit.caret = (edit.caret + 1).min(edit.text.chars().count());
-                false
-            }
-            KeyCode::Up if multiline => {
-                edit.move_lines(-1);
-                false
-            }
-            KeyCode::Down if multiline => {
-                edit.move_lines(1);
-                false
-            }
-            KeyCode::Home => {
-                edit.caret -= edit.line_col().1;
-                false
-            }
-            KeyCode::End => {
-                let rest = edit.text.chars().skip(edit.caret);
-                edit.caret += rest.take_while(|&c| c != '\n').count();
-                false
-            }
-            KeyCode::Char('c') if key.ctrl => {
-                self.props.edit = None;
+        if edit.modal && !edit.insert {
+            return self.text_normal_key(key);
+        }
+        let multiline = edit.modal;
+        let before = (edit.text.clone(), edit.field);
+        match key.code {
+            KeyCode::Esc if multiline => {
+                // Back to normal mode: the insert session's changes are one undo step.
+                edit.insert = false;
+                edit.caret = edit
+                    .caret
+                    .saturating_sub(usize::from(edit.caret > edit.line_start()));
+                self.ed.group = None;
                 return;
             }
-            KeyCode::Char('u') if key.ctrl => {
-                *edit = PropEdit::new(edit.field, String::new());
-                false
+            KeyCode::Esc => return self.end_edit(true),
+            KeyCode::Char('c') if key.ctrl => return self.end_edit(true),
+            KeyCode::Enter if !multiline => {
+                let PropEdit { field, text, .. } = edit.clone();
+                let ok = self.commit_property(field, text.trim(), false);
+                return self.end_edit(!ok);
             }
+            KeyCode::Enter => edit.insert_char('\n'),
+            KeyCode::Backspace => edit.backspace(),
+            KeyCode::Delete => edit.delete(),
+            KeyCode::Left => edit.caret = edit.caret.saturating_sub(1),
+            KeyCode::Right => edit.caret = (edit.caret + 1).min(edit.len()),
+            KeyCode::Up if multiline => edit.move_lines(-1),
+            KeyCode::Down if multiline => edit.move_lines(1),
+            KeyCode::Home => edit.caret = edit.line_start(),
+            KeyCode::End => edit.caret = edit.line_end(),
+            KeyCode::Char('u') if key.ctrl => *edit = PropEdit::new(edit.field, String::new()),
             _ => {
-                if let Some(c) = key.as_char().filter(|_| !key.ctrl) {
-                    edit.insert(c);
+                if let Some(c) = key.as_char() {
+                    edit.insert_char(c);
                 }
-                false
             }
-        };
-        if keep {
-            let PropEdit { field, text, .. } = self.props.edit.take().unwrap();
-            self.commit_property(field, text.trim());
+        }
+        if edit.text != before.0 {
+            self.apply_live();
         }
     }
 
-    /// Applies typed text to a property.
-    fn commit_property(&mut self, field: Field, text: &str) {
+    /// Keys in the lyrics text area's normal mode: a vim subset. Each change is its own undo
+    /// step, and `<Esc>` leaves the text area.
+    fn text_normal_key(&mut self, key: Key) {
+        let Some(edit) = self.props.edit.as_mut() else {
+            return;
+        };
+        let before = edit.text.clone();
+        let pending = edit.pending.take();
+        let mut insert = false;
+        match (pending, key.code) {
+            (_, KeyCode::Esc) => return self.end_edit(false),
+            (Some('d'), KeyCode::Char('d')) => edit.delete_line(),
+            (Some('g'), KeyCode::Char('g')) => edit.caret = 0,
+            (_, KeyCode::Char('d')) => edit.pending = Some('d'),
+            (_, KeyCode::Char('g')) => edit.pending = Some('g'),
+            (_, KeyCode::Char('r')) if key.ctrl => return self.text_history(Command::Redo),
+            (_, KeyCode::Char('u')) if !key.ctrl => return self.text_history(Command::Undo),
+            (_, KeyCode::Enter) => insert = true,
+            (_, KeyCode::Left) => edit.caret = edit.caret.saturating_sub(1),
+            (_, KeyCode::Right) => edit.caret += 1,
+            (_, KeyCode::Up) => edit.move_lines(-1),
+            (_, KeyCode::Down) => edit.move_lines(1),
+            (_, KeyCode::Home) => edit.caret = edit.line_start(),
+            (_, KeyCode::End) => edit.caret = edit.line_end(),
+            (_, KeyCode::Char(c)) if !key.ctrl && !key.alt => match c {
+                'h' => edit.caret = edit.caret.saturating_sub(1),
+                'l' => edit.caret += 1,
+                'j' => edit.move_lines(1),
+                'k' => edit.move_lines(-1),
+                'w' => edit.word_forward(),
+                'b' => edit.word_back(),
+                '0' => edit.caret = edit.line_start(),
+                '^' => {
+                    edit.caret = edit.line_start();
+                    let rest: Vec<char> = edit.chars().into_iter().skip(edit.caret).collect();
+                    edit.caret += rest.iter().take_while(|c| **c == ' ').count();
+                }
+                '$' => edit.caret = edit.line_end(),
+                'G' => {
+                    edit.caret = edit.len();
+                    edit.caret = edit.line_start();
+                }
+                'x' => edit.delete(),
+                'D' => {
+                    let (from, to) = (edit.caret, edit.line_end());
+                    edit.remove(from, to);
+                }
+                'i' => insert = true,
+                'a' => {
+                    edit.caret = (edit.caret + 1).min(edit.line_end());
+                    insert = true;
+                }
+                'I' => {
+                    edit.caret = edit.line_start();
+                    insert = true;
+                }
+                'A' => {
+                    edit.caret = edit.line_end();
+                    insert = true;
+                }
+                'o' => {
+                    edit.caret = edit.line_end();
+                    edit.insert_char('\n');
+                    insert = true;
+                }
+                'O' => {
+                    edit.caret = edit.line_start();
+                    edit.insert_char('\n');
+                    edit.caret -= 1;
+                    insert = true;
+                }
+                _ => {}
+            },
+            _ => {}
+        }
+        edit.caret = edit.caret.min(edit.len());
+        let changed = edit.text != before;
+        if insert {
+            edit.insert = true;
+            // The insert session is one undo step (and so is the `o`/`O` that began it).
+            self.ed.group = Some(false);
+        } else {
+            edit.rest();
+        }
+        if changed {
+            self.apply_live();
+            if !insert {
+                // A change in normal mode is a step of its own.
+            }
+        }
+    }
+
+    /// Undo or redo from the text area: the text is read back from the score.
+    fn text_history(&mut self, cmd: Command) {
+        self.ed.group = None;
+        self.run(cmd);
         let t = self.pane().cursor.track;
+        let text = self.buffer().score.tracks.get(t).map(lyrics_text);
+        if let (Some(text), Some(edit)) = (text, self.props.edit.as_mut()) {
+            edit.text = text;
+            edit.caret = edit.caret.min(edit.len());
+            edit.rest();
+        }
+    }
+
+    /// Applies typed text to a property; false when it isn't a valid value. While typing
+    /// (`live`) half-typed values are passed over quietly.
+    fn commit_property(&mut self, field: Field, text: &str, live: bool) -> bool {
+        let t = self.pane().cursor.track;
+        let valid = std::cell::Cell::new(true);
         // A whole number within bounds, or an error naming the property.
         let number = |app: &mut App, what: &str, min: u32, max: u32| -> Option<u32> {
             match text.parse::<u32>() {
                 Ok(n) if (min..=max).contains(&n) => Some(n),
                 _ => {
-                    app.error(format!("{what}: expected a number from {min} to {max}"));
+                    valid.set(false);
+                    if !live {
+                        app.error(format!("{what}: expected a number from {min} to {max}"));
+                    }
                     None
                 }
             }
@@ -739,6 +946,7 @@ impl App {
                     });
                 }
             }
+            Field::TrackName if text.is_empty() => valid.set(false),
             Field::TrackName => self.run(Command::TrackRename(format!("{text} {}", t + 1))),
             Field::Capo => {
                 if let Some(n) = number(self, "capo", 0, 36) {
@@ -791,6 +999,7 @@ impl App {
             | Field::Solo
             | Field::Program => {}
         }
+        valid.get()
     }
 
     /// Replaces the verses of a track with `text` (Guitar Pro lyric syntax; verses are separated
@@ -862,7 +1071,7 @@ impl App {
             Properties(on) => self.set_tool(PaneKind::Properties, *on),
             PropertiesFocus => {
                 if self.focused_kind() == PaneKind::Properties {
-                    self.props.edit = None;
+                    self.end_edit(false);
                     self.set_focus(self.focused());
                 } else {
                     self.set_tool(PaneKind::Properties, Some(true));
@@ -911,6 +1120,8 @@ fn note(text: &str) -> PropRow {
         kind: RowKind::Note,
         label: text.into(),
         value: String::new(),
+        aside: String::new(),
+        swatch: None,
     }
 }
 
@@ -1169,7 +1380,7 @@ mod tests {
     }
 
     #[test]
-    fn lyrics_are_one_text_area_in_one_undo_step() {
+    fn lyrics_are_a_vim_text_area_with_live_undo_steps() {
         let mut app = with_props();
         app.run(Command::Lyrics(0, "Hel-lo world".into()));
         app.set_property_tab(PropTab::Lyrics);
@@ -1179,56 +1390,72 @@ mod tests {
                 .any(|r| r.label == "Lyrics" && r.value == "Hel-lo world"),
             "{rows:?}"
         );
-        // Verses are separated by a blank line; Enter inside starts a line; Esc keeps it.
+        let verse = |app: &App, v| {
+            muse_core::lyrics::verse_line(&app.buffer().score.tracks[0], v).map(|l| l.text)
+        };
         keys(&mut app, "<leader>P");
-        keys(&mut app, "i");
+        // Enter starts insert mode; the score follows every key; Esc is normal mode.
+        keys(&mut app, "<CR>");
         assert_eq!(app.display_mode(), Mode::Insert);
-        keys(&mut app, "<C-u>Good-bye moon<CR><CR>la la<Esc>");
-        assert!(app.props.edit.is_none());
-        let t = &app.buffer().score.tracks[0];
-        assert_eq!(
-            muse_core::lyrics::verse_line(t, 0).unwrap().text,
-            "Good-bye moon"
-        );
-        assert_eq!(muse_core::lyrics::verse_line(t, 1).unwrap().text, "la la");
-        app.run(Command::Undo);
-        let t = &app.buffer().score.tracks[0];
-        assert_eq!(
-            muse_core::lyrics::verse_line(t, 0).unwrap().text,
-            "Hel-lo world"
-        );
-        assert!(muse_core::lyrics::verse_line(t, 1).is_none());
-        // `x` clears the verses.
+        keys(&mut app, "<C-u>Good-bye");
+        assert_eq!(verse(&app, 0).as_deref(), Some("Good-bye"), "live");
+        keys(&mut app, "<CR><CR>la la");
+        assert_eq!(verse(&app, 1).as_deref(), Some("la la"));
+        keys(&mut app, "<Esc>");
+        assert_eq!(app.display_mode(), Mode::Normal);
+        assert!(app.props.edit.is_some(), "still in the text area");
+        // The whole insert session is one undo step.
+        keys(&mut app, "u");
+        assert_eq!(verse(&app, 0).as_deref(), Some("Hel-lo world"));
+        assert_eq!(verse(&app, 1), None);
+        assert_eq!(app.props.edit.as_ref().unwrap().text, "Hel-lo world");
+        // Normal mode: motions and changes, each its own step; i and Enter insert.
+        keys(&mut app, "0wx");
+        assert_eq!(verse(&app, 0).as_deref(), Some("Hel-o world"));
+        keys(&mut app, "ddu");
+        assert_eq!(verse(&app, 0).as_deref(), Some("Hel-o world"));
+        keys(&mut app, "ix<Esc>");
+        assert_eq!(app.props.edit.as_ref().unwrap().text, "xHel-o world");
+        keys(&mut app, "<Esc>");
+        assert!(app.props.edit.is_none(), "Escape in normal mode leaves");
+        assert_eq!(app.display_mode(), Mode::Normal);
+        // `x` in the pane clears the verses.
         app.run(Command::PropertiesClear);
-        assert!(muse_core::lyrics::verse_line(&app.buffer().score.tracks[0], 0).is_none());
+        assert_eq!(verse(&app, 0), None);
     }
 
     #[test]
-    fn editing_is_insert_mode() {
+    fn editing_is_live_insert_mode_and_escape_cancels() {
         let mut app = with_props();
         keys(&mut app, "<leader>P");
         app.props.selected = field_row(&app, Field::Title);
         assert_eq!(app.display_mode(), Mode::Normal);
         keys(&mut app, "ijq");
         assert_eq!(app.display_mode(), Mode::Insert, "every key is typed");
-        assert_eq!(app.props.edit.as_ref().unwrap().text, "jq");
+        assert_eq!(
+            app.buffer().score.meta.title,
+            "jq",
+            "the score updates live"
+        );
         // The caret moves; typing goes in at it.
         keys(&mut app, "<Left>x<Home>y");
-        assert_eq!(app.props.edit.as_ref().unwrap().text, "yjxq");
+        assert_eq!(app.buffer().score.meta.title, "yjxq");
+        // Escape cancels: the title is as it was, and nothing is left to undo.
         keys(&mut app, "<Esc>");
         assert!(app.props.edit.is_none());
         assert_eq!(app.display_mode(), Mode::Normal);
-        assert_eq!(
-            app.buffer().score.meta.title,
-            "yjxq",
-            "Escape keeps the text"
-        );
+        assert_eq!(app.buffer().score.meta.title, "");
         assert_eq!(app.focused_kind(), PaneKind::Properties);
-        keys(&mut app, "iAB<CR>");
-        assert_eq!(app.buffer().score.meta.title, "yjxqAB");
-        // Ctrl-C drops it.
+        // Enter keeps it, as one undo step; Ctrl-C cancels like Escape.
+        keys(&mut app, "<CR>AB<CR>");
+        assert_eq!(app.buffer().score.meta.title, "AB");
         keys(&mut app, "iZ<C-c>");
-        assert_eq!(app.buffer().score.meta.title, "yjxqAB");
+        assert_eq!(app.buffer().score.meta.title, "AB");
+        app.run(Command::Undo);
+        assert_eq!(app.buffer().score.meta.title, "");
+        // A half-typed number is passed over; a bad one is refused on Enter.
+        type_into(&mut app, Field::PageScale, "x");
+        assert_eq!(app.buffer().score.page.scale, 100);
         assert!(app.props.edit.is_none());
     }
 }
