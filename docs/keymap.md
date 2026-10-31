@@ -296,6 +296,40 @@ Clicking a tab shows it, a row selects it and a double click edits it; a click o
 | `:properties-tab [score\|track\|lyrics]` | show a tab (none: the next) |
 | `:properties-fold [open\|close]` | open, close or (no argument) toggle the selected section |
 
+## Editing palette
+
+`<leader>e` shows or hides the editing palette, docked along the left of the window above the bottom tool panes (which run under it at the full width; the properties pane stays outermost along the right)
+(`ui.palette = true` shows it from the start). Like Guitar Pro's editing panel it is a grid of
+small icon buttons, wrapped to the pane's width, in collapsible sections: durations (whole to
+64th, dotted, triplet, rest), pitch (sharp, flat, natural, octave, tie, dead and ghost notes),
+dynamics (`ppp` to `fff`), articulations (accent, staccato, let ring, palm mute) and effects
+(hammer-on/pull-off, slide, bend, vibrato, harmonic, tremolo picking, tap/slap/pop, strokes). The
+GUI shows the highlighted button's name along the bottom of the pane (and as a tooltip when the
+mouse rests on it); the terminal draws short labels and shows the name on the pane's bottom row. Each button runs an ordinary command
+(`:duration 8`, `:toggle palm-mute`, `:dynamic mf` …) on the score pane worked on. The buttons in
+force at the cursor (the beat's duration, its dynamic and techniques) are tinted with the accent
+and follow the cursor as it moves; the highlighted button is a neutral gray. The mouse and the
+keyboard share that one highlight: moving the mouse over a button selects it. `<leader>E` focuses the pane (again: back to the score); while it has the focus its keys
+are `[keymap.palette]`, then the usual ones:
+
+| keys | command |
+| --- | --- |
+| `h` `l` `<Left>` `<Right>` | select the button to the left / right in its line (no wrapping) |
+| `j` `<Down>` `<Tab>` / `k` `<Up>` `<S-Tab>` | select the button below / above (keeping the column), through the section titles |
+| `<CR>` `<Space>` | apply the selected button (on a section title: fold or unfold it) |
+| `za` `zc` `zo` | toggle / close / open the section |
+| `<Esc>` `q` | back to the score pane |
+
+A button's name (tooltip and label) ends with the insert-mode keys bound to its command, from the live keymaps so your overrides show ("Palm mute (m)", at most three, "Quarter note (<A-3>)"; none: no parentheses). Buttons that can't take effect at the cursor are dimmed and named "(unavailable)" after that: note-level ones (pitch, tie, dead and ghost notes, dynamics, articulations, most effects) off a note, accidentals on a tab. They are worked out by trying the command's own edit, so they follow what the command refuses. They stay selectable, but applying one does nothing and the status line says why.
+
+A click applies a button (and returns to the score pane) or folds a section; the wheel scrolls.
+
+| command | |
+| --- | --- |
+| `:palette [on\|off]` / `:palette-focus` | show or hide the pane / focus it |
+| `:palette-down` `:palette-up` `:palette-left` `:palette-right` `:palette-activate` `:palette-fold [open\|close]` | move, apply, fold |
+| `:dynamic ppp\|pp\|p\|mp\|mf\|f\|ff\|fff` | set the dynamic of the note under the cursor (velocity 15 … 127) |
+
 ## Playing
 
 Playing is not a mode: Normal, Visual, Insert and the command line all keep working while a

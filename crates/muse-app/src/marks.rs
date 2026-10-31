@@ -225,6 +225,7 @@ impl App {
                 let map = self.config.keymap(match self.mode {
                     crate::config::Mode::Tracks => crate::config::Mode::Tracks,
                     crate::config::Mode::Properties => crate::config::Mode::Properties,
+                    crate::config::Mode::Palette => crate::config::Mode::Palette,
                     _ => crate::config::Mode::Normal,
                 });
                 let rows: Vec<(String, String)> = map
