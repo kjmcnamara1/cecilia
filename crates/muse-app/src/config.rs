@@ -23,6 +23,8 @@ pub enum Mode {
     Tracks,
     /// Names the properties pane's keymap (`[keymap.properties]`), like [`Mode::Tracks`].
     Properties,
+    /// Names the editing palette's keymap (`[keymap.palette]`), like [`Mode::Tracks`].
+    Palette,
 }
 
 #[derive(Debug, Clone, Default, Deserialize)]
@@ -172,6 +174,8 @@ pub struct UiConfig {
     pub tracks_panel: bool,
     /// The properties pane (score, tracks and lyrics) along the right of the window.
     pub properties: bool,
+    /// The editing palette (durations, rests, effects …) along the left of the window.
+    pub palette: bool,
     /// Tool panes that dock along the bottom of the whole view, at its full width, and show
     /// the last active score pane ("tracks", "waveform", "fretboard", "piano", "tuner"); the
     /// others dock under the score pane they open from, as wide as it, and always show it.
@@ -206,6 +210,7 @@ impl Default for UiConfig {
             scrollbar: true,
             tracks_panel: false,
             properties: false,
+            palette: false,
             global_tools: ["tracks", "waveform", "fretboard", "piano", "tuner"]
                 .map(String::from)
                 .to_vec(),
@@ -268,6 +273,7 @@ pub struct KeymapConfig {
     pub visual: HashMap<String, Binding>,
     pub tracks: HashMap<String, Binding>,
     pub properties: HashMap<String, Binding>,
+    pub palette: HashMap<String, Binding>,
     /// No longer used (Play mode was removed); kept so old configs still load, with a warning.
     pub play: HashMap<String, Binding>,
 }
@@ -321,6 +327,8 @@ const DEFAULT_NORMAL: &[(&str, &str)] = &[
     ("<leader>T", "tracks"),
     ("<leader>p", "properties"),
     ("<leader>P", "properties-focus"),
+    ("<leader>e", "palette"),
+    ("<leader>E", "palette-focus"),
     ("<leader>B", "toolbar"),
     ("]s", "section-next"),
     ("[s", "section-prev"),
@@ -552,6 +560,24 @@ const DEFAULT_TRACKS: &[(&str, &str)] = &[
     (":", "command-mode"),
 ];
 
+const DEFAULT_PALETTE: &[(&str, &str)] = &[
+    ("j", "palette-down"),
+    ("<Down>", "palette-down"),
+    ("<Tab>", "palette-down"),
+    ("k", "palette-up"),
+    ("<Up>", "palette-up"),
+    ("<S-Tab>", "palette-up"),
+    ("<CR>", "palette-activate"),
+    ("<Space>", "palette-activate"),
+    ("za", "palette-fold"),
+    ("zc", "palette-fold close"),
+    ("zo", "palette-fold open"),
+    ("<Esc>", "palette-focus"),
+    ("q", "palette-focus"),
+    ("<leader>e", "palette"),
+    ("<leader>E", "palette-focus"),
+];
+
 const DEFAULT_PROPERTIES: &[(&str, &str)] = &[
     ("j", "properties-down"),
     ("<Down>", "properties-down"),
@@ -751,6 +777,19 @@ impl Config {
             &mut errors,
         );
         keymaps.insert(Mode::Properties, properties);
+        let mut palette = Keymap::default();
+        for (keys, cmd) in DEFAULT_PALETTE {
+            let keys = parse_keys(keys, &leader).expect("valid default key");
+            palette.bind_default(keys, cmd);
+        }
+        apply_user(
+            &mut palette,
+            &file.keymap.palette,
+            &leader,
+            "keymap.palette",
+            &mut errors,
+        );
+        keymaps.insert(Mode::Palette, palette);
         let mut insert_keymaps = HashMap::new();
         for (kind, defaults, user, name) in [
             (

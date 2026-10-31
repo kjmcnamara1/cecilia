@@ -149,11 +149,16 @@ impl App {
             {
                 self.properties_key(key)
             }
+            Mode::Normal | Mode::Tracks | Mode::Properties
+                if self.focused_kind() == crate::app::PaneKind::Palette =>
+            {
+                self.palette_key(key)
+            }
             // A focused tracks pane has its own keys first.
             Mode::Normal | Mode::Tracks if self.focused_kind() == crate::app::PaneKind::Tracks => {
                 self.tracks_key(key)
             }
-            Mode::Normal | Mode::Tracks | Mode::Properties => self.normal_key(key),
+            Mode::Normal | Mode::Tracks | Mode::Properties | Mode::Palette => self.normal_key(key),
             Mode::Insert => self.insert_key(key),
             Mode::Visual => self.visual_key(key),
         }
@@ -748,6 +753,10 @@ impl App {
             Toggle(t) => {
                 let t = t.clone();
                 self.edit(|cx| edit::toggle(cx, &t, duration));
+            }
+            Dynamic(d) => {
+                let d = d.clone();
+                self.edit(|cx| edit::set_dynamic(cx, &d));
             }
             NoteLetter(c) => {
                 let step = muse_core::staff::letter_step(*c).unwrap_or(0);

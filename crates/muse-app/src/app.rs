@@ -150,16 +150,19 @@ pub enum PaneKind {
     Tuner,
     /// The score's, the cursor track's and the lyrics' properties, docked along the right.
     Properties,
+    /// The editing palette (durations, rests, effects …), docked along the left.
+    Palette,
 }
 
 impl PaneKind {
-    pub const TOOLS: [PaneKind; 6] = [
+    pub const TOOLS: [PaneKind; 7] = [
         PaneKind::Tracks,
         PaneKind::Audio,
         PaneKind::Piano,
         PaneKind::Fretboard,
         PaneKind::Tuner,
         PaneKind::Properties,
+        PaneKind::Palette,
     ];
 
     pub fn name(self) -> &'static str {
@@ -171,6 +174,7 @@ impl PaneKind {
             PaneKind::Fretboard => "fretboard",
             PaneKind::Tuner => "tuner",
             PaneKind::Properties => "properties",
+            PaneKind::Palette => "palette",
         }
     }
 
@@ -183,6 +187,7 @@ impl PaneKind {
             "fretboard" => PaneKind::Fretboard,
             "tuner" => PaneKind::Tuner,
             "properties" => PaneKind::Properties,
+            "palette" => PaneKind::Palette,
             _ => return None,
         })
     }
@@ -397,6 +402,8 @@ pub struct App {
     pub tracks_selected: usize,
     /// The properties pane's tab, selection and fold state.
     pub props: crate::properties::PropsState,
+    /// The editing palette's selection and fold state.
+    pub palette: crate::palette::PaletteState,
     /// Height of a row of text in viewport units (1 in a terminal, pixels in the GUI), for
     /// sizing new tool panes.
     pub row_height: u16,
@@ -516,6 +523,7 @@ impl App {
             tuner_error: None,
             tracks_selected: 0,
             props: Default::default(),
+            palette: Default::default(),
             renaming: None,
             row_height: 1,
             col_width: 1,
@@ -548,6 +556,7 @@ impl App {
             (PaneKind::Fretboard, ui.fretboard),
             (PaneKind::Piano, ui.piano),
             (PaneKind::Properties, ui.properties),
+            (PaneKind::Palette, ui.palette),
         ];
         for (kind, on) in tools {
             if on {
@@ -634,6 +643,7 @@ impl App {
             PaneKind::Piano | PaneKind::Tuner => (3, 40),
             PaneKind::Audio => (4, 40),
             PaneKind::Properties => (10, crate::properties::WIDTH as usize),
+            PaneKind::Palette => (10, crate::palette::WIDTH as usize),
             PaneKind::Score => (10, 40),
         };
         let frame = self.pane_frame as usize;
@@ -643,12 +653,12 @@ impl App {
         )
     }
 
-    /// A new tool pane's size: its natural one, except that the properties pane (docked at the
-    /// right) has a width only.
+    /// A new tool pane's size: its natural one, except that the properties and palette panes
+    /// (docked at the sides) have a width only.
     fn tool_size(&self, kind: PaneKind) -> (Option<u16>, Option<u16>) {
         let (h, w) = self.natural_size(kind);
         match kind {
-            PaneKind::Properties => (None, Some(w)),
+            PaneKind::Properties | PaneKind::Palette => (None, Some(w)),
             _ => (Some(h), Some(w)),
         }
     }
@@ -656,7 +666,7 @@ impl App {
     /// Whether a tool docks along the bottom of the whole view, showing the last active score
     /// pane (`ui.global_tools`, `:global-tool`), else under its own score pane.
     pub fn is_global(&self, kind: PaneKind) -> bool {
-        kind == PaneKind::Properties
+        matches!(kind, PaneKind::Properties | PaneKind::Palette)
             || self
                 .config
                 .file
@@ -677,6 +687,9 @@ impl App {
         };
         if kind == PaneKind::Properties {
             return self.error("global-tool: the properties pane always docks at the right");
+        }
+        if kind == PaneKind::Palette {
+            return self.error("global-tool: the palette always docks at the left");
         }
         let was_open = self.tool_pane(kind).is_some();
         let tools = &mut self.config.file.ui.global_tools;
@@ -796,37 +809,67 @@ impl App {
                 if !self.viewport_known {
                     self.unfitted.push(id);
                 }
-                let docked_right = self.docked_right();
+                let wrapped = self.side_docked();
+                let side = |kind| matches!(kind, PaneKind::Properties | PaneKind::Palette);
+                let body = match &self.view().root {
+                    Node::Split { children, .. } if wrapped => children
+                        .iter()
+                        .position(|c| {
+                            !matches!(c, Node::Leaf(id)
+                                if self.panes.get(id).is_some_and(|p| side(p.kind)))
+                        })
+                        .unwrap_or(0),
+                    _ => 0,
+                };
                 let view = &mut self.views[self.active_view];
-                if kind == PaneKind::Properties {
-                    // Along the right of the whole view, at its full height.
+                if side(kind) {
+                    // Along a side of the whole view, at its full height: the properties pane
+                    // right, the palette left.
                     let root = std::mem::replace(&mut view.root, Node::Leaf(0));
-                    view.root = Node::Split {
-                        axis: Axis::SideBySide,
-                        children: vec![root, Node::Leaf(id)],
-                        weights: vec![1.0, 1.0],
-                    };
-                } else if global {
-                    // Along the bottom of the view's panes (left of the properties pane).
-                    let root = std::mem::replace(&mut view.root, Node::Leaf(0));
-                    view.root = match (root, docked_right) {
-                        (
-                            Node::Split {
-                                axis: Axis::SideBySide,
-                                mut children,
-                                weights,
-                            },
-                            true,
-                        ) => {
-                            let body = children.remove(0);
-                            children.insert(0, dock_bottom(body, id));
+                    let at_left = kind == PaneKind::Palette;
+                    view.root = match root {
+                        Node::Split {
+                            axis: Axis::SideBySide,
+                            mut children,
+                            mut weights,
+                        } if wrapped => {
+                            let at = if at_left { 0 } else { children.len() };
+                            children.insert(at, Node::Leaf(id));
+                            weights.insert(at, 1.0);
                             Node::Split {
                                 axis: Axis::SideBySide,
                                 children,
                                 weights,
                             }
                         }
-                        (root, _) => dock_bottom(root, id),
+                        root => Node::Split {
+                            axis: Axis::SideBySide,
+                            children: if at_left {
+                                vec![Node::Leaf(id), root]
+                            } else {
+                                vec![root, Node::Leaf(id)]
+                            },
+                            weights: vec![1.0, 1.0],
+                        },
+                    };
+                } else if global {
+                    // Along the bottom of the view's panes (between the side panes).
+                    let root = std::mem::replace(&mut view.root, Node::Leaf(0));
+                    view.root = match root {
+                        Node::Split {
+                            axis: Axis::SideBySide,
+                            mut children,
+                            weights,
+                        } if wrapped => {
+                            let main = children.remove(body);
+                            children.insert(body, dock_bottom(main, id));
+                            Node::Split {
+                                axis: Axis::SideBySide,
+                                children,
+                                weights,
+                            }
+                        }
+                        root => dock_bottom(root, id),
                     };
                 } else {
                     // Under the score pane it works on, as wide as it.
@@ -842,17 +885,17 @@ impl App {
         }
     }
 
-    /// Whether the active view's root is a split with the properties pane as its last child.
-    fn docked_right(&self) -> bool {
+    /// Whether the active view's root is a split with the properties or palette pane as a child.
+    fn side_docked(&self) -> bool {
         match &self.view().root {
             Node::Split {
                 axis: Axis::SideBySide,
                 children,
                 ..
-            } => matches!(
-                children.last(),
-                Some(Node::Leaf(id)) if self.panes.get(id).is_some_and(|p| p.kind == PaneKind::Properties)
-            ),
+            } => children.iter().any(|c| {
+                matches!(c, Node::Leaf(id) if self.panes.get(id).is_some_and(|p|
+                    matches!(p.kind, PaneKind::Properties | PaneKind::Palette)))
+            }),
             _ => false,
         }
     }
@@ -1024,7 +1067,7 @@ impl App {
             .iter()
             .filter(|(_, p)| match p.kind {
                 PaneKind::Score => false,
-                PaneKind::Properties => p.size.1.is_none(),
+                PaneKind::Properties | PaneKind::Palette => p.size.1.is_none(),
                 _ => p.size.0.is_none(),
             })
             .map(|(id, _)| *id)
@@ -1694,6 +1737,7 @@ impl App {
             || self.run_playalong(&cmd)
             || self.run_tracks(&cmd)
             || self.run_properties(&cmd)
+            || self.run_palette(&cmd)
         {
             return;
         }
