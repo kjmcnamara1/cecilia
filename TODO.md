@@ -29,10 +29,6 @@ Planned work. Finished items move to `CHANGELOG.md` under `[Unreleased]`.
 
 - [ ] TODO: Deep dive on editing workflow
 - [ ] Editing toolbar
-- [ ] Auto save editing progress in a swap file (similar to neovim swap files)
-      to recover from a crash or if app is force closed without saving.
-  - swap directory should be a setting (default=~/.local/state/muse/swap)
-
 ### Keymaps
 
 - [ ] TODO: Deep dive on keymap architecture and how to define (config.toml seems lacking)

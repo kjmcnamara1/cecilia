@@ -427,6 +427,20 @@ session if you want it (with `--workspace` too, the files open in that workspace
 | `:workspace-open name`   | replace the session with a saved workspace (`:workspace-open!` discards unsaved changes) |
 | `:workspace-close`       | save and leave the active workspace for `default`                                        |
 
+### Swap files
+
+While a file has unsaved changes muse keeps a recovery copy in the swap directory (`[swap]` in
+the config: `enabled`, `interval`, `dir`; by default `$XDG_STATE_HOME/muse/swap`, else
+`~/.local/state/muse/swap`), named after the file's full path. It is deleted when the file is
+saved or closed, and on quit. Opening a file whose swap file is newer says so and stops
+autosaving that file until you choose:
+
+| command                  |                                                                                  |
+| ------------------------ | -------------------------------------------------------------------------------- |
+| `:recover`               | restore the file from its swap file, left unsaved (`:recover!` if another muse owns it) |
+| `:recover swapfile`      | open a swap file as a new unnamed buffer (for scores that were never saved)      |
+| `:swap-discard`          | delete the file's swap file                                                      |
+
 ### Chant _(M6)_
 
 On a chant track the cursor moves note by note; `<C-a>`/`<C-x>` move a note up or down (adding a

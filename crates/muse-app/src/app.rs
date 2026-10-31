@@ -363,6 +363,7 @@ pub struct App {
     /// Command-line completion in progress: candidates, where they start and which is shown.
     completion: Option<(crate::complete::Completions, Option<usize>)>,
     pub message: Option<Message>,
+    pub(crate) swap: crate::swap::SwapState,
     pub show_help: bool,
     /// Set by the frontend to reflect the player state.
     pub playing: bool,
@@ -499,6 +500,7 @@ impl App {
             picker: None,
             marks: Default::default(),
             message: None,
+            swap: Default::default(),
             show_help: false,
             playing: false,
             playing_buffer: None,
@@ -1171,10 +1173,14 @@ impl App {
             history: Default::default(),
             version: 0,
         };
+        let path_for_swap = buffer.path.clone().unwrap();
+        let path_for_swap = path_for_swap.as_path();
         if self.buffers.len() == 1 && self.buffers[0].path.is_none() {
+            self.swap_check_open(path_for_swap);
             self.buffers[0] = buffer;
             return Ok(0);
         }
+        self.swap_check_open(path_for_swap);
         self.buffers.push(buffer);
         Ok(self.buffers.len() - 1)
     }
@@ -1429,6 +1435,7 @@ impl App {
     /// Reloads the config file if it changed on disk.
     pub fn poll_config(&mut self) {
         self.autosave_workspace();
+        self.swap_tick(std::time::Instant::now());
         let Some(path) = self.config_path.clone() else {
             return;
         };
@@ -1996,8 +2003,13 @@ impl App {
                 }
             }
             ViewClose(force) => self.close_view(force),
+            Recover(path, force) => self.recover(path, force),
+            SwapDiscard => self.swap_discard(),
             Edit(path) => match self.open(&path) {
-                Ok(b) => self.show_buffer(b),
+                Ok(b) => {
+                    self.show_buffer(b);
+                    self.swap_show_notices();
+                }
                 Err(e) => self.error(e),
             },
             OpenDialog => {
@@ -2087,6 +2099,7 @@ impl App {
     /// names it. True if muse may quit.
     fn may_quit(&mut self, force: bool) -> bool {
         if force {
+            self.swap_clear();
             return true;
         }
         match self.buffers.iter().find(|b| b.modified) {
@@ -2097,7 +2110,10 @@ impl App {
                 ));
                 false
             }
-            None => true,
+            None => {
+                self.swap_clear();
+                true
+            }
         }
     }
 
@@ -2147,6 +2163,7 @@ impl App {
                 if buffer.path.as_deref() == Some(target.as_path()) {
                     self.buffers[index].modified = false;
                     self.buffers[index].history.mark_saved();
+                    self.swap_release(index);
                 }
                 self.info(format!("\"{}\" written, {size} bytes", target.display()));
             }
