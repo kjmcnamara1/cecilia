@@ -3418,7 +3418,7 @@ fn draw_palette_icon(scene: &mut Scene, command: &str, c: vello::kurbo::Point, c
             label(scene, "8", 11.0);
             arrow(scene, (13.0, 10.0), (13.0, 14.5));
         }
-        ("dynamic", d) => label(scene, d, if d.len() > 2 { 10.5 } else { 12.5 }),
+        ("dynamic", d) => label(scene, d, if d.len() > 2 { 12.5 } else { 15.0 }),
         ("toggle", "tie") => {
             let mut p = BezPath::new();
             p.move_to((x + 1.5, y + 6.0));
