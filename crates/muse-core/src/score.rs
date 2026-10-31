@@ -442,6 +442,23 @@ impl Staff {
         })
     }
 
+    /// Parses several staves in order, e.g. `treble tab grand C4 slash`: a staff kind starts the
+    /// next one, any other word belongs to the staff before it (the split note of `grand`).
+    pub fn parse_list(s: &str, clef: Clef) -> Result<Vec<Staff>, String> {
+        let starts = |w: &str| Staff::KINDS.contains(&w) || matches!(w, "standard" | "std");
+        let mut specs: Vec<Vec<&str>> = Vec::new();
+        for w in s.split_whitespace() {
+            match specs.last_mut() {
+                Some(last) if !starts(w) => last.push(w),
+                _ => specs.push(vec![w]),
+            }
+        }
+        specs
+            .iter()
+            .map(|words| Staff::parse(&words.join(" "), clef))
+            .collect()
+    }
+
     pub fn name(self) -> String {
         match self {
             Staff::Standard(c) => c.name(),
