@@ -1352,7 +1352,7 @@ impl App {
             |n| n.to_string_lossy().into(),
         );
         // Replace the initial empty buffer if nothing refers to anything else yet.
-        let buffer = Buffer {
+        let mut buffer = Buffer {
             path: Some(canonical),
             name,
             score,
@@ -1360,16 +1360,23 @@ impl App {
             history: Default::default(),
             version: 0,
         };
-        let path_for_swap = buffer.path.clone().unwrap();
-        let path_for_swap = path_for_swap.as_path();
-        if self.buffers.len() == 1 && self.buffers[0].path.is_none() {
-            self.swap_check_open(path_for_swap);
-            self.buffers[0] = buffer;
-            return Ok(0);
+        let recovered = self.swap_check_open(buffer.path.as_deref().unwrap());
+        if let Some(score) = recovered.clone() {
+            buffer.score = score;
+            buffer.modified = true;
         }
-        self.swap_check_open(path_for_swap);
-        self.buffers.push(buffer);
-        Ok(self.buffers.len() - 1)
+        let index = if self.buffers.len() == 1 && self.buffers[0].path.is_none() {
+            self.buffers[0] = buffer;
+            0
+        } else {
+            self.buffers.push(buffer);
+            self.buffers.len() - 1
+        };
+        if recovered.is_some() {
+            // Own the swap file now, so closing the buffer removes it.
+            self.swap_write(index);
+        }
+        Ok(index)
     }
 
     /// Shows a buffer in the focused pane, adding it to the view's bufferline if needed. The
@@ -1535,6 +1542,7 @@ impl App {
         }
         if !in_other_views {
             self.forget_marks(buffer);
+            self.swap_release(buffer);
             // Unloaded: the slot stays (indices are shared) but holds nothing.
             self.buffers[buffer] = Buffer {
                 name: "[closed]".into(),

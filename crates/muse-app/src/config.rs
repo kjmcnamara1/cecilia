@@ -236,6 +236,9 @@ pub struct SwapConfig {
     /// Seconds after the last change before the swap file is written (and at the latest six
     /// times this while editing continues).
     pub interval: f64,
+    /// Opening a file with a newer swap file (not owned by a running muse) restores it as
+    /// unsaved changes; otherwise a message points to `:recover` and `:swap-discard`.
+    pub auto_recover: bool,
     /// Where swap files go (`$XDG_STATE_HOME/muse/swap`, else `~/.local/state/muse/swap`, when unset).
     pub dir: Option<PathBuf>,
 }
@@ -245,6 +248,7 @@ impl Default for SwapConfig {
         Self {
             enabled: true,
             interval: 5.0,
+            auto_recover: true,
             dir: None,
         }
     }

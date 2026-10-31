@@ -24,7 +24,7 @@ pub(crate) struct SwapState {
     /// Swap files found on open and not yet recovered or discarded: autosave leaves them alone.
     held: HashSet<PathBuf>,
     /// Messages about swap files found on open, shown at the next opportunity.
-    notices: Vec<String>,
+    notices: Vec<(String, bool)>,
     /// A write failed and was reported; stays quiet until one works.
     failed: bool,
 }
@@ -132,7 +132,7 @@ impl App {
     }
 
     /// Writes a buffer's swap file now (atomically); never touches `modified` or the history.
-    fn swap_write(&mut self, index: usize) {
+    pub(crate) fn swap_write(&mut self, index: usize) {
         let (Some(file), Some(buffer)) = (self.swap_file(index), self.buffers.get(index)) else {
             return;
         };
@@ -169,10 +169,7 @@ impl App {
     /// Called about once a second: writes swap files for buffers that changed and have been
     /// quiet for `swap.interval` seconds, and removes those of buffers that no longer need one.
     pub(crate) fn swap_tick(&mut self, now: Instant) {
-        if !self.swap.notices.is_empty() {
-            let text = std::mem::take(&mut self.swap.notices).join("; ");
-            self.error(text);
-        }
+        self.show_swap_notices();
         let cfg = self.config.file.swap.clone();
         if !cfg.enabled {
             return self.swap_clear();
@@ -243,27 +240,39 @@ impl App {
     }
 
     /// Looks for a swap file left by an earlier session of the file being opened; if it is
-    /// newer than the file, holds it (no autosave over it) and queues a message.
-    pub(crate) fn swap_check_open(&mut self, path: &Path) {
+    /// newer than the file, queues a message. With `swap.auto_recover` (and no running muse
+    /// owning it) its score is returned for the caller to load as unsaved changes; otherwise
+    /// the file is held (no autosave over it) until `:recover` or `:swap-discard`.
+    pub(crate) fn swap_check_open(&mut self, path: &Path) -> Option<muse_core::Score> {
         if !self.config.file.swap.enabled {
-            return;
+            return None;
         }
-        let Some(dir) = self.swap_dir() else { return };
+        let dir = self.swap_dir()?;
         let file = dir.join(swap_name(path));
         let (Some(swap_time), Ok(info)) = (modified_time(&file), read_swap(&file)) else {
-            return;
+            return None;
         };
         if info.pid == std::process::id() {
-            return;
+            return None;
         }
         if modified_time(path).is_some_and(|t| t >= swap_time) {
-            return; // older than the file: stale
+            return None; // older than the file: stale
         }
         let name = path
             .file_name()
             .map_or_else(String::new, |n| n.to_string_lossy().into());
+        let alive = pid_alive(info.pid);
+        if self.config.file.swap.auto_recover && !alive {
+            self.swap.notices.push((
+                format!(
+                    "\"{name}\": recovered unsaved changes from a swap file (undo history is lost; :w saves them, :bd! then :open gets the saved file back)"
+                ),
+                false,
+            ));
+            return Some(info.score);
+        }
         self.swap.held.insert(file);
-        self.swap.notices.push(if pid_alive(info.pid) {
+        self.swap.notices.push((if alive {
             format!(
                 "\"{name}\": swap file of a running muse (pid {}); :recover! to take it anyway, :swap-discard to delete it",
                 info.pid
@@ -272,14 +281,30 @@ impl App {
             format!(
                 "\"{name}\": unsaved changes found in a swap file (crash?): :recover to restore, :swap-discard to delete (not autosaving until then)"
             )
-        });
+        }, true));
+        None
     }
 
     /// Shows queued swap notices now (after the opened file's own message).
     pub(crate) fn swap_show_notices(&mut self) {
-        if !self.swap.notices.is_empty() {
-            let text = std::mem::take(&mut self.swap.notices).join("; ");
+        self.show_swap_notices();
+    }
+
+    fn show_swap_notices(&mut self) {
+        let notices = std::mem::take(&mut self.swap.notices);
+        if notices.is_empty() {
+            return;
+        }
+        let error = notices.iter().any(|n| n.1);
+        let text = notices
+            .into_iter()
+            .map(|n| n.0)
+            .collect::<Vec<_>>()
+            .join("; ");
+        if error {
             self.error(text);
+        } else {
+            self.info(text);
         }
     }
 
@@ -470,6 +495,7 @@ mod tests {
             .unwrap();
 
         let mut app = app_in(&dir);
+        app.config.file.swap.auto_recover = false;
         app.run(Command::Edit(file.clone()));
         app.swap_show_notices();
         let msg = app.message.as_ref().unwrap();
@@ -498,6 +524,10 @@ mod tests {
         other.swap_tick(t0 + Duration::from_secs(6));
         let mut app = app_in(&dir);
         app.run(Command::Edit(file));
+        assert!(
+            !app.buffer().modified,
+            "a live owner is never auto-recovered"
+        );
         // Our own pid is never "another process", so no refusal here; a foreign live pid is
         // simulated by pid 1 (init), when /proc exists.
         if cfg!(target_os = "linux") {
@@ -512,6 +542,73 @@ mod tests {
             app.run(Command::Recover(None, true));
             assert!(app.buffer().modified);
         }
+        std::fs::remove_dir_all(dir).ok();
+    }
+
+    /// A crashed session's swap file for `file`, newer than it, owned by `pid`.
+    fn crashed_swap(dir: &Path, file: &Path, pid: u32) -> muse_core::Score {
+        let mut crashed = app_in(dir);
+        crashed.run(Command::Edit(file.to_path_buf()));
+        crate::app::tests::keys(&mut crashed, "i7<Esc>");
+        let changed = crashed.buffer().score.clone();
+        let t0 = Instant::now();
+        crashed.swap_tick(t0);
+        crashed.swap_tick(t0 + Duration::from_secs(6));
+        let swap = swaps(dir).remove(0);
+        let mut bytes = std::fs::read(&swap).unwrap();
+        let header = format!("{MAGIC}\n{}\n", std::process::id());
+        bytes.splice(0..header.len(), format!("{MAGIC}\n{pid}\n").bytes());
+        std::fs::write(&swap, bytes).unwrap();
+        let later = std::time::SystemTime::now() + Duration::from_secs(60);
+        let f = std::fs::File::options().write(true).open(&swap).unwrap();
+        f.set_modified(later).unwrap();
+        changed
+    }
+
+    #[test]
+    fn auto_recover_restores_by_default() {
+        let dir = tmp("auto");
+        let file = make_file(&dir);
+        let changed = crashed_swap(&dir, &file, 4_000_000_000);
+        let mut app = app_in(&dir);
+        assert!(app.config.file.swap.auto_recover);
+        app.run(Command::Edit(file.clone()));
+        assert!(app.buffer().modified && app.buffer().score == changed);
+        let msg = app.message.as_ref().unwrap();
+        assert!(!msg.error && msg.text.contains("recovered"), "{}", msg.text);
+        // The file on disk is untouched, and closing the buffer drops the swap file.
+        assert_ne!(muse_formats::read_file(&file).unwrap(), changed);
+        app.run(Command::BufferClose(None, true));
+        assert!(swaps(&dir).is_empty());
+        std::fs::remove_dir_all(dir).ok();
+    }
+
+    #[test]
+    fn auto_recover_off_only_warns() {
+        let dir = tmp("autooff");
+        let file = make_file(&dir);
+        let changed = crashed_swap(&dir, &file, 4_000_000_000);
+        let mut app = app_in(&dir);
+        app.config.file.swap.auto_recover = false;
+        app.run(Command::Edit(file));
+        assert!(!app.buffer().modified && app.buffer().score != changed);
+        let msg = app.message.as_ref().unwrap();
+        assert!(msg.error && msg.text.contains(":recover"), "{}", msg.text);
+        std::fs::remove_dir_all(dir).ok();
+    }
+
+    #[test]
+    fn live_owner_is_not_auto_recovered() {
+        if !cfg!(target_os = "linux") {
+            return;
+        }
+        let dir = tmp("autolive");
+        let file = make_file(&dir);
+        let changed = crashed_swap(&dir, &file, 1);
+        let mut app = app_in(&dir);
+        app.run(Command::Edit(file));
+        assert!(!app.buffer().modified && app.buffer().score != changed);
+        assert!(app.message.as_ref().unwrap().text.contains("running muse"));
         std::fs::remove_dir_all(dir).ok();
     }
 }
