@@ -299,28 +299,33 @@ Clicking a tab shows it, a row selects it and a double click edits it; a click o
 ## Editing palette
 
 `<leader>e` shows or hides the editing palette, docked full height along the left of the window
-(`ui.palette = true` shows it from the start). Like Guitar Pro's editing panel it lists, in
-sections that fold, the durations (whole to 64th, dotted, triplet, rest), pitch (sharp, flat,
-natural, octave, tie, dead and ghost notes), dynamics (`ppp` to `fff`), articulations (accent,
-staccato, let ring, palm mute) and effects (hammer-on/pull-off, slide, bend, vibrato, harmonic,
-tremolo picking, tap/slap/pop, strokes). Each item runs an ordinary command (`:duration 8`,
-`:toggle palm-mute`, `:dynamic mf` …) on the score pane worked on; the settings in force at the
-cursor are marked. `<leader>E` focuses the pane (again: back to the score); while it has the
-focus its keys are `[keymap.palette]`, then the usual ones:
+(`ui.palette = true` shows it from the start). Like Guitar Pro's editing panel it is a grid of
+small icon buttons, wrapped to the pane's width, in collapsible sections: durations (whole to
+64th, dotted, triplet, rest), pitch (sharp, flat, natural, octave, tie, dead and ghost notes),
+dynamics (`ppp` to `fff`), articulations (accent, staccato, let ring, palm mute) and effects
+(hammer-on/pull-off, slide, bend, vibrato, harmonic, tremolo picking, tap/slap/pop, strokes). In
+the GUI the mouse resting on a button shows its name; the terminal draws short labels and shows
+the selected button's name on the pane's bottom row. Each button runs an ordinary command
+(`:duration 8`, `:toggle palm-mute`, `:dynamic mf` …) on the score pane worked on. The buttons in
+force at the cursor (the beat's duration, its dynamic and techniques) are tinted with the accent
+and follow the cursor as it moves; the mouse-over and the keyboard-selected button are a neutral
+gray. `<leader>E` focuses the pane (again: back to the score); while it has the focus its keys
+are `[keymap.palette]`, then the usual ones:
 
 | keys | command |
 | --- | --- |
-| `j` `<Down>` `<Tab>` / `k` `<Up>` `<S-Tab>` | select the next / previous row |
-| `<CR>` `<Space>` | apply the selected item (on a section title: fold or unfold it) |
+| `h` `l` `<Left>` `<Right>` | select the button to the left / right in its line (no wrapping) |
+| `j` `<Down>` `<Tab>` / `k` `<Up>` `<S-Tab>` | select the button below / above (keeping the column), through the section titles |
+| `<CR>` `<Space>` | apply the selected button (on a section title: fold or unfold it) |
 | `za` `zc` `zo` | toggle / close / open the section |
 | `<Esc>` `q` | back to the score pane |
 
-A click applies an item (and returns to the score pane) or folds a section; the wheel scrolls.
+A click applies a button (and returns to the score pane) or folds a section; the wheel scrolls.
 
 | command | |
 | --- | --- |
 | `:palette [on\|off]` / `:palette-focus` | show or hide the pane / focus it |
-| `:palette-down` `:palette-up` `:palette-activate` `:palette-fold [open\|close]` | move, apply, fold |
+| `:palette-down` `:palette-up` `:palette-left` `:palette-right` `:palette-activate` `:palette-fold [open\|close]` | move, apply, fold |
 | `:dynamic ppp\|pp\|p\|mp\|mf\|f\|ff\|fff` | set the dynamic of the note under the cursor (velocity 15 … 127) |
 
 ## Playing

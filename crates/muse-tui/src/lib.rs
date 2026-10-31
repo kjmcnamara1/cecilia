@@ -1582,66 +1582,105 @@ fn clip(text: &str, width: usize) -> String {
     out
 }
 
-/// The editing palette: a section title per section, then its items one to a row; the item in
-/// force is marked and the selected row highlighted.
+/// The editing palette: a section title per section over grids of short-label buttons, and the
+/// name of the selected button on the bottom row. Buttons in force are marked.
 fn draw_edit_palette(f: &mut Frame, app: &App, area: Rect, ui: &mut Ui) {
-    use muse_app::palette::PaletteKind;
+    use muse_app::palette::{PaletteKind, PaletteLine};
+    const CELL: u16 = 4;
     let t = app.config.theme.clone();
     let base = Style::default().bg(rc(t.panel)).fg(rc(t.chrome_text));
     ui.palette_area = Some(area);
     f.render_widget(Paragraph::new("").style(base), area);
-    if area.height < 2 || area.width < 6 {
+    if area.height < 3 || area.width < CELL + 1 {
         return;
     }
+    let cols = ((area.width - 1) / CELL) as usize;
+    app.set_palette_cols(cols);
     let rows = app.palette_rows();
-    let first = app.palette_window(area.height as usize);
+    let lines = app.palette_lines();
     let sel = app.palette_selected();
     let focused = app.focused_kind() == PaneKind::Palette;
+    let shown = (area.height - 1) as usize;
+    let first = app.palette_window(shown);
     let buf = f.buffer_mut();
-    for (k, row) in rows
-        .iter()
-        .enumerate()
-        .skip(first)
-        .take(area.height as usize)
-    {
-        let y = area.y + (k - first) as u16;
-        let width = area.width as usize;
-        let (text, style) = match row.kind {
-            PaletteKind::Header { folded, .. } => {
-                let mark = if folded { '\u{f054}' } else { '\u{f078}' };
-                (
-                    format!(" {mark} {}", row.label),
-                    base.fg(rc(t.mode_normal)).add_modifier(Modifier::BOLD),
-                )
-            }
-            PaletteKind::Item => {
-                let mark = if row.active { '●' } else { ' ' };
-                let style = if row.active {
-                    base.fg(rc(t.mode_normal))
-                } else {
-                    base
+    for (n, line) in lines.iter().skip(first).take(shown).enumerate() {
+        let y = area.y + n as u16;
+        match line {
+            PaletteLine::Header(i) => {
+                let row = &rows[*i];
+                let PaletteKind::Header { folded, .. } = row.kind else {
+                    continue;
                 };
-                (format!("   {mark} {}", row.label), style)
+                let mark = if folded { '\u{f054}' } else { '\u{f078}' };
+                let style = if *i == sel && focused {
+                    on(app, t.mode_normal)
+                } else if *i == sel {
+                    base.fg(rc(t.mode_normal)).add_modifier(Modifier::REVERSED)
+                } else {
+                    base.fg(rc(t.mode_normal)).add_modifier(Modifier::BOLD)
+                };
+                let text = format!(" {mark} {}", row.label);
+                let w = area.width as usize;
+                buf.set_string(area.x, y, format!("{:<w$}", clip(&text, w)), style);
+                ui.palette.push((
+                    Rect {
+                        x: area.x,
+                        y,
+                        width: area.width,
+                        height: 1,
+                    },
+                    *i,
+                ));
             }
-        };
-        let style = if k == sel && focused {
-            on(app, t.mode_normal)
-        } else if k == sel {
-            style.add_modifier(Modifier::REVERSED)
+            PaletteLine::Cells(cells) => {
+                for (k, &i) in cells.iter().enumerate() {
+                    let row = &rows[i];
+                    let x = area.x + 1 + k as u16 * CELL;
+                    let style = if i == sel && focused {
+                        // A neutral gray, apart from the accent of buttons in force.
+                        Style::default()
+                            .fg(rc(t.chrome_text))
+                            .bg(rc(t.button_hover))
+                    } else if row.active {
+                        on(app, t.mode_normal)
+                    } else {
+                        base
+                    };
+                    let style = if i == sel && focused && row.active {
+                        style.fg(rc(t.mode_normal)).add_modifier(Modifier::BOLD)
+                    } else {
+                        style
+                    };
+                    let label = format!("{:^w$}", clip(row.short, 3), w = CELL as usize - 1);
+                    buf.set_string(x, y, label, style);
+                    ui.palette.push((
+                        Rect {
+                            x,
+                            y,
+                            width: CELL - 1,
+                            height: 1,
+                        },
+                        i,
+                    ));
+                }
+            }
+        }
+    }
+    // The selected button's name.
+    if let Some(row) = rows.get(sel) {
+        let name = if row.kind == PaletteKind::Item {
+            row.label
         } else {
-            style
+            ""
         };
-        let line = format!("{:<width$}", clip(&text, width));
-        buf.set_string(area.x, y, &line, style);
-        ui.palette.push((
-            Rect {
-                x: area.x,
-                y,
-                width: area.width,
-                height: 1,
-            },
-            k,
-        ));
+        let w = area.width as usize;
+        let dim = Style::default().fg(rc(t.dim)).bg(rc(t.panel));
+        buf.set_string(
+            area.x,
+            area.y + area.height - 1,
+            format!(" {:<w$}", clip(name, w.saturating_sub(1))),
+            dim,
+        );
     }
 }
 
@@ -2631,6 +2670,25 @@ mod render_tests {
         );
         assert!(screen.contains("string 5 (A2)"), "{screen}");
         assert!(screen.contains('█') && screen.contains("+50"), "{screen}");
+    }
+
+    #[test]
+    fn the_palette_shows_a_grid_and_takes_clicks() {
+        let mut app = App::new(muse_app::Config::default(), None);
+        app.run(muse_app::Command::New);
+        app.run(muse_app::Command::Palette(Some(true)));
+        let screen = render(&mut app, 100, 40);
+        assert!(
+            screen.contains("Duration") && screen.contains("1/8"),
+            "{screen}"
+        );
+        let mut terminal = Terminal::new(TestBackend::new(100, 40)).unwrap();
+        let mut ui = Ui::default();
+        terminal.draw(|f| draw(f, &mut app, None, &mut ui)).unwrap();
+        let (r, i) = *ui.palette.iter().find(|(_, i)| *i == 4).unwrap();
+        assert!(r.width < 8, "a button, not a line");
+        app.click_palette(i);
+        assert_eq!(app.insert_duration().value.denominator(), 8);
     }
 
     #[test]

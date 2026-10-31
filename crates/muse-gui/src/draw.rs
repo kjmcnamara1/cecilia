@@ -127,6 +127,9 @@ pub struct Views {
     toolbar: Vec<(Rect, usize)>,
     /// The button under the mouse and since when (its tooltip shows after a moment).
     toolbar_hover: Option<(usize, std::time::Instant)>,
+    /// The editing palette's button under the mouse and since when (its name shows after a
+    /// moment).
+    palette_hover: Option<(usize, std::time::Instant)>,
     /// The tooltip to draw this frame (the button's area and text).
     tooltip: Option<(Rect, String)>,
     /// Where the tabline and toolbar end.
@@ -3097,60 +3100,77 @@ fn text_small_caps(
     x
 }
 
-/// The editing palette: section titles with a chevron, and each item as a row; the item in
-/// force is a filled chip, the selected row outlined.
+/// The editing palette: section titles with a chevron over grids of icon buttons wrapped to
+/// the pane's width. The buttons in force are tinted with the accent; the mouse-over and the
+/// keyboard-selected button are a neutral gray.
 fn draw_edit_palette(scene: &mut Scene, app: &App, views: &mut Views, r: Rect) {
-    use muse_app::palette::PaletteKind;
+    use muse_app::palette::{PaletteKind, PaletteLine};
     const PAD: f64 = 10.0;
-    const ROW: f64 = 28.0;
+    const CELL: f64 = 32.0;
+    const HEAD: f64 = 30.0;
     let th = &app.config.theme;
     views.palette_rect = Some(r);
     fill(scene, r, col(th.panel));
+    let cols = ((r.width() - 2.0 * PAD) / CELL).floor().max(1.0) as usize;
+    app.set_palette_cols(cols);
     let rows = app.palette_rows();
-    let visible = ((r.height() - 2.0 * PAD) / ROW).floor().max(1.0) as usize;
-    let first = app.palette_window(visible);
+    let lines = app.palette_lines();
+    let height = |l: &PaletteLine| {
+        if matches!(l, PaletteLine::Header(_)) {
+            HEAD
+        } else {
+            CELL
+        }
+    };
+    // As many lines as fit from the first one shown.
+    let first = {
+        let mut avg = 0usize;
+        let mut room = r.height() - 2.0 * PAD;
+        for l in &lines {
+            if room < height(l) {
+                break;
+            }
+            room -= height(l);
+            avg += 1;
+        }
+        app.palette_window(avg.max(1))
+    };
     let sel = app.palette_selected();
     let focused = app.focused_kind() == PaneKind::Palette;
-    for (k, row) in rows.iter().enumerate().skip(first).take(visible) {
-        let y = r.y0 + PAD + (k - first) as f64 * ROW;
-        let b = Rect::new(r.x0 + PAD, y, r.x1 - PAD, y + ROW - 2.0);
-        let shape = b.to_rounded_rect(5.0);
-        let base = match row.kind {
-            PaletteKind::Header { .. } => col(th.mode_normal),
-            PaletteKind::Item => chrome_text(),
-        };
-        let mut c = base;
-        if row.active {
-            scene.fill(
-                Fill::NonZero,
-                Affine::IDENTITY,
-                col(th.mode_normal),
-                None,
-                &shape,
-            );
-            c = text_on(col(th.mode_normal));
-        } else if k == sel && focused {
-            scene.fill(
-                Fill::NonZero,
-                Affine::IDENTITY,
-                col(th.mode_normal.with_alpha(60)),
-                None,
-                &shape,
-            );
+    let (hx, hy) = views.hover;
+    let mut hovered = None;
+    let mut y = r.y0 + PAD;
+    for line in lines.iter().skip(first) {
+        if y + height(line) > r.y1 {
+            break;
         }
-        if k == sel {
-            scene.stroke(
-                &Stroke::new(1.0),
-                Affine::IDENTITY,
-                col(th.mode_normal),
-                None,
-                &shape,
-            );
-        }
-        let ty = b.y0 + ROW / 2.0 + 4.0;
-        match row.kind {
-            PaletteKind::Header { folded, .. } => {
-                draw_chevron(scene, b.x0 + 10.0, b.y0 + ROW / 2.0 - 1.0, !folded, c);
+        match line {
+            PaletteLine::Header(i) => {
+                let row = &rows[*i];
+                let PaletteKind::Header { folded, .. } = row.kind else {
+                    continue;
+                };
+                let b = Rect::new(r.x0 + PAD, y + 2.0, r.x1 - PAD, y + HEAD - 2.0);
+                let shape = b.to_rounded_rect(5.0);
+                let over = b.contains((hx, hy));
+                if over || (*i == sel && focused) {
+                    scene.fill(
+                        Fill::NonZero,
+                        Affine::IDENTITY,
+                        col(th.button_hover),
+                        None,
+                        &shape,
+                    );
+                }
+                let ty = b.y0 + (b.height()) / 2.0 + 5.0;
+                let c = chrome_text();
+                draw_chevron(
+                    scene,
+                    b.x0 + 10.0,
+                    b.y0 + b.height() / 2.0 - 1.0,
+                    !folded,
+                    c,
+                );
                 text(
                     scene,
                     row.label,
@@ -3161,19 +3181,374 @@ fn draw_edit_palette(scene: &mut Scene, app: &App, views: &mut Views, r: Rect) {
                     c,
                     true,
                 );
+                // A rule after the title.
+                let end = b.x0
+                    + 22.0
+                    + muse_engrave::fonts::fonts().text_width(
+                        FontKind::Bold,
+                        row.label,
+                        13.0 * 1.15,
+                    );
+                fill(
+                    scene,
+                    Rect::new(end + 10.0, ty - 5.0, b.x1, ty - 4.0),
+                    col(th.tab),
+                );
+                views.palette.push((Rect::new(r.x0, y, r.x1, y + HEAD), *i));
             }
-            PaletteKind::Item => text(
-                scene,
-                row.label,
-                b.x0 + 22.0,
-                ty,
-                13.0 * 1.1,
-                Align::Left,
-                c,
-                false,
-            ),
+            PaletteLine::Cells(cells) => {
+                for (k, &i) in cells.iter().enumerate() {
+                    let row = &rows[i];
+                    let b = Rect::new(
+                        r.x0 + PAD + k as f64 * CELL + 2.0,
+                        y + 2.0,
+                        r.x0 + PAD + (k + 1) as f64 * CELL - 2.0,
+                        y + CELL - 2.0,
+                    );
+                    let shape = b.to_rounded_rect(5.0);
+                    let over = b.contains((hx, hy));
+                    let selected = i == sel && focused;
+                    if row.active {
+                        let a = if over { 90 } else { 60 };
+                        scene.fill(
+                            Fill::NonZero,
+                            Affine::IDENTITY,
+                            col(th.accent.with_alpha(a)),
+                            None,
+                            &shape,
+                        );
+                    } else if over || selected {
+                        scene.fill(
+                            Fill::NonZero,
+                            Affine::IDENTITY,
+                            col(th.button_hover),
+                            None,
+                            &shape,
+                        );
+                    }
+                    if selected {
+                        scene.stroke(
+                            &Stroke::new(1.0),
+                            Affine::IDENTITY,
+                            col(th.dim),
+                            None,
+                            &shape,
+                        );
+                    }
+                    let color = if row.active {
+                        col(th.text_on(th.accent.mix(th.panel, 0.6)))
+                    } else {
+                        chrome_text()
+                    };
+                    draw_palette_icon(scene, row.command, b.center(), color);
+                    if over {
+                        hovered = Some((i, b, row.label));
+                    }
+                    views.palette.push((b, i));
+                }
+            }
         }
-        views.palette.push((Rect::new(r.x0, y, r.x1, y + ROW), k));
+        y += height(line);
+    }
+    // The name of the button the mouse rests on, after a moment (as for the toolbar).
+    match (&hovered, views.palette_hover) {
+        (Some((i, ..)), Some((j, _))) if *i == j => {}
+        (Some((i, ..)), _) => views.palette_hover = Some((*i, std::time::Instant::now())),
+        (None, _) => views.palette_hover = None,
+    }
+    if let (Some((_, b, name)), Some((_, since))) = (hovered, views.palette_hover) {
+        if since.elapsed() >= TOOLTIP_DELAY {
+            views.tooltip = Some((b, name.to_string()));
+        }
+    }
+}
+
+/// An icon of the editing palette for its command, in a 16 px square around `c`.
+fn draw_palette_icon(scene: &mut Scene, command: &str, c: vello::kurbo::Point, color: Color) {
+    use vello::kurbo::{Cap, Ellipse, Join};
+    let (x, y) = (c.x - 8.0, c.y - 8.0);
+    let stroke = |w: f64| Stroke::new(w).with_caps(Cap::Round).with_join(Join::Round);
+    let path = |points: &[(f64, f64)], close: bool| {
+        let mut p = BezPath::new();
+        for (k, &(px, py)) in points.iter().enumerate() {
+            if k == 0 {
+                p.move_to((x + px, y + py));
+            } else {
+                p.line_to((x + px, y + py));
+            }
+        }
+        if close {
+            p.close_path();
+        }
+        p
+    };
+    let line = |scene: &mut Scene, p: &BezPath, w: f64| {
+        scene.stroke(&stroke(w), Affine::IDENTITY, color, None, p);
+    };
+    let label = |scene: &mut Scene, s: &str, size: f64| {
+        text(
+            scene,
+            s,
+            c.x,
+            c.y + size * 0.36,
+            size,
+            Align::Center,
+            color,
+            true,
+        );
+    };
+    // A note head (filled or hollow) with its stem and `flags` flags.
+    let note = |scene: &mut Scene, filled: bool, stem: bool, flags: usize, dx: f64| {
+        let head = Ellipse::new((x + 6.0 + dx, y + 12.0), (3.4, 2.5), -0.4);
+        if filled {
+            scene.fill(Fill::NonZero, Affine::IDENTITY, color, None, &head);
+        } else {
+            scene.stroke(&stroke(1.3), Affine::IDENTITY, color, None, &head);
+        }
+        if stem {
+            line(
+                scene,
+                &path(&[(9.1 + dx, 11.6), (9.1 + dx, 1.5)], false),
+                1.3,
+            );
+            for k in 0..flags {
+                let fy = 1.5 + k as f64 * 2.4;
+                line(
+                    scene,
+                    &path(
+                        &[(9.1 + dx, fy), (11.5 + dx, fy + 2.0), (12.6 + dx, fy + 4.4)],
+                        false,
+                    ),
+                    1.3,
+                );
+            }
+        }
+    };
+    let arrow = |scene: &mut Scene, from: (f64, f64), to: (f64, f64)| {
+        line(scene, &path(&[from, to], false), 1.4);
+        let (dx, dy) = (to.0 - from.0, to.1 - from.1);
+        let n = (dx * dx + dy * dy).sqrt().max(0.1);
+        let (ux, uy) = (dx / n, dy / n);
+        let head = path(
+            &[
+                (to.0 - 3.2 * ux + 2.0 * uy, to.1 - 3.2 * uy - 2.0 * ux),
+                to,
+                (to.0 - 3.2 * ux - 2.0 * uy, to.1 - 3.2 * uy + 2.0 * ux),
+            ],
+            false,
+        );
+        line(scene, &head, 1.4);
+    };
+    let zigzag = |scene: &mut Scene, amp: f64| {
+        let pts: Vec<(f64, f64)> = (0..7)
+            .map(|k| {
+                (
+                    1.0 + k as f64 * 2.3,
+                    8.0 + if k % 2 == 0 { amp } else { -amp },
+                )
+            })
+            .collect();
+        line(scene, &path(&pts, false), 1.3);
+    };
+    let (name, arg) = command.split_once(' ').unwrap_or((command, ""));
+    match (name, arg) {
+        ("duration", "1") => note(scene, false, false, 0, 0.0),
+        ("duration", "2") => note(scene, false, true, 0, 0.0),
+        ("duration", "4") => note(scene, true, true, 0, 0.0),
+        ("duration", "8") => note(scene, true, true, 1, 0.0),
+        ("duration", "16") => note(scene, true, true, 2, 0.0),
+        ("duration", "32") => note(scene, true, true, 3, -1.0),
+        ("duration", _) => note(scene, true, true, 4, -1.5),
+        ("dot", _) => {
+            note(scene, true, true, 0, -2.0);
+            let d = Circle::new((x + 13.0, y + 12.0), 1.4);
+            scene.fill(Fill::NonZero, Affine::IDENTITY, color, None, &d);
+        }
+        ("tuplet", _) => {
+            label(scene, "3", 11.0);
+            line(
+                scene,
+                &path(
+                    &[(1.5, 13.0), (1.5, 15.0), (14.5, 15.0), (14.5, 13.0)],
+                    false,
+                ),
+                1.0,
+            );
+        }
+        ("rest", _) => {
+            line(
+                scene,
+                &path(
+                    &[
+                        (5.0, 2.0),
+                        (10.0, 6.0),
+                        (6.5, 9.0),
+                        (10.5, 12.5),
+                        (8.0, 15.0),
+                    ],
+                    false,
+                ),
+                1.6,
+            );
+        }
+        ("accidental", "sharp") => {
+            line(scene, &path(&[(6.0, 2.0), (6.0, 14.0)], false), 1.2);
+            line(scene, &path(&[(10.0, 1.5), (10.0, 13.5)], false), 1.2);
+            line(scene, &path(&[(3.5, 7.0), (12.5, 5.0)], false), 2.0);
+            line(scene, &path(&[(3.5, 11.0), (12.5, 9.0)], false), 2.0);
+        }
+        ("accidental", "flat") => {
+            line(scene, &path(&[(5.5, 1.5), (5.5, 14.0)], false), 1.3);
+            let mut p = BezPath::new();
+            p.move_to((x + 5.5, y + 14.0));
+            p.curve_to((x + 15.0, y + 9.0), (x + 12.0, y + 4.5), (x + 5.5, y + 9.0));
+            line(scene, &p, 1.4);
+        }
+        ("accidental", _) => {
+            line(scene, &path(&[(5.0, 2.0), (5.0, 11.0)], false), 1.2);
+            line(scene, &path(&[(11.0, 5.0), (11.0, 14.0)], false), 1.2);
+            line(scene, &path(&[(5.0, 7.0), (11.0, 5.0)], false), 1.6);
+            line(scene, &path(&[(5.0, 11.0), (11.0, 9.0)], false), 1.6);
+        }
+        ("octave-up", _) => {
+            label(scene, "8", 11.0);
+            arrow(scene, (13.0, 6.0), (13.0, 1.5));
+        }
+        ("octave-down", _) => {
+            label(scene, "8", 11.0);
+            arrow(scene, (13.0, 10.0), (13.0, 14.5));
+        }
+        ("dynamic", d) => label(scene, d, if d.len() > 2 { 10.5 } else { 12.5 }),
+        ("toggle", "tie") => {
+            let mut p = BezPath::new();
+            p.move_to((x + 1.5, y + 6.0));
+            p.quad_to((x + 8.0, y + 14.0), (x + 14.5, y + 6.0));
+            line(scene, &p, 1.5);
+        }
+        ("toggle", "dead") => {
+            line(scene, &path(&[(3.5, 3.5), (12.5, 12.5)], false), 1.8);
+            line(scene, &path(&[(12.5, 3.5), (3.5, 12.5)], false), 1.8);
+        }
+        ("toggle", "ghost") => {
+            for (sx, dir) in [(4.0, -1.0), (12.0, 1.0)] {
+                let mut p = BezPath::new();
+                p.move_to((x + sx, y + 2.0));
+                p.quad_to((x + sx + dir * -3.0, y + 8.0), (x + sx, y + 14.0));
+                line(scene, &p, 1.4);
+            }
+            let d = Circle::new((x + 8.0, y + 8.0), 2.0);
+            scene.fill(Fill::NonZero, Affine::IDENTITY, color, None, &d);
+        }
+        ("toggle", "accent") => line(
+            scene,
+            &path(&[(3.0, 4.0), (13.0, 8.0), (3.0, 12.0)], false),
+            1.6,
+        ),
+        ("toggle", "heavy-accent") => line(
+            scene,
+            &path(&[(3.0, 13.0), (8.0, 3.0), (13.0, 13.0)], false),
+            1.6,
+        ),
+        ("toggle", "staccato") => {
+            let d = Circle::new((x + 8.0, y + 8.0), 2.0);
+            scene.fill(Fill::NonZero, Affine::IDENTITY, color, None, &d);
+        }
+        ("toggle", "let-ring") => {
+            text(
+                scene,
+                "let",
+                c.x,
+                c.y - 0.5,
+                8.5,
+                Align::Center,
+                color,
+                true,
+            );
+            text(
+                scene,
+                "ring",
+                c.x,
+                c.y + 8.0,
+                8.5,
+                Align::Center,
+                color,
+                true,
+            );
+        }
+        ("toggle", "palm-mute") => label(scene, "P.M.", 8.5),
+        ("toggle", "hammer") => label(scene, "H/P", 8.5),
+        ("toggle", "slide") => {
+            arrow(scene, (2.5, 13.0), (13.5, 3.5));
+        }
+        ("toggle", "bend") => {
+            let mut p = BezPath::new();
+            p.move_to((x + 2.5, y + 14.0));
+            p.curve_to(
+                (x + 9.0, y + 14.0),
+                (x + 12.0, y + 9.0),
+                (x + 12.0, y + 3.5),
+            );
+            line(scene, &p, 1.4);
+            line(
+                scene,
+                &path(&[(9.0, 6.0), (12.0, 2.5), (15.0, 6.0)], false),
+                1.4,
+            );
+        }
+        ("toggle", "half-bend") => {
+            let mut p = BezPath::new();
+            p.move_to((x + 2.5, y + 14.0));
+            p.curve_to(
+                (x + 8.0, y + 14.0),
+                (x + 10.0, y + 11.0),
+                (x + 10.0, y + 7.0),
+            );
+            line(scene, &p, 1.4);
+            line(
+                scene,
+                &path(&[(7.5, 8.5), (10.0, 5.5), (12.5, 8.5)], false),
+                1.4,
+            );
+            text(
+                scene,
+                "½",
+                x + 13.5,
+                y + 14.0,
+                7.0,
+                Align::Center,
+                color,
+                true,
+            );
+        }
+        ("toggle", "vibrato") => zigzag(scene, 2.0),
+        ("toggle", "vibrato-wide") => zigzag(scene, 4.0),
+        ("toggle", "harmonic") => line(
+            scene,
+            &path(&[(8.0, 2.0), (14.0, 8.0), (8.0, 14.0), (2.0, 8.0)], true),
+            1.4,
+        ),
+        ("toggle", "tremolo") => {
+            line(scene, &path(&[(8.0, 1.5), (8.0, 15.0)], false), 1.3);
+            for k in 0..3 {
+                let ty = 3.5 + k as f64 * 2.6;
+                line(
+                    scene,
+                    &path(&[(4.5, ty + 2.0), (11.5, ty - 1.0)], false),
+                    1.5,
+                );
+            }
+        }
+        ("toggle", "tap") => label(scene, "tap", 9.0),
+        ("toggle", "slap") => label(scene, "slap", 9.0),
+        ("toggle", "pop") => label(scene, "pop", 9.0),
+        ("toggle", "fade-in") => line(
+            scene,
+            &path(&[(14.0, 3.5), (2.0, 8.0), (14.0, 12.5)], false),
+            1.5,
+        ),
+        ("toggle", "stroke-down") => arrow(scene, (8.0, 2.0), (8.0, 14.0)),
+        ("toggle", "stroke-up") => arrow(scene, (8.0, 14.0), (8.0, 2.0)),
+        _ => label(scene, command, 8.0),
     }
 }
 
@@ -4222,9 +4597,10 @@ impl Views {
 
     /// A toolbar tooltip is waiting to show: redraw until it does.
     pub fn tooltip_pending(&self) -> bool {
-        self.toolbar_hover.is_some_and(|(_, t)| {
-            t.elapsed() < TOOLTIP_DELAY + std::time::Duration::from_millis(50)
-        })
+        self.toolbar_hover
+            .into_iter()
+            .chain(self.palette_hover)
+            .any(|(_, t)| t.elapsed() < TOOLTIP_DELAY + std::time::Duration::from_millis(50))
     }
 
     /// Mouse down over the properties pane: a tab shows, a row selects, a selected row edits.

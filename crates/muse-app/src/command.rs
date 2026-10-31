@@ -197,6 +197,8 @@ pub enum Command {
     /// unfold (`Some`) or toggle the selected section.
     PaletteDown,
     PaletteUp,
+    PaletteLeft,
+    PaletteRight,
     PaletteActivate,
     PaletteFold(Option<bool>),
     /// Set the dynamic (`ppp` … `fff`) of the note under the cursor.
@@ -828,6 +830,8 @@ impl Command {
             "palette-focus" => PaletteFocus,
             "palette-down" => PaletteDown,
             "palette-up" => PaletteUp,
+            "palette-left" => PaletteLeft,
+            "palette-right" => PaletteRight,
             "palette-activate" => PaletteActivate,
             "palette-fold" => PaletteFold(match arg {
                 None => None,
@@ -922,6 +926,8 @@ impl Command {
                 | PropertiesUp
                 | PaletteDown
                 | PaletteUp
+                | PaletteLeft
+                | PaletteRight
                 | BeatPrev
                 | StringDown
                 | StringUp
