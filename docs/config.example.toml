@@ -14,6 +14,7 @@ scrollbar = true         # a scrollbar on score panes (right side; bottom in the
 progress_bar = true      # sections, play position and time along the bottom of score panes
 tracks_panel = false     # start with the tracks pane (mixer and bar overview) docked at the bottom
 properties = false       # show the properties pane (score, track, lyrics) along the right (<leader>p)
+palette = false          # show the editing palette (durations, rests, effects) along the left (<leader>e)
 toolbar = true           # the toolbar of common commands at the top of the window (:toolbar, <leader>B)
 fretboard = false        # start with a fretboard pane: the notes at the cursor or playhead (<leader>F)
 piano = false            # piano keys likewise (<leader>K)
@@ -116,6 +117,10 @@ clef = "treble"          # clef of a standard staff added without one: treble, b
 [keymap.properties]
 # Keys while the properties pane has the focus (<leader>P).
 # "d" = "properties-clear"
+
+[keymap.palette]
+# Keys while the editing palette has the focus (<leader>E).
+# "<CR>" = "palette-activate"
 
 [keymap.command]
 # "<C-p>" = "normal"

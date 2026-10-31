@@ -189,6 +189,20 @@ pub enum Command {
     Properties(Option<bool>),
     /// Focus the properties pane, or give the focus back to the score.
     PropertiesFocus,
+    /// Show or hide the editing palette (no argument: toggle).
+    Palette(Option<bool>),
+    /// Focus the palette, or give the focus back to the score.
+    PaletteFocus,
+    /// In the palette: select the next / previous row, apply the selected item, or fold /
+    /// unfold (`Some`) or toggle the selected section.
+    PaletteDown,
+    PaletteUp,
+    PaletteLeft,
+    PaletteRight,
+    PaletteActivate,
+    PaletteFold(Option<bool>),
+    /// Set the dynamic (`ppp` … `fff`) of the note under the cursor.
+    Dynamic(String),
     /// In the properties pane: select the row below / above.
     PropertiesDown,
     PropertiesUp,
@@ -814,6 +828,29 @@ impl Command {
                 Some(a) => return Err(format!("properties: '{a}' is not on or off")),
             }),
             "properties-focus" => PropertiesFocus,
+            "palette" => Palette(match arg {
+                None => None,
+                Some("on") => Some(true),
+                Some("off") => Some(false),
+                Some(a) => return Err(format!("palette: '{a}' is not on or off")),
+            }),
+            "palette-focus" => PaletteFocus,
+            "palette-down" => PaletteDown,
+            "palette-up" => PaletteUp,
+            "palette-left" => PaletteLeft,
+            "palette-right" => PaletteRight,
+            "palette-activate" => PaletteActivate,
+            "palette-fold" => PaletteFold(match arg {
+                None => None,
+                Some("open") => Some(false),
+                Some("close") => Some(true),
+                Some(a) => return Err(format!("palette-fold: '{a}' is not open or close")),
+            }),
+            "dynamic" => Dynamic(
+                arg.filter(|a| crate::palette::dynamic_velocity(a).is_some())
+                    .ok_or("dynamic: expected ppp, pp, p, mp, mf, f, ff or fff")?
+                    .to_string(),
+            ),
             "properties-down" => PropertiesDown,
             "properties-up" => PropertiesUp,
             "properties-tab" => PropertiesTab(match arg {
@@ -894,6 +931,10 @@ impl Command {
                 | TracksUp
                 | PropertiesDown
                 | PropertiesUp
+                | PaletteDown
+                | PaletteUp
+                | PaletteLeft
+                | PaletteRight
                 | BeatPrev
                 | StringDown
                 | StringUp

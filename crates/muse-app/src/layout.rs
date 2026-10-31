@@ -58,6 +58,18 @@ pub struct Divider {
 }
 
 impl Node {
+    /// The tree with every split's weights equal: its nesting alone.
+    pub fn shape(&self) -> Node {
+        match self {
+            Node::Leaf(_) => self.clone(),
+            Node::Split { axis, children, .. } => Node::Split {
+                axis: *axis,
+                weights: vec![1.0; children.len()],
+                children: children.iter().map(Node::shape).collect(),
+            },
+        }
+    }
+
     pub fn panes(&self) -> Vec<PaneId> {
         match self {
             Node::Leaf(id) => vec![*id],

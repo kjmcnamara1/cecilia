@@ -28,15 +28,16 @@ Planned work. Finished items move to `CHANGELOG.md` under `[Unreleased]`.
 ### Editing
 
 - [ ] TODO: Deep dive on editing workflow
-- [ ] Editing toolbar
 
 ### Keymaps
 
 - [ ] TODO: Deep dive on keymap architecture and how to define (config.toml seems lacking)
   - Should be dependent on mode and currently focused window/pane/staf
 - [ ] Different keymap for moving between staves
-  - This allows moving to notes above or below standard staff without going to
+  - This allows moving to add extra notes above or below standard staff without jumping to
     another staff
+- [ ] add alt-j/k for focusing next/prev item in pickers and command mode.
+      should do the same thing as tab/shift-tab.
 - [ ] FIX: ctrl-c in any pane (score,tool,properties,etc.) should close that pane.
 - [ ] ctrl-w ctrl-w switches focus back and forth between panes
 

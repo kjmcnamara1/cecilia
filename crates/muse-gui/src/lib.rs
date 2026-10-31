@@ -248,6 +248,10 @@ impl ApplicationHandler for Gui {
                 let was_over = self.views.over_tabline(self.mouse.1);
                 self.mouse = (position.x / f, position.y / f);
                 self.views.hover = self.mouse;
+                if let Some(row) = self.views.palette_row_at(self.mouse.0, self.mouse.1) {
+                    self.app.hover_palette(row);
+                    self.after_input();
+                }
                 if self
                     .views
                     .drag_to(&mut self.app, self.mouse.0, self.mouse.1)

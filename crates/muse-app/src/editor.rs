@@ -149,11 +149,16 @@ impl App {
             {
                 self.properties_key(key)
             }
+            Mode::Normal | Mode::Tracks | Mode::Properties
+                if self.focused_kind() == crate::app::PaneKind::Palette =>
+            {
+                self.palette_key(key)
+            }
             // A focused tracks pane has its own keys first.
             Mode::Normal | Mode::Tracks if self.focused_kind() == crate::app::PaneKind::Tracks => {
                 self.tracks_key(key)
             }
-            Mode::Normal | Mode::Tracks | Mode::Properties => self.normal_key(key),
+            Mode::Normal | Mode::Tracks | Mode::Properties | Mode::Palette => self.normal_key(key),
             Mode::Insert => self.insert_key(key),
             Mode::Visual => self.visual_key(key),
         }
@@ -749,6 +754,10 @@ impl App {
                 let t = t.clone();
                 self.edit(|cx| edit::toggle(cx, &t, duration));
             }
+            Dynamic(d) => {
+                let d = d.clone();
+                self.edit(|cx| edit::set_dynamic(cx, &d));
+            }
             NoteLetter(c) => {
                 let step = muse_core::staff::letter_step(*c).unwrap_or(0);
                 if self.on_staff_kind(InsertKind::Standard) {
@@ -1157,24 +1166,37 @@ impl App {
         }
     }
 
-    /// Adds a staff at the bottom of the cursor's track.
+    /// Adds one or more staves at the bottom of the cursor's track, in the order given.
     fn add_staff(&mut self, arg: Option<&str>) {
-        let Some(staff) = self.parse_staff(arg.unwrap_or(&self.config.default_clef().name()))
-        else {
-            return;
+        let default = self.config.default_clef();
+        let parsed = match arg.filter(|a| !a.trim().is_empty()) {
+            Some(a) => Staff::parse_list(a, default),
+            None => Ok(vec![Staff::Standard(default)]),
+        };
+        let new = match parsed {
+            Ok(new) => new,
+            Err(e) => return self.error(format!("staff: {e}")),
         };
         let done = self.edit(|cx| {
             let t = cx.cursor.track;
             let track = &mut cx.whole().tracks[t];
-            fret_for_tab(track, staff)?;
+            for &staff in &new {
+                fret_for_tab(track, staff)?;
+            }
             let staves = track.staves_mut();
-            staves.push(staff);
+            let first = staves.len() + 1;
+            staves.extend(new.iter().copied());
             let n = staves.len();
             cx.cursor.staff = n - 1;
-            Ok(n)
+            Ok((first, n))
         });
-        if let Some(n) = done {
-            self.info(format!("staff {n}: {}", staff.name()));
+        if let Some((first, n)) = done {
+            let names: Vec<String> = new.iter().map(|s| s.name()).collect();
+            if first == n {
+                self.info(format!("staff {n}: {}", names[0]));
+            } else {
+                self.info(format!("staves {first}-{n}: {}", names.join(", ")));
+            }
         }
     }
 
@@ -1549,6 +1571,30 @@ mod tests {
         assert_eq!(top.0, 1);
         keys(&mut a, "k");
         assert_eq!(at(&a), top);
+    }
+
+    #[test]
+    fn staff_add_takes_several_staves_in_order() {
+        let mut a = app();
+        let before = a.buffer().score.tracks[0].staves().len();
+        a.run(Command::parse("staff-add slash grand G3 tab+ chant").unwrap());
+        let staves = a.buffer().score.tracks[0].staves().to_vec();
+        assert_eq!(staves.len(), before + 4);
+        assert_eq!(
+            staves[before..]
+                .iter()
+                .map(|s| s.name())
+                .collect::<Vec<_>>(),
+            ["slash", "grand G3", "tab+", "chant"]
+        );
+        // The cursor goes to the last one; the whole command is one undo step.
+        assert_eq!(a.pane().cursor.staff, before + 3);
+        a.run(Command::Undo);
+        assert_eq!(a.buffer().score.tracks[0].staves().len(), before);
+        // A bad word adds none of them.
+        a.run(Command::parse("staff-add tab bogus").unwrap());
+        assert_eq!(a.buffer().score.tracks[0].staves().len(), before);
+        assert!(a.message.as_ref().unwrap().error);
     }
 
     #[test]

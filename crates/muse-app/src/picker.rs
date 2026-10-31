@@ -702,6 +702,7 @@ impl App {
                     (c.insert_keymap(InsertKind::Chant), "insert (chant) ", false),
                     (c.keymap(Mode::Tracks), "tracks ", false),
                     (c.keymap(Mode::Properties), "properties ", false),
+                    (c.keymap(Mode::Palette), "palette ", false),
                     (c.keymap(Mode::Command), "command ", false),
                 ];
                 let mut out = Vec::new();
