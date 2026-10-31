@@ -1857,6 +1857,7 @@ impl Ctx<'_> {
             .iter()
             .filter(|v| !v.beats.iter().all(|b| b.empty))
             .count();
+        let bar_blank = bar.voices.iter().all(|v| v.beats.iter().all(|b| b.empty));
         let key_alter = key_alters(mb.key_signature.accidentals);
         let mut alters: HashMap<i32, i32> = HashMap::new();
         let mut shown = false;
@@ -1878,12 +1879,15 @@ impl Ctx<'_> {
             for (i, beat) in voice.beats.iter().enumerate() {
                 let start = t;
                 t += beat.ticks();
-                if beat.empty {
+                // The first beat of a bar with nothing in it gets a position (for the cursor and
+                // clicks) but draws nothing.
+                let placeholder = beat.empty && vi == 0 && i == 0 && bar_blank;
+                if beat.empty && !placeholder {
                     continue;
                 }
                 // A beat shown on the other half of a grand staff.
                 let hidden = self.hidden.contains(&(bi, vi, i));
-                shown |= !hidden;
+                shown |= !hidden && !placeholder;
                 if hidden {
                     if self.standard {
                         self.flush_beams(page, &mut beamable, std_bottom);
@@ -1962,6 +1966,10 @@ impl Ctx<'_> {
                         string: Some(s as u8),
                         staff: self.staff_index,
                     });
+                }
+
+                if placeholder {
+                    continue;
                 }
 
                 // Standard notation.
@@ -3245,6 +3253,63 @@ impl Ctx<'_> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn empty_bar_gets_a_cursor_position() {
+        let empty = || Beat {
+            empty: true,
+            ..Beat::default()
+        };
+        let blank = || Bar {
+            voices: vec![Voice {
+                beats: vec![empty()],
+            }],
+        };
+        let track = Track {
+            kind: TrackKind::Fretted,
+            strings: vec![64, 59, 55, 50, 45, 40],
+            bars: vec![blank()],
+            staves: vec![Staff::Standard(muse_core::Clef::Treble), Staff::Tab],
+            ..Track::default()
+        };
+        let score = Score {
+            tempo: 100,
+            master_bars: vec![MasterBar::default()],
+            tracks: vec![track],
+            ..Score::default()
+        };
+        let layout = engrave(&score, 0, &Options::default());
+        let at = BeatRef {
+            track: 0,
+            bar: 0,
+            voice: 0,
+            beat: 0,
+        };
+        let pos = layout.beats.get(&at).expect("position for the empty bar");
+        assert!(pos.width > 0.0);
+        assert!(
+            pos.staves
+                .iter()
+                .any(|s| matches!(s, StaffPos::Strings { ys, .. } if ys.len() == 6))
+        );
+        assert!(
+            pos.staves
+                .iter()
+                .any(|s| matches!(s, StaffPos::Lines { .. }))
+        );
+        // It draws no rest.
+        let mut rested = score.clone();
+        rested.tracks[0].bars[0].voices[0].beats[0].empty = false;
+        let drawn = |l: &Layout| l.pages[0].items.len();
+        assert!(drawn(&engrave(&rested, 0, &Options::default())) > drawn(&layout));
+
+        // With a real beat beside it, an empty beat still has no position.
+        let mut mixed = score.clone();
+        mixed.tracks[0].bars[0].voices[0].beats = vec![Beat::default(), empty()];
+        let layout = engrave(&mixed, 0, &Options::default());
+        assert!(layout.beats.contains_key(&at));
+        assert!(!layout.beats.contains_key(&BeatRef { beat: 1, ..at }));
+    }
 
     #[test]
     fn spelling_and_keys() {
