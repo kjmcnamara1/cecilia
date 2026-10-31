@@ -30,6 +30,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- Opening a workspace with a pane kind this build doesn't know drops that pane instead of showing it as a score pane.
+- The progress bar no longer panics in a pane narrower than a pixel.
 - GUI: the vertical layout fits panes narrower than 300pt instead of cutting off the bars.
 
 ## [0.2.0] - 2026-10-30

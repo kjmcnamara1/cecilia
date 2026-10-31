@@ -554,6 +554,14 @@ impl App {
             }
         };
         for p in &ws.panes {
+            // A pane kind this build doesn't know (a workspace saved by a newer one) is dropped,
+            // not shown as a score pane.
+            if p.kind
+                .as_deref()
+                .is_some_and(|k| PaneKind::parse(k).is_none())
+            {
+                continue;
+            }
             let buffer = match p.file.and_then(|f| buffer_of.get(&f)) {
                 Some(&b) => b,
                 None => empty(self),
@@ -823,6 +831,23 @@ mod tests {
         other.run(Command::WorkspaceOpen(ws_file.display().to_string(), false));
         assert!(other.message.as_ref().unwrap().error);
         std::fs::remove_dir_all(dir).ok();
+    }
+
+    #[test]
+    fn panes_of_an_unknown_kind_are_dropped() {
+        let mut app = App::new(Config::default(), None);
+        app.run(Command::Fretboard(Some(true)));
+        let mut ws = app.workspace();
+        let before = ws.panes.len();
+        assert_eq!(before, 2);
+        // A tool pane from some newer build.
+        let tool = ws.panes.iter_mut().find(|p| p.kind.is_some()).unwrap();
+        tool.kind = Some("from-the-future".into());
+        let mut other = App::new(Config::default(), None);
+        other.restore(&ws);
+        assert_eq!(other.panes.len(), before - 1);
+        assert!(other.panes.values().all(|p| p.kind == PaneKind::Score));
+        assert_eq!(other.views[0].root.panes().len(), 1);
     }
 
     #[test]
