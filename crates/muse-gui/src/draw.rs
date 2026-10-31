@@ -783,7 +783,8 @@ fn draw_progress(
     let mut edges: Vec<f64> = p.sections.iter().map(|s| s.start).collect();
     edges.push(1.0);
     for f in edges {
-        let x = x_at(f).clamp(bar.x0 + 0.5, bar.x1 - 0.5);
+        // Not `clamp`: in a pane narrower than a pixel the bounds cross.
+        let x = x_at(f).min(bar.x1 - 0.5).max(bar.x0 + 0.5);
         fill(scene, Rect::new(x - 0.5, bar.y0, x + 0.5, bar.y1), line);
     }
     // The position: see-through, so the section under it stays readable.
