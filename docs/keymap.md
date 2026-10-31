@@ -296,6 +296,40 @@ Clicking a tab shows it, a row selects it and a double click edits it; a click o
 | `:properties-tab [score\|track\|lyrics]` | show a tab (none: the next) |
 | `:properties-fold [open\|close]` | open, close or (no argument) toggle the selected section |
 
+## Editing palette
+
+`<leader>e` shows or hides the editing palette, docked along the left of the window above the bottom tool panes (which run under it at the full width; the properties pane stays outermost along the right)
+(`ui.palette = true` shows it from the start). Like Guitar Pro's editing panel it is a grid of
+small icon buttons, wrapped to the pane's width, in collapsible sections: durations (whole to
+64th, dotted, triplet, rest), pitch (sharp, flat, natural, octave, tie, dead and ghost notes),
+dynamics (`ppp` to `fff`), articulations (accent, staccato, let ring, palm mute) and effects
+(hammer-on/pull-off, slide, bend, vibrato, harmonic, tremolo picking, tap/slap/pop, strokes). The
+GUI shows the highlighted button's name along the bottom of the pane (and as a tooltip when the
+mouse rests on it); the terminal draws short labels and shows the name on the pane's bottom row. Each button runs an ordinary command
+(`:duration 8`, `:toggle palm-mute`, `:dynamic mf` …) on the score pane worked on. The buttons in
+force at the cursor (the beat's duration, its dynamic and techniques) are tinted with the accent
+and follow the cursor as it moves; the highlighted button is a neutral gray. The mouse and the
+keyboard share that one highlight: moving the mouse over a button selects it. `<leader>E` focuses the pane (again: back to the score); while it has the focus its keys
+are `[keymap.palette]`, then the usual ones:
+
+| keys | command |
+| --- | --- |
+| `h` `l` `<Left>` `<Right>` | select the button to the left / right in its line (no wrapping) |
+| `j` `<Down>` `<Tab>` / `k` `<Up>` `<S-Tab>` | select the button below / above (keeping the column), through the section titles |
+| `<CR>` `<Space>` | apply the selected button (on a section title: fold or unfold it) |
+| `za` `zc` `zo` | toggle / close / open the section |
+| `<Esc>` `q` | back to the score pane |
+
+A button's name (tooltip and label) ends with the insert-mode keys bound to its command, from the live keymaps so your overrides show ("Palm mute (m)", at most three, "Quarter note (<A-3>)"; none: no parentheses). Buttons that can't take effect at the cursor are dimmed and named "(unavailable)" after that: note-level ones (pitch, tie, dead and ghost notes, dynamics, articulations, most effects) off a note, accidentals on a tab. They are worked out by trying the command's own edit, so they follow what the command refuses. They stay selectable, but applying one does nothing and the status line says why.
+
+A click applies a button (and returns to the score pane) or folds a section; the wheel scrolls.
+
+| command | |
+| --- | --- |
+| `:palette [on\|off]` / `:palette-focus` | show or hide the pane / focus it |
+| `:palette-down` `:palette-up` `:palette-left` `:palette-right` `:palette-activate` `:palette-fold [open\|close]` | move, apply, fold |
+| `:dynamic ppp\|pp\|p\|mp\|mf\|f\|ff\|fff` | set the dynamic of the note under the cursor (velocity 15 … 127) |
+
 ## Playing
 
 Playing is not a mode: Normal, Visual, Insert and the command line all keep working while a
@@ -402,7 +436,7 @@ e.g. `"<C-g>" = "completion-ignore-case"`, `"<C-f>" = "completion-fuzzy"`.
 | `:tuning drop-d` or `:tuning D2 A2 D3 G3 B3 E4` / `:capo 2`          | retune keeping pitches                                                                                                                                                                      |
 | `:refinger` / `:transpose 2`                                         | re-finger the track to minimise hand movement / transpose                                                                                                                                   |
 | `:track-add bass` / `:track-delete` / `:new`                         | tracks and new scores (`:track-add piano` gets a grand staff)                                                                                                                                 |
-| `:staff-add [staff]`                                                | add a staff at the bottom of the cursor's track; staves only show the track's notes, so each track can have as many as you like |
+| `:staff-add [staff…]`                                               | add one or more staves at the bottom of the cursor's track, in the order given (`:staff-add treble tab slash`); staves only show the track's notes, so each track can have as many as you like |
 | `:staff {staff}` | show the cursor's staff another way: `treble`, `bass` or `grand [split]` (a grand staff splits at middle C, C4, unless a note such as `G3` is given), `tab`, `tab+` (tab with rhythm stems), `slash`, `chant`. A tab on a track without strings puts its notes on strings (refused if one would not fit) |
 | `:staff-remove [n]` / `:staff-move {n\|+N\|-N}`                      | remove a staff (1 = top; the cursor's by default; the last one stays) / move the cursor's staff to position n, or down / up |
 | `:lyrics [verse] TEXT` _(M7)_                                        | syllables from the cursor on, one per note, in Guitar Pro syntax: spaces and hyphens separate syllables (`he-si-tate`), an extra space skips a note, `+` joins words on one note; verse 1–5 |

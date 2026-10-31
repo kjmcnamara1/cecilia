@@ -80,6 +80,7 @@ pub fn mode_label(mode: Mode) -> &'static str {
         Mode::Picker => "PICK",
         Mode::Tracks => "TRACKS",
         Mode::Properties => "PROPS",
+        Mode::Palette => "PALETTE",
     }
 }
 

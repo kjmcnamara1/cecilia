@@ -741,6 +741,27 @@ pub fn toggle(cx: &mut EditCx, technique: &str, duration: Duration) -> Result<()
     Ok(())
 }
 
+/// Sets the velocity of the cursor note (on a fretted track the one on its string) to a dynamic
+/// marking (`ppp` … `fff`).
+pub fn set_dynamic(cx: &mut EditCx, dynamic: &str) -> Result<(), String> {
+    let velocity = crate::palette::dynamic_velocity(dynamic).ok_or("unknown dynamic")?;
+    let string = cx.string();
+    let fretted = cx.track().kind == TrackKind::Fretted;
+    let notes: Vec<&mut Note> = cx
+        .beat()
+        .notes
+        .iter_mut()
+        .filter(|n| !fretted || n.string == string)
+        .collect();
+    if notes.is_empty() {
+        return Err("no note under the cursor".into());
+    }
+    for n in notes {
+        n.velocity = velocity;
+    }
+    Ok(())
+}
+
 /// Changes the pitch of the cursor note by semitones, keeping its string when possible and
 /// re-fingering the chord otherwise.
 pub fn shift_pitch(cx: &mut EditCx, semitones: i32) -> Result<(), String> {

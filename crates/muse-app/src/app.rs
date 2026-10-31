@@ -161,16 +161,19 @@ pub enum PaneKind {
     Tuner,
     /// The score's, the cursor track's and the lyrics' properties, docked along the right.
     Properties,
+    /// The editing palette (durations, rests, effects …), docked along the left.
+    Palette,
 }
 
 impl PaneKind {
-    pub const TOOLS: [PaneKind; 6] = [
+    pub const TOOLS: [PaneKind; 7] = [
         PaneKind::Tracks,
         PaneKind::Audio,
         PaneKind::Piano,
         PaneKind::Fretboard,
         PaneKind::Tuner,
         PaneKind::Properties,
+        PaneKind::Palette,
     ];
 
     pub fn name(self) -> &'static str {
@@ -182,6 +185,7 @@ impl PaneKind {
             PaneKind::Fretboard => "fretboard",
             PaneKind::Tuner => "tuner",
             PaneKind::Properties => "properties",
+            PaneKind::Palette => "palette",
         }
     }
 
@@ -194,6 +198,7 @@ impl PaneKind {
             "fretboard" => PaneKind::Fretboard,
             "tuner" => PaneKind::Tuner,
             "properties" => PaneKind::Properties,
+            "palette" => PaneKind::Palette,
             _ => return None,
         })
     }
@@ -220,6 +225,72 @@ fn dock_bottom(root: Node, id: PaneId) -> Node {
             children: vec![other, Node::Leaf(id)],
             weights: vec![1.0, 1.0],
         },
+    }
+}
+
+/// Takes the leaf of a pane out of a root split along the right (what remains is the first
+/// result); a root without it is returned as it is.
+fn split_off_leaf(root: Node, id: Option<PaneId>) -> (Node, Option<Node>) {
+    let Some(id) = id else {
+        return (root, None);
+    };
+    match root {
+        Node::Split {
+            axis: Axis::SideBySide,
+            mut children,
+            ..
+        } if children.contains(&Node::Leaf(id)) => {
+            let at = children.iter().position(|c| *c == Node::Leaf(id)).unwrap();
+            let leaf = children.remove(at);
+            let main = if children.len() == 1 {
+                children.remove(0)
+            } else {
+                Node::Split {
+                    axis: Axis::SideBySide,
+                    weights: vec![1.0; children.len()],
+                    children,
+                }
+            };
+            (main, Some(leaf))
+        }
+        root => (root, None),
+    }
+}
+
+/// Puts a pane along the left of the panes above the bottom tools (`is_tool` tells those): the
+/// tools stay at the root, at its full width.
+fn dock_left(main: Node, id: PaneId, is_tool: impl Fn(&Node) -> bool) -> Node {
+    let side_by_side = |body: Node| Node::Split {
+        axis: Axis::SideBySide,
+        children: vec![Node::Leaf(id), body],
+        weights: vec![1.0, 1.0],
+    };
+    match main {
+        Node::Split {
+            axis: Axis::Stacked,
+            children,
+            ..
+        } if children.iter().any(&is_tool) => {
+            let (tools, mut body): (Vec<Node>, Vec<Node>) =
+                children.into_iter().partition(&is_tool);
+            let body = if body.len() == 1 {
+                body.remove(0)
+            } else {
+                Node::Split {
+                    axis: Axis::Stacked,
+                    weights: vec![1.0; body.len()],
+                    children: body,
+                }
+            };
+            let mut children = vec![side_by_side(body)];
+            children.extend(tools);
+            Node::Split {
+                axis: Axis::Stacked,
+                weights: vec![1.0; children.len()],
+                children,
+            }
+        }
+        main => side_by_side(main),
     }
 }
 
@@ -408,6 +479,8 @@ pub struct App {
     pub tracks_selected: usize,
     /// The properties pane's tab, selection and fold state.
     pub props: crate::properties::PropsState,
+    /// The editing palette's selection and fold state.
+    pub palette: crate::palette::PaletteState,
     /// Height of a row of text in viewport units (1 in a terminal, pixels in the GUI), for
     /// sizing new tool panes.
     pub row_height: u16,
@@ -527,6 +600,7 @@ impl App {
             tuner_error: None,
             tracks_selected: 0,
             props: Default::default(),
+            palette: Default::default(),
             renaming: None,
             row_height: 1,
             col_width: 1,
@@ -559,6 +633,7 @@ impl App {
             (PaneKind::Fretboard, ui.fretboard),
             (PaneKind::Piano, ui.piano),
             (PaneKind::Properties, ui.properties),
+            (PaneKind::Palette, ui.palette),
         ];
         for (kind, on) in tools {
             if on {
@@ -645,6 +720,7 @@ impl App {
             PaneKind::Piano | PaneKind::Tuner => (3, 40),
             PaneKind::Audio => (4, 40),
             PaneKind::Properties => (10, crate::properties::WIDTH as usize),
+            PaneKind::Palette => (10, crate::palette::WIDTH as usize),
             PaneKind::Score => (10, 40),
         };
         let frame = self.pane_frame as usize;
@@ -654,12 +730,12 @@ impl App {
         )
     }
 
-    /// A new tool pane's size: its natural one, except that the properties pane (docked at the
-    /// right) has a width only.
+    /// A new tool pane's size: its natural one, except that the properties and palette panes
+    /// (docked at the sides) have a width only.
     fn tool_size(&self, kind: PaneKind) -> (Option<u16>, Option<u16>) {
         let (h, w) = self.natural_size(kind);
         match kind {
-            PaneKind::Properties => (None, Some(w)),
+            PaneKind::Properties | PaneKind::Palette => (None, Some(w)),
             _ => (Some(h), Some(w)),
         }
     }
@@ -667,7 +743,7 @@ impl App {
     /// Whether a tool docks along the bottom of the whole view, showing the last active score
     /// pane (`ui.global_tools`, `:global-tool`), else under its own score pane.
     pub fn is_global(&self, kind: PaneKind) -> bool {
-        kind == PaneKind::Properties
+        matches!(kind, PaneKind::Properties | PaneKind::Palette)
             || self
                 .config
                 .file
@@ -688,6 +764,9 @@ impl App {
         };
         if kind == PaneKind::Properties {
             return self.error("global-tool: the properties pane always docks at the right");
+        }
+        if kind == PaneKind::Palette {
+            return self.error("global-tool: the palette always docks at the left");
         }
         let was_open = self.tool_pane(kind).is_some();
         let tools = &mut self.config.file.ui.global_tools;
@@ -739,6 +818,7 @@ impl App {
                 self.set_tool(kind, Some(true));
             }
         }
+        self.normalize_layouts();
         self.info(format!(
             "{}: {}",
             kind.name(),
@@ -779,6 +859,65 @@ impl App {
         }
     }
 
+    /// Nests every view's global tool panes the way `set_tool` builds them, whatever shape the
+    /// tree was saved or edited in: the properties pane outermost along the right, the bottom
+    /// tools at the full width of what is left of it, the palette along the left of the panes
+    /// above them, the scores innermost. Sizes belong to the panes, so they are kept; a tree
+    /// already in that shape is left alone (split weights included).
+    pub(crate) fn normalize_layouts(&mut self) {
+        for v in 0..self.views.len() {
+            let owner_of = |id: &PaneId| self.panes.get(id).map(|p| (p.kind, p.owner));
+            let panes = self.views[v].root.panes();
+            let find = |kind| {
+                panes
+                    .iter()
+                    .copied()
+                    .find(|id| owner_of(id) == Some((kind, None)))
+            };
+            let (props, palette) = (find(PaneKind::Properties), find(PaneKind::Palette));
+            let tools: Vec<PaneId> = panes
+                .iter()
+                .copied()
+                .filter(|id| match owner_of(id) {
+                    Some((kind, None)) => !matches!(
+                        kind,
+                        PaneKind::Score | PaneKind::Properties | PaneKind::Palette
+                    ),
+                    _ => false,
+                })
+                .collect();
+            if props.is_none() && palette.is_none() {
+                continue;
+            }
+            let mut main = self.views[v].root.clone();
+            let mut removed = true;
+            for id in props.iter().chain(&palette).chain(&tools) {
+                removed &= main.remove(*id);
+            }
+            if !removed {
+                continue;
+            }
+            let is_tool = |n: &Node| matches!(n, Node::Leaf(i) if tools.contains(i));
+            if let Some(p) = palette {
+                main = dock_left(main, p, is_tool);
+            }
+            for t in &tools {
+                main = dock_bottom(main, *t);
+            }
+            let root = match props {
+                Some(p) => Node::Split {
+                    axis: Axis::SideBySide,
+                    children: vec![main, Node::Leaf(p)],
+                    weights: vec![1.0, 1.0],
+                },
+                None => main,
+            };
+            if root.shape() != self.views[v].root.shape() {
+                self.views[v].root = root;
+            }
+        }
+    }
+
     /// Whether the active view shows a pane of a tool kind.
     pub fn has_tool(&self, kind: PaneKind) -> bool {
         self.tool_pane(kind).is_some()
@@ -807,41 +946,46 @@ impl App {
                 if !self.viewport_known {
                     self.unfitted.push(id);
                 }
-                let docked_right = self.docked_right();
+                let is_tool = |n: &Node| match n {
+                    Node::Leaf(i) => self
+                        .panes
+                        .get(i)
+                        .is_some_and(|p| p.kind != PaneKind::Score && p.owner.is_none()),
+                    _ => false,
+                };
+                let props = self.view().root.panes().into_iter().find(|i| {
+                    self.panes
+                        .get(i)
+                        .is_some_and(|p| p.kind == PaneKind::Properties)
+                });
                 let view = &mut self.views[self.active_view];
-                if kind == PaneKind::Properties {
-                    // Along the right of the whole view, at its full height.
-                    let root = std::mem::replace(&mut view.root, Node::Leaf(0));
-                    view.root = Node::Split {
-                        axis: Axis::SideBySide,
-                        children: vec![root, Node::Leaf(id)],
-                        weights: vec![1.0, 1.0],
-                    };
-                } else if global {
-                    // Along the bottom of the view's panes (left of the properties pane).
-                    let root = std::mem::replace(&mut view.root, Node::Leaf(0));
-                    view.root = match (root, docked_right) {
-                        (
-                            Node::Split {
-                                axis: Axis::SideBySide,
-                                mut children,
-                                weights,
-                            },
-                            true,
-                        ) => {
-                            let body = children.remove(0);
-                            children.insert(0, dock_bottom(body, id));
-                            Node::Split {
-                                axis: Axis::SideBySide,
-                                children,
-                                weights,
-                            }
-                        }
-                        (root, _) => dock_bottom(root, id),
-                    };
-                } else {
+                if !global {
                     // Under the score pane it works on, as wide as it.
                     view.root.split(score, id, Axis::Stacked);
+                } else {
+                    // The properties pane is outermost, along the right at the full height;
+                    // what is left of it takes the bottom tools at its full width, then the
+                    // palette above them along the left, then the scores.
+                    let root = std::mem::replace(&mut view.root, Node::Leaf(0));
+                    let (main, props_leaf) = split_off_leaf(root, props);
+                    let main = match kind {
+                        PaneKind::Properties => main,
+                        PaneKind::Palette => dock_left(main, id, is_tool),
+                        _ => dock_bottom(main, id),
+                    };
+                    let side = if kind == PaneKind::Properties {
+                        Some(Node::Leaf(id))
+                    } else {
+                        props_leaf
+                    };
+                    view.root = match side {
+                        Some(side) => Node::Split {
+                            axis: Axis::SideBySide,
+                            children: vec![main, side],
+                            weights: vec![1.0, 1.0],
+                        },
+                        None => main,
+                    };
                 }
             }
             _ => return,
@@ -850,21 +994,6 @@ impl App {
             self.tuner_reading = None;
             self.tuner_error = None;
             self.effects.push(Effect::Tuner(on));
-        }
-    }
-
-    /// Whether the active view's root is a split with the properties pane as its last child.
-    fn docked_right(&self) -> bool {
-        match &self.view().root {
-            Node::Split {
-                axis: Axis::SideBySide,
-                children,
-                ..
-            } => matches!(
-                children.last(),
-                Some(Node::Leaf(id)) if self.panes.get(id).is_some_and(|p| p.kind == PaneKind::Properties)
-            ),
-            _ => false,
         }
     }
 
@@ -1082,7 +1211,7 @@ impl App {
             .iter()
             .filter(|(_, p)| match p.kind {
                 PaneKind::Score => false,
-                PaneKind::Properties => p.size.1.is_none(),
+                PaneKind::Properties | PaneKind::Palette => p.size.1.is_none(),
                 _ => p.size.0.is_none(),
             })
             .map(|(id, _)| *id)
@@ -1752,6 +1881,7 @@ impl App {
             || self.run_playalong(&cmd)
             || self.run_tracks(&cmd)
             || self.run_properties(&cmd)
+            || self.run_palette(&cmd)
         {
             return;
         }

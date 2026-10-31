@@ -63,6 +63,9 @@ struct Ui {
     props: Vec<(Rect, PropHit)>,
     /// The properties pane, for the wheel.
     props_area: Option<Rect>,
+    /// Clickable rows of the editing palette, and its area for the wheel.
+    palette: Vec<(Rect, usize)>,
+    palette_area: Option<Rect>,
     /// The lyrics text area as drawn: its left, its first line's row and height, the wrapped
     /// lines and the first one shown.
     props_text: Option<PropsText>,
@@ -150,7 +153,16 @@ fn event_loop(terminal: &mut DefaultTerminal, app: &mut App) -> Result<()> {
                     }
                 }
                 Event::Mouse(m) => match m.kind {
-                    MouseEventKind::Moved => ui.hover = Some((m.column, m.row)),
+                    MouseEventKind::Moved => {
+                        ui.hover = Some((m.column, m.row));
+                        if let Some((_, i)) = ui
+                            .palette
+                            .iter()
+                            .find(|(r, _)| contains(*r, m.column, m.row))
+                        {
+                            app.hover_palette(*i);
+                        }
+                    }
                     // Dragging a pane border or the tracks panel's header resizes them; a
                     // tab moves along the tabline.
                     MouseEventKind::Drag(MouseButton::Left)
@@ -235,6 +247,20 @@ fn event_loop(terminal: &mut DefaultTerminal, app: &mut App) -> Result<()> {
                     {
                         let (d, off) = divider_at(app, m.column, m.row).unwrap();
                         ui.drag = Some(Drag::Divider(d, off));
+                    }
+                    MouseEventKind::Down(MouseButton::Left)
+                        if ui
+                            .palette
+                            .iter()
+                            .any(|(r, _)| contains(*r, m.column, m.row)) =>
+                    {
+                        let row = ui
+                            .palette
+                            .iter()
+                            .find(|(r, _)| contains(*r, m.column, m.row))
+                            .map(|(_, i)| *i)
+                            .unwrap();
+                        app.click_palette(row);
                     }
                     MouseEventKind::Down(MouseButton::Left)
                         if ui.props.iter().any(|(r, _)| contains(*r, m.column, m.row)) =>
@@ -432,6 +458,17 @@ fn event_loop(terminal: &mut DefaultTerminal, app: &mut App) -> Result<()> {
                             -2
                         });
                     }
+                    MouseEventKind::ScrollDown | MouseEventKind::ScrollUp
+                        if ui
+                            .palette_area
+                            .is_some_and(|r| contains(r, m.column, m.row)) =>
+                    {
+                        app.scroll_palette(if m.kind == MouseEventKind::ScrollDown {
+                            2
+                        } else {
+                            -2
+                        });
+                    }
                     MouseEventKind::ScrollDown => app.run(muse_app::Command::BarNext),
                     MouseEventKind::ScrollUp => app.run(muse_app::Command::BarPrev),
                     _ => {}
@@ -531,6 +568,7 @@ fn draw(f: &mut Frame, app: &mut App, play: Option<(usize, Location, f64, f64)>,
     ui.tracks.clear();
     ui.tracks_area = None;
     ui.props.clear();
+    ui.palette.clear();
     ui.props_area = None;
     ui.props_text = None;
     if peek_h > 0 {
@@ -578,6 +616,7 @@ fn draw(f: &mut Frame, app: &mut App, play: Option<(usize, Location, f64, f64)>,
         match kind {
             PaneKind::Tracks => draw_tracks(f, app, inner, play, ui),
             PaneKind::Properties => draw_properties(f, app, inner, ui),
+            PaneKind::Palette => draw_edit_palette(f, app, inner, ui),
             PaneKind::Tuner => draw_tuner(f, app, inner),
             PaneKind::Fretboard | PaneKind::Piano => match &instrument {
                 Some(v) if kind == PaneKind::Fretboard => draw_fretboard(f, app, v, inner, ui),
@@ -1147,6 +1186,7 @@ fn tool_icon(b: &muse_app::toolbar::ToolButton, style: &str) -> String {
         "count-in" => ("12", "12", "count"),
         "tracks" | "tracks-focus" => ("\u{f0c9}", "≡", "tracks"),
         "properties" => ("\u{f013}", "⚙", "props"),
+        "palette" => ("\u{f1fc}", "✎", "palette"),
         "waveform" => ("\u{f080}", "∿", "wave"),
         "piano" => ("\u{f001}", "♫", "piano"),
         "fretboard" => ("\u{f1c0}", "▦", "frets"),
@@ -1549,6 +1589,112 @@ fn clip(text: &str, width: usize) -> String {
     let mut out: String = text.chars().take(width.saturating_sub(1)).collect();
     out.push('…');
     out
+}
+
+/// The editing palette: a section title per section over grids of short-label buttons, and the
+/// name of the selected button on the bottom row. Buttons in force are marked.
+fn draw_edit_palette(f: &mut Frame, app: &App, area: Rect, ui: &mut Ui) {
+    use muse_app::palette::{PaletteKind, PaletteLine};
+    const CELL: u16 = 4;
+    let t = app.config.theme.clone();
+    let base = Style::default().bg(rc(t.panel)).fg(rc(t.chrome_text));
+    ui.palette_area = Some(area);
+    f.render_widget(Paragraph::new("").style(base), area);
+    if area.height < 3 || area.width < CELL + 1 {
+        return;
+    }
+    let cols = ((area.width - 1) / CELL) as usize;
+    app.set_palette_cols(cols);
+    let rows = app.palette_rows();
+    let lines = app.palette_lines();
+    let sel = app.palette_selected();
+    // The one highlight shows while the pane has the focus or the mouse is over it.
+    let focused = app.focused_kind() == PaneKind::Palette
+        || ui.hover.is_some_and(|(c, r)| contains(area, c, r));
+    let shown = (area.height - 1) as usize;
+    let first = app.palette_window(shown);
+    let buf = f.buffer_mut();
+    for (n, line) in lines.iter().skip(first).take(shown).enumerate() {
+        let y = area.y + n as u16;
+        match line {
+            PaletteLine::Header(i) => {
+                let row = &rows[*i];
+                let PaletteKind::Header { folded, .. } = row.kind else {
+                    continue;
+                };
+                let mark = if folded { '\u{f054}' } else { '\u{f078}' };
+                let style = if *i == sel && focused {
+                    on(app, t.mode_normal)
+                } else if *i == sel {
+                    base.fg(rc(t.mode_normal)).add_modifier(Modifier::REVERSED)
+                } else {
+                    base.fg(rc(t.mode_normal)).add_modifier(Modifier::BOLD)
+                };
+                let text = format!(" {mark} {}", row.label);
+                let w = area.width as usize;
+                buf.set_string(area.x, y, format!("{:<w$}", clip(&text, w)), style);
+                ui.palette.push((
+                    Rect {
+                        x: area.x,
+                        y,
+                        width: area.width,
+                        height: 1,
+                    },
+                    *i,
+                ));
+            }
+            PaletteLine::Cells(cells) => {
+                for (k, &i) in cells.iter().enumerate() {
+                    let row = &rows[i];
+                    let x = area.x + 1 + k as u16 * CELL;
+                    let style = if i == sel && focused {
+                        // A neutral gray, apart from the accent of buttons in force.
+                        Style::default()
+                            .fg(rc(t.chrome_text))
+                            .bg(rc(t.button_hover))
+                    } else if row.active {
+                        on(app, t.mode_normal)
+                    } else {
+                        base
+                    };
+                    let style = if row.unavailable.is_some() {
+                        style.fg(rc(t.dim)).add_modifier(Modifier::DIM)
+                    } else if i == sel && focused && row.active {
+                        style.fg(rc(t.mode_normal)).add_modifier(Modifier::BOLD)
+                    } else {
+                        style
+                    };
+                    let label = format!("{:^w$}", clip(row.short, 3), w = CELL as usize - 1);
+                    buf.set_string(x, y, label, style);
+                    ui.palette.push((
+                        Rect {
+                            x,
+                            y,
+                            width: CELL - 1,
+                            height: 1,
+                        },
+                        i,
+                    ));
+                }
+            }
+        }
+    }
+    // The selected button's name.
+    if let Some(row) = rows.get(sel) {
+        let name = if row.kind == PaletteKind::Item {
+            row.name()
+        } else {
+            String::new()
+        };
+        let w = area.width as usize;
+        let dim = Style::default().fg(rc(t.dim)).bg(rc(t.panel));
+        buf.set_string(
+            area.x,
+            area.y + area.height - 1,
+            format!(" {:<w$}", clip(&name, w.saturating_sub(1))),
+            dim,
+        );
+    }
 }
 
 /// The properties pane: its tabs, then the shown tab's rows (section titles, and per property
@@ -2296,7 +2442,12 @@ fn draw_cmdline(f: &mut Frame, app: &App, area: Rect) {
     match app.mode {
         // Typed in the command palette.
         Mode::Command | Mode::Picker => {}
-        Mode::Normal | Mode::Insert | Mode::Visual | Mode::Tracks | Mode::Properties => {
+        Mode::Normal
+        | Mode::Insert
+        | Mode::Visual
+        | Mode::Tracks
+        | Mode::Properties
+        | Mode::Palette => {
             if let Some(m) = &app.message {
                 let style = if m.error {
                     Style::default().fg(Color::Red)
@@ -2532,6 +2683,25 @@ mod render_tests {
         );
         assert!(screen.contains("string 5 (A2)"), "{screen}");
         assert!(screen.contains('█') && screen.contains("+50"), "{screen}");
+    }
+
+    #[test]
+    fn the_palette_shows_a_grid_and_takes_clicks() {
+        let mut app = App::new(muse_app::Config::default(), None);
+        app.run(muse_app::Command::New);
+        app.run(muse_app::Command::Palette(Some(true)));
+        let screen = render(&mut app, 100, 40);
+        assert!(
+            screen.contains("Duration") && screen.contains("1/8"),
+            "{screen}"
+        );
+        let mut terminal = Terminal::new(TestBackend::new(100, 40)).unwrap();
+        let mut ui = Ui::default();
+        terminal.draw(|f| draw(f, &mut app, None, &mut ui)).unwrap();
+        let (r, i) = *ui.palette.iter().find(|(_, i)| *i == 4).unwrap();
+        assert!(r.width < 8, "a button, not a line");
+        app.click_palette(i);
+        assert_eq!(app.insert_duration().value.denominator(), 8);
     }
 
     #[test]

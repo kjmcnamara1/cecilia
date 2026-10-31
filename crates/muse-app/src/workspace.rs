@@ -533,7 +533,7 @@ impl App {
         }
     }
 
-    fn restore(&mut self, ws: &Workspace) {
+    pub(crate) fn restore(&mut self, ws: &Workspace) {
         self.buffers = vec![Buffer::empty()];
         self.panes.clear();
         self.views.clear();
@@ -739,6 +739,7 @@ impl App {
                 self.set_tool(kind, Some(true));
             }
         }
+        self.normalize_layouts();
         self.waveform_height = ws.waveform_height.clamp(
             crate::app::MIN_WAVEFORM_HEIGHT,
             crate::app::MAX_WAVEFORM_HEIGHT,
