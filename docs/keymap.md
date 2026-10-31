@@ -409,7 +409,7 @@ e.g. `"<C-g>" = "completion-ignore-case"`, `"<C-f>" = "completion-fuzzy"`.
 | `:lyrics-clear [verse]` _(M7)_                                       | remove a verse (all verses without a number) from the track                                                                                                                                 |
 | `:speed 75`                                                          | playback speed in percent                                                                                                                                                                   |
 
-With the cursor on a note of a tab staff, the same note on the track's other staves is drawn in the current mode's color (GUI): the notehead, slash or square note on staves of lines, the fret number in bold on other tabs. A chord lights only the note under the cursor.
+With the cursor on a note on any staff, the same note on the track's other staves is drawn in the current mode's color (GUI): the notehead, slash or square note on staves of lines, the fret number in bold on other tabs. A chord lights only the note under the cursor; nothing is lit on a rest or an empty position.
 
 ### Workspaces
 
