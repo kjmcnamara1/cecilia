@@ -807,6 +807,7 @@ impl App {
                 self.set_tool(kind, Some(true));
             }
         }
+        self.normalize_layouts();
         self.info(format!(
             "{}: {}",
             kind.name(),
@@ -843,6 +844,65 @@ impl App {
             let size = self.tool_size(kind);
             if let Some(p) = self.panes.get_mut(&id) {
                 p.size = size;
+            }
+        }
+    }
+
+    /// Nests every view's global tool panes the way `set_tool` builds them, whatever shape the
+    /// tree was saved or edited in: the properties pane outermost along the right, the bottom
+    /// tools at the full width of what is left of it, the palette along the left of the panes
+    /// above them, the scores innermost. Sizes belong to the panes, so they are kept; a tree
+    /// already in that shape is left alone (split weights included).
+    pub(crate) fn normalize_layouts(&mut self) {
+        for v in 0..self.views.len() {
+            let owner_of = |id: &PaneId| self.panes.get(id).map(|p| (p.kind, p.owner));
+            let panes = self.views[v].root.panes();
+            let find = |kind| {
+                panes
+                    .iter()
+                    .copied()
+                    .find(|id| owner_of(id) == Some((kind, None)))
+            };
+            let (props, palette) = (find(PaneKind::Properties), find(PaneKind::Palette));
+            let tools: Vec<PaneId> = panes
+                .iter()
+                .copied()
+                .filter(|id| match owner_of(id) {
+                    Some((kind, None)) => !matches!(
+                        kind,
+                        PaneKind::Score | PaneKind::Properties | PaneKind::Palette
+                    ),
+                    _ => false,
+                })
+                .collect();
+            if props.is_none() && palette.is_none() {
+                continue;
+            }
+            let mut main = self.views[v].root.clone();
+            let mut removed = true;
+            for id in props.iter().chain(&palette).chain(&tools) {
+                removed &= main.remove(*id);
+            }
+            if !removed {
+                continue;
+            }
+            let is_tool = |n: &Node| matches!(n, Node::Leaf(i) if tools.contains(i));
+            if let Some(p) = palette {
+                main = dock_left(main, p, is_tool);
+            }
+            for t in &tools {
+                main = dock_bottom(main, *t);
+            }
+            let root = match props {
+                Some(p) => Node::Split {
+                    axis: Axis::SideBySide,
+                    children: vec![main, Node::Leaf(p)],
+                    weights: vec![1.0, 1.0],
+                },
+                None => main,
+            };
+            if root.shape() != self.views[v].root.shape() {
+                self.views[v].root = root;
             }
         }
     }

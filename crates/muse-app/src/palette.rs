@@ -584,6 +584,7 @@ impl App {
 mod tests {
     use super::*;
     use crate::app::tests::{keys as press, test_app as app};
+    use crate::layout::{Axis, Node};
 
     fn select(app: &mut App, command: &str) {
         let at = app
@@ -894,5 +895,69 @@ mod tests {
             assert!(app.has_tool(PaneKind::Fretboard) && app.has_tool(PaneKind::Properties));
             assert_eq!(pane(&app, PaneKind::Fretboard).x, 0);
         }
+    }
+
+    /// The old shape: the palette outermost with the bottom tool nested in the score column.
+    fn old_shape(app: &mut App) {
+        let palette = app.tool_pane(PaneKind::Palette).unwrap();
+        let tool = app.tool_pane(PaneKind::Fretboard).unwrap();
+        let score = app.focused();
+        let v = app.active_view;
+        app.views[v].root = Node::Split {
+            axis: Axis::SideBySide,
+            children: vec![
+                Node::Leaf(palette),
+                Node::Split {
+                    axis: Axis::Stacked,
+                    children: vec![Node::Leaf(score), Node::Leaf(tool)],
+                    weights: vec![1.0, 1.0],
+                },
+            ],
+            weights: vec![1.0, 1.0],
+        };
+    }
+
+    #[test]
+    fn a_saved_old_shape_is_renested_on_restore() {
+        let mut app = app();
+        app.set_tool(PaneKind::Palette, Some(true));
+        app.set_tool(PaneKind::Fretboard, Some(true));
+        let sizes = |app: &App| {
+            let size = |k| app.panes[&app.tool_pane(k).unwrap()].size;
+            (size(PaneKind::Palette), size(PaneKind::Fretboard))
+        };
+        let before = sizes(&app);
+        old_shape(&mut app);
+        let text = toml::to_string_pretty(&app.workspace()).unwrap();
+        let mut other = crate::app::tests::test_app();
+        other.restore(&toml::from_str(&text).unwrap());
+        let rect = |app: &App, id| app.layout().into_iter().find(|(p, _)| *p == id).unwrap().1;
+        let palette = rect(&other, other.tool_pane(PaneKind::Palette).unwrap());
+        let tool = rect(&other, other.tool_pane(PaneKind::Fretboard).unwrap());
+        assert_eq!((tool.x, tool.w), (0, other.viewport.w), "{tool:?}");
+        assert!(palette.y + palette.h <= tool.y, "{palette:?} {tool:?}");
+        assert_eq!(palette.x, 0);
+        assert_eq!(sizes(&other), before, "the sizes are kept");
+    }
+
+    #[test]
+    fn normalising_a_correct_tree_changes_nothing() {
+        let mut app = app();
+        app.set_tool(PaneKind::Palette, Some(true));
+        app.set_tool(PaneKind::Fretboard, Some(true));
+        app.set_tool(PaneKind::Properties, Some(true));
+        // A manual resize shows in the weights, which stay.
+        app.views[app.active_view].root.equalize();
+        let before = app.view().root.clone();
+        app.normalize_layouts();
+        assert_eq!(app.view().root, before);
+        // The old shape is mended to the same nesting.
+        let mut other = crate::app::tests::test_app();
+        other.set_tool(PaneKind::Palette, Some(true));
+        other.set_tool(PaneKind::Fretboard, Some(true));
+        let good = other.view().root.shape();
+        old_shape(&mut other);
+        other.normalize_layouts();
+        assert_eq!(other.view().root.shape(), good);
     }
 }
