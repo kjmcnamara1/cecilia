@@ -72,11 +72,18 @@ const UI_FONT: f64 = 14.0;
 /// Pixels per point at zoom 1.
 const BASE_SCALE: f64 = 1.6;
 
+/// A linked note's color-recolored pages: the note, its color, and (page, scene) pairs.
+type Lit = (muse_app::LinkedNote, [u8; 4], Vec<(usize, Scene)>);
+
 struct Cached {
     /// (buffer, track, layout mode, width bucket, score version, chant view, page + ink colors)
     key: (usize, usize, String, i64, u64, bool, [u8; 8]),
     layout: Layout,
     scenes: Vec<Scene>,
+    /// The note shown in the mode's color on the track's other staves, its color, and the pages
+    /// redrawn for it (replacing `scenes`'): recolored when the cursor or mode changes, without
+    /// engraving again.
+    lit: Option<Lit>,
     /// Y offset (points) of each page in the pane's scroll space.
     offsets: Vec<f64>,
 }
@@ -1986,11 +1993,45 @@ fn draw_pane(
                 key,
                 layout,
                 scenes,
+                lit: None,
                 offsets,
             },
         );
     }
-    let cached = &views.cache[&id];
+    let linked = app.linked_note(&pane).map(|n| {
+        let m = app.config.theme.mode_color(app.mode);
+        (n, [m.r, m.g, m.b, m.a])
+    });
+    let cached = views.cache.get_mut(&id).unwrap();
+    if cached.lit.as_ref().map(|(n, c, _)| (*n, *c)) != linked {
+        let (page, ink) = (app.config.theme.page, app.config.theme.ink);
+        cached.lit = linked.map(|(n, c)| {
+            let beat = BeatRef {
+                track: n.track,
+                bar: n.bar,
+                voice: n.voice,
+                beat: n.beat,
+            };
+            let color = muse_engrave::display::Color {
+                r: c[0],
+                g: c[1],
+                b: c[2],
+                a: c[3],
+            };
+            let pages = cached
+                .layout
+                .pages
+                .iter()
+                .enumerate()
+                .filter_map(|(i, p)| {
+                    let lit = p.with_note_color(beat, n.string, n.staff, color)?;
+                    Some((i, page_scene(&lit, page, ink)))
+                })
+                .collect();
+            (n, c, pages)
+        });
+    }
+    let cached = &*cached;
 
     // Keep the cursor in view when it moves.
     let cursor_ref = BeatRef {
@@ -2080,7 +2121,11 @@ fn draw_pane(
         if top + h < scroll.1 || top > scroll.1 + view_h {
             continue;
         }
-        scene.append(page_scene, Some(to_screen(i)));
+        let lit = cached
+            .lit
+            .as_ref()
+            .and_then(|(_, _, pages)| pages.iter().find(|(p, _)| *p == i));
+        scene.append(lit.map_or(page_scene, |(_, s)| s), Some(to_screen(i)));
     }
     // Visual selection.
     if let Some((anchor, cursor, bars)) = app.selection().filter(|_| focused) {
