@@ -303,13 +303,13 @@ Clicking a tab shows it, a row selects it and a double click edits it; a click o
 small icon buttons, wrapped to the pane's width, in collapsible sections: durations (whole to
 64th, dotted, triplet, rest), pitch (sharp, flat, natural, octave, tie, dead and ghost notes),
 dynamics (`ppp` to `fff`), articulations (accent, staccato, let ring, palm mute) and effects
-(hammer-on/pull-off, slide, bend, vibrato, harmonic, tremolo picking, tap/slap/pop, strokes). In
-the GUI the mouse resting on a button shows its name; the terminal draws short labels and shows
-the selected button's name on the pane's bottom row. Each button runs an ordinary command
+(hammer-on/pull-off, slide, bend, vibrato, harmonic, tremolo picking, tap/slap/pop, strokes). The
+GUI shows the highlighted button's name along the bottom of the pane (and as a tooltip when the
+mouse rests on it); the terminal draws short labels and shows the name on the pane's bottom row. Each button runs an ordinary command
 (`:duration 8`, `:toggle palm-mute`, `:dynamic mf` …) on the score pane worked on. The buttons in
 force at the cursor (the beat's duration, its dynamic and techniques) are tinted with the accent
-and follow the cursor as it moves; the mouse-over and the keyboard-selected button are a neutral
-gray. `<leader>E` focuses the pane (again: back to the score); while it has the focus its keys
+and follow the cursor as it moves; the highlighted button is a neutral gray. The mouse and the
+keyboard share that one highlight: moving the mouse over a button selects it. `<leader>E` focuses the pane (again: back to the score); while it has the focus its keys
 are `[keymap.palette]`, then the usual ones:
 
 | keys | command |

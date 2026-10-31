@@ -405,6 +405,15 @@ impl App {
         }
     }
 
+    /// The mouse moved over a row: the keyboard selection moves there, so there is one highlight.
+    pub fn hover_palette(&mut self, row: usize) {
+        if row < self.palette_rows().len() && row != self.palette.selected {
+            self.palette.selected = row;
+            let lines = self.palette_lines();
+            self.palette.want_col.set(self.palette_at(&lines).1);
+        }
+    }
+
     /// Selects a row (a click) and applies it; the focus goes back to the score pane, as in a
     /// toolbar, so the next key edits.
     pub fn click_palette(&mut self, row: usize) {
@@ -656,5 +665,23 @@ mod tests {
             panic!()
         };
         assert_eq!(app.palette_selected(), *third.last().unwrap());
+    }
+
+    #[test]
+    fn hovering_moves_the_selection() {
+        let mut app = app();
+        app.set_palette_cols(4);
+        let at = app
+            .palette_rows()
+            .iter()
+            .position(|r| r.command == "duration 8")
+            .unwrap();
+        app.hover_palette(at);
+        assert_eq!(app.palette_selected(), at);
+        assert_eq!(app.focused_kind(), PaneKind::Score, "the focus stays");
+        // Keyboard moves go on from there.
+        app.run(Command::PaletteFocus);
+        press(&mut app, "l");
+        assert_eq!(app.palette_selected(), at + 1);
     }
 }

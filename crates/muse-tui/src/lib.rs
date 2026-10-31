@@ -153,7 +153,16 @@ fn event_loop(terminal: &mut DefaultTerminal, app: &mut App) -> Result<()> {
                     }
                 }
                 Event::Mouse(m) => match m.kind {
-                    MouseEventKind::Moved => ui.hover = Some((m.column, m.row)),
+                    MouseEventKind::Moved => {
+                        ui.hover = Some((m.column, m.row));
+                        if let Some((_, i)) = ui
+                            .palette
+                            .iter()
+                            .find(|(r, _)| contains(*r, m.column, m.row))
+                        {
+                            app.hover_palette(*i);
+                        }
+                    }
                     // Dragging a pane border or the tracks panel's header resizes them; a
                     // tab moves along the tabline.
                     MouseEventKind::Drag(MouseButton::Left)
@@ -1599,7 +1608,9 @@ fn draw_edit_palette(f: &mut Frame, app: &App, area: Rect, ui: &mut Ui) {
     let rows = app.palette_rows();
     let lines = app.palette_lines();
     let sel = app.palette_selected();
-    let focused = app.focused_kind() == PaneKind::Palette;
+    // The one highlight shows while the pane has the focus or the mouse is over it.
+    let focused = app.focused_kind() == PaneKind::Palette
+        || ui.hover.is_some_and(|(c, r)| contains(area, c, r));
     let shown = (area.height - 1) as usize;
     let first = app.palette_window(shown);
     let buf = f.buffer_mut();

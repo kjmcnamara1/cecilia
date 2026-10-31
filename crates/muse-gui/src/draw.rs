@@ -3101,8 +3101,8 @@ fn text_small_caps(
 }
 
 /// The editing palette: section titles with a chevron over grids of icon buttons wrapped to
-/// the pane's width. The buttons in force are tinted with the accent; the mouse-over and the
-/// keyboard-selected button are a neutral gray.
+/// the pane's width. The buttons in force are tinted with the accent; the highlighted button
+/// (the mouse-over, which is also the keyboard selection) is a neutral gray.
 fn draw_edit_palette(scene: &mut Scene, app: &App, views: &mut Views, r: Rect) {
     use muse_app::palette::{PaletteKind, PaletteLine};
     const PAD: f64 = 10.0;
@@ -3136,8 +3136,9 @@ fn draw_edit_palette(scene: &mut Scene, app: &App, views: &mut Views, r: Rect) {
         app.palette_window(avg.max(1))
     };
     let sel = app.palette_selected();
-    let focused = app.focused_kind() == PaneKind::Palette;
     let (hx, hy) = views.hover;
+    // The one highlight shows while the pane has the focus or the mouse is over it.
+    let show_sel = app.focused_kind() == PaneKind::Palette || r.contains((hx, hy));
     let mut hovered = None;
     let mut y = r.y0 + PAD;
     for line in lines.iter().skip(first) {
@@ -3152,8 +3153,7 @@ fn draw_edit_palette(scene: &mut Scene, app: &App, views: &mut Views, r: Rect) {
                 };
                 let b = Rect::new(r.x0 + PAD, y + 2.0, r.x1 - PAD, y + HEAD - 2.0);
                 let shape = b.to_rounded_rect(5.0);
-                let over = b.contains((hx, hy));
-                if over || (*i == sel && focused) {
+                if *i == sel && show_sel {
                     scene.fill(
                         Fill::NonZero,
                         Affine::IDENTITY,
@@ -3207,30 +3207,20 @@ fn draw_edit_palette(scene: &mut Scene, app: &App, views: &mut Views, r: Rect) {
                     );
                     let shape = b.to_rounded_rect(5.0);
                     let over = b.contains((hx, hy));
-                    let selected = i == sel && focused;
+                    let selected = i == sel && show_sel;
                     if row.active {
-                        let a = if over { 90 } else { 60 };
                         scene.fill(
                             Fill::NonZero,
                             Affine::IDENTITY,
-                            col(th.accent.with_alpha(a)),
+                            col(th.accent.with_alpha(60)),
                             None,
                             &shape,
                         );
-                    } else if over || selected {
+                    } else if selected {
                         scene.fill(
                             Fill::NonZero,
                             Affine::IDENTITY,
                             col(th.button_hover),
-                            None,
-                            &shape,
-                        );
-                    }
-                    if selected {
-                        scene.stroke(
-                            &Stroke::new(1.0),
-                            Affine::IDENTITY,
-                            col(th.dim),
                             None,
                             &shape,
                         );
@@ -3249,6 +3239,32 @@ fn draw_edit_palette(scene: &mut Scene, app: &App, views: &mut Views, r: Rect) {
             }
         }
         y += height(line);
+    }
+    // The name of the highlighted button along the bottom of the pane.
+    if let Some(row) = rows
+        .get(sel)
+        .filter(|r| show_sel && r.kind == PaletteKind::Item)
+    {
+        let w = muse_engrave::fonts::fonts().text_width(FontKind::Text, row.label, 12.5) + 16.0;
+        let x0 = r.x0 + ((r.width() - w) / 2.0).max(4.0);
+        let b = Rect::new(x0, r.y1 - 32.0, (x0 + w).min(r.x1 - 4.0), r.y1 - 8.0);
+        scene.fill(
+            Fill::NonZero,
+            Affine::IDENTITY,
+            popover(),
+            None,
+            &b.to_rounded_rect(5.0),
+        );
+        text(
+            scene,
+            row.label,
+            b.x0 + 8.0,
+            b.y0 + 17.0,
+            12.5,
+            Align::Left,
+            chrome_text(),
+            false,
+        );
     }
     // The name of the button the mouse rests on, after a moment (as for the toolbar).
     match (&hovered, views.palette_hover) {
@@ -4601,6 +4617,14 @@ impl Views {
             .into_iter()
             .chain(self.palette_hover)
             .any(|(_, t)| t.elapsed() < TOOLTIP_DELAY + std::time::Duration::from_millis(50))
+    }
+
+    /// The editing palette's row under a point, as drawn last frame.
+    pub fn palette_row_at(&self, x: f64, y: f64) -> Option<usize> {
+        self.palette
+            .iter()
+            .find(|(r, _)| r.contains((x, y)))
+            .map(|&(_, i)| i)
     }
 
     /// Mouse down over the properties pane: a tab shows, a row selects, a selected row edits.
