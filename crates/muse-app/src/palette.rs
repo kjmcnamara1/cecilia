@@ -674,7 +674,7 @@ mod tests {
         let at = app
             .palette_rows()
             .iter()
-            .position(|r| r.command == "duration 8")
+            .position(|r| r.command == "duration 4")
             .unwrap();
         app.hover_palette(at);
         assert_eq!(app.palette_selected(), at);
