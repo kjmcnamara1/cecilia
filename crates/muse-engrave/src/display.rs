@@ -100,6 +100,73 @@ pub struct Page {
     pub height: f64,
     pub items: Vec<Item>,
     pub hits: Vec<Hit>,
+    /// The items that draw a note's body or tab number, to recolour one note on every staff.
+    pub marks: Vec<NoteMark>,
+}
+
+/// What a marked item of a page is for a note.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum MarkKind {
+    /// The body of a note on a staff of lines: a notehead, slash or square note.
+    Body,
+    /// A fret number on a tab staff.
+    Number,
+}
+
+/// An item of a page that draws one note (`string` of a beat) on one staff of its track.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct NoteMark {
+    /// Index into `Page::items`.
+    pub item: usize,
+    pub kind: MarkKind,
+    pub beat: BeatRef,
+    pub string: u8,
+    pub staff: usize,
+}
+
+impl Page {
+    /// Marks the last item as drawing the note on `string` of `beat` on `staff`.
+    pub(crate) fn mark_last(&mut self, kind: MarkKind, beat: BeatRef, string: u8, staff: usize) {
+        if let Some(item) = self.items.len().checked_sub(1) {
+            self.marks.push(NoteMark {
+                item,
+                kind,
+                beat,
+                string,
+                staff,
+            });
+        }
+    }
+
+    /// This page with the note on `string` of `beat` drawn in `color` on every staff but
+    /// `except`: its body on staves of lines, its number (bold) on tabs. `None` when the page
+    /// shows the note nowhere else.
+    pub fn with_note_color(
+        &self,
+        beat: BeatRef,
+        string: u8,
+        except: usize,
+        color: Color,
+    ) -> Option<Page> {
+        let mut page = None::<Page>;
+        for m in self
+            .marks
+            .iter()
+            .filter(|m| m.beat == beat && m.string == string && m.staff != except)
+        {
+            let page = page.get_or_insert_with(|| self.clone());
+            match (&mut page.items[m.item], m.kind) {
+                (Item::Glyph { color: c, .. } | Item::Rect { color: c, .. }, MarkKind::Body)
+                | (Item::Path { color: c, .. }, MarkKind::Body) => *c = color,
+                (Item::Text { color: c, font, .. }, MarkKind::Number) => {
+                    *c = color;
+                    *font = FontKind::Bold;
+                }
+                _ => {}
+            }
+        }
+        page
+    }
 }
 
 impl Page {
