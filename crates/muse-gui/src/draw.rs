@@ -3208,7 +3208,8 @@ fn draw_edit_palette(scene: &mut Scene, app: &App, views: &mut Views, r: Rect) {
                     let shape = b.to_rounded_rect(5.0);
                     let over = b.contains((hx, hy));
                     let selected = i == sel && show_sel;
-                    if row.active {
+                    let off = row.unavailable.is_some();
+                    if row.active && !off {
                         scene.fill(
                             Fill::NonZero,
                             Affine::IDENTITY,
@@ -3225,14 +3226,16 @@ fn draw_edit_palette(scene: &mut Scene, app: &App, views: &mut Views, r: Rect) {
                             &shape,
                         );
                     }
-                    let color = if row.active {
+                    let color = if off {
+                        col(th.dim.with_alpha(90))
+                    } else if row.active {
                         col(th.text_on(th.accent.mix(th.panel, 0.6)))
                     } else {
                         chrome_text()
                     };
                     draw_palette_icon(scene, row.command, b.center(), color);
                     if over {
-                        hovered = Some((i, b, row.label));
+                        hovered = Some((i, b, row.name()));
                     }
                     views.palette.push((b, i));
                 }
@@ -3245,7 +3248,8 @@ fn draw_edit_palette(scene: &mut Scene, app: &App, views: &mut Views, r: Rect) {
         .get(sel)
         .filter(|r| show_sel && r.kind == PaletteKind::Item)
     {
-        let w = muse_engrave::fonts::fonts().text_width(FontKind::Text, row.label, 12.5) + 16.0;
+        let name = row.name();
+        let w = muse_engrave::fonts::fonts().text_width(FontKind::Text, &name, 12.5) + 16.0;
         let x0 = r.x0 + ((r.width() - w) / 2.0).max(4.0);
         let b = Rect::new(x0, r.y1 - 32.0, (x0 + w).min(r.x1 - 4.0), r.y1 - 8.0);
         scene.fill(
@@ -3274,7 +3278,7 @@ fn draw_edit_palette(scene: &mut Scene, app: &App, views: &mut Views, r: Rect) {
     }
     if let (Some((_, b, name)), Some((_, since))) = (hovered, views.palette_hover) {
         if since.elapsed() >= TOOLTIP_DELAY {
-            views.tooltip = Some((b, name.to_string()));
+            views.tooltip = Some((b, name));
         }
     }
 }

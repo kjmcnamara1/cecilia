@@ -4,11 +4,12 @@
 //! the score pane worked on, `za` folds a section). Every item runs an ordinary command; the
 //! rows are built here and the frontends only draw them.
 
-use std::cell::Cell;
-use std::collections::HashSet;
+use std::cell::{Cell, RefCell};
+use std::collections::{HashMap, HashSet};
 
-use crate::app::{App, PaneKind};
+use crate::app::{App, Cursor, PaneKind};
 use crate::command::Command;
+use crate::edit::{self, EditCx};
 use muse_core::TrackKind;
 
 /// Width of the pane, in columns.
@@ -106,6 +107,16 @@ pub struct PaletteState {
     pub cols: Cell<usize>,
     /// The column up/down moves keep to (the one last chosen with left/right or a click).
     pub want_col: Cell<usize>,
+    /// Which commands can't take effect at the cursor, and why; kept for the cursor and score
+    /// version it was worked out for.
+    avail: RefCell<Option<Availability>>,
+}
+
+/// The commands that can't take effect at a cursor (with the reason), for a buffer and version.
+#[derive(Debug)]
+struct Availability {
+    key: (usize, u64, Cursor, muse_core::Duration),
+    reasons: HashMap<&'static str, String>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -134,6 +145,18 @@ pub struct PaletteRow {
     pub command: &'static str,
     /// The item's setting is in force at the cursor (the duration, a technique …).
     pub active: bool,
+    /// Why the item can't take effect at the cursor (it is dimmed, applying it does nothing).
+    pub unavailable: Option<String>,
+}
+
+impl PaletteRow {
+    /// The name as the tooltip and the label show it.
+    pub fn name(&self) -> String {
+        match self.unavailable {
+            Some(_) => format!("{} (unavailable)", self.label),
+            None => self.label.to_string(),
+        }
+    }
 }
 
 /// Dynamic markings as MIDI velocities (Guitar Pro's).
@@ -149,6 +172,28 @@ pub fn dynamic_velocity(name: &str) -> Option<u8> {
         "fff" => 127,
         _ => return None,
     })
+}
+
+/// Tries the edit a palette command makes on a copy of the score (the command's own checks
+/// decide: no note under the cursor, not on a staff …).
+fn probe_edit(
+    mut score: muse_core::Score,
+    cursor: Cursor,
+    cmd: &Command,
+    duration: muse_core::Duration,
+) -> Result<(), String> {
+    use Command::*;
+    let mut cx = EditCx::new(&mut score, cursor);
+    match cmd {
+        Toggle(t) => edit::toggle(&mut cx, t, duration),
+        Accidental(a) => edit::set_accidental(&mut cx, *a),
+        PitchUp => edit::shift_pitch(&mut cx, 1),
+        PitchDown => edit::shift_pitch(&mut cx, -1),
+        OctaveUp => edit::shift_pitch(&mut cx, 12),
+        OctaveDown => edit::shift_pitch(&mut cx, -12),
+        Dynamic(d) => edit::set_dynamic(&mut cx, d),
+        _ => Ok(()),
+    }
 }
 
 impl App {
@@ -172,6 +217,7 @@ impl App {
                 short: "",
                 command: "",
                 active: false,
+                unavailable: None,
             });
             if folded {
                 continue;
@@ -230,10 +276,61 @@ impl App {
                     short,
                     command,
                     active,
+                    unavailable: self.palette_unavailable(command),
                 });
             }
         }
         rows
+    }
+
+    /// Why a command can't take effect at the cursor, if it can't: its edit is tried on a copy
+    /// of the cursor's bar, so the reason is the command's own. Worked out once per cursor
+    /// position and score version.
+    fn palette_unavailable(&self, command: &'static str) -> Option<String> {
+        let c = self.pane().cursor;
+        let buffer = self.buffer();
+        let duration = self.insert_duration();
+        let key = (self.pane().buffer, buffer.version, c, duration);
+        let mut cache = self.palette.avail.borrow_mut();
+        if cache.as_ref().is_none_or(|a| a.key != key) {
+            let mut reasons = HashMap::new();
+            // A score with only the cursor's track and master bar filled in.
+            let probe = buffer.score.tracks.get(c.track).map(|track| {
+                let mut t = track.clone();
+                let bar = t.bars.get(c.bar).cloned().unwrap_or_default();
+                t.bars = vec![muse_core::Bar::default(); c.bar];
+                t.bars.push(bar);
+                let mut probe = muse_core::Score {
+                    tracks: vec![muse_core::Track::default(); c.track],
+                    master_bars: vec![muse_core::MasterBar::default(); c.bar],
+                    ..Default::default()
+                };
+                probe.tracks.push(t);
+                probe.master_bars.push(
+                    buffer
+                        .score
+                        .master_bars
+                        .get(c.bar)
+                        .cloned()
+                        .unwrap_or_default(),
+                );
+                probe
+            });
+            for (_, items) in SECTIONS {
+                for (_, command, _) in items.iter() {
+                    let result = match (&probe, Command::parse(command)) {
+                        (None, _) => Err("no score".to_string()),
+                        (Some(p), Ok(cmd)) => probe_edit(p.clone(), c, &cmd, duration),
+                        (_, Err(e)) => Err(e),
+                    };
+                    if let Err(e) = result {
+                        reasons.insert(*command, e);
+                    }
+                }
+            }
+            *cache = Some(Availability { key, reasons });
+        }
+        cache.as_ref().and_then(|a| a.reasons.get(command).cloned())
     }
 
     /// The beat under the cursor.
@@ -398,6 +495,9 @@ impl App {
         };
         if matches!(row.kind, PaletteKind::Header { .. }) {
             return self.fold_palette(None);
+        }
+        if let Some(why) = &row.unavailable {
+            return self.info(format!("{}: {why}", row.label));
         }
         match Command::parse(row.command) {
             Ok(cmd) => self.run(cmd),
@@ -683,5 +783,79 @@ mod tests {
         app.run(Command::PaletteFocus);
         press(&mut app, "l");
         assert_eq!(app.palette_selected(), at + 1);
+    }
+
+    fn disabled(app: &App) -> Vec<&'static str> {
+        app.palette_rows()
+            .into_iter()
+            .filter(|r| r.kind == PaletteKind::Item && r.unavailable.is_some())
+            .map(|r| r.command)
+            .collect()
+    }
+
+    #[test]
+    fn note_items_are_unavailable_off_a_note() {
+        let mut app = app();
+        // On a note everything applies, but accidentals need a staff with lines (this is a tab).
+        let accidentals = ["accidental sharp", "accidental flat", "accidental natural"];
+        assert_eq!(disabled(&app), accidentals);
+        // On a rest the note-level items are out; durations, rest and dynamics-free items stay.
+        app.run(Command::BeatNext);
+        let off = disabled(&app);
+        for c in [
+            "toggle tie",
+            "toggle palm-mute",
+            "toggle hammer",
+            "octave-up",
+            "dynamic mf",
+        ] {
+            assert!(off.contains(&c), "{c} in {off:?}");
+        }
+        for c in [
+            "duration 8",
+            "dot",
+            "tuplet 3",
+            "rest",
+            "toggle tap",
+            "toggle fade-in",
+        ] {
+            assert!(!off.contains(&c), "{c} in {off:?}");
+        }
+        // Back on a note they come back.
+        app.run(Command::BeatPrev);
+        assert_eq!(disabled(&app), accidentals);
+    }
+
+    #[test]
+    fn applying_an_unavailable_item_does_nothing() {
+        let mut app = app();
+        app.run(Command::BeatNext);
+        let before = app.buffer().score.clone();
+        let version = app.buffer().version;
+        app.run(Command::PaletteFocus);
+        select(&mut app, "toggle palm-mute");
+        press(&mut app, "<CR>");
+        assert_eq!(app.buffer().score, before);
+        assert_eq!(app.buffer().version, version);
+        let name = app
+            .palette_rows()
+            .into_iter()
+            .find(|r| r.command == "toggle palm-mute")
+            .unwrap()
+            .name();
+        assert!(name.ends_with("(unavailable)"));
+        assert!(
+            app.message
+                .as_ref()
+                .is_some_and(|m| m.text.contains("palm-mute") || m.text.contains("Palm mute"))
+        );
+        // A click does nothing either.
+        let at = app
+            .palette_rows()
+            .iter()
+            .position(|r| r.command == "toggle palm-mute")
+            .unwrap();
+        app.click_palette(at);
+        assert_eq!(app.buffer().score, before);
     }
 }

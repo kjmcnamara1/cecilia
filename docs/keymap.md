@@ -320,6 +320,8 @@ are `[keymap.palette]`, then the usual ones:
 | `za` `zc` `zo` | toggle / close / open the section |
 | `<Esc>` `q` | back to the score pane |
 
+Buttons that can't take effect at the cursor are dimmed and named "(unavailable)": note-level ones (pitch, tie, dead and ghost notes, dynamics, articulations, most effects) off a note, accidentals on a tab. They are worked out by trying the command's own edit, so they follow what the command refuses. They stay selectable, but applying one does nothing and the status line says why.
+
 A click applies a button (and returns to the score pane) or folds a section; the wheel scrolls.
 
 | command | |

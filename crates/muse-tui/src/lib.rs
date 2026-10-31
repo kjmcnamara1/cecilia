@@ -1657,7 +1657,9 @@ fn draw_edit_palette(f: &mut Frame, app: &App, area: Rect, ui: &mut Ui) {
                     } else {
                         base
                     };
-                    let style = if i == sel && focused && row.active {
+                    let style = if row.unavailable.is_some() {
+                        style.fg(rc(t.dim)).add_modifier(Modifier::DIM)
+                    } else if i == sel && focused && row.active {
                         style.fg(rc(t.mode_normal)).add_modifier(Modifier::BOLD)
                     } else {
                         style
@@ -1680,16 +1682,16 @@ fn draw_edit_palette(f: &mut Frame, app: &App, area: Rect, ui: &mut Ui) {
     // The selected button's name.
     if let Some(row) = rows.get(sel) {
         let name = if row.kind == PaletteKind::Item {
-            row.label
+            row.name()
         } else {
-            ""
+            String::new()
         };
         let w = area.width as usize;
         let dim = Style::default().fg(rc(t.dim)).bg(rc(t.panel));
         buf.set_string(
             area.x,
             area.y + area.height - 1,
-            format!(" {:<w$}", clip(name, w.saturating_sub(1))),
+            format!(" {:<w$}", clip(&name, w.saturating_sub(1))),
             dim,
         );
     }
