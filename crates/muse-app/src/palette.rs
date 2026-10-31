@@ -858,4 +858,41 @@ mod tests {
         app.click_palette(at);
         assert_eq!(app.buffer().score, before);
     }
+
+    #[test]
+    fn bottom_tools_run_under_the_palette_at_the_full_width() {
+        let rect = |app: &App, id| app.layout().into_iter().find(|(p, _)| *p == id).unwrap().1;
+        // Whichever is opened first, and with the properties pane too.
+        for order in [[0, 1, 2], [1, 0, 2], [2, 1, 0], [1, 2, 0]] {
+            let mut app = app();
+            for k in order {
+                match k {
+                    0 => app.set_tool(PaneKind::Palette, Some(true)),
+                    1 => app.set_tool(PaneKind::Fretboard, Some(true)),
+                    _ => app.set_tool(PaneKind::Properties, Some(true)),
+                }
+            }
+            let pane = |app: &App, k| rect(app, app.tool_pane(k).unwrap());
+            let (palette, tools, props) = (
+                pane(&app, PaneKind::Palette),
+                pane(&app, PaneKind::Fretboard),
+                pane(&app, PaneKind::Properties),
+            );
+            assert!(
+                palette.y + palette.h <= tools.y,
+                "{order:?}: {palette:?} {tools:?}"
+            );
+            assert_eq!((palette.x, tools.x), (0, 0), "{order:?}");
+            // The properties pane stays outermost along the right, at the full height.
+            assert_eq!(tools.x + tools.w, props.x, "{order:?}");
+            assert_eq!(props.y, 0);
+            assert!(props.h > tools.h);
+            let score = rect(&app, app.focused());
+            assert!(score.x >= palette.x + palette.w, "{order:?}");
+            // Closing the palette leaves the others.
+            app.set_tool(PaneKind::Palette, Some(false));
+            assert!(app.has_tool(PaneKind::Fretboard) && app.has_tool(PaneKind::Properties));
+            assert_eq!(pane(&app, PaneKind::Fretboard).x, 0);
+        }
+    }
 }

@@ -298,7 +298,7 @@ Clicking a tab shows it, a row selects it and a double click edits it; a click o
 
 ## Editing palette
 
-`<leader>e` shows or hides the editing palette, docked full height along the left of the window
+`<leader>e` shows or hides the editing palette, docked along the left of the window above the bottom tool panes (which run under it at the full width; the properties pane stays outermost along the right)
 (`ui.palette = true` shows it from the start). Like Guitar Pro's editing panel it is a grid of
 small icon buttons, wrapped to the pane's width, in collapsible sections: durations (whole to
 64th, dotted, triplet, rest), pitch (sharp, flat, natural, octave, tie, dead and ghost notes),

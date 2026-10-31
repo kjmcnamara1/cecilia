@@ -217,6 +217,72 @@ fn dock_bottom(root: Node, id: PaneId) -> Node {
     }
 }
 
+/// Takes the leaf of a pane out of a root split along the right (what remains is the first
+/// result); a root without it is returned as it is.
+fn split_off_leaf(root: Node, id: Option<PaneId>) -> (Node, Option<Node>) {
+    let Some(id) = id else {
+        return (root, None);
+    };
+    match root {
+        Node::Split {
+            axis: Axis::SideBySide,
+            mut children,
+            ..
+        } if children.contains(&Node::Leaf(id)) => {
+            let at = children.iter().position(|c| *c == Node::Leaf(id)).unwrap();
+            let leaf = children.remove(at);
+            let main = if children.len() == 1 {
+                children.remove(0)
+            } else {
+                Node::Split {
+                    axis: Axis::SideBySide,
+                    weights: vec![1.0; children.len()],
+                    children,
+                }
+            };
+            (main, Some(leaf))
+        }
+        root => (root, None),
+    }
+}
+
+/// Puts a pane along the left of the panes above the bottom tools (`is_tool` tells those): the
+/// tools stay at the root, at its full width.
+fn dock_left(main: Node, id: PaneId, is_tool: impl Fn(&Node) -> bool) -> Node {
+    let side_by_side = |body: Node| Node::Split {
+        axis: Axis::SideBySide,
+        children: vec![Node::Leaf(id), body],
+        weights: vec![1.0, 1.0],
+    };
+    match main {
+        Node::Split {
+            axis: Axis::Stacked,
+            children,
+            ..
+        } if children.iter().any(&is_tool) => {
+            let (tools, mut body): (Vec<Node>, Vec<Node>) =
+                children.into_iter().partition(&is_tool);
+            let body = if body.len() == 1 {
+                body.remove(0)
+            } else {
+                Node::Split {
+                    axis: Axis::Stacked,
+                    weights: vec![1.0; body.len()],
+                    children: body,
+                }
+            };
+            let mut children = vec![side_by_side(body)];
+            children.extend(tools);
+            Node::Split {
+                axis: Axis::Stacked,
+                weights: vec![1.0; children.len()],
+                children,
+            }
+        }
+        main => side_by_side(main),
+    }
+}
+
 /// A layout of panes with its own set of loaded buffers (the bufferline's tabs).
 #[derive(Debug, Clone)]
 pub struct View {
@@ -809,71 +875,46 @@ impl App {
                 if !self.viewport_known {
                     self.unfitted.push(id);
                 }
-                let wrapped = self.side_docked();
-                let side = |kind| matches!(kind, PaneKind::Properties | PaneKind::Palette);
-                let body = match &self.view().root {
-                    Node::Split { children, .. } if wrapped => children
-                        .iter()
-                        .position(|c| {
-                            !matches!(c, Node::Leaf(id)
-                                if self.panes.get(id).is_some_and(|p| side(p.kind)))
-                        })
-                        .unwrap_or(0),
-                    _ => 0,
+                let is_tool = |n: &Node| match n {
+                    Node::Leaf(i) => self
+                        .panes
+                        .get(i)
+                        .is_some_and(|p| p.kind != PaneKind::Score && p.owner.is_none()),
+                    _ => false,
                 };
+                let props = self.view().root.panes().into_iter().find(|i| {
+                    self.panes
+                        .get(i)
+                        .is_some_and(|p| p.kind == PaneKind::Properties)
+                });
                 let view = &mut self.views[self.active_view];
-                if side(kind) {
-                    // Along a side of the whole view, at its full height: the properties pane
-                    // right, the palette left.
-                    let root = std::mem::replace(&mut view.root, Node::Leaf(0));
-                    let at_left = kind == PaneKind::Palette;
-                    view.root = match root {
-                        Node::Split {
-                            axis: Axis::SideBySide,
-                            mut children,
-                            mut weights,
-                        } if wrapped => {
-                            let at = if at_left { 0 } else { children.len() };
-                            children.insert(at, Node::Leaf(id));
-                            weights.insert(at, 1.0);
-                            Node::Split {
-                                axis: Axis::SideBySide,
-                                children,
-                                weights,
-                            }
-                        }
-                        root => Node::Split {
-                            axis: Axis::SideBySide,
-                            children: if at_left {
-                                vec![Node::Leaf(id), root]
-                            } else {
-                                vec![root, Node::Leaf(id)]
-                            },
-                            weights: vec![1.0, 1.0],
-                        },
-                    };
-                } else if global {
-                    // Along the bottom of the view's panes (between the side panes).
-                    let root = std::mem::replace(&mut view.root, Node::Leaf(0));
-                    view.root = match root {
-                        Node::Split {
-                            axis: Axis::SideBySide,
-                            mut children,
-                            weights,
-                        } if wrapped => {
-                            let main = children.remove(body);
-                            children.insert(body, dock_bottom(main, id));
-                            Node::Split {
-                                axis: Axis::SideBySide,
-                                children,
-                                weights,
-                            }
-                        }
-                        root => dock_bottom(root, id),
-                    };
-                } else {
+                if !global {
                     // Under the score pane it works on, as wide as it.
                     view.root.split(score, id, Axis::Stacked);
+                } else {
+                    // The properties pane is outermost, along the right at the full height;
+                    // what is left of it takes the bottom tools at its full width, then the
+                    // palette above them along the left, then the scores.
+                    let root = std::mem::replace(&mut view.root, Node::Leaf(0));
+                    let (main, props_leaf) = split_off_leaf(root, props);
+                    let main = match kind {
+                        PaneKind::Properties => main,
+                        PaneKind::Palette => dock_left(main, id, is_tool),
+                        _ => dock_bottom(main, id),
+                    };
+                    let side = if kind == PaneKind::Properties {
+                        Some(Node::Leaf(id))
+                    } else {
+                        props_leaf
+                    };
+                    view.root = match side {
+                        Some(side) => Node::Split {
+                            axis: Axis::SideBySide,
+                            children: vec![main, side],
+                            weights: vec![1.0, 1.0],
+                        },
+                        None => main,
+                    };
                 }
             }
             _ => return,
@@ -882,21 +923,6 @@ impl App {
             self.tuner_reading = None;
             self.tuner_error = None;
             self.effects.push(Effect::Tuner(on));
-        }
-    }
-
-    /// Whether the active view's root is a split with the properties or palette pane as a child.
-    fn side_docked(&self) -> bool {
-        match &self.view().root {
-            Node::Split {
-                axis: Axis::SideBySide,
-                children,
-                ..
-            } => children.iter().any(|c| {
-                matches!(c, Node::Leaf(id) if self.panes.get(id).is_some_and(|p|
-                    matches!(p.kind, PaneKind::Properties | PaneKind::Palette)))
-            }),
-            _ => false,
         }
     }
 
