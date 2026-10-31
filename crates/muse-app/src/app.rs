@@ -60,6 +60,17 @@ impl Default for Cursor {
     }
 }
 
+/// A note of a beat, and the staff the cursor is on it from ([`App::linked_note`]).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct LinkedNote {
+    pub track: usize,
+    pub bar: usize,
+    pub voice: usize,
+    pub beat: usize,
+    pub string: u8,
+    pub staff: usize,
+}
+
 /// The staff the cursor is on: `staff` if the track has it, else its home staff (its first
 /// tab, or its top staff).
 pub fn staff_index(track: &Track, staff: usize) -> usize {
@@ -1045,6 +1056,53 @@ impl App {
     pub(crate) fn pane_mut(&mut self) -> &mut Pane {
         let id = self.focused();
         self.panes.get_mut(&id).unwrap()
+    }
+
+    /// The note under a pane's cursor, on any staff: the other staves of its track show it in
+    /// the mode's color. Found as the editor finds the note an edit hits: the cursor's string
+    /// on a tab, the note at the cursor's position on a staff of lines, the beat's note on a
+    /// slash or chant staff.
+    pub fn linked_note(&self, pane: &Pane) -> Option<LinkedNote> {
+        let c = pane.cursor;
+        let score = &self.buffers.get(pane.buffer)?.score;
+        let track = score.tracks.get(c.track)?;
+        let staff = staff_index(track, c.staff);
+        let kind = *track.staves().get(staff)?;
+        let beat = track
+            .bars
+            .get(c.bar)?
+            .voices
+            .get(c.voice)?
+            .beats
+            .get(c.beat)?;
+        let string = if uses_strings(track, kind) {
+            u8::try_from(c.string).ok()?
+        } else if matches!(kind, Staff::Slash | Staff::Chant) {
+            beat.notes.first()?.string
+        } else {
+            let key = score
+                .master_bars
+                .get(c.bar)
+                .map_or(0, |m| m.key_signature.accidentals);
+            beat.notes
+                .iter()
+                .find(|n| {
+                    let written = track.pitch_of(n) as i32 + track.staff_clef().transpose();
+                    muse_core::staff::diatonic(written, key) == c.line
+                })?
+                .string
+        };
+        beat.notes
+            .iter()
+            .any(|n| n.string == string)
+            .then_some(LinkedNote {
+                track: c.track,
+                bar: c.bar,
+                voice: c.voice,
+                beat: c.beat,
+                string,
+                staff,
+            })
     }
 
     pub fn buffer(&self) -> &Buffer {
@@ -2799,6 +2857,46 @@ pub(crate) mod tests {
     pub(crate) fn keys(app: &mut App, s: &str) {
         for k in crate::keys::parse_keys(s, &[Key::char(' ')]).unwrap() {
             app.handle_key(k);
+        }
+    }
+
+    #[test]
+    fn linked_note_follows_the_cursor_on_a_tab() {
+        let mut app = test_app();
+        let at = |app: &App| app.linked_note(app.pane());
+        // The first beat has a note on string 0; the cursor starts there on the tab.
+        let n = at(&app).unwrap();
+        assert_eq!((n.bar, n.beat, n.string), (0, 0, 0));
+        // On another string of the beat, or a rest, there is no note.
+        keys(&mut app, "j");
+        assert_eq!(at(&app), None);
+        keys(&mut app, "kl");
+        assert_eq!(at(&app), None);
+    }
+
+    #[test]
+    fn linked_note_on_other_staves() {
+        let mut app = test_app();
+        app.buffers[0].score.tracks[0].staves = vec![Staff::Standard(Clef::Treble), Staff::Tab];
+        let t = &app.buffers[0].score.tracks[0];
+        let n = &t.bars[0].voices[0].beats[0].notes[0];
+        let p = muse_core::staff::diatonic(t.pitch_of(n) as i32 + t.staff_clef().transpose(), 0);
+        app.pane_mut().cursor.staff = 0;
+        app.pane_mut().cursor.line = p;
+        let n = app.linked_note(app.pane()).unwrap();
+        assert_eq!((n.string, n.staff), (0, 0));
+        // A position with no note there, and a rest, light nothing.
+        app.pane_mut().cursor.line = p + 1;
+        assert_eq!(app.linked_note(app.pane()), None);
+        app.pane_mut().cursor.line = p;
+        app.pane_mut().cursor.beat = 1;
+        assert_eq!(app.linked_note(app.pane()), None);
+        // Slash and chant staves show the beat's one note.
+        for kind in [Staff::Slash, Staff::Chant] {
+            app.buffers[0].score.tracks[0].staves = vec![Staff::Tab, kind];
+            app.pane_mut().cursor.staff = 1;
+            app.pane_mut().cursor.beat = 0;
+            assert_eq!(app.linked_note(app.pane()).map(|n| n.staff), Some(1));
         }
     }
 

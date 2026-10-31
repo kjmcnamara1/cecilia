@@ -5,7 +5,7 @@ use std::collections::HashMap;
 use kurbo::{BezPath, Point, Rect, Shape as _};
 use muse_core::*;
 
-use crate::display::{Align, BeatRef, Color, FontKind, Hit, Item, Page};
+use crate::display::{Align, BeatRef, Color, FontKind, Hit, Item, MarkKind, NoteMark, Page};
 use crate::fonts::fonts;
 
 #[derive(Debug, Clone, Copy, PartialEq)]
@@ -990,6 +990,7 @@ impl Ctx<'_> {
     /// A beat on a chant staff: a square note per pitch (a diamond for an inclinatum, with a
     /// stem for a virga), its signs (mora, episema, ictus, a flat or sharp), and the division
     /// after it.
+    #[allow(clippy::too_many_arguments)]
     fn draw_chant_beat(
         &self,
         page: &mut Page,
@@ -998,6 +999,7 @@ impl Ctx<'_> {
         bottom: f64,
         clef: ChantClef,
         octave: i32,
+        at: BeatRef,
     ) {
         let sp = self.sp;
         let y_of = |pos: i32| bottom - (pos - 3) as f64 * sp / 2.0;
@@ -1025,6 +1027,7 @@ impl Ctx<'_> {
             } else {
                 page.rect(Rect::new(cx - h, y - h, cx + h, y + h), Color::BLACK);
             }
+            page.mark_last(MarkKind::Body, at, n.string, self.staff_index);
             if has("v") {
                 page.line(
                     (cx + h - 0.06 * sp, y),
@@ -1964,7 +1967,7 @@ impl Ctx<'_> {
                 // Standard notation.
                 let mut chord: Option<(Vec<f64>, bool)> = None;
                 if let Some((clef, octave)) = self.chant {
-                    self.draw_chant_beat(page, beat, bx, std_bottom, clef, octave);
+                    self.draw_chant_beat(page, beat, bx, std_bottom, clef, octave, beat_ref);
                 } else if self.standard {
                     if beat.notes.is_empty() {
                         let off = match up_voice {
@@ -2316,6 +2319,14 @@ impl Ctx<'_> {
         };
         let mut prev_p: Option<i32> = None;
         let mut shifted = false;
+        let at = BeatRef {
+            track: self.track_index,
+            bar: pos.0,
+            voice: pos.1,
+            beat: pos.2,
+        };
+        // The slash a slash beat's notes share.
+        let mut slash_item = None;
         for (k, &(p, acc, xhead, string, _, ghost)) in heads.iter().enumerate() {
             // Seconds sit on the other side of the stem.
             let second = prev_p.is_some_and(|q| p - q == 1) && !shifted;
@@ -2336,6 +2347,16 @@ impl Ctx<'_> {
             // A slash beat's notes share one slash.
             if !(self.slash && k > 0) {
                 page.glyph(g, (hx, y), 4.0 * sp);
+                slash_item = page.items.len().checked_sub(1);
+            }
+            if let Some(item) = slash_item {
+                page.marks.push(NoteMark {
+                    item,
+                    kind: MarkKind::Body,
+                    beat: at,
+                    string,
+                    staff: self.staff_index,
+                });
             }
             self.reach(y + 0.6 * sp);
             left = left.min(hx - paren_w(ghost));
@@ -2787,6 +2808,13 @@ impl Ctx<'_> {
                     align: Align::Center,
                     color: if n.tie { Color::GREY } else { Color::BLACK },
                 });
+                let at = BeatRef {
+                    track: self.track_index,
+                    bar: pos.0,
+                    voice: pos.1,
+                    beat: pos.2,
+                };
+                page.mark_last(MarkKind::Number, at, n.string, self.staff_index);
             }
             let entry = placed
                 .entry((pos.0, pos.1, pos.2, n.string))
@@ -3224,6 +3252,68 @@ mod tests {
         assert_eq!(spell(61, -2), (1, -1, 4)); // Db4
         assert_eq!(key_alters(2), [1, 0, 0, 1, 0, 0, 0]); // F#, C#
         assert_eq!(key_alters(-1), [0, 0, 0, 0, 0, 0, -1]); // Bb
+    }
+
+    #[test]
+    fn note_color_reaches_the_other_staves() {
+        let chord = Beat {
+            duration: Duration::new(DurationValue::Quarter),
+            notes: vec![Note::new(1, 1), Note::new(2, 2)],
+            ..Beat::default()
+        };
+        let track = Track {
+            kind: TrackKind::Fretted,
+            strings: vec![64, 59, 55, 50, 45, 40],
+            bars: vec![Bar {
+                voices: vec![Voice { beats: vec![chord] }],
+            }],
+            staves: vec![
+                Staff::Standard(muse_core::Clef::Treble),
+                Staff::Tab,
+                Staff::Tab,
+                Staff::Slash,
+            ],
+            ..Track::default()
+        };
+        let score = Score {
+            tempo: 100,
+            master_bars: vec![MasterBar::default()],
+            tracks: vec![track],
+            ..Score::default()
+        };
+        let page = &engrave(&score, 0, &Options::default()).pages[0];
+        let beat = BeatRef {
+            track: 0,
+            bar: 0,
+            voice: 0,
+            beat: 0,
+        };
+        let red = Color::RED;
+        // The cursor on the first tab: the treble head, the other tab's number and the slash.
+        let lit = page.with_note_color(beat, 2, 1, red).unwrap();
+        let changed: Vec<(usize, &Item)> = lit
+            .items
+            .iter()
+            .enumerate()
+            .filter(|(i, it)| **it != page.items[*i])
+            .collect();
+        assert_eq!(changed.len(), 3);
+        assert!(changed.iter().any(|(_, i)| matches!(
+            i,
+            Item::Text { font: FontKind::Bold, text, color, .. } if text == "2" && *color == red
+        )));
+        assert!(
+            changed
+                .iter()
+                .any(|(_, i)| matches!(i, Item::Glyph { color, .. } if *color == red))
+        );
+        // Only the chosen note: the other string's number stays plain.
+        assert!(lit.items.iter().any(|i| matches!(
+            i,
+            Item::Text { font: FontKind::Text, text, .. } if text == "1"
+        )));
+        // A note the beat does not have lights nothing.
+        assert!(page.with_note_color(beat, 5, 1, red).is_none());
     }
 
     #[test]

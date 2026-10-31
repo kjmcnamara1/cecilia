@@ -18,6 +18,13 @@ herdr worktree create --cwd /home/kjm/Projects/muse --branch feat/<short-name> -
 Note the worktree path and workspace ID it reports. Branch names are kebab-case with a
 `feat/` prefix.
 
+`test-corpus/` is gitignored (and holds symlinks), so a new worktree doesn't have it. Link it
+in so the subagent can use the sample scores for tests and screenshots:
+
+```sh
+ln -s /home/kjm/Projects/muse/test-corpus <worktree>/test-corpus
+```
+
 ## 2. Implement in a bounded subagent
 
 Spawn one subagent (Agent tool, `general-purpose`) whose working directory is the worktree.
