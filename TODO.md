@@ -30,7 +30,7 @@ Planned work. Finished items move to `CHANGELOG.md` under `[Unreleased]`.
 - [ ] TODO: Deep dive on editing workflow
 - [ ] Auto save editing progress in a swap file (similar to neovim swap files)
       to recover from a crash or if app is force closed without saving.
-  - swap directory should be a setting (default=~/.local/state/muse/swap)
+  - swap directory should be a setting (default=$XDG_STATE_HOME/muse/swap or ~/.local/state/muse/swap)
 
 ### Keymaps
 
@@ -44,6 +44,8 @@ Planned work. Finished items move to `CHANGELOG.md` under `[Unreleased]`.
 
 ### UI
 
+- [ ] Create a dashboard that is displayed on the background when all score
+      panes are closed (also when opening a new workspace)
 - [ ] FIX: Remember last focused pane in tree so switching back to a row/column
       refocuses the last pane before focusing another row/column
 - [ ] Allow grouping scores in tabline into groups and ability to (auto)
@@ -75,6 +77,9 @@ Planned work. Finished items move to `CHANGELOG.md` under `[Unreleased]`.
   - auto-resize should essentially run :resize-equal after opening or closing panes
 - [ ] When closing a buffer with unsaved changes, prompt whether to save it or
       not first. don't just deny.
+- [ ] When opening/creating a new score, it shouldn't be marked as
+      edited/unsaved until something has been added. a new empty score should be able
+      to be deleted buffer-closed without saving.
 
 ### TUI
 
@@ -83,7 +88,7 @@ Planned work. Finished items move to `CHANGELOG.md` under `[Unreleased]`.
 
 ### GUI
 
-- [ ] Try to closer emulate a GTK4 style
+- [ ] Try to more closely emulate a GTK4 style
 
 ### Configuration
 
