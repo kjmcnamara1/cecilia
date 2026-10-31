@@ -3,6 +3,37 @@
 All bindings can be overridden in `config.toml` under `[keymap.<mode>]`. `<leader>` defaults to `<Space>`.
 Items marked _(M1)_ are implemented in the first milestone; the rest are the planned defaults.
 
+## Key notation
+
+Keys are written as in Vim: a character is itself (`gg`, `Q`), anything else or with modifiers
+goes in angle brackets (`<Space>`, `<CR>`, `<Esc>`, `<Tab>`, `<F5>`, `<Up>`, `<lt>`, `<leader>`).
+Modifier prefixes are case-insensitive and combine: `<C-A-S-q>`.
+
+| Prefix | Modifier | Aliases |
+| --- | --- | --- |
+| `C-` | Ctrl | `Ctrl-` |
+| `A-` | Alt | `M-`, `Alt-`, `Meta-` |
+| `S-` | Shift | `Shift-` |
+| `D-` | Super (Windows / Cmd) | `Super-`, `Win-`, `Cmd-` |
+
+Keys are shown (which-key, `pick-keymap`) in the order `C-A-S-D-`.
+
+Shift rule: Shift on a printable character without Ctrl, Alt or Super is part of the character,
+so `Q` and `<S-q>` are the same key and typing is unchanged. Shift is a separate modifier
+
+- with Ctrl, Alt or Super: `<C-S-q>` is a different key from `<C-q>` (a binding never matches the
+  other), and `<A-S-j>` is `<A-J>`;
+- on keys that are not characters: `<S-F5>`, `<S-Up>`, `<S-Home>`, `<C-S-Tab>`. `<S-Tab>` is
+  Shift+Tab (`BackTab`). Shift on `<Esc>`, `<CR>` and `<BS>` alone is ignored.
+
+`<C-W>` is `<C-w>` (Ctrl letters are lower case); write `<C-S-w>` for Ctrl+Shift+W.
+
+The GUI reports every modifier. In the terminal, Ctrl+Shift+letter, Super and Shift on
+non-character keys need the kitty keyboard protocol (kitty, WezTerm, foot, Ghostty, Alacritty
+and others); muse enables it when the terminal supports it and restores the terminal on exit
+and on panic. On other terminals Ctrl+Shift+Q sends the same bytes as Ctrl+Q, so `<C-S-q>` can
+only be used in the GUI there, and `<D-…>` bindings never fire.
+
 ## Normal mode
 
 ### Cursor movement

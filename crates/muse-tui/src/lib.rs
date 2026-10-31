@@ -11,7 +11,8 @@ use muse_app::{App, Key, KeyCode, Mode, PaneKind, Strip};
 use muse_audio::Location;
 use ratatui::crossterm::event::{
     self, DisableMouseCapture, EnableMouseCapture, Event, KeyEvent, KeyEventKind, KeyModifiers,
-    MouseButton, MouseEventKind,
+    KeyboardEnhancementFlags, MouseButton, MouseEventKind, PopKeyboardEnhancementFlags,
+    PushKeyboardEnhancementFlags,
 };
 use ratatui::crossterm::execute;
 use ratatui::layout::{Constraint, Layout, Rect};
@@ -26,7 +27,24 @@ use tabview::{Hit, TabView};
 pub fn run(mut app: App) -> Result<()> {
     let mut terminal = ratatui::try_init()?;
     execute!(std::io::stdout(), EnableMouseCapture)?;
+    // The kitty keyboard protocol tells Ctrl+Shift+Q from Ctrl+Q and reports Super; terminals
+    // without it are skipped silently.
+    let enhanced = ratatui::crossterm::terminal::supports_keyboard_enhancement().unwrap_or(false);
+    if enhanced {
+        let _ = execute!(
+            std::io::stdout(),
+            PushKeyboardEnhancementFlags(KeyboardEnhancementFlags::DISAMBIGUATE_ESCAPE_CODES)
+        );
+        let hook = std::panic::take_hook();
+        std::panic::set_hook(Box::new(move |info| {
+            let _ = execute!(std::io::stdout(), PopKeyboardEnhancementFlags);
+            hook(info);
+        }));
+    }
     let result = event_loop(&mut terminal, &mut app);
+    if enhanced {
+        let _ = execute!(std::io::stdout(), PopKeyboardEnhancementFlags);
+    }
     let _ = execute!(std::io::stdout(), DisableMouseCapture);
     ratatui::restore();
     result
@@ -535,16 +553,19 @@ fn convert_key(k: KeyEvent) -> Option<Key> {
         C::F(n) => KeyCode::F(n),
         _ => return None,
     };
-    let ctrl = k.modifiers.contains(KeyModifiers::CONTROL);
-    let code = match code {
-        KeyCode::Char(c) if ctrl => KeyCode::Char(c.to_ascii_lowercase()),
-        other => other,
-    };
-    Some(Key {
+    Some(key_with(code, k.modifiers))
+}
+
+/// The key for `code` with the terminal's modifiers. SHIFT and SUPER only arrive from terminals
+/// with the kitty keyboard protocol; otherwise Ctrl+Shift+Q is indistinguishable from Ctrl+Q.
+fn key_with(code: KeyCode, m: KeyModifiers) -> Key {
+    Key::with_mods(
         code,
-        ctrl,
-        alt: k.modifiers.contains(KeyModifiers::ALT),
-    })
+        m.contains(KeyModifiers::CONTROL),
+        m.contains(KeyModifiers::ALT),
+        m.contains(KeyModifiers::SHIFT),
+        m.contains(KeyModifiers::SUPER),
+    )
 }
 
 fn draw(f: &mut Frame, app: &mut App, play: Option<(usize, Location, f64, f64)>, ui: &mut Ui) {
@@ -3044,4 +3065,27 @@ fn scrollbar_to(app: &mut App, ui: &mut Ui, pane: u32, grab: u16, row: u16) {
         p.scroll = (top * range + travel / 2) / travel;
     }
     ui.scrolled.insert(pane);
+}
+
+#[cfg(test)]
+mod key_tests {
+    use super::*;
+
+    #[test]
+    fn terminal_modifiers_become_flags() {
+        let cs = KeyModifiers::CONTROL | KeyModifiers::SHIFT;
+        let k = key_with(KeyCode::Char('q'), cs);
+        assert!(k.ctrl && k.shift);
+        assert_ne!(k, key_with(KeyCode::Char('q'), KeyModifiers::CONTROL));
+        // Legacy terminals: Ctrl+Q arrives as Ctrl with a lowercase letter.
+        assert_eq!(
+            key_with(KeyCode::Char('Q'), KeyModifiers::CONTROL),
+            Key::ctrl('q')
+        );
+        assert_eq!(
+            key_with(KeyCode::Char('Q'), KeyModifiers::SHIFT),
+            Key::char('Q')
+        );
+        assert!(key_with(KeyCode::Char('q'), KeyModifiers::SUPER).sup);
+    }
 }

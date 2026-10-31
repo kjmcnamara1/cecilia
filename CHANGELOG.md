@@ -7,6 +7,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- Shift and Super (Windows/Cmd) in key notation: `<C-S-q>` is distinct from `<C-q>`, `<S-F5>`,
+  `<S-Up>`, `<D-q>` (aliases `Super-`, `Win-`, `Cmd-`). Shift on a plain character still folds
+  into it (`Q` is `<S-q>`). The GUI reports both modifiers; the terminal UI enables the kitty
+  keyboard protocol where supported.
+
 ## [0.7.0] - 2026-10-31
 
 ### Added

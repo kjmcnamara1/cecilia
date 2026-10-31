@@ -1732,7 +1732,7 @@ impl App {
                 self.history_pos = pos;
                 self.cmdline = pos.map(|p| self.history[p].clone()).unwrap_or_default();
             }
-            KeyCode::Char(c) if !key.ctrl && !key.alt => self.cmdline.push(c),
+            KeyCode::Char(c) if !key.ctrl && !key.alt && !key.sup => self.cmdline.push(c),
             _ => {}
         }
     }
@@ -2883,6 +2883,32 @@ pub(crate) mod tests {
         for k in crate::keys::parse_keys(s, &[Key::char(' ')]).unwrap() {
             app.handle_key(k);
         }
+    }
+
+    #[test]
+    fn ctrl_and_ctrl_shift_bind_separately_and_macros_keep_shift() {
+        use crate::config::Lookup;
+        let toml = "[keymap.normal]\n\"<C-S-q>\" = \"quit!\"\n";
+        let (config, errors) = Config::parse(toml).unwrap();
+        assert!(errors.is_empty(), "{errors:?}");
+        let map = config.keymap(Mode::Normal);
+        let k = |s| crate::keys::parse_keys(s, &[]).unwrap();
+        let cmd = |s| match map.lookup(&k(s)) {
+            Lookup::Exact(c) => Some(c.to_vec()),
+            _ => None,
+        };
+        assert_eq!(cmd("<C-S-q>"), Some(vec![Command::parse("quit!").unwrap()]));
+        let plain = cmd("<C-q>");
+        assert_ne!(plain, cmd("<C-S-q>"));
+        assert_eq!(plain, Some(vec![Command::parse("quit").unwrap()]));
+        // A macro replays the shifted key as recorded.
+        let mut app = App::new(Config::default(), None);
+        app.run(Command::New);
+        keys(&mut app, "qa<C-S-x><S-F5><D-x>q");
+        assert_eq!(
+            crate::keys::format_keys(&app.ed.macros[&'a']),
+            "<C-S-x><S-F5><D-x>"
+        );
     }
 
     #[test]
