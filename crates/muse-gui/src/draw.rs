@@ -146,6 +146,9 @@ pub struct Views {
     props_text: Option<PropsText>,
     /// Clickable areas of the properties pane drawn last frame.
     props: Vec<(Rect, PropHit)>,
+    /// The editing palette's rows drawn last frame, and its area for the wheel.
+    palette: Vec<(Rect, usize)>,
+    palette_rect: Option<Rect>,
     /// Tool panes on screen: clicking one focuses it.
     tool_rects: Vec<(Rect, PaneId)>,
     /// Score panes' progress bars: clicking one moves the cursor to that bar.
@@ -958,6 +961,8 @@ pub fn build(
     views.keys.clear();
     views.tracks.clear();
     views.props.clear();
+    views.palette.clear();
+    views.palette_rect = None;
     views.edges.clear();
     views.wave_rects.clear();
     views.tracks_rect = None;
@@ -1078,6 +1083,7 @@ pub fn build(
             },
             PaneKind::Tuner => draw_tuner(scene, app, rect),
             PaneKind::Properties => draw_properties(scene, app, views, rect),
+            PaneKind::Palette => draw_edit_palette(scene, app, views, rect),
             PaneKind::Score => {}
         }
         app.views[active].score = view_score;
@@ -1583,6 +1589,16 @@ fn draw_tool_icon(
                 });
             }
             line(scene, &path(&[(5.0, 10.0), (11.0, 10.0)], false));
+        }
+        // A window with a panel on its left.
+        "palette" => {
+            line(scene, &rect(1.5, 2.5, 14.5, 13.5, 2.0));
+            line(scene, &path(&[(6.5, 2.5), (6.5, 13.5)], false));
+            for k in 0..3 {
+                solid(scene, &|| {
+                    rect(2.8, 4.5 + k as f64 * 2.6, 5.2, 5.6 + k as f64 * 2.6, 0.4)
+                });
+            }
         }
         // A window with a side panel.
         "properties" => {
@@ -2665,7 +2681,12 @@ fn draw_command_line(scene: &mut Scene, app: &App, width: f64, height: f64) {
     match app.mode {
         // Typed in the command palette.
         Mode::Command | Mode::Picker => {}
-        Mode::Normal | Mode::Insert | Mode::Visual | Mode::Tracks | Mode::Properties => {
+        Mode::Normal
+        | Mode::Insert
+        | Mode::Visual
+        | Mode::Tracks
+        | Mode::Properties
+        | Mode::Palette => {
             if let Some(m) = &app.message {
                 let c = if m.error {
                     tc(|t| t.error)
@@ -3074,6 +3095,86 @@ fn text_small_caps(
         start = !c.is_alphanumeric();
     }
     x
+}
+
+/// The editing palette: section titles with a chevron, and each item as a row; the item in
+/// force is a filled chip, the selected row outlined.
+fn draw_edit_palette(scene: &mut Scene, app: &App, views: &mut Views, r: Rect) {
+    use muse_app::palette::PaletteKind;
+    const PAD: f64 = 10.0;
+    const ROW: f64 = 28.0;
+    let th = &app.config.theme;
+    views.palette_rect = Some(r);
+    fill(scene, r, col(th.panel));
+    let rows = app.palette_rows();
+    let visible = ((r.height() - 2.0 * PAD) / ROW).floor().max(1.0) as usize;
+    let first = app.palette_window(visible);
+    let sel = app.palette_selected();
+    let focused = app.focused_kind() == PaneKind::Palette;
+    for (k, row) in rows.iter().enumerate().skip(first).take(visible) {
+        let y = r.y0 + PAD + (k - first) as f64 * ROW;
+        let b = Rect::new(r.x0 + PAD, y, r.x1 - PAD, y + ROW - 2.0);
+        let shape = b.to_rounded_rect(5.0);
+        let base = match row.kind {
+            PaletteKind::Header { .. } => col(th.mode_normal),
+            PaletteKind::Item => chrome_text(),
+        };
+        let mut c = base;
+        if row.active {
+            scene.fill(
+                Fill::NonZero,
+                Affine::IDENTITY,
+                col(th.mode_normal),
+                None,
+                &shape,
+            );
+            c = text_on(col(th.mode_normal));
+        } else if k == sel && focused {
+            scene.fill(
+                Fill::NonZero,
+                Affine::IDENTITY,
+                col(th.mode_normal.with_alpha(60)),
+                None,
+                &shape,
+            );
+        }
+        if k == sel {
+            scene.stroke(
+                &Stroke::new(1.0),
+                Affine::IDENTITY,
+                col(th.mode_normal),
+                None,
+                &shape,
+            );
+        }
+        let ty = b.y0 + ROW / 2.0 + 4.0;
+        match row.kind {
+            PaletteKind::Header { folded, .. } => {
+                draw_chevron(scene, b.x0 + 10.0, b.y0 + ROW / 2.0 - 1.0, !folded, c);
+                text(
+                    scene,
+                    row.label,
+                    b.x0 + 22.0,
+                    ty,
+                    13.0 * 1.15,
+                    Align::Left,
+                    c,
+                    true,
+                );
+            }
+            PaletteKind::Item => text(
+                scene,
+                row.label,
+                b.x0 + 22.0,
+                ty,
+                13.0 * 1.1,
+                Align::Left,
+                c,
+                false,
+            ),
+        }
+        views.palette.push((Rect::new(r.x0, y, r.x1, y + ROW), k));
+    }
 }
 
 /// The properties pane: its tabs, then the shown tab's rows (section titles, and per property
@@ -4356,6 +4457,15 @@ impl Views {
         if zoom {
             return false;
         }
+        if self.palette_rect.is_some_and(|r| r.contains((x, y))) {
+            let rows = (dy / 30.0).round() as isize;
+            app.scroll_palette(if rows == 0 {
+                dy.signum() as isize
+            } else {
+                rows
+            });
+            return true;
+        }
         if self.props_rect.is_some_and(|r| r.contains((x, y))) {
             // A couple of rows a notch, whichever way the wheel turns.
             let rows = (dy / 30.0).round() as isize;
@@ -4447,6 +4557,10 @@ impl Views {
         }
         if let Some(&(_, pitch)) = self.keys.iter().find(|(r, _)| r.contains((x, y))) {
             app.click_key(pitch);
+            return;
+        }
+        if let Some(&(_, row)) = self.palette.iter().find(|(r, _)| r.contains((x, y))) {
+            app.click_palette(row);
             return;
         }
         if self.click_properties(app, x, y, double) {

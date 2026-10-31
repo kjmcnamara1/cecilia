@@ -293,7 +293,11 @@ impl App {
 
     pub(crate) fn palette_key(&mut self, key: crate::keys::Key) {
         self.pending.push(key);
-        let cmds = match self.config.keymap(crate::config::Mode::Palette).lookup(&self.pending) {
+        let cmds = match self
+            .config
+            .keymap(crate::config::Mode::Palette)
+            .lookup(&self.pending)
+        {
             crate::config::Lookup::Exact(cmds) => cmds.to_vec(),
             crate::config::Lookup::Prefix => return,
             // Not a palette key: the keys go on as in any pane (`<C-w>` moves, `:` …).
@@ -382,7 +386,11 @@ mod tests {
         app.set_tool(PaneKind::Properties, Some(true));
         app.set_tool(PaneKind::Palette, Some(true));
         app.set_tool(PaneKind::Fretboard, Some(true));
-        let kinds: Vec<PaneKind> = app.layout().iter().map(|(id, _)| app.panes[id].kind).collect();
+        let kinds: Vec<PaneKind> = app
+            .layout()
+            .iter()
+            .map(|(id, _)| app.panes[id].kind)
+            .collect();
         assert_eq!(kinds[0], PaneKind::Palette);
         assert!(kinds.contains(&PaneKind::Properties) && kinds.contains(&PaneKind::Fretboard));
         app.set_tool(PaneKind::Palette, Some(false));
@@ -416,7 +424,11 @@ mod tests {
         press(&mut app, "za");
         assert!(app.palette_rows().len() < all);
         press(&mut app, "<CR>");
-        assert_eq!(app.palette_rows().len(), all, "enter on a header unfolds it");
+        assert_eq!(
+            app.palette_rows().len(),
+            all,
+            "enter on a header unfolds it"
+        );
     }
 
     #[test]

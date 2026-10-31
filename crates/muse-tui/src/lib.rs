@@ -63,6 +63,9 @@ struct Ui {
     props: Vec<(Rect, PropHit)>,
     /// The properties pane, for the wheel.
     props_area: Option<Rect>,
+    /// Clickable rows of the editing palette, and its area for the wheel.
+    palette: Vec<(Rect, usize)>,
+    palette_area: Option<Rect>,
     /// The lyrics text area as drawn: its left, its first line's row and height, the wrapped
     /// lines and the first one shown.
     props_text: Option<PropsText>,
@@ -235,6 +238,20 @@ fn event_loop(terminal: &mut DefaultTerminal, app: &mut App) -> Result<()> {
                     {
                         let (d, off) = divider_at(app, m.column, m.row).unwrap();
                         ui.drag = Some(Drag::Divider(d, off));
+                    }
+                    MouseEventKind::Down(MouseButton::Left)
+                        if ui
+                            .palette
+                            .iter()
+                            .any(|(r, _)| contains(*r, m.column, m.row)) =>
+                    {
+                        let row = ui
+                            .palette
+                            .iter()
+                            .find(|(r, _)| contains(*r, m.column, m.row))
+                            .map(|(_, i)| *i)
+                            .unwrap();
+                        app.click_palette(row);
                     }
                     MouseEventKind::Down(MouseButton::Left)
                         if ui.props.iter().any(|(r, _)| contains(*r, m.column, m.row)) =>
@@ -432,6 +449,17 @@ fn event_loop(terminal: &mut DefaultTerminal, app: &mut App) -> Result<()> {
                             -2
                         });
                     }
+                    MouseEventKind::ScrollDown | MouseEventKind::ScrollUp
+                        if ui
+                            .palette_area
+                            .is_some_and(|r| contains(r, m.column, m.row)) =>
+                    {
+                        app.scroll_palette(if m.kind == MouseEventKind::ScrollDown {
+                            2
+                        } else {
+                            -2
+                        });
+                    }
                     MouseEventKind::ScrollDown => app.run(muse_app::Command::BarNext),
                     MouseEventKind::ScrollUp => app.run(muse_app::Command::BarPrev),
                     _ => {}
@@ -531,6 +559,7 @@ fn draw(f: &mut Frame, app: &mut App, play: Option<(usize, Location, f64, f64)>,
     ui.tracks.clear();
     ui.tracks_area = None;
     ui.props.clear();
+    ui.palette.clear();
     ui.props_area = None;
     ui.props_text = None;
     if peek_h > 0 {
@@ -578,6 +607,7 @@ fn draw(f: &mut Frame, app: &mut App, play: Option<(usize, Location, f64, f64)>,
         match kind {
             PaneKind::Tracks => draw_tracks(f, app, inner, play, ui),
             PaneKind::Properties => draw_properties(f, app, inner, ui),
+            PaneKind::Palette => draw_edit_palette(f, app, inner, ui),
             PaneKind::Tuner => draw_tuner(f, app, inner),
             PaneKind::Fretboard | PaneKind::Piano => match &instrument {
                 Some(v) if kind == PaneKind::Fretboard => draw_fretboard(f, app, v, inner, ui),
@@ -1147,6 +1177,7 @@ fn tool_icon(b: &muse_app::toolbar::ToolButton, style: &str) -> String {
         "count-in" => ("12", "12", "count"),
         "tracks" | "tracks-focus" => ("\u{f0c9}", "≡", "tracks"),
         "properties" => ("\u{f013}", "⚙", "props"),
+        "palette" => ("\u{f1fc}", "✎", "palette"),
         "waveform" => ("\u{f080}", "∿", "wave"),
         "piano" => ("\u{f001}", "♫", "piano"),
         "fretboard" => ("\u{f1c0}", "▦", "frets"),
@@ -1549,6 +1580,69 @@ fn clip(text: &str, width: usize) -> String {
     let mut out: String = text.chars().take(width.saturating_sub(1)).collect();
     out.push('…');
     out
+}
+
+/// The editing palette: a section title per section, then its items one to a row; the item in
+/// force is marked and the selected row highlighted.
+fn draw_edit_palette(f: &mut Frame, app: &App, area: Rect, ui: &mut Ui) {
+    use muse_app::palette::PaletteKind;
+    let t = app.config.theme.clone();
+    let base = Style::default().bg(rc(t.panel)).fg(rc(t.chrome_text));
+    ui.palette_area = Some(area);
+    f.render_widget(Paragraph::new("").style(base), area);
+    if area.height < 2 || area.width < 6 {
+        return;
+    }
+    let rows = app.palette_rows();
+    let first = app.palette_window(area.height as usize);
+    let sel = app.palette_selected();
+    let focused = app.focused_kind() == PaneKind::Palette;
+    let buf = f.buffer_mut();
+    for (k, row) in rows
+        .iter()
+        .enumerate()
+        .skip(first)
+        .take(area.height as usize)
+    {
+        let y = area.y + (k - first) as u16;
+        let width = area.width as usize;
+        let (text, style) = match row.kind {
+            PaletteKind::Header { folded, .. } => {
+                let mark = if folded { '\u{f054}' } else { '\u{f078}' };
+                (
+                    format!(" {mark} {}", row.label),
+                    base.fg(rc(t.mode_normal)).add_modifier(Modifier::BOLD),
+                )
+            }
+            PaletteKind::Item => {
+                let mark = if row.active { '●' } else { ' ' };
+                let style = if row.active {
+                    base.fg(rc(t.mode_normal))
+                } else {
+                    base
+                };
+                (format!("   {mark} {}", row.label), style)
+            }
+        };
+        let style = if k == sel && focused {
+            on(app, t.mode_normal)
+        } else if k == sel {
+            style.add_modifier(Modifier::REVERSED)
+        } else {
+            style
+        };
+        let line = format!("{:<width$}", clip(&text, width));
+        buf.set_string(area.x, y, &line, style);
+        ui.palette.push((
+            Rect {
+                x: area.x,
+                y,
+                width: area.width,
+                height: 1,
+            },
+            k,
+        ));
+    }
 }
 
 /// The properties pane: its tabs, then the shown tab's rows (section titles, and per property
@@ -2296,7 +2390,12 @@ fn draw_cmdline(f: &mut Frame, app: &App, area: Rect) {
     match app.mode {
         // Typed in the command palette.
         Mode::Command | Mode::Picker => {}
-        Mode::Normal | Mode::Insert | Mode::Visual | Mode::Tracks | Mode::Properties => {
+        Mode::Normal
+        | Mode::Insert
+        | Mode::Visual
+        | Mode::Tracks
+        | Mode::Properties
+        | Mode::Palette => {
             if let Some(m) = &app.message {
                 let style = if m.error {
                     Style::default().fg(Color::Red)
