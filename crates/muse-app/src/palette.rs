@@ -147,15 +147,22 @@ pub struct PaletteRow {
     pub active: bool,
     /// Why the item can't take effect at the cursor (it is dimmed, applying it does nothing).
     pub unavailable: Option<String>,
+    /// The insert-mode keys bound to the item's command (at most three).
+    pub keys: Vec<String>,
 }
 
 impl PaletteRow {
-    /// The name as the tooltip and the label show it.
+    /// The name as the tooltip and the label show it: with its insert-mode keys and, if it
+    /// can't be applied now, "(unavailable)", e.g. "Palm mute (m) (unavailable)".
     pub fn name(&self) -> String {
-        match self.unavailable {
-            Some(_) => format!("{} (unavailable)", self.label),
-            None => self.label.to_string(),
+        let mut name = self.label.to_string();
+        if !self.keys.is_empty() {
+            name = format!("{name} ({})", self.keys.join(", "));
         }
+        if self.unavailable.is_some() {
+            name.push_str(" (unavailable)");
+        }
+        name
     }
 }
 
@@ -218,6 +225,7 @@ impl App {
                 command: "",
                 active: false,
                 unavailable: None,
+                keys: Vec::new(),
             });
             if folded {
                 continue;
@@ -277,6 +285,7 @@ impl App {
                     command,
                     active,
                     unavailable: self.palette_unavailable(command),
+                    keys: self.palette_keys(command),
                 });
             }
         }
@@ -331,6 +340,32 @@ impl App {
             *cache = Some(Availability { key, reasons });
         }
         cache.as_ref().and_then(|a| a.reasons.get(command).cloned())
+    }
+
+    /// The insert-mode keys bound to a command (as the live keymaps have them, user overrides
+    /// included): those of the notation under the cursor, then the shared ones.
+    fn palette_keys(&self, command: &str) -> Vec<String> {
+        let Ok(cmd) = Command::parse(command) else {
+            return Vec::new();
+        };
+        let kind = self.config.insert_keymap(self.insert_kind());
+        let shared = self.config.keymap(crate::config::Mode::Insert);
+        let mut keys: Vec<String> = Vec::new();
+        for map in [kind, shared] {
+            for (k, cmds) in &map.bindings {
+                // A key the notation's own map binds to something else shadows the shared one.
+                let shadowed = std::ptr::eq(map, shared) && kind.bindings.contains_key(k);
+                if !shadowed && cmds.as_slice() == [cmd.clone()] {
+                    let k = crate::keys::format_keys(k);
+                    if !keys.contains(&k) {
+                        keys.push(k);
+                    }
+                }
+            }
+        }
+        keys.sort_by_key(|k| (k.len(), k.clone()));
+        keys.truncate(3);
+        keys
     }
 
     /// The beat under the cursor.
@@ -584,6 +619,7 @@ impl App {
 mod tests {
     use super::*;
     use crate::app::tests::{keys as press, test_app as app};
+    use crate::config::Config;
     use crate::layout::{Axis, Node};
 
     fn select(app: &mut App, command: &str) {
@@ -959,5 +995,41 @@ mod tests {
         old_shape(&mut other);
         other.normalize_layouts();
         assert_eq!(other.view().root.shape(), good);
+    }
+
+    #[test]
+    fn names_carry_the_insert_mode_keys() {
+        let mut app = app();
+        let name = |app: &App, command: &str| {
+            app.palette_rows()
+                .into_iter()
+                .find(|r| r.command == command)
+                .unwrap()
+                .name()
+        };
+        // The test track is a tab: its keys, then the shared ones.
+        assert_eq!(name(&app, "toggle palm-mute"), "Palm mute (m)");
+        assert_eq!(name(&app, "duration 4"), "Quarter note (<A-3>)");
+        assert_eq!(name(&app, "dot"), "Dotted (.)");
+        // Arguments tell buttons apart; one with no key shows none.
+        assert_eq!(name(&app, "dynamic mf"), "Mezzo forte (mf)");
+        assert_eq!(name(&app, "toggle fade-in"), "Fade in");
+        // Unavailable ones say so after the keys.
+        app.run(Command::BeatNext);
+        assert_eq!(
+            name(&app, "toggle palm-mute"),
+            "Palm mute (m) (unavailable)"
+        );
+        // A user override changes the text.
+        let (config, errors) = Config::parse(
+            "[keymap.insert-tab]\n\"p\" = \"toggle palm-mute\"\n\"M\" = \"toggle palm-mute\"\n",
+        )
+        .unwrap();
+        assert!(errors.is_empty(), "{errors:?}");
+        app.config = config;
+        assert_eq!(
+            name(&app, "toggle palm-mute"),
+            "Palm mute (M, m, p) (unavailable)"
+        );
     }
 }
