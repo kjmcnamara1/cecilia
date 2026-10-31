@@ -86,6 +86,12 @@ separators = "arrow"     # terminal: between sections, as lualine: "arrow", "rou
 speed = 1.0              # playback speed multiplier
 tuner_a4 = 440.0         # the tuner's reference pitch for A4 (Hz)
 
+[swap]
+enabled = true           # keep a recovery copy of buffers with unsaved changes
+interval = 5.0           # seconds after the last change before it is written (at most 6x while editing)
+auto_recover = true      # opening a file with a newer swap file restores it as unsaved changes
+# dir = "~/.local/state/muse/swap"   # default: $XDG_STATE_HOME/muse/swap, else ~/.local/state/muse/swap
+
 [score]
 clef = "treble"          # clef of a standard staff added without one: treble, bass or grand
 

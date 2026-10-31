@@ -34,6 +34,7 @@ pub struct ConfigFile {
     pub ui: UiConfig,
     pub tabline: TablineConfig,
     pub audio: AudioConfig,
+    pub swap: SwapConfig,
     pub theme: crate::theme::ThemeConfig,
     pub toolbar: ToolbarConfig,
     pub statusline: StatuslineConfig,
@@ -222,6 +223,33 @@ impl Default for UiConfig {
             hide_cursor_while_following: true,
             layout: "vertical".into(),
             zoom: 1.0,
+        }
+    }
+}
+
+/// Swap files (`[swap]`): recovery copies of buffers with unsaved changes.
+#[derive(Debug, Clone, Deserialize)]
+#[serde(default, deny_unknown_fields)]
+pub struct SwapConfig {
+    /// Write swap files.
+    pub enabled: bool,
+    /// Seconds after the last change before the swap file is written (and at the latest six
+    /// times this while editing continues).
+    pub interval: f64,
+    /// Opening a file with a newer swap file (not owned by a running muse) restores it as
+    /// unsaved changes; otherwise a message points to `:recover` and `:swap-discard`.
+    pub auto_recover: bool,
+    /// Where swap files go (`$XDG_STATE_HOME/muse/swap`, else `~/.local/state/muse/swap`, when unset).
+    pub dir: Option<PathBuf>,
+}
+
+impl Default for SwapConfig {
+    fn default() -> Self {
+        Self {
+            enabled: true,
+            interval: 5.0,
+            auto_recover: true,
+            dir: None,
         }
     }
 }

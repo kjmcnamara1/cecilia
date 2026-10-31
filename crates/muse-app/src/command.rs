@@ -361,6 +361,10 @@ pub enum Command {
     Quit {
         force: bool,
     },
+    /// Restore the buffer from its swap file (or open the given one); `!` even if another muse owns it.
+    Recover(Option<PathBuf>, bool),
+    /// Delete the buffer's swap file.
+    SwapDiscard,
     Source,
     CommandMode,
     Normal,
@@ -506,6 +510,9 @@ impl Command {
             "write-quit" | "wq" | "x" | "wqall" | "wqa" | "xall" | "xa" => WriteQuit,
             "quit" | "q" | "quitall" | "qa" => Quit { force: false },
             "quit!" | "q!" | "quitall!" | "qa!" => Quit { force: true },
+            "recover" => Recover(arg.map(expand_tilde), false),
+            "recover!" => Recover(arg.map(expand_tilde), true),
+            "swap-discard" => SwapDiscard,
             "source" | "so" => Source,
             "command-mode" => CommandMode,
             "normal" => Normal,

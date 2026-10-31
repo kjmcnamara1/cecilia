@@ -151,6 +151,9 @@ pub const COMMANDS: &[&str] = &[
     "play-macro",
     "play-toggle",
     "put",
+    "recover",
+    "recover!",
+    "swap-discard",
     "put-before",
     "q",
     "q!",
@@ -451,6 +454,7 @@ pub fn complete(line: &str, cwd: &Path, score_dir: Option<&Path>, m: Matcher) ->
     let arg_start = lead + space + (rest.len() - rest.trim_start().len());
     let arg = &line[arg_start..];
     let ranked = match command {
+        "recover" | "recover!" => paths(arg, cwd, None, m),
         "open" | "view-new" => paths(arg, cwd, Some(SCORE_EXTENSIONS), m),
         "w" | "write" => paths(arg, cwd, Some(WRITE_EXTENSIONS), m),
         "workspace-open" | "workspace-open!" | "workspace-save" => {
@@ -875,6 +879,9 @@ pub fn describe(command: &str) -> Option<&'static str> {
         "q!" | "qa!" | "quit!" | "quitall!" => "Quit muse, discarding changes",
         "wa" | "wall" => "Write every changed file",
         "wqa" | "wqall" | "xa" | "xall" => "Write every changed file and quit",
+        "recover" => "Restore the file from its swap file",
+        "recover!" => "Restore from a swap file even if another muse owns it",
+        "swap-discard" => "Delete the file's swap file",
         "record-macro" => "Record a macro into a register",
         "redo" => "Redo",
         "refinger" => "Re-finger the track to minimise hand movement",

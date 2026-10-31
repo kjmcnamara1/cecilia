@@ -445,6 +445,7 @@ pub struct App {
     /// Command-line completion in progress: candidates, where they start and which is shown.
     completion: Option<(crate::complete::Completions, Option<usize>)>,
     pub message: Option<Message>,
+    pub(crate) swap: crate::swap::SwapState,
     pub show_help: bool,
     /// Set by the frontend to reflect the player state.
     pub playing: bool,
@@ -583,6 +584,7 @@ impl App {
             picker: None,
             marks: Default::default(),
             message: None,
+            swap: Default::default(),
             show_help: false,
             playing: false,
             playing_buffer: None,
@@ -1350,7 +1352,7 @@ impl App {
             |n| n.to_string_lossy().into(),
         );
         // Replace the initial empty buffer if nothing refers to anything else yet.
-        let buffer = Buffer {
+        let mut buffer = Buffer {
             path: Some(canonical),
             name,
             score,
@@ -1358,12 +1360,23 @@ impl App {
             history: Default::default(),
             version: 0,
         };
-        if self.buffers.len() == 1 && self.buffers[0].path.is_none() {
-            self.buffers[0] = buffer;
-            return Ok(0);
+        let recovered = self.swap_check_open(buffer.path.as_deref().unwrap());
+        if let Some(score) = recovered.clone() {
+            buffer.score = score;
+            buffer.modified = true;
         }
-        self.buffers.push(buffer);
-        Ok(self.buffers.len() - 1)
+        let index = if self.buffers.len() == 1 && self.buffers[0].path.is_none() {
+            self.buffers[0] = buffer;
+            0
+        } else {
+            self.buffers.push(buffer);
+            self.buffers.len() - 1
+        };
+        if recovered.is_some() {
+            // Own the swap file now, so closing the buffer removes it.
+            self.swap_write(index);
+        }
+        Ok(index)
     }
 
     /// Shows a buffer in the focused pane, adding it to the view's bufferline if needed. The
@@ -1529,6 +1542,7 @@ impl App {
         }
         if !in_other_views {
             self.forget_marks(buffer);
+            self.swap_release(buffer);
             // Unloaded: the slot stays (indices are shared) but holds nothing.
             self.buffers[buffer] = Buffer {
                 name: "[closed]".into(),
@@ -1616,6 +1630,7 @@ impl App {
     /// Reloads the config file if it changed on disk.
     pub fn poll_config(&mut self) {
         self.autosave_workspace();
+        self.swap_tick(std::time::Instant::now());
         let Some(path) = self.config_path.clone() else {
             return;
         };
@@ -2184,8 +2199,13 @@ impl App {
                 }
             }
             ViewClose(force) => self.close_view(force),
+            Recover(path, force) => self.recover(path, force),
+            SwapDiscard => self.swap_discard(),
             Edit(path) => match self.open(&path) {
-                Ok(b) => self.show_buffer(b),
+                Ok(b) => {
+                    self.show_buffer(b);
+                    self.swap_show_notices();
+                }
                 Err(e) => self.error(e),
             },
             OpenDialog => {
@@ -2275,6 +2295,7 @@ impl App {
     /// names it. True if muse may quit.
     fn may_quit(&mut self, force: bool) -> bool {
         if force {
+            self.swap_clear();
             return true;
         }
         match self.buffers.iter().find(|b| b.modified) {
@@ -2285,7 +2306,10 @@ impl App {
                 ));
                 false
             }
-            None => true,
+            None => {
+                self.swap_clear();
+                true
+            }
         }
     }
 
@@ -2335,6 +2359,7 @@ impl App {
                 if buffer.path.as_deref() == Some(target.as_path()) {
                     self.buffers[index].modified = false;
                     self.buffers[index].history.mark_saved();
+                    self.swap_release(index);
                 }
                 self.info(format!("\"{}\" written, {size} bytes", target.display()));
             }

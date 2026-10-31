@@ -28,9 +28,6 @@ Planned work. Finished items move to `CHANGELOG.md` under `[Unreleased]`.
 ### Editing
 
 - [ ] TODO: Deep dive on editing workflow
-- [ ] Auto save editing progress in a swap file (similar to neovim swap files)
-      to recover from a crash or if app is force closed without saving.
-  - swap directory should be a setting (default=$XDG_STATE_HOME/muse/swap or ~/.local/state/muse/swap)
 
 ### Keymaps
 
