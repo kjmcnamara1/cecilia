@@ -375,6 +375,8 @@ const DEFAULT_NORMAL: &[(&str, &str)] = &[
     ("<C-w>w", "focus-next"),
     ("<C-w><C-w>", "focus-next"),
     ("<C-w>W", "focus-prev"),
+    ("<C-w>p", "focus-last"),
+    ("<C-w><C-p>", "focus-last"),
     ("<C-w>q", "pane-close"),
     ("<C-w>c", "pane-close"),
     ("gt", "view-next"),

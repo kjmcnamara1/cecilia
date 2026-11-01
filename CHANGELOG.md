@@ -12,6 +12,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - `<A-j>` / `<A-k>` select the next / previous item in pickers and in command-line completion,
   like `<Tab>` / `<S-Tab>`.
 - `:focus-next` / `:focus-prev` (`<C-w>w`, `<C-w>W`) cycle the focus through the panes of the view.
+- `:focus-last` (`<C-w>p`) switches back to the previously focused pane.
 
 ## [0.9.0] - 2026-10-31
 

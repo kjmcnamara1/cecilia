@@ -37,7 +37,6 @@ Planned work. Finished items move to `CHANGELOG.md` under `[Unreleased]`.
   - This allows moving to add extra notes above or below standard staff without jumping to
     another staff
 - [ ] FIX: ctrl-c in any pane (score,tool,properties,etc.) should close that pane.
-- [ ] ctrl-w ctrl-p switches focus back and forth between panes
 
 ### UI
 

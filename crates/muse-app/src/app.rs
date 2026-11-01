@@ -2204,6 +2204,20 @@ impl App {
                     self.set_focus(panes[(i + if forward { 1 } else { n - 1 }) % n]);
                 }
             }
+            FocusLast => {
+                let from = self.window_focus();
+                let last = self
+                    .view()
+                    .root
+                    .panes()
+                    .into_iter()
+                    .filter(|p| *p != from)
+                    .max_by_key(|p| self.focus_recency.get(p).copied().unwrap_or(0));
+                match last {
+                    Some(id) => self.set_focus(id),
+                    None => self.info("only one pane in this view"),
+                }
+            }
             PaneMove(dir) => {
                 let (id, v) = (self.window_focus(), self.active_view);
                 self.views[v].maximized = None;
@@ -3100,6 +3114,14 @@ pub(crate) mod tests {
         keys(&mut app, "<C-w><C-w><C-w>w");
         assert_eq!(app.focused(), ids[0]);
         keys(&mut app, "<C-w>W");
+        assert_eq!(app.focused(), ids[2]);
+        // Back and forth between the two last focused.
+        app.set_focus(ids[1]);
+        keys(&mut app, "<C-w>p");
+        assert_eq!(app.focused(), ids[2]);
+        keys(&mut app, "<C-w>p");
+        assert_eq!(app.focused(), ids[1]);
+        keys(&mut app, "<C-w><C-p>");
         assert_eq!(app.focused(), ids[2]);
     }
 
