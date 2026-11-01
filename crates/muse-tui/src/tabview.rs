@@ -122,6 +122,33 @@ pub fn layout_systems(score: &Score, track: usize, width: u16, scale: u16) -> Ve
     systems
 }
 
+/// The rows of bars a pane of `area` shows from system `scroll`, for half-page movement.
+pub fn view_info(
+    score: &Score,
+    track: usize,
+    area: Rect,
+    scale: u16,
+    scroll: usize,
+) -> muse_app::ViewInfo {
+    let Some(t) = score.tracks.get(track) else {
+        return Default::default();
+    };
+    let systems = layout_systems(score, track, area.width, scale);
+    let visible = (area.height / system_height(t)).max(1) as usize;
+    let rows: Vec<std::ops::Range<usize>> = systems
+        .iter()
+        .map(|s| s.bars.first().map_or(0, |b| b.bar)..s.bars.last().map_or(0, |b| b.bar + 1))
+        .collect();
+    let shown = rows.iter().skip(scroll).take(visible);
+    muse_app::ViewInfo {
+        horizontal: false,
+        visible_rows: shown.clone().count(),
+        visible_bars: shown.map(|r| r.len()).sum(),
+        rows,
+        page_rows: 0,
+    }
+}
+
 pub fn system_of_bar(systems: &[System], bar: usize) -> usize {
     systems
         .iter()

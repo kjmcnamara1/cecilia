@@ -24,6 +24,22 @@ pub struct Buffer {
     pub version: u64,
 }
 
+/// What a score pane displays, reported by the frontend for half-page movement.
+#[derive(Debug, Clone, Default)]
+pub struct ViewInfo {
+    /// All bars flow along one line (the horizontal layout): `visible_bars` counts.
+    pub horizontal: bool,
+    /// The bars of every row (system) of the cursor's track, in order.
+    pub rows: Vec<std::ops::Range<usize>>,
+    /// Rows at least partly on screen.
+    pub visible_rows: usize,
+    /// Bars at least partly on screen.
+    pub visible_bars: usize,
+    /// In the page layout, the most rows on one page: half-page movement counts these, not
+    /// the rows on screen, so it does not depend on the zoom. Zero in the other layouts.
+    pub page_rows: usize,
+}
+
 /// A position in a score: track, bar, beat index (voice 1) and string.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 pub struct Cursor {
@@ -523,8 +539,10 @@ pub struct App {
     focus_clock: u64,
     /// Screen area for panes, set by the frontend.
     pub viewport: Rect,
-    /// Bars moved by page-down/up, set by the frontend.
+    /// Bars moved by page-down/up when a pane's [`ViewInfo`] is not known yet.
     pub page_bars: usize,
+    /// What each score pane displays, as last reported by the frontend (`set_view_info`).
+    view_info: HashMap<PaneId, ViewInfo>,
     pub(crate) effects: Vec<Effect>,
     pub quit: bool,
     /// Layout for panes opened without another to copy from (`ui.layout`); each pane keeps
@@ -643,6 +661,7 @@ impl App {
                 h: 24,
             },
             page_bars: 4,
+            view_info: HashMap::new(),
             effects: Vec::new(),
             quit: false,
             score_layout,
@@ -875,6 +894,71 @@ impl App {
 
     /// Sets the area panes are laid out in (each frame, by the frontend). The first time, tool
     /// panes added before it was known take their natural height.
+    /// Records what a score pane displays (each frame, by the frontend), for page-down/up.
+    pub fn set_view_info(&mut self, pane: PaneId, info: Option<ViewInfo>) {
+        match info {
+            Some(i) => self.view_info.insert(pane, i),
+            None => self.view_info.remove(&pane),
+        };
+    }
+
+    /// Moves the focused pane's cursor half a screen (`down` or up): across half the displayed
+    /// bars in a horizontal layout, else down or up half the displayed rows of bars (rounded up,
+    /// at least one), staying at the same place in the bar. Without a reported view, `page_bars`.
+    fn half_page(&mut self, down: bool) {
+        let info = self.view_info.get(&self.focused()).cloned();
+        let Some(info) = info.filter(|i| i.horizontal || !i.rows.is_empty()) else {
+            let n = self.page_bars.max(1);
+            self.move_cursor(|s, c| {
+                set_bar(
+                    s,
+                    c,
+                    if down {
+                        c.bar + n
+                    } else {
+                        c.bar.saturating_sub(n)
+                    },
+                )
+            });
+            return;
+        };
+        if info.horizontal {
+            let n = (info.visible_bars / 2).max(1);
+            self.move_cursor(|s, c| {
+                set_bar(
+                    s,
+                    c,
+                    if down {
+                        c.bar + n
+                    } else {
+                        c.bar.saturating_sub(n)
+                    },
+                )
+            });
+            return;
+        }
+        let rows = if info.page_rows > 0 {
+            info.page_rows
+        } else {
+            info.visible_rows
+        };
+        let n = rows.div_ceil(2).max(1);
+        self.move_cursor(|s, c| {
+            let Some(from) = info.rows.iter().position(|r| r.contains(&c.bar)) else {
+                return;
+            };
+            let to = if down {
+                (from + n).min(info.rows.len() - 1)
+            } else {
+                from.saturating_sub(n)
+            };
+            let (a, b) = (&info.rows[from], &info.rows[to]);
+            let bar = (b.start + (c.bar - a.start)).min(b.end.saturating_sub(1));
+            c.bar = bar.min(s.master_bars.len().saturating_sub(1));
+            c.beat = c.beat.min(beats(s, c).len().saturating_sub(1));
+        });
+    }
+
     pub fn set_viewport(&mut self, viewport: Rect) {
         self.viewport = viewport;
         if self.viewport_known {
@@ -2032,14 +2116,8 @@ impl App {
             TrackNext => self.move_cursor(|s, c| set_track(s, c, c.track + 1)),
             TrackPrev => self.move_cursor(|s, c| set_track(s, c, c.track.saturating_sub(1))),
             Track(n) => self.move_cursor(|s, c| set_track(s, c, n.saturating_sub(1))),
-            PageDown => {
-                let n = self.page_bars.max(1);
-                self.move_cursor(|s, c| set_bar(s, c, c.bar + n))
-            }
-            PageUp => {
-                let n = self.page_bars.max(1);
-                self.move_cursor(|s, c| set_bar(s, c, c.bar.saturating_sub(n)))
-            }
+            PageDown => self.half_page(true),
+            PageUp => self.half_page(false),
             PlayToggle => {
                 let here = (self.focused(), self.pane().buffer, self.pane().cursor);
                 if self.playing && self.playing_buffer == Some(here.1) {
@@ -3898,5 +3976,111 @@ pub(crate) mod tests {
             h: 200,
         });
         assert_eq!(app.panes[&id].size.0, Some(30));
+    }
+
+    fn app_with_bars(n: usize) -> App {
+        let mut app = App::new(Config::default(), None);
+        app.run(Command::New);
+        // A new score has a few bars; add until there are `n`.
+        while app.buffer().score.master_bars.len() < n {
+            app.run(Command::BarInsert { after: true });
+        }
+        app.run(Command::GotoFirst);
+        app
+    }
+
+    #[test]
+    fn half_page_falls_back_to_page_bars() {
+        let mut app = app_with_bars(12);
+        app.run(Command::PageDown);
+        assert_eq!(app.pane().cursor.bar, app.page_bars);
+        app.run(Command::PageUp);
+        assert_eq!(app.pane().cursor.bar, 0);
+    }
+
+    #[test]
+    fn half_page_in_the_page_layout_counts_rows_per_page_not_on_screen() {
+        let mut app = app_with_bars(20);
+        let id = app.focused();
+        // Ten rows of two bars; five rows to a page, however many are on screen.
+        for visible_rows in [2, 5, 9] {
+            app.set_view_info(
+                id,
+                Some(ViewInfo {
+                    rows: (0..10).map(|r| r * 2..r * 2 + 2).collect(),
+                    visible_rows,
+                    page_rows: 5,
+                    ..Default::default()
+                }),
+            );
+            app.pane_mut().cursor.bar = 0;
+            app.run(Command::PageDown);
+            assert_eq!(app.pane().cursor.bar, 6, "{visible_rows} rows visible");
+        }
+    }
+
+    #[test]
+    fn half_page_horizontal_moves_half_the_visible_bars() {
+        let mut app = app_with_bars(20);
+        let id = app.focused();
+        let info = |visible_bars| ViewInfo {
+            horizontal: true,
+            visible_bars,
+            ..Default::default()
+        };
+        app.set_view_info(id, Some(info(6)));
+        app.run(Command::PageDown);
+        assert_eq!(app.pane().cursor.bar, 3);
+        app.run(Command::PageUp);
+        assert_eq!(app.pane().cursor.bar, 0);
+        // At least one bar.
+        app.set_view_info(id, Some(info(1)));
+        app.run(Command::PageDown);
+        assert_eq!(app.pane().cursor.bar, 1);
+    }
+
+    #[test]
+    fn half_page_vertical_jumps_rows_and_keeps_the_column() {
+        // 12 bars, 3 per row: 4 rows.
+        let mut app = app_with_bars(12);
+        let id = app.focused();
+        let rows = (0..4).map(|r| r * 3..r * 3 + 3).collect::<Vec<_>>();
+        let info = |visible_rows| ViewInfo {
+            rows: rows.clone(),
+            visible_rows,
+            ..Default::default()
+        };
+        app.set_view_info(id, Some(info(3)));
+        app.pane_mut().cursor.bar = 1;
+        app.pane_mut().cursor.string = 2;
+        // 3 rows shown: down by 2 rows, same place in the row and on the same string.
+        app.run(Command::PageDown);
+        assert_eq!((app.pane().cursor.bar, app.pane().cursor.string), (7, 2));
+        // Clamped to the last row.
+        app.run(Command::PageDown);
+        assert_eq!(app.pane().cursor.bar, 10);
+        app.run(Command::PageUp);
+        assert_eq!(app.pane().cursor.bar, 4);
+        // One row shown: still a row.
+        app.set_view_info(id, Some(info(1)));
+        app.run(Command::PageUp);
+        assert_eq!(app.pane().cursor.bar, 1);
+    }
+
+    #[test]
+    fn half_page_vertical_clamps_to_a_shorter_row() {
+        let mut app = app_with_bars(5);
+        let id = app.focused();
+        app.set_view_info(
+            id,
+            Some(ViewInfo {
+                rows: vec![0..3, 3..5],
+                visible_rows: 2,
+                ..Default::default()
+            }),
+        );
+        app.pane_mut().cursor.bar = 2;
+        app.run(Command::PageDown);
+        assert_eq!(app.pane().cursor.bar, 4);
     }
 }

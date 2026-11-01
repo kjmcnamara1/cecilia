@@ -32,7 +32,8 @@ pub mod workspace;
 
 pub use app::{
     App, Buffer, BufferTab, Cursor, Effect, LinkedNote, Message, Palette, PaletteItem, Pane,
-    PaneKind, View, beat_at_tick, beats, cursor_tick, file_kind, staff_index, truncate_middle,
+    PaneKind, View, ViewInfo, beat_at_tick, beats, cursor_tick, file_kind, staff_index,
+    truncate_middle,
 };
 pub use command::{Command, Strip};
 pub use config::{Config, Mode};
