@@ -7,6 +7,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+
+- Directional pane focus (`focus-left` etc.) goes to the most recently focused of the panes
+  touching the current one, instead of the one nearest its centre.
+
 ## [0.8.0] - 2026-10-31
 
 ### Added

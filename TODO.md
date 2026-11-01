@@ -46,20 +46,6 @@ Planned work. Finished items move to `CHANGELOG.md` under `[Unreleased]`.
 
 - [ ] Create a dashboard that is displayed on the background when all score
       panes are closed (also when opening a new workspace)
-- [ ] FIX: Remember last focused pane in tree so switching back to a row/column
-      refocuses the last pane before focusing another row/column
-  - e.g. 2 panes in left column, 1 pane in right. if bottom pane is selected
-    in left, switching to right and back focuses the top pane in the left
-    column, rather than the most recently focused bottom pane
-  - e.g. 3 panes in left column, 1 pane in right. no matter which pane on
-    the left is focused, when i switch to the right pane and back, the middle pane
-    in the left column is always focused, not the last pane i had focused in that column
-  - e.g. 2 panes in left column, 2 panes in right. moving in any direction
-    focuses the pane next to it in that direction. this works correctly now.
-  - i think the logic should work like this: when focusing in a certain
-    direction and there are multiple panes that share the same edge with the
-    current pane (i.e. touching), the most recently focused of those touching
-    panes should be the one that now gets focused.
 - [ ] Allow grouping scores in tabline into groups and ability to (auto)
       collapse/expand them
 - [ ] Add ability to have multiple windows in the same workspace (not just views
