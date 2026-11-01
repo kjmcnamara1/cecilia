@@ -964,7 +964,7 @@ impl App {
                 p.query.pop();
                 p.selected = 0;
             }
-            KeyCode::Char(c) if !key.ctrl && !key.alt => {
+            KeyCode::Char(c) if !key.ctrl && !key.alt && !key.sup => {
                 p.query.push(c);
                 p.selected = 0;
             }

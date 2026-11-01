@@ -805,7 +805,7 @@ impl App {
         let selected = edit.selected_text();
         let pending = edit.pending;
         let ctrl = |c: char| key.ctrl && key.code == KeyCode::Char(c);
-        let plain = |c: char| !key.ctrl && !key.alt && key.code == KeyCode::Char(c);
+        let plain = |c: char| !key.ctrl && !key.alt && !key.sup && key.code == KeyCode::Char(c);
         if ctrl('a') {
             edit.select_all();
         } else if ctrl('c') || (!insert && plain('y') && selected.is_some()) {
@@ -929,7 +929,7 @@ impl App {
             return false;
         };
         let insert = edit.insert;
-        let plain = !key.ctrl && !key.alt;
+        let plain = !key.ctrl && !key.alt && !key.sup;
         let remove = match key.code {
             KeyCode::Backspace | KeyCode::Delete if insert => Some(false),
             KeyCode::Char('d' | 'x') if plain && !insert => Some(false),
@@ -1179,7 +1179,7 @@ impl App {
             (_, KeyCode::Down) => edit.move_visual(1, &lines),
             (_, KeyCode::Home) => edit.caret = edit.line_start(),
             (_, KeyCode::End) => edit.caret = edit.line_end(),
-            (_, KeyCode::Char(c)) if !key.ctrl && !key.alt => match c {
+            (_, KeyCode::Char(c)) if !key.ctrl && !key.alt && !key.sup => match c {
                 'h' => edit.caret = edit.caret.saturating_sub(1),
                 'l' => edit.caret += 1,
                 'j' => edit.move_visual(1, &lines),
@@ -1904,11 +1904,7 @@ mod tests {
         for c in text.chars() {
             app.props_edit_key(Key::char(c));
         }
-        app.props_edit_key(Key {
-            code: KeyCode::Enter,
-            ctrl: false,
-            alt: false,
-        });
+        app.props_edit_key(Key::new(KeyCode::Enter));
     }
 
     /// The tree: the properties pane is the last child of a side-by-side root.

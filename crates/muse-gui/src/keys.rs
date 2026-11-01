@@ -6,13 +6,10 @@ use winit::keyboard::{Key as WKey, ModifiersState, NamedKey};
 use winit::platform::modifier_supplement::KeyEventExtModifierSupplement;
 
 pub fn convert(event: &KeyEvent, mods: ModifiersState) -> Option<Key> {
-    let ctrl = mods.control_key();
-    let alt = mods.alt_key();
     let code = match &event.logical_key {
         WKey::Named(n) => match n {
             NamedKey::Escape => KeyCode::Esc,
             NamedKey::Enter => KeyCode::Enter,
-            NamedKey::Tab if mods.shift_key() => KeyCode::BackTab,
             NamedKey::Tab => KeyCode::Tab,
             NamedKey::Backspace => KeyCode::Backspace,
             NamedKey::Delete => KeyCode::Delete,
@@ -40,18 +37,57 @@ pub fn convert(event: &KeyEvent, mods: ModifiersState) -> Option<Key> {
             _ => return None,
         },
         WKey::Character(s) => {
-            // With Ctrl held, use the unmodified character (Ctrl-W gives 'w', not a control code).
-            let c = if ctrl || alt {
+            // With Ctrl/Alt/Super held, use the unmodified character (Ctrl-W gives 'w', not a
+            // control code; Ctrl-Shift-Q gives 'q' with the shift flag set).
+            if mods.control_key() || mods.alt_key() || mods.super_key() {
                 match event.key_without_modifiers() {
-                    WKey::Character(base) => base.chars().next()?,
-                    _ => s.chars().next()?,
+                    WKey::Character(base) => KeyCode::Char(base.chars().next()?),
+                    _ => KeyCode::Char(s.chars().next()?),
                 }
             } else {
-                s.chars().next()?
-            };
-            KeyCode::Char(if ctrl { c.to_ascii_lowercase() } else { c })
+                KeyCode::Char(s.chars().next()?)
+            }
         }
         _ => return None,
     };
-    Some(Key { code, ctrl, alt })
+    Some(with_modifiers(code, mods))
+}
+
+/// The key for `code` with the modifier state (Shift folded per `Key::with_mods`).
+fn with_modifiers(code: KeyCode, mods: ModifiersState) -> Key {
+    Key::with_mods(
+        code,
+        mods.control_key(),
+        mods.alt_key(),
+        mods.shift_key(),
+        mods.super_key(),
+    )
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn modifiers_become_flags() {
+        let ctrl_shift = ModifiersState::CONTROL | ModifiersState::SHIFT;
+        let k = with_modifiers(KeyCode::Char('q'), ctrl_shift);
+        assert_eq!((k.ctrl, k.shift), (true, true));
+        assert_ne!(
+            k,
+            with_modifiers(KeyCode::Char('q'), ModifiersState::CONTROL)
+        );
+        // Shift folds into a plain character, and Shift+Tab is BackTab.
+        assert_eq!(
+            with_modifiers(KeyCode::Char('Q'), ModifiersState::SHIFT),
+            Key::char('Q')
+        );
+        assert_eq!(
+            with_modifiers(KeyCode::Tab, ModifiersState::SHIFT),
+            Key::new(KeyCode::BackTab)
+        );
+        let k = with_modifiers(KeyCode::Char('q'), ModifiersState::SUPER);
+        assert!(k.sup && !k.shift && k.as_char().is_none());
+        assert!(with_modifiers(KeyCode::F(5), ModifiersState::SHIFT).shift);
+    }
 }

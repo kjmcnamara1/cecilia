@@ -101,6 +101,8 @@ clef = "treble"          # clef of a standard staff added without one: treble, b
 # "<C-n>" = "track-next"
 # "<leader>p" = "play-toggle"
 # "gb" = ["goto-first", "play"]
+# "<C-S-q>" = "quit!"     # Ctrl+Shift+Q, distinct from <C-q> (GUI, kitty-protocol terminals)
+# "<D-s>" = "write"       # Super/Windows/Cmd+S
 
 [keymap.insert]
 # Insert-mode keys on every staff, e.g. durations.
