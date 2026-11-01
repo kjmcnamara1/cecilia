@@ -467,8 +467,15 @@ fn child_areas(axis: Axis, weights: &[f32], sizes: &[Option<u16>], area: Rect) -
     out
 }
 
-/// Finds the pane adjacent to `from` in `dir`, preferring the one aligned with its centre.
-pub fn neighbour(rects: &[(PaneId, Rect)], from: PaneId, dir: Direction) -> Option<PaneId> {
+/// Finds the pane adjacent to `from` in `dir`. Among the panes touching its edge the most
+/// recently focused wins (`recency` is higher for later focus, 0 for never focused); ties go to
+/// the one aligned with its centre.
+pub fn neighbour(
+    rects: &[(PaneId, Rect)],
+    from: PaneId,
+    dir: Direction,
+    recency: impl Fn(PaneId) -> u64,
+) -> Option<PaneId> {
     let (_, cur) = *rects.iter().find(|(id, _)| *id == from)?;
     let (cx, cy) = (
         cur.x as i32 + cur.w as i32 / 2,
@@ -501,7 +508,7 @@ pub fn neighbour(rects: &[(PaneId, Rect)], from: PaneId, dir: Direction) -> Opti
                 Direction::Left | Direction::Right => (cy - (y0 + y1) / 2).abs(),
                 Direction::Up | Direction::Down => (cx - (x0 + x1) / 2).abs(),
             };
-            Some(((dist, off_centre), *id))
+            Some(((dist, std::cmp::Reverse(recency(*id)), off_centre), *id))
         })
         .min()
         .map(|(_, id)| id)
@@ -510,6 +517,22 @@ pub fn neighbour(rects: &[(PaneId, Rect)], from: PaneId, dir: Direction) -> Opti
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn neighbour_prefers_most_recently_focused() {
+        let r = |x, y, w, h| Rect { x, y, w, h };
+        let rects = [
+            (1, r(0, 0, 10, 5)),
+            (2, r(0, 5, 10, 5)),
+            (3, r(10, 0, 10, 10)),
+        ];
+        let rec = |id| if id == 2 { 5 } else { 0 };
+        assert_eq!(neighbour(&rects, 3, Direction::Left, rec), Some(2));
+        assert_eq!(
+            neighbour(&rects, 3, Direction::Left, |id| id as u64 % 2),
+            Some(1)
+        );
+    }
 
     #[test]
     fn split_layout_and_navigate() {
@@ -545,10 +568,13 @@ mod tests {
                 h: 20
             }
         );
-        assert_eq!(neighbour(&rects, 1, Direction::Right), Some(2));
-        assert_eq!(neighbour(&rects, 2, Direction::Down), Some(3));
-        assert_eq!(neighbour(&rects, 3, Direction::Left), Some(1));
-        assert_eq!(neighbour(&rects, 1, Direction::Left), None);
+        assert_eq!(neighbour(&rects, 1, Direction::Right, |_| 0), Some(2));
+        assert_eq!(neighbour(&rects, 2, Direction::Down, |_| 0), Some(3));
+        assert_eq!(
+            neighbour(&rects, 3, Direction::Left, |id| id as u64 % 2),
+            Some(1)
+        );
+        assert_eq!(neighbour(&rects, 1, Direction::Left, |_| 0), None);
 
         assert!(root.remove(2));
         assert_eq!(root.panes(), vec![1, 3]);

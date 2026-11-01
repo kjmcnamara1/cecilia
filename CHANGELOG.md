@@ -11,9 +11,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - Swap files keep the undo tree, so recovering unsaved changes (automatic or `:recover`) no longer
   loses undo history. Version 1 swap files still load, without history.
-- Closing a buffer with unsaved changes asks whether to save it (`y`), discard (`n`) or cancel
-  instead of refusing.
+- Closing a buffer or view, or quitting, with unsaved changes asks whether to save each changed
+  file (`y`), discard it (`n`) or cancel, instead of refusing.
 - A new score is not marked as changed until it is edited, so an empty one closes without a prompt.
+
+### Fixed
+
+- Directional pane focus (`focus-left` etc.) goes to the most recently focused of the panes
+  touching the current one, instead of the one nearest its centre.
 
 ## [0.8.0] - 2026-10-31
 

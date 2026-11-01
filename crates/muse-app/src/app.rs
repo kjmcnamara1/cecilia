@@ -518,6 +518,9 @@ pub struct App {
     pub renaming: Option<(usize, String)>,
     /// Height of the GUI's waveform strips and bar in logical pixels (`:waveform-resize`).
     pub waveform_height: u16,
+    /// When each pane was last focused (`focus_clock` ticks), for directional focus.
+    focus_recency: HashMap<PaneId, u64>,
+    focus_clock: u64,
     /// Screen area for panes, set by the frontend.
     pub viewport: Rect,
     /// Bars moved by page-down/up, set by the frontend.
@@ -631,6 +634,8 @@ impl App {
             unfitted: Vec::new(),
             viewport_known: false,
             waveform_height: DEFAULT_WAVEFORM_HEIGHT,
+            focus_recency: HashMap::new(),
+            focus_clock: 0,
             viewport: Rect {
                 x: 0,
                 y: 0,
@@ -691,6 +696,12 @@ impl App {
             .map_or(PaneKind::Score, |p| p.kind)
     }
 
+    /// Marks a pane as the most recently focused, for directional focus to prefer.
+    fn touch_focus(&mut self, id: PaneId) {
+        self.focus_clock += 1;
+        self.focus_recency.insert(id, self.focus_clock);
+    }
+
     /// Focuses a pane of the active view; a score pane becomes the one tools work on.
     /// A local tool pane makes its own score pane the view's.
     pub fn set_focus(&mut self, id: PaneId) {
@@ -698,6 +709,7 @@ impl App {
             .panes
             .get(&id)
             .map_or((None, None), |p| (Some(p.kind), p.owner));
+        self.touch_focus(id);
         let v = &mut self.views[self.active_view];
         v.focus = id;
         if kind == Some(PaneKind::Score) {
@@ -2174,7 +2186,10 @@ impl App {
             }
             VSplit => self.split(Axis::SideBySide),
             Focus(dir) => {
-                if let Some(id) = neighbour(&self.pane_rects(), self.window_focus(), dir) {
+                let from = self.window_focus();
+                self.touch_focus(from);
+                let recency = |id| self.focus_recency.get(&id).copied().unwrap_or(0);
+                if let Some(id) = neighbour(&self.pane_rects(), from, dir, recency) {
                     self.set_focus(id);
                 }
             }
@@ -2571,7 +2586,12 @@ impl App {
                 crate::command::Direction::Down,
             ]
             .into_iter()
-            .find_map(|d| neighbour(&rects, id, d).filter(|n| remaining.contains(n)))
+            .find_map(|d| {
+                neighbour(&rects, id, d, |p| {
+                    self.focus_recency.get(&p).copied().unwrap_or(0)
+                })
+                .filter(|n| remaining.contains(n))
+            })
             .unwrap_or(remaining[0]);
             self.set_focus(next);
         }
@@ -3037,6 +3057,39 @@ pub(crate) mod tests {
         assert_eq!(app.pane().cursor.string, 5);
         keys(&mut app, "J");
         assert_eq!(app.pane().cursor.track, 1);
+    }
+
+    #[test]
+    fn directional_focus_returns_to_last_focused_pane() {
+        // Two panes on the left, one on the right; the bottom-left one was focused last.
+        let mut app = test_app();
+        keys(&mut app, "<C-w>v<C-w>h<C-w>s");
+        let right = app.view().root.panes()[2];
+        let (top, bottom) = (app.view().root.panes()[0], app.view().root.panes()[1]);
+        assert_ne!(top, bottom);
+        app.set_focus(bottom);
+        keys(&mut app, "<C-w>l");
+        assert_eq!(app.focused(), right);
+        keys(&mut app, "<C-w>h");
+        assert_eq!(app.focused(), bottom);
+        app.set_focus(top);
+        keys(&mut app, "<C-w>l<C-w>h");
+        assert_eq!(app.focused(), top);
+        // Three on the left: whichever was last focused comes back, not the middle one.
+        keys(&mut app, "<C-w>s");
+        let col: Vec<_> = {
+            let mut ids = app.view().root.panes();
+            ids.retain(|i| *i != right);
+            ids
+        };
+        assert_eq!(col.len(), 3);
+        for id in col {
+            app.set_focus(id);
+            keys(&mut app, "<C-w>l");
+            assert_eq!(app.focused(), right);
+            keys(&mut app, "<C-w>h");
+            assert_eq!(app.focused(), id);
+        }
     }
 
     #[test]
