@@ -116,6 +116,8 @@ pub struct Views {
     cache: HashMap<PaneId, Cached>,
     scroll: HashMap<PaneId, (f64, f64)>,
     geometry: Vec<Geometry>,
+    /// What each score pane showed this frame, for the app's half-page movement.
+    view_infos: Vec<(PaneId, Option<muse_app::ViewInfo>)>,
     last_cursor: HashMap<PaneId, (usize, usize, usize)>,
     /// The drawn cursor per pane (page, top, x, width) and when: while following playback it
     /// glides after the playhead instead of jumping from beat to beat.
@@ -1016,6 +1018,7 @@ pub fn build(
         *r = *r + vello::kurbo::Vec2::new(0.0, tab_y);
     }
     views.geometry.clear();
+    views.view_infos.clear();
     let focused = app.window_focus();
     let layout = app.layout();
     for (id, r) in layout {
@@ -1109,6 +1112,9 @@ pub fn build(
                 &rect.to_rounded_rect(3.0),
             );
         }
+    }
+    for (id, info) in std::mem::take(&mut views.view_infos) {
+        app.set_view_info(id, info);
     }
     draw_status(scene, app, views, play, width, height);
     // Keys that can follow the ones typed, or the marks while ' ` m wait for one.
@@ -2110,6 +2116,14 @@ fn draw_pane(
     scroll.0 = scroll.0.clamp(0.0, max_x.max(0.0));
     scroll.1 = scroll.1.clamp(0.0, max_y.max(0.0));
     views.scroll.insert(id, scroll);
+    let info = view_info(
+        cached,
+        cursor_ref.track,
+        mode_name == "horizontal",
+        scroll,
+        (view_w, view_h),
+    );
+    views.view_infos.push((id, Some(info)));
     views.geometry.push(Geometry {
         pane: id,
         content,
@@ -2475,6 +2489,65 @@ fn draw_waveform(
         chrome_text(),
         false,
     );
+}
+
+/// The rows of bars the layout has and how many of them (and of its bars) the view shows.
+fn view_info(
+    cached: &Cached,
+    track: usize,
+    horizontal: bool,
+    scroll: (f64, f64),
+    view: (f64, f64),
+) -> muse_app::ViewInfo {
+    let bars = &cached.layout.bars;
+    if horizontal {
+        let visible_bars = bars
+            .iter()
+            .filter(|b| b.2 > scroll.0 && b.1 < scroll.0 + view.0)
+            .count();
+        return muse_app::ViewInfo {
+            horizontal,
+            visible_bars,
+            ..Default::default()
+        };
+    }
+    // A bar starts a row when it does not lie to the right of the one before.
+    let mut rows: Vec<std::ops::Range<usize>> = Vec::new();
+    for (i, b) in bars.iter().enumerate() {
+        match rows.last_mut() {
+            Some(r) if b.0 == bars[i - 1].0 && b.1 > bars[i - 1].1 + 0.5 => r.end = i + 1,
+            _ => rows.push(i..i + 1),
+        }
+    }
+    let shown = |r: &std::ops::Range<usize>| {
+        r.clone().any(|bar| {
+            let at = BeatRef {
+                track,
+                bar,
+                voice: 0,
+                beat: 0,
+            };
+            cached
+                .layout
+                .beats
+                .get(&at)
+                .or_else(|| beat_fallback(&cached.layout, &at))
+                .is_some_and(|p| {
+                    let (top, bottom) = (
+                        cached.offsets[p.page] + p.top,
+                        cached.offsets[p.page] + p.bottom,
+                    );
+                    bottom > scroll.1 && top < scroll.1 + view.1
+                })
+        })
+    };
+    let visible: Vec<_> = rows.iter().filter(|r| shown(r)).collect();
+    muse_app::ViewInfo {
+        horizontal,
+        visible_rows: visible.len(),
+        visible_bars: visible.iter().map(|r| r.len()).sum(),
+        rows,
+    }
 }
 
 /// Cursor on a beat the layout skipped (e.g. an empty bar): use the bar's first beat.

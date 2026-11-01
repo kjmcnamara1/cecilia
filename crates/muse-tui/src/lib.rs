@@ -650,6 +650,7 @@ fn draw(f: &mut Frame, app: &mut App, play: Option<(usize, Location, f64, f64)>,
         app.views[active].score = view_score;
     }
     let hits = &mut ui.hits;
+    let mut view_infos = Vec::new();
 
     for (id, r) in app.layout() {
         if app
@@ -724,9 +725,6 @@ fn draw(f: &mut Frame, app: &mut App, play: Option<(usize, Location, f64, f64)>,
                 ..inner
             }
         });
-        if let Some(track) = track {
-            app.page_bars = page_bars(inner, track);
-        }
         let play_here = play
             .filter(|(b, ..)| *b == pane.buffer && app.playing)
             .map(|(_, l, ..)| (l.bar, l.tick));
@@ -772,6 +770,16 @@ fn draw(f: &mut Frame, app: &mut App, play: Option<(usize, Location, f64, f64)>,
                 inner,
             );
         }
+        if let Some(track) = track {
+            app.page_bars = page_bars(inner, track);
+        }
+        // What the pane shows, for half-page movement (chant lines are not bars: the fallback).
+        let info = (!chant && track.is_some()).then(|| {
+            let scale = app.config.file.ui.tab_width.clamp(1, 8) as u16;
+            let score = &app.buffers[pane.buffer].score;
+            tabview::view_info(score, pane.cursor.track, inner, scale, scroll)
+        });
+        view_infos.push((id, info));
         if let Some(col) = bar_col {
             draw_scrollbar(f, app, col, scroll, extent);
             ui.scrollbars.push((col, id, extent));
@@ -779,6 +787,10 @@ fn draw(f: &mut Frame, app: &mut App, play: Option<(usize, Location, f64, f64)>,
         if let Some(p) = app.panes.get_mut(&id) {
             p.scroll = scroll;
         }
+    }
+
+    for (id, info) in view_infos {
+        app.set_view_info(id, info);
     }
 
     draw_status(f, app, play, status, ui);
@@ -931,6 +943,7 @@ fn draw_palette(f: &mut Frame, app: &App, p: &muse_app::Palette, screen: Rect) {
     }
 }
 
+/// Bars paged when a pane's view is not known (chant): two per system row.
 fn page_bars(area: Rect, track: &muse_core::Track) -> usize {
     let height = if track.chant.is_some() {
         chantview::system_height()

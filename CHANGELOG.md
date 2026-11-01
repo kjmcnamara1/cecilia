@@ -7,6 +7,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+
+- `<C-d>` / `<C-u>` (and `<PageDown>` / `<PageUp>`) move the cursor half a screen: half the
+  displayed bars in the horizontal layout; in the vertical and page layouts half the displayed rows
+  of bars (rounded up, at least one), staying at the same place in the bar and on the same line.
+
 ## [0.9.0] - 2026-10-31
 
 ### Changed
