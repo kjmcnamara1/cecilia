@@ -2196,6 +2196,14 @@ impl App {
                     self.set_focus(id);
                 }
             }
+            FocusCycle(forward) => {
+                let panes = self.view().root.panes();
+                let from = self.window_focus();
+                if let Some(i) = panes.iter().position(|p| *p == from) {
+                    let n = panes.len();
+                    self.set_focus(panes[(i + if forward { 1 } else { n - 1 }) % n]);
+                }
+            }
             PaneMove(dir) => {
                 let (id, v) = (self.window_focus(), self.active_view);
                 self.views[v].maximized = None;
@@ -3078,6 +3086,21 @@ pub(crate) mod tests {
         keys(&mut app, "<A-k>");
         assert_eq!(app.cmdline, first);
         assert!(app.cmdline.starts_with("fo"));
+    }
+
+    #[test]
+    fn focus_cycles_and_returns_to_the_previous_pane() {
+        let mut app = test_app();
+        keys(&mut app, "<C-w>v<C-w>s");
+        let ids = app.view().root.panes();
+        assert_eq!(ids.len(), 3);
+        app.set_focus(ids[0]);
+        keys(&mut app, "<C-w>w");
+        assert_eq!(app.focused(), ids[1]);
+        keys(&mut app, "<C-w><C-w><C-w>w");
+        assert_eq!(app.focused(), ids[0]);
+        keys(&mut app, "<C-w>W");
+        assert_eq!(app.focused(), ids[2]);
     }
 
     #[test]

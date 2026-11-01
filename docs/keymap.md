@@ -98,6 +98,7 @@ cancels. `:bdelete!` closes without asking. A new score counts as unchanged unti
 | `gt` / `gT`         | next / previous view                      |        |
 | `<C-w>s` / `<C-w>v` | split horizontally / vertically           | _(M1)_ |
 | `<C-w>h/j/k/l`      | focus pane left/down/up/right             | _(M1)_ |
+| `<C-w>w` / `<C-w>W` | focus the next / previous pane in layout order, wrapping (`:focus-next`, `:focus-prev`; `<C-w><C-w>` too) | |
 | `<C-w>q`            | close pane (the last one closes the view) | _(M1)_ |
 | `<C-w>+` / `<C-w>-` | pane taller / shorter by 5% (`:resize +N`, `:resize N` in percent of its split) | |
 | `<C-w>>` / `<C-w><` | pane wider / narrower by 5% (`:vertical-resize`) | |
