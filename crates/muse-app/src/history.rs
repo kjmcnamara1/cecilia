@@ -2,10 +2,11 @@
 //! its parent: either the bars it touched or, for structural edits, whole-score snapshots.
 
 use muse_core::{Bar, Score};
+use serde::{Deserialize, Serialize};
 
 use crate::Cursor;
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct BarChange {
     pub track: usize,
     pub bar: usize,
@@ -13,7 +14,7 @@ pub struct BarChange {
     pub after: Bar,
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub enum Change {
     Bars(Vec<BarChange>),
     Score {
@@ -85,7 +86,7 @@ fn merge(a: Change, b: Change) -> Change {
     }
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 struct Node {
     parent: Option<usize>,
     children: Vec<usize>,
@@ -95,7 +96,7 @@ struct Node {
     seq: u64,
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct History {
     nodes: Vec<Node>,
     current: usize,

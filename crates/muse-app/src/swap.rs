@@ -10,7 +10,9 @@ use std::time::{Duration, Instant};
 
 use crate::app::{App, Buffer, Effect, clamp_cursor};
 
-const MAGIC: &str = "MUSESWAP1";
+const MAGIC: &str = "MUSESWAP2";
+/// The first version: the score only, no undo history.
+const MAGIC_V1: &str = "MUSESWAP1";
 
 /// Written after this many times the interval at the latest, however busy the editing.
 const MAX_WAIT_FACTOR: u32 = 6;
@@ -33,6 +35,8 @@ pub(crate) struct SwapState {
 pub(crate) struct SwapInfo {
     pub pid: u32,
     pub score: muse_core::Score,
+    /// The undo tree, so recovering keeps it (absent in version 1 files).
+    pub history: Option<crate::history::History>,
 }
 
 /// Default swap directory: `$XDG_STATE_HOME/muse/swap`, else `~/.local/state/muse/swap`.
@@ -100,13 +104,34 @@ pub(crate) fn read_swap(path: &Path) -> Result<SwapInfo, String> {
         Some(String::from_utf8_lossy(l).into_owned())
     };
     let bad = || "not a muse swap file".to_string();
-    if line().as_deref() != Some(MAGIC) {
+    let magic = line();
+    let v2 = magic.as_deref() == Some(MAGIC);
+    if !v2 && magic.as_deref() != Some(MAGIC_V1) {
         return Err(bad());
     }
     let pid = line().and_then(|l| l.parse().ok()).ok_or_else(bad)?;
     line().ok_or_else(bad)?; // the buffer's path (informational)
-    let score = muse_formats::native::read_muse(rest).map_err(|e| e.to_string())?;
-    Ok(SwapInfo { pid, score })
+    if !v2 {
+        let score = muse_formats::native::read_muse(rest).map_err(|e| e.to_string())?;
+        return Ok(SwapInfo {
+            pid,
+            score,
+            history: None,
+        });
+    }
+    let len: usize = line().and_then(|l| l.parse().ok()).ok_or_else(bad)?;
+    if len > rest.len() {
+        return Err(bad());
+    }
+    let (score, history) = rest.split_at(len);
+    let score = muse_formats::native::read_muse(score).map_err(|e| e.to_string())?;
+    // A history that doesn't parse costs only the undo tree, not the recovered score.
+    let history = serde_json::from_slice(history).ok();
+    Ok(SwapInfo {
+        pid,
+        score,
+        history,
+    })
 }
 
 impl App {
@@ -142,13 +167,16 @@ impl App {
             let body =
                 muse_formats::native::write_muse(&buffer.score).map_err(|e| e.to_string())?;
             let path = buffer.path.as_deref().map(|p| p.display().to_string());
+            let history = serde_json::to_vec(&buffer.history).map_err(|e| e.to_string())?;
             let mut bytes = format!(
-                "{MAGIC}\n{}\n{}\n",
+                "{MAGIC}\n{}\n{}\n{}\n",
                 std::process::id(),
-                path.unwrap_or_default().replace('\n', " ")
+                path.unwrap_or_default().replace('\n', " "),
+                body.len()
             )
             .into_bytes();
             bytes.extend(body);
+            bytes.extend(history);
             write_atomic(&file, &bytes).map_err(|e| e.to_string())
         })();
         match result {
@@ -243,7 +271,10 @@ impl App {
     /// newer than the file, queues a message. With `swap.auto_recover` (and no running muse
     /// owning it) its score is returned for the caller to load as unsaved changes; otherwise
     /// the file is held (no autosave over it) until `:recover` or `:swap-discard`.
-    pub(crate) fn swap_check_open(&mut self, path: &Path) -> Option<muse_core::Score> {
+    pub(crate) fn swap_check_open(
+        &mut self,
+        path: &Path,
+    ) -> Option<(muse_core::Score, Option<crate::history::History>)> {
         if !self.config.file.swap.enabled {
             return None;
         }
@@ -265,11 +296,11 @@ impl App {
         if self.config.file.swap.auto_recover && !alive {
             self.swap.notices.push((
                 format!(
-                    "\"{name}\": recovered unsaved changes from a swap file (undo history is lost; :w saves them, :bd! then :open gets the saved file back)"
+                    "\"{name}\": recovered unsaved changes from a swap file (:w saves them, :bd! then :open gets the saved file back)"
                 ),
                 false,
             ));
-            return Some(info.score);
+            return Some((info.score, info.history));
         }
         self.swap.held.insert(file);
         self.swap.notices.push((if alive {
@@ -335,7 +366,7 @@ impl App {
                 name: "[Recovered]".into(),
                 score: info.score,
                 modified: true,
-                history: Default::default(),
+                history: info.history.unwrap_or_default(),
                 version: 0,
             });
             let b = self.buffers.len() - 1;
@@ -347,7 +378,7 @@ impl App {
         } else {
             let b = &mut self.buffers[buffer];
             b.score = info.score;
-            b.history = Default::default();
+            b.history = info.history.unwrap_or_default();
             b.modified = true;
             b.version += 1;
             self.effects.push(Effect::ScoreChanged { buffer });
@@ -576,6 +607,12 @@ mod tests {
         assert!(app.buffer().modified && app.buffer().score == changed);
         let msg = app.message.as_ref().unwrap();
         assert!(!msg.error && msg.text.contains("recovered"), "{}", msg.text);
+        // The undo tree came back too: undo returns to the saved file, redo to the recovery.
+        crate::app::tests::keys(&mut app, "u");
+        assert!(!app.buffer().modified);
+        assert_eq!(app.buffer().score, muse_formats::read_file(&file).unwrap());
+        crate::app::tests::keys(&mut app, "U");
+        assert!(app.buffer().modified && app.buffer().score == changed);
         // The file on disk is untouched, and closing the buffer drops the swap file.
         assert_ne!(muse_formats::read_file(&file).unwrap(), changed);
         app.run(Command::BufferClose(None, true));

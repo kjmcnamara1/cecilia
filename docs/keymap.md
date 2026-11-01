@@ -502,7 +502,7 @@ the config: `enabled`, `interval`, `auto_recover`, `dir`; by default `$XDG_STATE
 `~/.local/state/muse/swap`), named after the file's full path. It is deleted when the file is
 saved or closed, and on quit. Opening a file whose swap file is newer (and not owned by another running muse) restores it
 automatically as unsaved changes (`auto_recover`, on by default; the file on disk is untouched
-until you `:w`; undo history is not kept, and `:bd!` then `:open` gets the saved file back). With
+until you `:w`; the undo tree is kept, and `:bd!` then `:open` gets the saved file back). With
 `auto_recover = false`, or when another running muse owns the swap file, it says so and stops
 autosaving that file until you choose:
 

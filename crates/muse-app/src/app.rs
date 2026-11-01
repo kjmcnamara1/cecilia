@@ -25,7 +25,7 @@ pub struct Buffer {
 }
 
 /// A position in a score: track, bar, beat index (voice 1) and string.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 pub struct Cursor {
     pub track: usize,
     pub bar: usize,
@@ -1381,9 +1381,12 @@ impl App {
             version: 0,
         };
         let recovered = self.swap_check_open(buffer.path.as_deref().unwrap());
-        if let Some(score) = recovered.clone() {
+        if let Some((score, history)) = recovered.clone() {
             buffer.score = score;
             buffer.modified = true;
+            if let Some(history) = history {
+                buffer.history = history;
+            }
         }
         let index = if self.buffers.len() == 1 && self.buffers[0].path.is_none() {
             self.buffers[0] = buffer;
