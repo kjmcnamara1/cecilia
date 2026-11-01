@@ -35,6 +35,9 @@ pub struct ViewInfo {
     pub visible_rows: usize,
     /// Bars at least partly on screen.
     pub visible_bars: usize,
+    /// In the page layout, the most rows on one page: half-page movement counts these, not
+    /// the rows on screen, so it does not depend on the zoom. Zero in the other layouts.
+    pub page_rows: usize,
 }
 
 /// A position in a score: track, bar, beat index (voice 1) and string.
@@ -934,7 +937,12 @@ impl App {
             });
             return;
         }
-        let n = info.visible_rows.div_ceil(2).max(1);
+        let rows = if info.page_rows > 0 {
+            info.page_rows
+        } else {
+            info.visible_rows
+        };
+        let n = rows.div_ceil(2).max(1);
         self.move_cursor(|s, c| {
             let Some(from) = info.rows.iter().position(|r| r.contains(&c.bar)) else {
                 return;
@@ -3803,6 +3811,27 @@ pub(crate) mod tests {
         assert_eq!(app.pane().cursor.bar, app.page_bars);
         app.run(Command::PageUp);
         assert_eq!(app.pane().cursor.bar, 0);
+    }
+
+    #[test]
+    fn half_page_in_the_page_layout_counts_rows_per_page_not_on_screen() {
+        let mut app = app_with_bars(20);
+        let id = app.focused();
+        // Ten rows of two bars; five rows to a page, however many are on screen.
+        for visible_rows in [2, 5, 9] {
+            app.set_view_info(
+                id,
+                Some(ViewInfo {
+                    rows: (0..10).map(|r| r * 2..r * 2 + 2).collect(),
+                    visible_rows,
+                    page_rows: 5,
+                    ..Default::default()
+                }),
+            );
+            app.pane_mut().cursor.bar = 0;
+            app.run(Command::PageDown);
+            assert_eq!(app.pane().cursor.bar, 6, "{visible_rows} rows visible");
+        }
     }
 
     #[test]

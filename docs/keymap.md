@@ -51,7 +51,7 @@ only be used in the GUI there, and `<D-…>` bindings never fire.
 | `<leader>S`         | sections picker: every section of the file with its bars; Enter jumps there (`:sections`) | |
 | `m{a-z}` / `m{A-Z}`       | set a mark in this file / a global mark (any file)                                                                                                       |        |
 | `'{mark}` / `` `{mark} `` | jump to the mark's bar / exact position (a popup lists the marks and where they are); a global mark reopens its file if it was closed. `''` jumps back to before the last jump (also after `gg`, `G`) |        |
-| `<C-d>` / `<C-u>`         | half a screen down / up: half the displayed bars in the horizontal layout, else half the displayed rows of bars (rounded up, at least one) keeping the place in the bar and on the staff | _(M1)_ |
+| `<C-d>` / `<C-u>`         | half a screen down / up: half the displayed bars in the horizontal layout, else half the displayed rows of bars (rounded up, at least one; in the page layout half the rows on a page, whatever the zoom) keeping the place in the bar and on the staff | _(M1)_ |
 
 ### Playback
 

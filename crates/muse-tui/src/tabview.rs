@@ -145,6 +145,7 @@ pub fn view_info(
         visible_rows: shown.clone().count(),
         visible_bars: shown.map(|r| r.len()).sum(),
         rows,
+        page_rows: 0,
     }
 }
 

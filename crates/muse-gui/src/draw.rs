@@ -2120,6 +2120,7 @@ fn draw_pane(
         cached,
         cursor_ref.track,
         mode_name == "horizontal",
+        mode_name == "page",
         scroll,
         (view_w, view_h),
     );
@@ -2496,6 +2497,7 @@ fn view_info(
     cached: &Cached,
     track: usize,
     horizontal: bool,
+    paged: bool,
     scroll: (f64, f64),
     view: (f64, f64),
 ) -> muse_app::ViewInfo {
@@ -2542,7 +2544,32 @@ fn view_info(
         })
     };
     let visible: Vec<_> = rows.iter().filter(|r| shown(r)).collect();
+    // The page each row is on: the page layout moves by rows per page, whatever the zoom.
+    let page_rows = if paged {
+        let mut per_page = std::collections::HashMap::<usize, usize>::new();
+        for r in &rows {
+            let at = BeatRef {
+                track,
+                bar: r.start,
+                voice: 0,
+                beat: 0,
+            };
+            let page = cached
+                .layout
+                .beats
+                .get(&at)
+                .or_else(|| beat_fallback(&cached.layout, &at))
+                .map(|p| p.page);
+            if let Some(page) = page {
+                *per_page.entry(page).or_default() += 1;
+            }
+        }
+        per_page.values().copied().max().unwrap_or(0)
+    } else {
+        0
+    };
     muse_app::ViewInfo {
+        page_rows,
         horizontal,
         visible_rows: visible.len(),
         visible_bars: visible.iter().map(|r| r.len()).sum(),
