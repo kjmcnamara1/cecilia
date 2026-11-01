@@ -39,7 +39,8 @@ Planned work. Finished items move to `CHANGELOG.md` under `[Unreleased]`.
 - [ ] add alt-j/k for focusing next/prev item in pickers and command mode.
       should do the same thing as tab/shift-tab.
 - [ ] FIX: ctrl-c in any pane (score,tool,properties,etc.) should close that pane.
-- [ ] ctrl-w ctrl-w switches focus back and forth between panes
+- [ ] ctrl-w ctrl-w cycles focus through panes
+- [ ] ctrl-w ctrl-p switches focus back and forth between panes
 
 ### UI
 
