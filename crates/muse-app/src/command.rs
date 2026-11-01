@@ -291,6 +291,9 @@ pub enum Command {
     BeatPrev,
     StringDown,
     StringUp,
+    /// Cursor to the next / previous staff of the track, keeping to the beat.
+    StaffNext,
+    StaffPrev,
     NoteNext,
     NotePrev,
     BarNext,
@@ -326,6 +329,10 @@ pub enum Command {
     WaveformResize(Amount),
     VSplit,
     Focus(Direction),
+    /// Focus the next / previous pane of the view in layout order (`<C-w>w`, `<C-w>W`).
+    FocusCycle(bool),
+    /// Focus the previously focused pane (`<C-w>p`).
+    FocusLast,
     /// Move the focused pane to the far side of the view, spanning it (`<C-w>H J K L`).
     PaneMove(Direction),
     /// Swap the focused pane with the next one of its split (`<C-w>x`).
@@ -431,6 +438,8 @@ impl Command {
             "beat-prev" => BeatPrev,
             "string-down" => StringDown,
             "string-up" => StringUp,
+            "staff-next" => StaffNext,
+            "staff-prev" => StaffPrev,
             "note-next" => NoteNext,
             "note-prev" => NotePrev,
             "bar-next" => BarNext,
@@ -476,6 +485,9 @@ impl Command {
             "focus-down" => Focus(Direction::Down),
             "focus-up" => Focus(Direction::Up),
             "focus-right" => Focus(Direction::Right),
+            "focus-next" => FocusCycle(true),
+            "focus-prev" => FocusCycle(false),
+            "focus-last" => FocusLast,
             "pane-move-left" => PaneMove(Direction::Left),
             "pane-move-down" => PaneMove(Direction::Down),
             "pane-move-up" => PaneMove(Direction::Up),
@@ -938,6 +950,8 @@ impl Command {
                 | BeatPrev
                 | StringDown
                 | StringUp
+                | StaffNext
+                | StaffPrev
                 | NoteNext
                 | NotePrev
                 | BarNext

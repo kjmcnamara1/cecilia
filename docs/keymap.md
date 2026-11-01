@@ -41,7 +41,8 @@ only be used in the GUI there, and `<D-…>` bindings never fire.
 | keys                      | command                                                                                                                                                  |        |
 | ------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------- | ------ |
 | `h` / `l`                 | previous / next beat                                                                                                                                     | _(M1)_ |
-| `j` / `k`                 | next / previous row: tab strings and staff lines and spaces, on through the staves of the part (down from a staff's last row is the next staff's first) | _(M1)_ |
+| `j` / `k`                 | next / previous row on the cursor's staff: tab strings, or staff lines and spaces, with four ledger-line positions beyond the staff's edges to place extra notes. With `ui.jk_moves_between_staves = true` they go on into the next / previous staff instead (`:string-down`, `:string-up`) | _(M1)_ |
+| `<A-j>` / `<A-k>`         | cursor to the next / previous staff of the part (`:staff-next`, `:staff-prev`) | |
 | `w` / `b`                 | next / previous beat with notes                                                                                                                          | _(M1)_ |
 | `}` / `{`                 | next / previous bar                                                                                                                                      | _(M1)_ |
 | `0` / `$`                 | first / last beat of bar                                                                                                                                 | _(M1)_ |
@@ -98,6 +99,8 @@ cancels. `:bdelete!` closes without asking. A new score counts as unchanged unti
 | `gt` / `gT`         | next / previous view                      |        |
 | `<C-w>s` / `<C-w>v` | split horizontally / vertically           | _(M1)_ |
 | `<C-w>h/j/k/l`      | focus pane left/down/up/right             | _(M1)_ |
+| `<C-w>w` / `<C-w>W` | focus the next / previous pane in layout order, wrapping (`:focus-next`, `:focus-prev`; `<C-w><C-w>` too) | |
+| `<C-w>p`            | focus the previously focused pane, back and forth (`:focus-last`; `<C-w><C-p>` too) | |
 | `<C-w>q`            | close pane (the last one closes the view) | _(M1)_ |
 | `<C-w>+` / `<C-w>-` | pane taller / shorter by 5% (`:resize +N`, `:resize N` in percent of its split) | |
 | `<C-w>>` / `<C-w><` | pane wider / narrower by 5% (`:vertical-resize`) | |

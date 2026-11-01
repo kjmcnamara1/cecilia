@@ -33,17 +33,6 @@ Planned work. Finished items move to `CHANGELOG.md` under `[Unreleased]`.
 
 - [ ] TODO: Deep dive on keymap architecture and how to define (config.toml seems lacking)
   - Should be dependent on mode and currently focused window/pane/staf
-- [ ] Different keymap and command for moving between staves
-  - This allows moving to add extra notes above or below standard staff without jumping to
-    another staff
-  - also make a setting that allows moving between staffs with j/k. the default
-    should now be false
-- [ ] add alt-j/k for focusing next/prev item in pickers and command mode.
-      should do the same thing as tab/shift-tab.
-- [ ] create commands to cycle focus forwards and backwards through panes (like
-      c-w w and c-w W in neovim)
-- [ ] create command to switches focus back and forth between panes (like
-      ctrl-w p in neovim)
 - [x] FIX: ctrl-c in any pane (score,tool,properties,etc.) should close that pane.
 
 ### UI
