@@ -84,8 +84,9 @@ show it in the focused pane, click `×` or middle-click to close it, click a vie
 
 Closing a buffer's tab removes it from the view; panes showing it go back to the most recent
 other buffer they showed (the view's only pane falls back to the neighbouring tab) and close if
-there is none. The buffer is unloaded once no view has it; unsaved changes then stop the close
-unless forced (`:bdelete!`).
+there is none. The buffer is unloaded once no view has it; unsaved changes then ask first: `y` saves
+(a score with no file name can't be; `:w <file>` it) and closes, `n` discards, any other key
+cancels. `:bdelete!` closes without asking. A new score counts as unchanged until edited.
 
 | keys                | command                                   |        |
 | ------------------- | ----------------------------------------- | ------ |
@@ -501,7 +502,7 @@ the config: `enabled`, `interval`, `auto_recover`, `dir`; by default `$XDG_STATE
 `~/.local/state/muse/swap`), named after the file's full path. It is deleted when the file is
 saved or closed, and on quit. Opening a file whose swap file is newer (and not owned by another running muse) restores it
 automatically as unsaved changes (`auto_recover`, on by default; the file on disk is untouched
-until you `:w`; undo history is not kept, and `:bd!` then `:open` gets the saved file back). With
+until you `:w`; the undo tree is kept, and `:bd!` then `:open` gets the saved file back). With
 `auto_recover = false`, or when another running muse owns the swap file, it says so and stops
 autosaving that file until you choose:
 
