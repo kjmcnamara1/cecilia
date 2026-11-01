@@ -84,8 +84,9 @@ show it in the focused pane, click `×` or middle-click to close it, click a vie
 
 Closing a buffer's tab removes it from the view; panes showing it go back to the most recent
 other buffer they showed (the view's only pane falls back to the neighbouring tab) and close if
-there is none. The buffer is unloaded once no view has it; unsaved changes then stop the close
-unless forced (`:bdelete!`).
+there is none. The buffer is unloaded once no view has it; unsaved changes then ask first: `y` saves
+(a score with no file name can't be; `:w <file>` it) and closes, `n` discards, any other key
+cancels. `:bdelete!` closes without asking. A new score counts as unchanged until edited.
 
 | keys                | command                                   |        |
 | ------------------- | ----------------------------------------- | ------ |

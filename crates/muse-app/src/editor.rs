@@ -1041,8 +1041,8 @@ impl App {
             });
         };
         buffer.version += 1;
-        // Back at the saved state, the file is unchanged (a score never written stays changed).
-        buffer.modified = !buffer.history.at_saved() || buffer.path.is_none();
+        // Back at the saved state, the file is unchanged (a new score: back to empty).
+        buffer.modified = !buffer.history.at_saved();
         clamp_cursor(&buffer.score, &mut c);
         let seq = buffer.history.current_seq();
         self.panes.get_mut(&id).unwrap().cursor = c;
@@ -1280,7 +1280,7 @@ impl App {
             path: None,
             name: "[New]".into(),
             score,
-            modified: true,
+            modified: false,
             history: Default::default(),
             version: 0,
         });

@@ -7,6 +7,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed
+
+- Closing a buffer with unsaved changes asks whether to save it (`y`), discard (`n`) or cancel
+  instead of refusing.
+- A new score is not marked as changed until it is edited, so an empty one closes without a prompt.
+
 ## [0.8.0] - 2026-10-31
 
 ### Added

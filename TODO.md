@@ -87,11 +87,6 @@ Planned work. Finished items move to `CHANGELOG.md` under `[Unreleased]`.
   - values for width/height can be fixed or dynamic (%)
   - :resize-default will set current w/h of the focused pane back to the default values
   - auto-resize should essentially run :resize-equal after opening or closing panes
-- [ ] When closing a buffer with unsaved changes, prompt whether to save it or
-      not first. don't just deny.
-- [ ] When opening/creating a new score, it shouldn't be marked as
-      edited/unsaved until something has been added. a new empty score should be able
-      to be deleted buffer-closed without saving.
 
 ### TUI
 

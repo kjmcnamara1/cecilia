@@ -432,6 +432,9 @@ pub struct App {
     pub views: Vec<View>,
     pub active_view: usize,
     pub mode: Mode,
+    /// A buffer whose close waits on the answer to "save changes?" (`y`, `n` or anything else
+    /// to cancel); it takes the next key.
+    pub confirm_close: Option<usize>,
     /// Keys typed so far of a multi-key binding.
     pub pending: Vec<Key>,
     pub count: Option<usize>,
@@ -584,6 +587,7 @@ impl App {
             picker: None,
             marks: Default::default(),
             message: None,
+            confirm_close: None,
             swap: Default::default(),
             show_help: false,
             playing: false,
@@ -1487,10 +1491,12 @@ impl App {
             .any(|(i, v)| i != self.active_view && v.buffers.contains(&buffer));
         let b = &self.buffers[buffer];
         if !in_other_views && b.modified && !force {
-            return self.error(format!(
-                "\"{}\" has unsaved changes (:w, or :bdelete! to discard)",
+            let text = format!(
+                "\"{}\" has unsaved changes: save? (y/n, Esc cancels)",
                 b.name
-            ));
+            );
+            self.confirm_close = Some(buffer);
+            return self.info(text);
         }
         if self.playing_buffer == Some(buffer) && !in_other_views && (self.playing || self.paused) {
             self.run(Command::Stop);
@@ -1675,7 +1681,35 @@ impl App {
     // ---- keys ----
 
     pub fn handle_key(&mut self, key: Key) {
+        if let Some(buffer) = self.confirm_close.take() {
+            return self.answer_close(buffer, key);
+        }
         self.dispatch_key(key);
+    }
+
+    /// The answer to the save prompt of [`App::close_buffer`]: `y` writes then closes, `n`
+    /// closes discarding the changes, any other key cancels.
+    fn answer_close(&mut self, buffer: usize, key: Key) {
+        self.message = None;
+        let Some(b) = self.buffers.get(buffer).filter(|b| b.modified) else {
+            return;
+        };
+        match key.code {
+            KeyCode::Char('y' | 'Y') => {
+                if b.path.is_none() {
+                    return self.error(format!(
+                        "\"{}\" has no file name (:w <file>, then close)",
+                        b.name
+                    ));
+                }
+                self.write_buffer(buffer, None);
+                if !self.buffers[buffer].modified {
+                    self.close_buffer(buffer, false);
+                }
+            }
+            KeyCode::Char('n' | 'N') => self.close_buffer(buffer, true),
+            _ => self.info("close cancelled"),
+        }
     }
 
     pub(crate) fn handle_command_key(&mut self, key: Key) {
@@ -3071,8 +3105,17 @@ pub(crate) mod tests {
         app.run(Command::BufferClose(Some(2), false));
         app.run(Command::ViewPrev);
         app.run(Command::BufferClose(None, false));
-        assert!(app.message.as_ref().unwrap().error);
+        // It asks first; anything but y/n cancels.
+        assert_eq!(app.confirm_close, Some(b));
+        keys(&mut app, "x");
+        assert!(app.confirm_close.is_none());
         assert_eq!(app.buffer().name, "b.muse");
+        // `n` discards the changes.
+        app.run(Command::BufferClose(None, false));
+        keys(&mut app, "n");
+        assert_eq!(app.buffer().name, "a.muse");
+        app.buffers[b].modified = false;
+        app.run(Command::BufferGoto(2));
         app.run(Command::BufferClose(None, true));
         assert_eq!(app.buffer().name, "a.muse");
         // A split pane goes back to what it showed before…
@@ -3249,11 +3292,44 @@ pub(crate) mod tests {
         assert!(!app.buffer().modified);
         keys(&mut app, "u");
         assert!(app.buffer().modified);
-        // A new score never written stays changed, even undone to the start.
+        // A new score is unchanged until edited, and again once undone to the start.
         let mut app = App::new(Config::default(), None);
         app.run(Command::New);
-        keys(&mut app, "i5<Esc>u");
+        assert!(!app.buffer().modified);
+        keys(&mut app, "i5<Esc>");
         assert!(app.buffer().modified);
+        keys(&mut app, "u");
+        assert!(!app.buffer().modified);
+        std::fs::remove_dir_all(dir).ok();
+    }
+
+    #[test]
+    fn closing_a_changed_buffer_offers_to_save() {
+        let dir = std::env::temp_dir().join(format!("muse-close-save-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let file = dir.join("a.muse");
+        let mut app = App::new(Config::default(), None);
+        app.run(Command::New);
+        app.run(Command::Write(Some(file.clone())));
+        app.run(Command::New);
+        // An untouched new score closes without asking.
+        app.run(Command::BufferClose(None, false));
+        assert!(app.confirm_close.is_none());
+        app.run(Command::New);
+        keys(&mut app, "i5<Esc>");
+        // A changed one with no file name can't be saved from the prompt.
+        app.run(Command::BufferClose(None, false));
+        keys(&mut app, "y");
+        assert!(app.message.as_ref().unwrap().error);
+        assert!(app.buffer().modified);
+        // A named one is written, then closed.
+        app.run(Command::Edit(file.clone()));
+        keys(&mut app, "i5<Esc>");
+        let b = app.pane().buffer;
+        app.run(Command::BufferClose(None, false));
+        keys(&mut app, "y");
+        assert!(!app.buffers[b].modified);
+        assert_ne!(app.pane().buffer, b);
         std::fs::remove_dir_all(dir).ok();
     }
 
