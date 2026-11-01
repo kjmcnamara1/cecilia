@@ -953,6 +953,8 @@ impl App {
                 }
             }
             KeyCode::Down | KeyCode::Tab => p.selected += 1,
+            KeyCode::Char('j') if key.alt => p.selected += 1,
+            KeyCode::Char('k') if key.alt => p.selected = p.selected.saturating_sub(1),
             KeyCode::Char('n') if key.ctrl => p.selected += 1,
             KeyCode::Up | KeyCode::BackTab => p.selected = p.selected.saturating_sub(1),
             KeyCode::Char('p') if key.ctrl => p.selected = p.selected.saturating_sub(1),

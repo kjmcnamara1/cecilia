@@ -1776,12 +1776,15 @@ impl App {
         if !matches!(
             key.code,
             KeyCode::Tab | KeyCode::BackTab | KeyCode::Up | KeyCode::Down
-        ) {
+        ) && !(key.alt && matches!(key.code, KeyCode::Char('j' | 'k')))
+        {
             self.completion = None;
         }
         match key.code {
             KeyCode::Tab => self.complete_step(true),
             KeyCode::BackTab => self.complete_step(false),
+            KeyCode::Char('j') if key.alt => self.complete_step(true),
+            KeyCode::Char('k') if key.alt => self.complete_step(false),
             KeyCode::Esc => self.leave_command_mode(),
             KeyCode::Char('c') if key.ctrl => self.leave_command_mode(),
             KeyCode::Char('u') if key.ctrl => self.cmdline.clear(),
@@ -3057,6 +3060,24 @@ pub(crate) mod tests {
         assert_eq!(app.pane().cursor.string, 5);
         keys(&mut app, "J");
         assert_eq!(app.pane().cursor.track, 1);
+    }
+
+    #[test]
+    fn alt_j_k_step_through_pickers_and_completions() {
+        let mut app = test_app();
+        app.open_picker(crate::picker::PickerKind::Keymap);
+        keys(&mut app, "<A-j><A-j>");
+        assert_eq!(app.picker.as_ref().unwrap().selected, 2);
+        keys(&mut app, "<A-k>");
+        assert_eq!(app.picker.as_ref().unwrap().selected, 1);
+        assert!(app.picker.as_ref().unwrap().query.is_empty());
+        keys(&mut app, "<Esc>:fo<A-j>");
+        let first = app.cmdline.clone();
+        keys(&mut app, "<A-j>");
+        assert_ne!(app.cmdline, first);
+        keys(&mut app, "<A-k>");
+        assert_eq!(app.cmdline, first);
+        assert!(app.cmdline.starts_with("fo"));
     }
 
     #[test]

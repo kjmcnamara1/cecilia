@@ -36,8 +36,6 @@ Planned work. Finished items move to `CHANGELOG.md` under `[Unreleased]`.
 - [ ] Different keymap for moving between staves
   - This allows moving to add extra notes above or below standard staff without jumping to
     another staff
-- [ ] add alt-j/k for focusing next/prev item in pickers and command mode.
-      should do the same thing as tab/shift-tab.
 - [ ] FIX: ctrl-c in any pane (score,tool,properties,etc.) should close that pane.
 - [ ] ctrl-w ctrl-w cycles focus through panes
 - [ ] ctrl-w ctrl-p switches focus back and forth between panes
