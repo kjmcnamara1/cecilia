@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.10.0] - 2026-10-31
+
 ### Added
 
 - `:staff-next` / `:staff-prev` (`<A-j>` / `<A-k>`) move the cursor between the staves of a track.
