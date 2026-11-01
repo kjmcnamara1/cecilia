@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.9.0] - 2026-10-31
+
 ### Changed
 
 - Swap files keep the undo tree, so recovering unsaved changes (automatic or `:recover`) no longer
