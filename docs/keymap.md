@@ -41,7 +41,8 @@ only be used in the GUI there, and `<D-…>` bindings never fire.
 | keys                      | command                                                                                                                                                  |        |
 | ------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------- | ------ |
 | `h` / `l`                 | previous / next beat                                                                                                                                     | _(M1)_ |
-| `j` / `k`                 | next / previous row: tab strings and staff lines and spaces, on through the staves of the part (down from a staff's last row is the next staff's first) | _(M1)_ |
+| `j` / `k`                 | next / previous row on the cursor's staff: tab strings, or staff lines and spaces, with four ledger-line positions beyond the staff's edges to place extra notes. With `ui.jk_moves_between_staves = true` they go on into the next / previous staff instead (`:string-down`, `:string-up`) | _(M1)_ |
+| `<A-j>` / `<A-k>`         | cursor to the next / previous staff of the part (`:staff-next`, `:staff-prev`) | |
 | `w` / `b`                 | next / previous beat with notes                                                                                                                          | _(M1)_ |
 | `}` / `{`                 | next / previous bar                                                                                                                                      | _(M1)_ |
 | `0` / `$`                 | first / last beat of bar                                                                                                                                 | _(M1)_ |

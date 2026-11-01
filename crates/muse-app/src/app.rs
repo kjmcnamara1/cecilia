@@ -1996,8 +1996,17 @@ impl App {
             }),
             NoteNext => self.move_cursor(|s, c| step_note(s, c, true)),
             NotePrev => self.move_cursor(|s, c| step_note(s, c, false)),
-            StringDown => self.move_cursor(|s, c| move_row(s, c, true)),
-            StringUp => self.move_cursor(|s, c| move_row(s, c, false)),
+            StringDown | StringUp => {
+                let (down, between) = (
+                    cmd == StringDown,
+                    self.config.file.ui.jk_moves_between_staves,
+                );
+                self.move_cursor(|s, c| move_row(s, c, down, between));
+            }
+            StaffNext | StaffPrev => {
+                let forward = cmd == StaffNext;
+                self.move_cursor(|s, c| move_staff(s, c, forward));
+            }
             BarNext => self.move_cursor(|s, c| set_bar(s, c, c.bar + 1)),
             BarPrev => self.move_cursor(|s, c| set_bar(s, c, c.bar.saturating_sub(1))),
             BarStart => self.move_cursor(|_, c| c.beat = 0),
@@ -2876,12 +2885,68 @@ fn set_row(c: &mut Cursor, row: Row) {
     }
 }
 
+/// Ledger-line positions a staff offers beyond its own rows when the cursor keeps to it.
+const LEDGER_ROWS: i32 = 4;
+
+/// The rows of the cursor's staff alone, with ledger positions above and below a line staff.
+fn own_rows(score: &Score, c: &Cursor) -> Vec<Row> {
+    let Some(track) = score.tracks.get(c.track) else {
+        return Vec::new();
+    };
+    let staves = track.staves();
+    let index = staff_index(track, c.staff);
+    let staff = staves[index];
+    let mut rows = staff_rows(score, c, track, index, staff);
+    if !matches!(staff, Staff::Chant | Staff::Slash) && !uses_strings(track, staff) {
+        if let (Some(&Row::Line(_, top)), Some(&Row::Line(_, bottom))) = (rows.first(), rows.last())
+        {
+            let above = (top + 1..=top + LEDGER_ROWS)
+                .rev()
+                .map(|p| Row::Line(index, p));
+            let below = (bottom - LEDGER_ROWS..bottom)
+                .rev()
+                .map(|p| Row::Line(index, p));
+            rows = above.chain(rows).chain(below).collect();
+        }
+    }
+    rows
+}
+
+/// The cursor to the next or previous staff of its track (it stops at the first and last).
+fn move_staff(score: &Score, c: &mut Cursor, forward: bool) {
+    let Some(track) = score.tracks.get(c.track) else {
+        return;
+    };
+    let staves = track.staves();
+    let here = staff_index(track, c.staff);
+    let to = if forward {
+        (here + 1).min(staves.len() - 1)
+    } else {
+        here.saturating_sub(1)
+    };
+    c.staff = to;
+    // A line left over from another kind of staff goes back to the middle.
+    if to != here && !uses_strings(track, staves[to]) {
+        let shown = staff_rows(score, c, track, to, staves[to]);
+        if !shown.contains(&Row::Line(to, c.line)) {
+            c.line = staff_middle(track, staves[to]);
+        }
+    }
+}
+
 /// One row down or up through the track's staves; it stops at the first and last row.
-fn move_row(score: &Score, c: &mut Cursor, down: bool) {
-    let here = rows(score, c);
+///
+/// With `between_staves` false it stays on the cursor's staff, where a line staff goes on a
+/// few positions past its edges for ledger lines; true goes on into the neighbouring staff.
+fn move_row(score: &Score, c: &mut Cursor, down: bool, between_staves: bool) {
     if let Some(t) = score.tracks.get(c.track) {
         c.staff = staff_index(t, c.staff);
     }
+    let here = if between_staves {
+        rows(score, c)
+    } else {
+        own_rows(score, c)
+    };
     let row = cursor_row(score, c);
     // A position off the list (a ledger line left by an edit) steps to its neighbour.
     let i = here.iter().position(|r| *r == row).or_else(|| match row {
@@ -3082,6 +3147,60 @@ pub(crate) mod tests {
         assert_eq!(app.pane().cursor.string, 5);
         keys(&mut app, "J");
         assert_eq!(app.pane().cursor.track, 1);
+    }
+
+    #[test]
+    fn jk_stay_on_the_staff_and_staff_commands_change_it() {
+        let mut app = test_app();
+        let staves = app.buffer().score.tracks[0].staves();
+        assert!(staves.len() >= 2, "{staves:?}");
+        let first_line = |app: &App| {
+            let t = &app.buffer().score.tracks[0];
+            uses_strings(t, t.staves()[staff_index(t, app.pane().cursor.staff)])
+        };
+        // Keep to the first staff: `k` past its top never leaves it.
+        keys(&mut app, ":staff-prev<CR>");
+        let staff = staff_index(&app.buffer().score.tracks[0], app.pane().cursor.staff);
+        assert_eq!(staff, 0);
+        let _ = first_line(&app);
+        for _ in 0..80 {
+            keys(&mut app, "j");
+        }
+        assert_eq!(
+            staff_index(&app.buffer().score.tracks[0], app.pane().cursor.staff),
+            0
+        );
+        let low = app.pane().cursor;
+        for _ in 0..80 {
+            keys(&mut app, "k");
+        }
+        assert_eq!(
+            staff_index(&app.buffer().score.tracks[0], app.pane().cursor.staff),
+            0
+        );
+        if !first_line(&app) {
+            // Ledger positions beyond the staff's own rows.
+            assert!(app.pane().cursor.line > low.line + 8, "{low:?}");
+        }
+        keys(&mut app, "<A-j>");
+        assert_eq!(
+            staff_index(&app.buffer().score.tracks[0], app.pane().cursor.staff),
+            1
+        );
+        keys(&mut app, "<A-k>");
+        assert_eq!(
+            staff_index(&app.buffer().score.tracks[0], app.pane().cursor.staff),
+            0
+        );
+        // The old behaviour: j runs on into the next staff.
+        app.config.file.ui.jk_moves_between_staves = true;
+        for _ in 0..80 {
+            keys(&mut app, "j");
+        }
+        assert_eq!(
+            staff_index(&app.buffer().score.tracks[0], app.pane().cursor.staff),
+            staves.len() - 1
+        );
     }
 
     #[test]

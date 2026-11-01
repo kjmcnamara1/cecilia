@@ -291,6 +291,9 @@ pub enum Command {
     BeatPrev,
     StringDown,
     StringUp,
+    /// Cursor to the next / previous staff of the track, keeping to the beat.
+    StaffNext,
+    StaffPrev,
     NoteNext,
     NotePrev,
     BarNext,
@@ -435,6 +438,8 @@ impl Command {
             "beat-prev" => BeatPrev,
             "string-down" => StringDown,
             "string-up" => StringUp,
+            "staff-next" => StaffNext,
+            "staff-prev" => StaffPrev,
             "note-next" => NoteNext,
             "note-prev" => NotePrev,
             "bar-next" => BarNext,
@@ -945,6 +950,8 @@ impl Command {
                 | BeatPrev
                 | StringDown
                 | StringUp
+                | StaffNext
+                | StaffPrev
                 | NoteNext
                 | NotePrev
                 | BarNext

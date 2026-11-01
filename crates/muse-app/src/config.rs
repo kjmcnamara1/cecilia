@@ -158,6 +158,10 @@ pub struct UiConfig {
     pub tab_width: u8,
     /// Scroll to keep the playhead in view while playing.
     pub follow_playback: bool,
+    /// `j`/`k` go on from the last row of a staff into the next staff, as `:string-down` and
+    /// `:string-up` once always did; off, they keep to the cursor's staff (`:staff-next` and
+    /// `:staff-prev` change staff).
+    pub jk_moves_between_staves: bool,
     /// Command-line Tab completion ignores letter case.
     pub completion_ignore_case: bool,
     /// Command-line completion matches the typed letters in order anywhere in a candidate.
@@ -204,6 +208,7 @@ impl Default for UiConfig {
         Self {
             tab_width: 2,
             follow_playback: true,
+            jk_moves_between_staves: false,
             completion_ignore_case: true,
             completion_fuzzy: true,
             global_waveform: None,
@@ -315,6 +320,8 @@ const DEFAULT_NORMAL: &[(&str, &str)] = &[
     ("<Down>", "string-down"),
     ("k", "string-up"),
     ("<Up>", "string-up"),
+    ("<A-j>", "staff-next"),
+    ("<A-k>", "staff-prev"),
     ("w", "note-next"),
     ("b", "note-prev"),
     ("}", "bar-next"),

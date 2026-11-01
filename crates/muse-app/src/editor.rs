@@ -1535,6 +1535,7 @@ mod tests {
     #[test]
     fn cursor_moves_across_staves() {
         let mut a = app();
+        a.config.file.ui.jk_moves_between_staves = true;
         let at = |a: &App| {
             let c = a.pane().cursor;
             (c.track, crate::app::cursor_row(&a.buffer().score, &c))
@@ -1600,6 +1601,7 @@ mod tests {
     #[test]
     fn standard_staff_insert() {
         let mut a = app();
+        a.config.file.ui.jk_moves_between_staves = true;
         keys(&mut a, "kkkk");
         assert_eq!((a.pane().cursor.staff, a.pane().cursor.line), (0, 32));
         // Written G4 under the cursor: a is A4 written (A3 sounding on guitar), c then the

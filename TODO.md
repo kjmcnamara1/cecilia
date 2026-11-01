@@ -33,9 +33,6 @@ Planned work. Finished items move to `CHANGELOG.md` under `[Unreleased]`.
 
 - [ ] TODO: Deep dive on keymap architecture and how to define (config.toml seems lacking)
   - Should be dependent on mode and currently focused window/pane/staf
-- [ ] Different keymap for moving between staves
-  - This allows moving to add extra notes above or below standard staff without jumping to
-    another staff
 - [ ] FIX: ctrl-c in any pane (score,tool,properties,etc.) should close that pane.
 
 ### UI
