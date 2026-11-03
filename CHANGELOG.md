@@ -9,7 +9,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
-- The GUI edit cursor has a rounded outline (theme color `cursor_border`, default contrasting with the page) so it shows in every mode; the terminal cursor is bold.
+- The GUI edit cursor has a rounded outline (theme color `cursor_border`, default contrasting with the page) so it shows in every mode.
 
 ## [0.11.1] - 2026-11-03
 

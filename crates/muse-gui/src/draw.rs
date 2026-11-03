@@ -2236,10 +2236,10 @@ fn draw_pane(
                 y - side / 2.0,
                 cx + side / 2.0,
                 y + side / 2.0,
-                2.0,
+                3.0,
             )
         };
-        let whole = RoundedRect::new(x, pos.top, x + w, pos.bottom, 2.0);
+        let whole = RoundedRect::new(x - 1.5, pos.top - 1.5, x + w + 1.5, pos.bottom + 1.5, 3.0);
         let r = if let Some(ys) = pos.strings(c.staff) {
             match ys.get(c.string) {
                 Some(&y) => {
@@ -2249,7 +2249,7 @@ fn draw_pane(
                     };
                     // Centred where the engraver centres the fret number (0.4 staff spaces in
                     // from the beat's left, plus half a notehead; a string gap is 1.5 spaces).
-                    square(x + gap * 0.66, y, (gap * 1.2).clamp(8.0, 18.0))
+                    square(x + gap * 0.66, y, (gap * 1.5).clamp(10.0, 22.0))
                 }
                 None => whole,
             }
@@ -2257,7 +2257,7 @@ fn draw_pane(
             // The square sits on the note head: chant beats are the neume glyph itself, others
             // start 0.4 spaces before the head.
             let cx = if chant_layout { x + w / 2.0 } else { pos.head };
-            square(cx, y, (step * 2.4).clamp(8.0, 18.0))
+            square(cx, y, (step * 3.0).clamp(10.0, 22.0))
         } else if staff == Some(muse_core::Staff::Chant) && !chant_layout {
             // A chant staff that is not drawn (a chord under the error policy): no position.
             whole
