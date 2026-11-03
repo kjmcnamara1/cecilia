@@ -69,6 +69,7 @@ Planned work. Finished items move to `CHANGELOG.md` under `[Unreleased]`.
   - values for width/height can be fixed or dynamic (%)
   - :resize-default will set current w/h of the focused pane back to the default values
   - auto-resize should essentially run :resize-equal after opening or closing panes
+- [ ] Add the ability to attach vocals to any staff (below or above)
 
 ### TUI
 
