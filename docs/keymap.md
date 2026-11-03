@@ -185,7 +185,7 @@ view pickers also work while a song plays.
 | keys        | command          |        |
 | ----------- | ---------------- | ------ |
 | `:`         | command line     | _(M1)_ |
-| `<F1>`      | help             |        |
+| `<F1>`      | help: the key bindings of the current mode (Normal, Insert, Visual, command line, picker, tracks/properties/palette pane); `<F1>` or `<Esc>` hides it. Works in every mode; in the Normal modes a user binding of `<F1>` takes precedence |        |
 | `<leader>?` | find a key binding (keymaps picker) |        |
 | `ZZ`        | write and quit   |        |
 | `<C-q>`     | quit muse (`:quit`; not while files have unsaved changes) | |

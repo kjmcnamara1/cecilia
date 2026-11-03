@@ -109,6 +109,17 @@ impl App {
     }
 
     pub(crate) fn dispatch_key(&mut self, key: Key) {
+        // <F1> shows or hides the key help in every mode (not recorded in macros); Esc also
+        // hides it. A Normal-mode binding of <F1> to something else wins in the Normal modes.
+        let plain = !key.ctrl && !key.alt && !key.sup;
+        if plain && key.code == KeyCode::F(1) && !self.f1_rebound() {
+            self.show_help = !self.show_help;
+            return;
+        }
+        if self.show_help && key.code == KeyCode::Esc {
+            self.show_help = false;
+            return;
+        }
         if let Some((_, keys)) = self.ed.recording.as_mut() {
             keys.push(key);
         }
@@ -171,6 +182,109 @@ impl App {
                 self.ed.last_change = k;
             }
         }
+    }
+
+    /// Whether the user bound `<F1>` in Normal mode to something other than `help`.
+    fn f1_rebound(&self) -> bool {
+        let normalish = matches!(
+            self.mode,
+            Mode::Normal | Mode::Tracks | Mode::Properties | Mode::Palette
+        );
+        normalish
+            && self
+                .config
+                .keymap(Mode::Normal)
+                .bindings
+                .get(&[Key::new(KeyCode::F(1))][..])
+                .is_some_and(|c| c.as_slice() != [Command::Help])
+    }
+
+    /// The key help for the current mode: a title and (keys, what) rows, sorted by command.
+    /// Built from the effective keymaps, so user bindings show and removed ones do not.
+    pub fn help_view(&self) -> (String, Vec<(String, String)>) {
+        use crate::app::PaneKind;
+        use crate::config::Keymap;
+        fn rows(map: &Keymap, skip: &[&Keymap]) -> Vec<(String, String)> {
+            map.bindings
+                .iter()
+                .filter(|(k, _)| !skip.iter().any(|m| m.bindings.contains_key(*k)))
+                .map(|(k, c)| {
+                    let what = match map.names.get(k) {
+                        Some(n) => n.join(", "),
+                        None => format!("{c:?}"),
+                    };
+                    (crate::keys::format_keys(k), what)
+                })
+                .collect()
+        }
+        fn fixed(list: &[(&str, &str)]) -> Vec<(String, String)> {
+            list.iter()
+                .map(|(k, c)| (k.to_string(), c.to_string()))
+                .collect()
+        }
+        let c = &self.config;
+        let (name, mut items) = match self.mode {
+            Mode::Command => {
+                let mut v = rows(c.keymap(Mode::Command), &[]);
+                v.extend(fixed(&[
+                    ("<CR>", "run the command"),
+                    ("<Esc>", "cancel"),
+                    ("<C-c>", "cancel"),
+                    ("<Tab>", "complete / next candidate"),
+                    ("<S-Tab>", "previous candidate"),
+                    ("<C-p>", "older history"),
+                    ("<C-n>", "newer history"),
+                    ("<C-u>", "clear the line"),
+                    ("<BS>", "delete a character"),
+                ]));
+                ("Command line", v)
+            }
+            Mode::Picker => (
+                "Picker",
+                fixed(&[
+                    ("<CR>", "choose the entry"),
+                    ("<Esc>", "close"),
+                    ("<C-c>", "close"),
+                    ("<Down>", "next entry"),
+                    ("<Tab>", "next entry"),
+                    ("<C-n>", "next entry"),
+                    ("<A-j>", "next entry"),
+                    ("<Up>", "previous entry"),
+                    ("<S-Tab>", "previous entry"),
+                    ("<C-p>", "previous entry"),
+                    ("<A-k>", "previous entry"),
+                    ("<C-u>", "clear the query"),
+                    ("<BS>", "delete a character"),
+                ]),
+            ),
+            Mode::Insert => {
+                let kind = self.insert_kind();
+                let specific = c.insert_keymap(kind);
+                let mut v = rows(specific, &[]);
+                v.extend(rows(c.keymap(Mode::Insert), &[specific]));
+                ("Insert", v)
+            }
+            Mode::Visual => ("Visual", rows(c.keymap(Mode::Visual), &[])),
+            Mode::Normal | Mode::Tracks | Mode::Properties | Mode::Palette => {
+                let normal = c.keymap(Mode::Normal);
+                let (name, pane) = match self.focused_kind() {
+                    PaneKind::Tracks => ("Tracks pane", Some(Mode::Tracks)),
+                    PaneKind::Properties => ("Properties pane", Some(Mode::Properties)),
+                    PaneKind::Palette => ("Palette pane", Some(Mode::Palette)),
+                    _ => ("Normal", None),
+                };
+                let mut v = Vec::new();
+                let mut skip = Vec::new();
+                if let Some(m) = pane {
+                    v = rows(c.keymap(m), &[]);
+                    skip.push(c.keymap(m));
+                }
+                v.extend(rows(normal, &skip));
+                (name, v)
+            }
+        };
+        items.sort_by(|a, b| a.1.cmp(&b.1).then(a.0.cmp(&b.0)));
+        (format!("{name} keys"), items)
     }
 
     pub(crate) fn normal_key(&mut self, key: Key) {
@@ -1534,6 +1648,58 @@ mod tests {
         for k in crate::keys::parse_keys(s, &[Key::char(' ')]).unwrap() {
             app.handle_key(k);
         }
+    }
+
+    #[test]
+    fn f1_shows_the_help_of_every_mode_and_esc_hides_it() {
+        let mut app = app();
+        for (enter, title, sample) in [
+            ("", "Normal keys", "<F1>"),
+            ("i", "Insert keys", "<Esc>"),
+            ("<Esc>v", "Visual keys", "<Esc>"),
+            (":", "Command line keys", "<CR>"),
+            ("<Esc><leader>b", "Picker keys", "<CR>"),
+        ] {
+            keys(&mut app, "<Esc><Esc>");
+            if !enter.is_empty() {
+                keys(&mut app, enter);
+            }
+            let mode = app.mode;
+            keys(&mut app, "<F1>");
+            assert!(app.show_help, "{title}");
+            assert_eq!(app.mode, mode, "F1 keeps the mode");
+            let (t, rows) = app.help_view();
+            assert_eq!(t, title);
+            assert!(rows.iter().any(|(k, _)| k == sample), "{title}: {sample}");
+            keys(&mut app, "<F1>");
+            assert!(!app.show_help);
+            keys(&mut app, "<F1><Esc>");
+            assert!(!app.show_help);
+            assert_eq!(app.mode, mode, "Esc only hides the help");
+        }
+    }
+
+    #[test]
+    fn help_lists_user_bindings_and_not_removed_ones() {
+        let (config, _) =
+            Config::parse("[keymap.normal]\n\"gz\" = \"bar-next\"\n\"o\" = \"nop\"\n").unwrap();
+        let mut app = App::new(config, None);
+        app.run(Command::New);
+        let rows = app.help_view().1;
+        assert!(rows.contains(&("gz".to_string(), "bar-next".to_string())));
+        assert!(!rows.iter().any(|(k, _)| k == "o"));
+    }
+
+    #[test]
+    fn f1_is_not_recorded_in_macros_and_honors_a_rebinding() {
+        let mut app = app();
+        keys(&mut app, "qa<F1><F1>q");
+        assert_eq!(app.recording_macro(), None);
+        let (config, _) = Config::parse("[keymap.normal]\n\"<F1>\" = \"bar-next\"\n").unwrap();
+        let mut app = App::new(config, None);
+        app.run(Command::New);
+        keys(&mut app, "<F1>");
+        assert!(!app.show_help);
     }
 
     fn frets(app: &App, bar: usize) -> Vec<Option<u8>> {
