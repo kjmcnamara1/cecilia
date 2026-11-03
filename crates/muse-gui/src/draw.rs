@@ -119,7 +119,7 @@ pub struct Views {
     geometry: Vec<Geometry>,
     /// What each score pane showed this frame, for the app's half-page movement.
     view_infos: Vec<(PaneId, Option<muse_app::ViewInfo>)>,
-    last_cursor: HashMap<PaneId, (usize, usize, usize)>,
+    last_cursor: HashMap<PaneId, muse_app::Cursor>,
     /// The drawn cursor per pane (page, top, x, width) and when: while following playback it
     /// glides after the playhead instead of jumping from beat to beat.
     glide: HashMap<PaneId, (usize, f64, f64, f64, std::time::Instant)>,
@@ -2072,7 +2072,7 @@ fn draw_pane(
     let mut scroll = views.scroll.get(&id).copied().unwrap_or((0.0, 0.0));
     let view_w = content.width() / scale;
     let view_h = content.height() / scale;
-    let cursor_key = (pane.cursor.track, pane.cursor.bar, pane.cursor.beat);
+    let cursor_key = pane.cursor;
     let moved = views.last_cursor.insert(id, cursor_key) != Some(cursor_key);
     // The playhead, while this buffer plays: (page, x, top, bottom).
     let playhead = play
@@ -2081,25 +2081,42 @@ fn draw_pane(
             playhead_at(&cached.layout, score, pane.cursor.track, loc.bar, loc.tick)
         });
     // Keep the playhead in view while following playback, otherwise the cursor when it moves.
+    // The page's x offset in scroll space (the page layout centres a page narrower than the view).
+    let page_x = if mode_name == "page" {
+        ((view_w - 595.0) / 2.0).max(0.0)
+    } else {
+        0.0
+    };
     let target = match playhead.filter(|_| app.follow) {
-        Some((page, x, top, bottom)) => Some((page, x, 1.0, top, bottom)),
+        Some((page, x, top, bottom)) => Some((page, (x, x + 1.0), (top, bottom))),
         None if moved => cached
             .layout
             .beats
             .get(&cursor_ref)
             .or_else(|| beat_fallback(&cached.layout, &cursor_ref))
-            .map(|p| (p.page, p.x, p.width, p.top, p.bottom)),
+            .map(|p| {
+                let staff = score
+                    .tracks
+                    .get(cursor_ref.track)
+                    .map_or(0, |t| muse_app::staff_index(t, pane.cursor.staff));
+                let (xs, ys) = cursor_extent(p, staff, &pane.cursor);
+                (p.page, xs, ys)
+            }),
         None => None,
     };
-    if let Some((page, x, w, top, bottom)) = target {
-        let top = cached.offsets[page] + top;
-        let bottom = cached.offsets[page] + bottom;
-        if top < scroll.1 || bottom > scroll.1 + view_h {
-            scroll.1 = (top - view_h * 0.25).max(0.0);
-        }
-        if x < scroll.0 || x + w > scroll.0 + view_w {
-            scroll.0 = (x - view_w * 0.3).max(0.0);
-        }
+    // The score may scroll past its end along its flow (down the vertical and page layouts,
+    // across the horizontal one), by half a view; the other way only as far as it extends.
+    // What the cursor needs in view always stays scrollable (a bar can be wider than its page).
+    let mut reach = (0.0f64, 0.0f64);
+    if let Some((page, (x0, x1), (top, bottom))) = target {
+        let off = cached.offsets[page];
+        scroll = follow_scroll(
+            scroll,
+            (view_w, view_h),
+            (x0 + page_x, x1 + page_x),
+            (top + off, bottom + off),
+        );
+        reach = (scroll.0, scroll.1);
     }
     let total_h = cached.offsets.last().copied().unwrap_or(0.0)
         + cached.layout.pages.last().map_or(0.0, |p| p.height);
@@ -2109,15 +2126,13 @@ fn draw_pane(
         .iter()
         .map(|p| p.width)
         .fold(0.0, f64::max);
-    // The score may scroll past its end along its flow (down the vertical and page layouts,
-    // across the horizontal one), by half a view; the other way only as far as it extends.
     let (max_x, max_y) = if mode_name == "horizontal" {
         (total_w - view_w * 0.5, total_h - view_h)
     } else {
         (total_w - view_w, total_h - view_h * 0.5)
     };
-    scroll.0 = scroll.0.clamp(0.0, max_x.max(0.0));
-    scroll.1 = scroll.1.clamp(0.0, max_y.max(0.0));
+    scroll.0 = scroll.0.clamp(0.0, max_x.max(reach.0));
+    scroll.1 = scroll.1.clamp(0.0, max_y.max(reach.1));
     views.scroll.insert(id, scroll);
     let info = view_info(
         cached,
@@ -2650,6 +2665,56 @@ fn playhead_at(
         a.2
     };
     Some((a.1, x, a.3, a.4))
+}
+
+/// The horizontal and vertical extents (page points) of the edit cursor within a beat: its
+/// string or staff position with some margin, else the staff it is on, else the whole beat.
+fn cursor_extent(
+    pos: &muse_engrave::BeatPos,
+    staff: usize,
+    cursor: &muse_app::Cursor,
+) -> ((f64, f64), (f64, f64)) {
+    let margin = 12.0;
+    // The cursor square sits near the beat's left, so a wide beat need not show its end.
+    let xs = (
+        pos.x.min(pos.head - margin),
+        (pos.x + pos.width.min(30.0)).max(pos.head + margin),
+    );
+    if let Some(ys) = pos.strings(staff) {
+        if let Some(&y) = ys.get(cursor.string) {
+            return (xs, (y - margin, y + margin));
+        }
+        let (lo, hi) = ys
+            .iter()
+            .fold((f64::MAX, f64::MIN), |a, &y| (a.0.min(y), a.1.max(y)));
+        if lo <= hi {
+            return (xs, (lo - margin, hi + margin));
+        }
+    } else if let Some((y, step)) = pos.line_y(staff, cursor.line) {
+        let m = margin.max(step * 2.0);
+        return (xs, (y - m, y + m));
+    }
+    ((pos.x, pos.x + pos.width), (pos.top, pos.bottom))
+}
+
+/// The scroll (points) that brings the `x` and `y` ranges into a `view` (width, height), moving
+/// it only when they are not already in view; the range is placed a quarter (a third across)
+/// into the view, but always so that it is wholly visible when it fits, else its start is.
+fn follow_scroll(scroll: (f64, f64), view: (f64, f64), x: (f64, f64), y: (f64, f64)) -> (f64, f64) {
+    let axis = |s: f64, view: f64, (lo, hi): (f64, f64), frac: f64| {
+        if lo >= s && hi <= s + view {
+            return s;
+        }
+        let mut n = lo - view * frac;
+        if hi > n + view {
+            n = hi - view;
+        }
+        n.min(lo).max(0.0)
+    };
+    (
+        axis(scroll.0, view.0, x, 0.3),
+        axis(scroll.1, view.1, y, 0.25),
+    )
 }
 
 fn beat_fallback<'a>(layout: &'a Layout, r: &BeatRef) -> Option<&'a muse_engrave::BeatPos> {
@@ -5229,5 +5294,81 @@ mod tests {
         assert!(x(960) > x(480) && x(3800) > x(2880));
         // The last beat runs on towards the barline.
         assert!(x(3800) < layout.bars[0].2);
+    }
+}
+
+#[cfg(test)]
+mod follow_tests {
+    use super::*;
+    use muse_engrave::{BeatPos, StaffPos};
+
+    fn beat(x: f64, width: f64) -> BeatPos {
+        BeatPos {
+            page: 0,
+            x,
+            width,
+            top: 0.0,
+            bottom: 400.0,
+            head: x + 3.0,
+            staves: vec![
+                StaffPos::Strings {
+                    staff: 0,
+                    ys: vec![10.0, 20.0],
+                },
+                StaffPos::Strings {
+                    staff: 1,
+                    ys: vec![300.0, 310.0],
+                },
+            ],
+        }
+    }
+
+    #[test]
+    fn cursor_extent_targets_the_cursors_staff_not_the_top_one() {
+        let c = muse_app::Cursor {
+            staff: 1,
+            string: 1,
+            ..Default::default()
+        };
+        let (_, (top, bottom)) = cursor_extent(&beat(0.0, 10.0), 1, &c);
+        assert!(top > 250.0 && bottom < 400.0, "{top} {bottom}");
+        assert!(top <= 310.0 && bottom >= 310.0);
+    }
+
+    /// Whatever the zoom (view size), a cursor moved anywhere ends up inside the view.
+    #[test]
+    fn a_moved_cursor_is_always_in_view_at_any_zoom() {
+        let c = muse_app::Cursor {
+            staff: 1,
+            string: 1,
+            ..Default::default()
+        };
+        for view in [
+            (60.0, 50.0),
+            (119.0, 90.0),
+            (400.0, 300.0),
+            (2000.0, 1500.0),
+        ] {
+            // Bars far wider than the view, cursor jumping around them.
+            let mut scroll = (0.0, 0.0);
+            for x in [0.0, 500.0, 990.0, 20.0, 1500.0, 40.0, 700.0] {
+                let b = beat(x, 80.0);
+                let (xs, ys) = cursor_extent(&b, 1, &c);
+                scroll = follow_scroll(scroll, view, xs, ys);
+                let (sx, sy) = scroll;
+                // The cursor square itself (the part that must show).
+                let (cx, cy) = (b.head, 310.0);
+                assert!(cx >= sx && cx <= sx + view.0, "x {cx} in {sx}+{}", view.0);
+                assert!(cy >= sy && cy <= sy + view.1, "y {cy} in {sy}+{}", view.1);
+            }
+        }
+    }
+
+    #[test]
+    fn an_already_visible_cursor_does_not_scroll() {
+        assert_eq!(
+            follow_scroll((10.0, 20.0), (100.0, 100.0), (30.0, 40.0), (50.0, 60.0)),
+            (10.0, 20.0)
+        );
     }
 }
