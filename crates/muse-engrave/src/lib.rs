@@ -5,6 +5,7 @@ pub mod chant;
 pub mod display;
 pub mod fonts;
 pub mod layout;
+pub mod neume;
 pub mod output;
 
 pub use layout::{BeatPos, Layout, Mode, Options, StaffPos, engrave};

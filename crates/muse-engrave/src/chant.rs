@@ -9,13 +9,14 @@ use std::collections::HashMap;
 use kurbo::{BezPath, Circle, Point, Rect, Shape as _};
 use muse_core::chant::{
     Chant, ChantClef, ChantNote, ClefKind, Division, Liquescence, NeumeItem, Shape, Syllable,
-    transcribe,
+    group_neumes, transcribe,
 };
 use muse_core::{Score, Track};
 
 use crate::display::{Align, BeatRef, Color, FontKind, Hit, Item, Page};
 use crate::fonts::fonts;
 use crate::layout::{BeatPos, Layout, Mode, Options, StaffPos};
+use crate::neume;
 
 const FLAT: char = '\u{E260}';
 const NATURAL: char = '\u{E261}';
@@ -343,13 +344,14 @@ impl Ctx<'_> {
             self.draw_clef(&mut page, staff_x0 + 0.4 * sp, clef, &ymap);
             if li == 0 {
                 if let Some((_, c)) = &initial {
-                    page.text(
-                        FontKind::Text,
-                        c.clone(),
-                        (margin, text_y),
-                        initial_size,
-                        Align::Left,
-                    );
+                    page.items.push(Item::Text {
+                        font: FontKind::Text,
+                        text: c.clone(),
+                        at: Point::new(margin, text_y),
+                        size: initial_size,
+                        align: Align::Left,
+                        color: Color::RED,
+                    });
                     let annotation: Vec<String> = {
                         let a: Vec<String> = self
                             .chant
@@ -420,6 +422,7 @@ impl Ctx<'_> {
                         width: rect.width(),
                         top: ymap(top) - 1.5 * sp,
                         bottom: text_y + 0.4 * self.text_size,
+                        head: (rect.x0 + rect.x1) / 2.0,
                         staves: vec![StaffPos::Lines {
                             staff: 0,
                             y0: ymap(0),
@@ -595,7 +598,7 @@ impl Ctx<'_> {
                     if started {
                         x += pending_gap;
                     }
-                    for (gi, glyph) in group(&run).iter().enumerate() {
+                    for (gi, glyph) in group_neumes(&run).iter().enumerate() {
                         if gi > 0 {
                             let prev = run_glyph_last(glyph);
                             x += if prev { -0.2 * self.w } else { 0.22 * sp };
@@ -840,27 +843,10 @@ impl Ctx<'_> {
                 color: Color::BLACK,
             })
         };
-        let punctum = |x: f64, w: f64, h: f64| {
-            // Slightly concave top and bottom.
-            let d = 0.08 * h;
-            let mut p = BezPath::new();
-            p.move_to((x, y - h / 2.0));
-            p.quad_to((x + w / 2.0, y - h / 2.0 + d), (x + w, y - h / 2.0));
-            p.line_to((x + w, y + h / 2.0));
-            p.quad_to((x + w / 2.0, y + h / 2.0 + d), (x, y + h / 2.0));
-            p.close_path();
-            p
-        };
+        let punctum = |x: f64, w: f64, h: f64| neume::punctum(x + w / 2.0, y, w, h);
         match n.shape() {
             Shape::Inclinatum => {
-                let (hw, hh) = (w * 0.5, h * 0.55);
-                let mut p = BezPath::new();
-                p.move_to((x + hw, y - hh));
-                p.line_to((x + 2.0 * hw, y));
-                p.line_to((x + hw, y + hh));
-                p.line_to((x, y));
-                p.close_path();
-                black(page, p);
+                black(page, neume::inclinatum(x + w / 2.0, y, w, h * 1.1));
                 return w;
             }
             Shape::Quilisma => {
@@ -1002,48 +988,12 @@ impl Ctx<'_> {
     fn draw_clef(&self, page: &mut Page, x: f64, clef: ChantClef, ymap: &dyn Fn(i32) -> f64) {
         let sp = self.sp;
         let ly = ymap(clef.position());
-        let block = |page: &mut Page, r: Rect| {
-            page.items.push(Item::Rect {
-                rect: r,
-                color: Color::BLACK,
-            })
-        };
         match clef.kind {
-            ClefKind::Do => {
-                block(
-                    page,
-                    Rect::new(x, ly - 0.95 * sp, x + 0.22 * sp, ly + 0.95 * sp),
-                );
-                block(
-                    page,
-                    Rect::new(x, ly - 0.95 * sp, x + 0.75 * sp, ly - 0.2 * sp),
-                );
-                block(
-                    page,
-                    Rect::new(x, ly + 0.2 * sp, x + 0.75 * sp, ly + 0.95 * sp),
-                );
-            }
+            ClefKind::Do => neume::fill(page, neume::do_clef(x, ly, sp)),
             ClefKind::Fa => {
-                block(
-                    page,
-                    Rect::new(x, ly - 0.95 * sp, x + 0.22 * sp, ly + 1.4 * sp),
-                );
-                block(
-                    page,
-                    Rect::new(x, ly - 0.95 * sp, x + 0.7 * sp, ly - 0.2 * sp),
-                );
-                block(
-                    page,
-                    Rect::new(x, ly + 0.2 * sp, x + 0.7 * sp, ly + 0.95 * sp),
-                );
-                block(
-                    page,
-                    Rect::new(x + 0.95 * sp, ly - 0.75 * sp, x + 1.55 * sp, ly - 0.15 * sp),
-                );
-                block(
-                    page,
-                    Rect::new(x + 0.95 * sp, ly + 0.15 * sp, x + 1.55 * sp, ly + 0.75 * sp),
-                );
+                for p in neume::fa_clef(x, ly, sp) {
+                    neume::fill(page, p);
+                }
             }
         }
         if clef.flat {
@@ -1101,80 +1051,13 @@ impl Ctx<'_> {
     }
 
     fn draw_custos(&self, page: &mut Page, x: f64, pitch: i32, ymap: &dyn Fn(i32) -> f64) {
-        let sp = self.sp;
         let y = ymap(pitch);
-        page.items.push(Item::Rect {
-            rect: Rect::new(x, y - 0.22 * sp, x + 0.35 * sp, y + 0.22 * sp),
-            color: Color::BLACK,
-        });
         let middle = (3 + self.top_position()) / 2;
-        let (a, b) = if pitch <= middle {
-            (y, y - 1.1 * sp)
-        } else {
-            (y, y + 1.1 * sp)
-        };
-        page.items.push(Item::Line {
-            from: Point::new(x + 0.33 * sp, a),
-            to: Point::new(x + 0.33 * sp, b),
-            width: 0.07 * sp,
-            color: Color::BLACK,
-        });
+        neume::fill(page, neume::custos(x, y, self.sp, pitch > middle));
     }
 }
 
 /// True when a glyph is a single diamond (puncta inclinata pack closely).
 fn run_glyph_last(glyph: &[(usize, &ChantNote)]) -> bool {
     glyph.len() == 1 && glyph[0].1.shape() == Shape::Inclinatum
-}
-
-/// Groups a run of notes (no separators) into ligatures.
-fn group<'a>(run: &[(usize, &'a ChantNote)]) -> Vec<Vec<(usize, &'a ChantNote)>> {
-    let ligates = |n: &ChantNote| matches!(n.shape(), Shape::Punctum) && !n.cavum() && !n.linea();
-    let mut out: Vec<Vec<(usize, &ChantNote)>> = Vec::new();
-    let mut cur: Vec<(usize, &ChantNote)> = Vec::new();
-    for (i, &(k, n)) in run.iter().enumerate() {
-        let extend = match cur.last() {
-            None => false,
-            Some(&(_, prev)) => {
-                let starts_ok = match cur[0].1.shape() {
-                    Shape::Punctum => ligates(cur[0].1) || cur[0].1.initio_debilis,
-                    // A quilisma or square note joins the next, higher note.
-                    Shape::Quilisma | Shape::Quadratum => cur.len() == 1 && n.pitch > prev.pitch,
-                    _ => false,
-                };
-                let dirs: Vec<bool> = cur
-                    .windows(2)
-                    .map(|p| p[1].1.pitch > p[0].1.pitch)
-                    .chain([n.pitch > prev.pitch])
-                    .collect();
-                let pattern_ok = matches!(
-                    dirs.as_slice(),
-                    [_] | [true, false]
-                        | [false, true]
-                        | [true, false, true]
-                        | [false, true, false]
-                );
-                // Scandicus: three rising notes are a punctum and a pes.
-                let scandicus = cur.len() == 1
-                    && n.pitch > prev.pitch
-                    && run
-                        .get(i + 1)
-                        .is_some_and(|&(_, nx)| nx.pitch > n.pitch && ligates(nx));
-                starts_ok
-                    && ligates(n)
-                    && n.pitch != prev.pitch
-                    && pattern_ok
-                    && !scandicus
-                    && (prev.liquescence() == Liquescence::None)
-            }
-        };
-        if !extend && !cur.is_empty() {
-            out.push(std::mem::take(&mut cur));
-        }
-        cur.push((k, n));
-    }
-    if !cur.is_empty() {
-        out.push(cur);
-    }
-    out
 }
