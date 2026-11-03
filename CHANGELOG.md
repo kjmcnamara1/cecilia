@@ -23,8 +23,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
-- Square notation is drawn smoother: rounded, slightly sloped note heads and diamonds, proper C
-  and F clefs, a curved custos, and a red initial.
+- Square notation: note heads with flat sides and an arched top and bottom (the lower note of a
+  pes nearly square), larger mora dots, a tall rounded C clef with a round notch, a custos and a
+  red initial; the same in GABC files.
+- On the chant staff of an ordinary track only the first note of a neume sits in the beat column
+  shared with the other staves; the rest are packed right after it and joined, across barlines
+  too. The staff has no barlines, only divisions, and a custos at the end of each line shows the
+  next line's first note.
 - The edit cursor on a chant staff is a single square on the note position of that staff, not a
   column across all staves; `<A-j>` / `<A-k>` onto a chant staff land on the beat's note.
 

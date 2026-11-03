@@ -300,6 +300,8 @@ struct Ctx<'a> {
     slash: bool,
     /// A four-line chant staff: the melody it shows, or why it cannot.
     chant: Option<ChantCtx>,
+    /// The last chant note drawn: its event, head x and y, and system (a neume goes on from it).
+    chant_tail: std::cell::Cell<Option<(usize, f64, f64, usize)>>,
     /// Index of this staff among the track's staves.
     staff_index: usize,
     /// The half of a grand staff this is: split pitch, treble half.
@@ -635,6 +637,7 @@ fn make_ctx<'a>(
         rhythm: spec.rhythm,
         slash: spec.slash,
         chant: chant.filter(|_| spec.chant).cloned(),
+        chant_tail: Default::default(),
         staff_index: spec.index,
         half: spec.half,
         last_staff: true,
@@ -1011,7 +1014,9 @@ impl Ctx<'_> {
     /// slanted stroke, its signs (mora, episema, ictus, a flat) and the division after the
     /// note. Beats that only rest or hold a tied note draw nothing but a division.
     ///
-    /// `head_of` gives the head centre of a beat of the same bar by its index.
+    /// Only the first note of a neume sits in the beat's column; the rest are packed right after
+    /// it, joined, in the same system (the neume goes on across barlines). Returns the centre x
+    /// of the head drawn.
     #[allow(clippy::too_many_arguments)]
     fn draw_chant_beat(
         &self,
@@ -1021,15 +1026,13 @@ impl Ctx<'_> {
         x: f64,
         bottom: f64,
         at: BeatRef,
-        head_of: &dyn Fn(usize) -> Option<f64>,
-    ) {
+        system: usize,
+    ) -> Option<f64> {
         let sp = self.sp;
-        let Some((ei, is_head)) = view.at(bi, i).filter(|_| vi == 0) else {
-            return;
-        };
+        let (ei, is_head) = view.at(bi, i).filter(|_| vi == 0)?;
         let event = &view.events[ei];
         let y_of = |pos: i32| bottom - (pos - 3) as f64 * sp / 2.0;
-        let cx = x + self.nh_width / 2.0;
+        let mut head_x = None;
         if is_head {
             let note = &view.notes[ei];
             let (w, h) = (0.95 * sp, 0.8 * sp);
@@ -1037,34 +1040,34 @@ impl Ctx<'_> {
             let has = |m: &str| note.mods.iter().any(|x| x == m);
             let small = has("~") || note.initio_debilis;
             let (w, h) = if small { (w * 0.7, h * 0.7) } else { (w, h) };
-            // The slanted stroke to the next note of the neume, in the same bar.
-            if let Some((n, k, len)) = view.neume_of(ei) {
-                let next = view.neumes[n].get(k + 1).filter(|_| k + 1 < len);
-                if let Some(&nx) = next {
-                    let ne = &view.events[nx];
-                    if ne.bar == bi {
-                        if let Some(hx) = head_of(ne.beat) {
-                            let ny = y_of(view.notes[nx].pitch as i32);
-                            neume::fill(
-                                page,
-                                neume::link(
-                                    cx + w / 2.0 - 0.1 * sp,
-                                    y,
-                                    hx - w / 2.0 + 0.1 * sp,
-                                    ny,
-                                    0.4 * sp,
-                                ),
-                            );
-                        }
-                    }
+            let neume = view.neume_of(ei);
+            // Packed after the neume's previous note if that was drawn in this system.
+            let prev = neume
+                .filter(|&(_, k, _)| k > 0)
+                .map(|(n, k, _)| view.neumes[n][k - 1]);
+            let tail = self.chant_tail.get();
+            let linked = tail.filter(|t| Some(t.0) == prev && t.3 == system);
+            let cx = match linked {
+                Some((_, tx, ty, _)) => {
+                    let cx = tx + 1.2 * w;
+                    neume::fill(page, neume::joint(tx + 0.6 * w, ty, y, 0.16 * sp));
+                    cx
                 }
-            }
+                None => x + self.nh_width / 2.0,
+            };
+            self.chant_tail.set(Some((ei, cx, y, system)));
+            head_x = Some(cx);
+            // The lower note of a pes is nearly square.
+            let rises = neume
+                .filter(|&(_, k, _)| k == 0)
+                .and_then(|(n, _, _)| view.neumes[n].get(1))
+                .is_some_and(|&nx| view.notes[nx].pitch > note.pitch);
             neume::fill(
                 page,
                 if note.inclinatum {
                     neume::inclinatum(cx, y, w, h * 1.1)
                 } else {
-                    neume::punctum(cx, y, w, h)
+                    neume::punctum(cx, y, w, h, rises)
                 },
             );
             page.mark_last(MarkKind::Body, at, event.string, self.staff_index);
@@ -1077,7 +1080,7 @@ impl Ctx<'_> {
             }
             if note.mora() > 0 {
                 page.items.push(Item::Path {
-                    path: Circle::new((cx + w / 2.0 + 0.4 * sp, y), 0.15 * sp).to_path(0.05),
+                    path: Circle::new((cx + w / 2.0 + 0.5 * sp, y), 0.25 * sp).to_path(0.05),
                     color: Color::BLACK,
                     stroke: None,
                 });
@@ -1103,9 +1106,12 @@ impl Ctx<'_> {
         }
         if event.last_beat() == (bi, i) {
             if let Some(d) = &event.division {
-                self.draw_chant_division(page, d, x + self.nh_width + 0.6 * sp, bottom);
+                let after = self.chant_tail.get().map_or(0.0, |t| t.1 + 1.5 * sp);
+                let dx = (x + self.nh_width + 0.6 * sp).max(after);
+                self.draw_chant_division(page, d, dx, bottom);
             }
         }
+        head_x
     }
 
     /// A division after a note: a virgula or short stroke, a longer one, a full bar, or a double.
@@ -1558,6 +1564,7 @@ impl Ctx<'_> {
         placed: &mut HashMap<(usize, usize, usize, u8), Placed>,
     ) -> f64 {
         let sp = self.sp;
+        self.chant_tail.set(None);
         let (std_rel, tab_rel, _) = self.metrics();
         let std_top = top + std_rel;
         let std_bottom = std_top + 4.0 * sp;
@@ -1655,6 +1662,18 @@ impl Ctx<'_> {
             );
             x += w;
         }
+        // A custos at the end of a chant staff shows where the next system begins.
+        if let (Some(view), Some(&last)) = (
+            self.chant.as_ref().and_then(|c| c.view.as_ref()),
+            bars.last(),
+        ) {
+            if let Some(next) = view.events.iter().position(|e| e.bar > last) {
+                let pos = view.notes[next].pitch as i32;
+                let y = std_bottom - (pos - 3) as f64 * sp / 2.0;
+                let middle = 6;
+                neume::fill(page, neume::custos(x1 - 1.3 * sp, y, sp, pos > middle));
+            }
+        }
         x1
     }
 
@@ -1708,9 +1727,10 @@ impl Ctx<'_> {
         let top = staves.first().map_or(std_top, |s| s.0);
         let bottom = staves.last().map_or(std_bottom, |s| s.1);
 
-        // Barlines and repeats.
+        // Barlines and repeats (a chant staff has only its divisions).
         let end = x + width;
-        for &(a, b) in &staves {
+        let staves_for_bars: &[(f64, f64)] = if self.chant.is_some() { &[] } else { &staves };
+        for &(a, b) in staves_for_bars {
             if mb.repeat_end.is_some() {
                 page.line((end - 0.8 * sp, a), (end - 0.8 * sp, b), 0.16 * sp);
                 page.rect(Rect::new(end - 0.5 * sp, a, end, b), Color::BLACK);
@@ -1737,7 +1757,7 @@ impl Ctx<'_> {
             );
         }
         if bi + 1 == self.score.master_bars.len() && mb.repeat_end.is_none() {
-            for &(a, b) in &staves {
+            for &(a, b) in staves_for_bars {
                 page.rect(Rect::new(end - 0.5 * sp, a, end, b), Color::BLACK);
                 page.line((end - 1.0 * sp, a), (end - 1.0 * sp, b), 0.16 * sp);
             }
@@ -2048,22 +2068,20 @@ impl Ctx<'_> {
                 // Standard notation.
                 let mut chord: Option<(Vec<f64>, bool)> = None;
                 if let Some(view) = self.chant.as_ref().and_then(|c| c.view.as_ref()) {
-                    let head_of = |k: usize| {
-                        let tick: u32 = voice.beats[..k.min(voice.beats.len())]
-                            .iter()
-                            .map(Beat::ticks)
-                            .sum();
-                        col_x.get(&tick).map(|&(x, _)| x + self.nh_width / 2.0)
-                    };
-                    self.draw_chant_beat(
+                    let system = page_index * 1_000_000 + system;
+                    if let Some(hx) = self.draw_chant_beat(
                         page,
                         view,
                         (bi, vi, i),
                         bx,
                         std_bottom,
                         beat_ref,
-                        &head_of,
-                    );
+                        system,
+                    ) {
+                        if let Some(entry) = layout.beats.get_mut(&beat_ref) {
+                            entry.head = hx;
+                        }
+                    }
                 } else if self.chant.is_some() {
                     // No chant staff to draw (see the message).
                 } else if self.standard {

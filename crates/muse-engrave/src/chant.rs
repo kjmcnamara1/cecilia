@@ -737,15 +737,15 @@ impl Ctx<'_> {
         let n = notes.len();
         if n == 1 {
             let note = notes[0].1;
-            let wd = self.draw_note(page, x, y(note), note, false);
+            let wd = self.draw_note(page, x, y(note), note, false, false);
             self.draw_signs(page, x, wd, note, ymap);
             return (wd, vec![x + wd / 2.0]);
         }
         // Pes: stacked.
         if n == 2 && ups[0] {
             let (a, b) = (notes[0].1, notes[1].1);
-            self.draw_note(page, x, y(a), a, small(0, a));
-            self.draw_note(page, x, y(b), b, small(1, b));
+            self.draw_note(page, x, y(a), a, small(0, a), true);
+            self.draw_note(page, x, y(b), b, small(1, b), false);
             vline(page, x + w - stroke / 2.0, y(a), y(b));
             self.draw_signs(page, x, w, a, ymap);
             self.draw_signs(page, x, w, b, ymap);
@@ -790,7 +790,7 @@ impl Ctx<'_> {
                 // The note after the oblique sits above its end.
                 let third = notes[k + 2].1;
                 let tx = cx + len - w;
-                self.draw_note(page, tx, y(third), third, small(k + 2, third));
+                self.draw_note(page, tx, y(third), third, small(k + 2, third), false);
                 vline(page, cx + len - stroke / 2.0, y2, y(third));
                 centers.push(tx + w / 2.0);
                 self.draw_signs(page, tx, w, third, ymap);
@@ -810,7 +810,14 @@ impl Ctx<'_> {
                     next.max(y(note) + 0.9 * sp),
                 );
             }
-            let wd = self.draw_note(page, cx, y(note), note, small(k, note));
+            let wd = self.draw_note(
+                page,
+                cx,
+                y(note),
+                note,
+                small(k, note),
+                k == 0 && ups.first() == Some(&true),
+            );
             self.draw_signs(page, cx, wd, note, ymap);
             centers.push(cx + wd / 2.0);
             cx += wd;
@@ -820,7 +827,15 @@ impl Ctx<'_> {
     }
 
     /// Draws a note head; returns its width.
-    fn draw_note(&self, page: &mut Page, x: f64, y: f64, n: &ChantNote, small: bool) -> f64 {
+    fn draw_note(
+        &self,
+        page: &mut Page,
+        x: f64,
+        y: f64,
+        n: &ChantNote,
+        small: bool,
+        square: bool,
+    ) -> f64 {
         let sp = self.sp;
         let (w, h) = if small {
             (self.w * 0.6, self.h * 0.6)
@@ -843,7 +858,7 @@ impl Ctx<'_> {
                 color: Color::BLACK,
             })
         };
-        let punctum = |x: f64, w: f64, h: f64| neume::punctum(x + w / 2.0, y, w, h);
+        let punctum = |x: f64, w: f64, h: f64| neume::punctum(x + w / 2.0, y, w, h, square);
         match n.shape() {
             Shape::Inclinatum => {
                 black(page, neume::inclinatum(x + w / 2.0, y, w, h * 1.1));
@@ -951,7 +966,7 @@ impl Ctx<'_> {
             || (p % 2 == 1 && p > self.top_position());
         for d in 0..n.mora() {
             let dy = if on_line { y - sp / 2.0 } else { y };
-            let c = Circle::new((x + w + 0.35 * sp + d as f64 * 0.45 * sp, dy), 0.15 * sp);
+            let c = Circle::new((x + w + 0.4 * sp + d as f64 * 0.65 * sp, dy), 0.24 * sp);
             page.items.push(Item::Path {
                 path: c.to_path(0.05),
                 color: Color::BLACK,
