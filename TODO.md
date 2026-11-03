@@ -12,7 +12,19 @@ Planned work. Finished items move to `CHANGELOG.md` under `[Unreleased]`.
 
 ### Chant
 
-- [ ] Change drawing of neumes to be better looking
+- [ ] Change the drawing of neumes and clef in the chant staff and chant files
+      to be better looking like in this screenshot. i wan't the neumes to look less blocky.
+- [ ] When i use a-j/k to move into the chant staff, the edit cursor should be
+      able to highlight each position so that I can add/remove/change notes.
+      right now, there is a highlight that goes across all staves.
+- [ ] The representation of chant in the chant staff should match the output
+      from the moder-to-chant command. including clivis, pes, bistropha,
+      torculus, porrectus, climacus, etc.
+- [ ] Since gregorian chant can't show chords, help me determine a good means of
+      selecting the melody out of the track if any chords are present. or just fail to
+      generate the chant staff with a message pointing to the illegal notation. Also
+      help me decide how to integrate breath measures. I also want the track to
+      play/sound the same regardless of the notation.
 - [ ] TODO: Deep dive on chant staff representation
 
 ### File Save/Export
