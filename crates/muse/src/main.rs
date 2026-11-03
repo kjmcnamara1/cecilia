@@ -112,8 +112,13 @@ fn main() -> Result<()> {
                 let index = track
                     .saturating_sub(1)
                     .min(score.tracks.len().saturating_sub(1));
-                let r = muse_convert::chant::modern_to_chant(&score, index)
-                    .map_err(anyhow::Error::msg)?;
+                let r = muse_convert::chant::modern_to_chant(
+                    &score,
+                    index,
+                    muse_core::melody::ChordPolicy::parse(&config.file.ui.chant_chords)
+                        .unwrap_or_default(),
+                )
+                .map_err(anyhow::Error::msg)?;
                 std::fs::write(
                     &output,
                     muse_formats::gabc::write(&r.chant, &score.meta.title),

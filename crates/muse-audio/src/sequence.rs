@@ -354,4 +354,69 @@ mod tests {
             .count();
         assert_eq!(ons, 2);
     }
+
+    /// A chant staff only draws the track's notes: playback is the same whichever staves the
+    /// track shows, and a chord still sounds as a chord with one note engraved.
+    #[test]
+    fn playback_ignores_the_staff_kind() {
+        let quarter = Duration::new(DurationValue::Quarter);
+        let mut chord = Beat::rest(quarter);
+        chord.notes = vec![Note::new(0, 3), Note::new(2, 4), Note::new(4, 5)];
+        chord.chant_division = Some(":".into());
+        let mut marked = Beat::rest(quarter);
+        marked.notes = vec![Note::new(1, 2)];
+        marked.notes[0].chant = Some(Box::new(ChantMarks {
+            inclinatum: true,
+            neume_start: true,
+            mods: vec!["v".into(), ".".into()],
+            ..ChantMarks::default()
+        }));
+        let mut tied = Beat::rest(quarter);
+        tied.notes = vec![Note::new(1, 2)];
+        tied.notes[0].tie = true;
+        let beats = vec![chord, marked, Beat::rest(quarter), tied];
+        let build = |staves: Vec<Staff>| {
+            let track = Track {
+                strings: vec![64, 59, 55, 50, 45, 40],
+                staves,
+                bars: vec![
+                    Bar {
+                        voices: vec![Voice {
+                            beats: beats.clone(),
+                        }]
+                    };
+                    2
+                ],
+                ..Track::default()
+            };
+            let score = Score {
+                tempo: 100,
+                master_bars: vec![MasterBar::default(); 2],
+                tracks: vec![track],
+                ..Score::default()
+            };
+            let seq = Sequence::build(&score, &SequenceOptions::default());
+            (score, seq)
+        };
+        let (_, standard) = build(vec![Staff::Standard(Clef::Treble)]);
+        assert!(standard.events.len() >= 10, "the chord's three notes sound");
+        for staves in [
+            vec![Staff::Tab],
+            vec![Staff::Chant],
+            vec![Staff::Standard(Clef::Treble), Staff::Chant, Staff::Tab],
+        ] {
+            let (score, seq) = build(staves);
+            assert_eq!(seq.events, standard.events);
+            assert_eq!(seq.duration, standard.duration);
+            assert_eq!(seq.beats, standard.beats);
+            // Building the chant view for the staff leaves the track alone.
+            let before = score.tracks[0].clone();
+            let _ = muse_core::melody::ChantView::build(
+                &score,
+                &score.tracks[0],
+                muse_core::melody::ChordPolicy::Top,
+            );
+            assert_eq!(score.tracks[0], before);
+        }
+    }
 }

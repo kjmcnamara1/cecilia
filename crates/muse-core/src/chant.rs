@@ -773,6 +773,59 @@ fn duration_of(ticks: u32) -> Duration {
     d
 }
 
+/// Groups a run of notes (no separators) into neumes (ligatures): the pes, clivis, torculus,
+/// porrectus, climacus, scandicus and so on, as every renderer and converter shows them.
+pub fn group_neumes<'a>(run: &[(usize, &'a ChantNote)]) -> Vec<Vec<(usize, &'a ChantNote)>> {
+    let ligates = |n: &ChantNote| matches!(n.shape(), Shape::Punctum) && !n.cavum() && !n.linea();
+    let mut out: Vec<Vec<(usize, &ChantNote)>> = Vec::new();
+    let mut cur: Vec<(usize, &ChantNote)> = Vec::new();
+    for (i, &(k, n)) in run.iter().enumerate() {
+        let extend = match cur.last() {
+            None => false,
+            Some(&(_, prev)) => {
+                let starts_ok = match cur[0].1.shape() {
+                    Shape::Punctum => ligates(cur[0].1) || cur[0].1.initio_debilis,
+                    // A quilisma or square note joins the next, higher note.
+                    Shape::Quilisma | Shape::Quadratum => cur.len() == 1 && n.pitch > prev.pitch,
+                    _ => false,
+                };
+                let dirs: Vec<bool> = cur
+                    .windows(2)
+                    .map(|p| p[1].1.pitch > p[0].1.pitch)
+                    .chain([n.pitch > prev.pitch])
+                    .collect();
+                let pattern_ok = matches!(
+                    dirs.as_slice(),
+                    [_] | [true, false]
+                        | [false, true]
+                        | [true, false, true]
+                        | [false, true, false]
+                );
+                // Scandicus: three rising notes are a punctum and a pes.
+                let scandicus = cur.len() == 1
+                    && n.pitch > prev.pitch
+                    && run
+                        .get(i + 1)
+                        .is_some_and(|&(_, nx)| nx.pitch > n.pitch && ligates(nx));
+                starts_ok
+                    && ligates(n)
+                    && n.pitch != prev.pitch
+                    && pattern_ok
+                    && !scandicus
+                    && (prev.liquescence() == Liquescence::None)
+            }
+        };
+        if !extend && !cur.is_empty() {
+            out.push(std::mem::take(&mut cur));
+        }
+        cur.push((k, n));
+    }
+    if !cur.is_empty() {
+        out.push(cur);
+    }
+    out
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
