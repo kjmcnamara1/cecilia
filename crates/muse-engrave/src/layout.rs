@@ -3708,7 +3708,7 @@ mod tests {
             )
         };
         for staff in [Staff::TabRhythm, Staff::Tab] {
-            let score = make(staff.clone(), (6, 8));
+            let score = make(staff, (6, 8));
             let (top, bottom) = lines(&score);
             let mid = (top + bottom) / 2.0;
             let g = glyphs(&score);
