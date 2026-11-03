@@ -1950,7 +1950,9 @@ impl Ctx<'_> {
                         cx += fonts().advance(FontKind::Music, time_digit(d), 4.0 * sp);
                     }
                 };
-                let half = (b - a) / 4.0;
+                // Standard-size digits close together on the middle (a tab staff's lines are
+                // closer than a standard staff's, so they are not spread over its height).
+                let half = ((b - a) / 4.0).min(sp);
                 draw(page, ts.numerator as u32, mid - half);
                 draw(page, ts.denominator as u32, mid + half);
             }
@@ -2286,6 +2288,22 @@ impl Ctx<'_> {
                         (page_index, system),
                         placed,
                     );
+                }
+                // Rests of a tab+ staff sit in the middle of the strings.
+                if self.rhythm && beat.notes.is_empty() {
+                    let tab_bottom = tab_top + (strings - 1) as f64 * 1.5 * sp;
+                    let mid = (tab_top + tab_bottom) / 2.0;
+                    let glyph = rest_glyph(beat.duration.value);
+                    let r = fonts().bbox(FontKind::Music, glyph, 4.0 * sp);
+                    let gx = bx + self.nh_width / 2.0 - (r.x0 + r.x1) / 2.0;
+                    page.glyph(glyph, (gx, mid - (r.y0 + r.y1) / 2.0), 4.0 * sp);
+                    for d in 0..beat.duration.dots {
+                        page.glyph(
+                            DOT,
+                            (gx + r.x1 + (0.4 + d as f64 * 0.6) * sp, mid - 0.5 * sp),
+                            4.0 * sp,
+                        );
+                    }
                 }
                 // Rhythm below a tab+ staff, beamed by beat like standard notation; rests and
                 // whole notes break the beams.
@@ -3626,6 +3644,102 @@ mod tests {
             .bbox(FontKind::Music, HEAD_BLACK, 4.0 * Options::default().sp)
             .width();
         assert!((fret - (head + nh / 2.0)).abs() < 0.5, "{fret} vs {head}");
+    }
+
+    #[test]
+    fn tab_rests_and_time_signature() {
+        let sp = Options::default().sp;
+        let rest = |dots| {
+            let mut d = Duration::new(DurationValue::Quarter);
+            d.dots = dots;
+            Beat::rest(d)
+        };
+        let note = Beat {
+            duration: Duration::new(DurationValue::Quarter),
+            notes: vec![Note::new(0, 0)],
+            ..Beat::default()
+        };
+        let make = |staff, ts: (u8, u8)| {
+            let mut mb = MasterBar::default();
+            mb.time_signature.numerator = ts.0 as _;
+            mb.time_signature.denominator = ts.1 as _;
+            Score {
+                tempo: 100,
+                master_bars: vec![mb],
+                tracks: vec![Track {
+                    kind: TrackKind::Fretted,
+                    strings: vec![64, 59, 55, 50, 45, 40],
+                    staves: vec![staff],
+                    bars: vec![Bar {
+                        voices: vec![Voice {
+                            beats: vec![note.clone(), rest(1)],
+                        }],
+                    }],
+                    ..Track::default()
+                }],
+                ..Score::default()
+            }
+        };
+        let glyphs = |score: &Score| -> Vec<(char, Point, f64)> {
+            let page = &engrave(score, 0, &Options::default()).pages[0];
+            let mut g = Vec::new();
+            for i in &page.items {
+                if let Item::Glyph { ch, at, size, .. } = i {
+                    g.push((*ch, *at, *size));
+                }
+            }
+            g
+        };
+        let lines = |score: &Score| -> (f64, f64) {
+            let page = &engrave(score, 0, &Options::default()).pages[0];
+            let ys: Vec<f64> = page
+                .items
+                .iter()
+                .filter_map(|i| match i {
+                    Item::Line { from, to, .. } if from.y == to.y && to.x - from.x > 3.0 * sp => {
+                        Some(from.y)
+                    }
+                    _ => None,
+                })
+                .collect();
+            (
+                ys.iter().cloned().fold(f64::MAX, f64::min),
+                ys.iter().cloned().fold(f64::MIN, f64::max),
+            )
+        };
+        for staff in [Staff::TabRhythm, Staff::Tab] {
+            let score = make(staff.clone(), (6, 8));
+            let (top, bottom) = lines(&score);
+            let mid = (top + bottom) / 2.0;
+            let g = glyphs(&score);
+            // The time signature: standard-size digits just above and below the middle line.
+            let six = g.iter().find(|x| x.0 == time_digit(6)).unwrap();
+            let eight = g.iter().find(|x| x.0 == time_digit(8)).unwrap();
+            assert_eq!((six.2, eight.2), (4.0 * sp, 4.0 * sp));
+            assert!(
+                (six.1.y - (mid - sp)).abs() < 0.01,
+                "{staff:?} {} {top} {bottom}",
+                six.1.y
+            );
+            assert!((eight.1.y - (mid + sp)).abs() < 0.01, "{staff:?}");
+            // Only tab+ draws the rest, centred on the strings.
+            let rests: Vec<_> = g
+                .iter()
+                .filter(|x| x.0 == rest_glyph(DurationValue::Quarter))
+                .collect();
+            if staff == Staff::TabRhythm {
+                assert_eq!(rests.len(), 1);
+                let b = fonts().bbox(FontKind::Music, rests[0].0, rests[0].2);
+                let centre = rests[0].1.y + (b.y0 + b.y1) / 2.0;
+                assert!((centre - mid).abs() < 0.01, "{centre} vs {mid}");
+                assert!(g.iter().any(|x| x.0 == DOT));
+            } else {
+                assert!(rests.is_empty());
+            }
+        }
+        // Four-four as well.
+        let g = glyphs(&make(Staff::TabRhythm, (4, 4)));
+        assert_eq!(g.iter().filter(|x| x.0 == time_digit(4)).count(), 2);
     }
 
     #[test]
