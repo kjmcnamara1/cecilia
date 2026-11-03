@@ -115,6 +115,26 @@ transcription is what plays, exports to modern formats and carries the cursor; e
 (pitch changes, deletions, insertions) are reconciled back into the chant, adding flats or
 naturals where needed.
 
+**Chant staff on ordinary tracks.** Any track can show a chant staff (`:staff chant`). It is a
+view: the track's notes are never changed and playback (which plays every note of the track,
+chords included) does not depend on which staves are shown. The view is built in `muse-core`
+(`melody::ChantView`) and is exactly what `modern-to-chant` converts, so both agree:
+
+- Only the first voice is read. Chant is monophonic, so a chord shows one note, chosen by
+  `ui.chant_chords`: `top` (default, the highest note: a "skyline"), `bottom`, or `error`. Under
+  `error`, or whenever a melody cannot be chosen, no chant staff is drawn: a message
+  ("Chant staff: chord at bar 12 beat 3 — chant is monophonic") takes its place and appears in the
+  status line, and `:modern-to-chant` refuses.
+- Syllables start at each lyric (at each quarter note when there are none); notes in a syllable
+  form neumes by contour (`muse_core::chant::group_neumes`, shared with the GABC engraver), and a
+  note marked `neume_start` always starts a new one. Tied beats extend the note before them.
+- The melody is moved by the same shift to the white-key scale (B♭ allowed) and clef as
+  `modern-to-chant`; a note longer than the typical one gets a mora.
+- Breath and phrase marks become divisions: a rest shorter than a quarter note is a divisio
+  minima (`,`), a quarter or longer a divisio maior (`:`), a double bar a divisio maior (`:`), and
+  the end of the track a finalis (`::`). A division set on a beat (`:chant-bar`; `,` `;` `:` `::`)
+  overrides the rest or bar rule. The model has no separate breath or fermata marks.
+
 ## 5. File formats (`muse-formats`)
 
 | format | read | write | status / notes |

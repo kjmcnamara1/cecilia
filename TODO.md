@@ -12,8 +12,6 @@ Planned work. Finished items move to `CHANGELOG.md` under `[Unreleased]`.
 
 ### Chant
 
-- [ ] Change drawing of neumes to be better looking
-- [ ] TODO: Deep dive on chant staff representation
 
 ### File Save/Export
 

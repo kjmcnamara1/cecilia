@@ -7,6 +7,27 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- `ui.chant_chords` (`top` default, `bottom`, `error`): which note of a chord the chant staff of
+  an ordinary track shows, since chant is monophonic. With `error` no chant staff is drawn: it
+  shows, and the status line says, where the first chord is ("Chant staff: chord at bar 12 beat 3
+  — chant is monophonic"). `:modern-to-chant` follows the same setting.
+- The chant staff of an ordinary track shows the neumes `:modern-to-chant` produces: notes are
+  grouped into syllables (lyrics, or quarter notes) and neumes (pes, clivis, torculus, porrectus,
+  climacus, scandicus …) by shared code in `muse-core`, joined by slanted strokes, with the same
+  clef and transposition, mora on long notes and divisions after rests (a rest of a quarter or
+  more is `:`, a shorter one `,`), double bars (`:`) and the end (`::`). A beat's own chant
+  division wins over those. `neume_start` marks still force a new neume.
+- A test checks that playback is the same whichever staves a track shows.
+
+### Changed
+
+- Square notation is drawn smoother: rounded, slightly sloped note heads and diamonds, proper C
+  and F clefs, a curved custos, and a red initial.
+- The edit cursor on a chant staff is a single square on the note position of that staff, not a
+  column across all staves; `<A-j>` / `<A-k>` onto a chant staff land on the beat's note.
+
 ## [0.10.1] - 2026-10-31
 
 ### Fixed

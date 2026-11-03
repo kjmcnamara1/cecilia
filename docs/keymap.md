@@ -42,7 +42,7 @@ only be used in the GUI there, and `<D-…>` bindings never fire.
 | ------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------- | ------ |
 | `h` / `l`                 | previous / next beat                                                                                                                                     | _(M1)_ |
 | `j` / `k`                 | next / previous row on the cursor's staff: tab strings, or staff lines and spaces, with four ledger-line positions beyond the staff's edges to place extra notes. With `ui.jk_moves_between_staves = true` they go on into the next / previous staff instead (`:string-down`, `:string-up`) | _(M1)_ |
-| `<A-j>` / `<A-k>`         | cursor to the next / previous staff of the part (`:staff-next`, `:staff-prev`) | |
+| `<A-j>` / `<A-k>`         | cursor to the next / previous staff of the part (`:staff-next`, `:staff-prev`). Onto a chant staff it lands on the position of the beat's note, and the cursor there is a square on that one position of that staff only | |
 | `w` / `b`                 | next / previous beat with notes                                                                                                                          | _(M1)_ |
 | `}` / `{`                 | next / previous bar                                                                                                                                      | _(M1)_ |
 | `0` / `$`                 | first / last beat of bar                                                                                                                                 | _(M1)_ |
@@ -421,9 +421,11 @@ the staff they go on to the tab below or the next staff):
 
 On a **slash** staff: `/` puts a slash on the beat (`:slash`); `t` tie, `>` accent.
 
-On **chant**, the cursor is on a note. On a chant track (opened from GABC) these edit the chant
+On **chant**, the cursor is on a note: a single square on that position of the chant staff. On a chant track (opened from GABC) these edit the chant
 itself; on any other track they edit the track's notes (shown on its other staves too) and keep
-the chant signs with them, the syllables coming from its lyrics:
+the chant signs with them, the syllables coming from its lyrics. Chant is monophonic, so with a
+chord the staff shows and edits one note of it (`ui.chant_chords`: the top note by default, or the
+bottom one; `error` refuses chords and the status line names the first one):
 
 | keys                                      | command                                                                         |
 | ----------------------------------------- | ------------------------------------------------------------------------------- |

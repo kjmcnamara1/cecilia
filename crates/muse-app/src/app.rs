@@ -1800,6 +1800,45 @@ impl App {
             return self.answer_close(buffer, key);
         }
         self.dispatch_key(key);
+        self.chant_staff_notice();
+    }
+
+    /// The chord policy of chant staves of ordinary tracks (`ui.chant_chords`).
+    pub fn chord_policy(&self) -> muse_core::melody::ChordPolicy {
+        muse_core::melody::ChordPolicy::parse(&self.config.file.ui.chant_chords).unwrap_or_default()
+    }
+
+    /// Why the cursor track's chant staff is not drawn: the chord the `error` policy refuses.
+    pub fn chant_staff_problem(&self) -> Option<String> {
+        let track = self.buffer().score.tracks.get(self.pane().cursor.track)?;
+        if track.chant.is_some() || !track.staves().contains(&Staff::Chant) {
+            return None;
+        }
+        muse_core::melody::ChantView::build(&self.buffer().score, track, self.chord_policy())
+            .err()
+            .map(|e| e.to_string())
+    }
+
+    /// Reports a chant staff that cannot be shown: with the cursor on it, over any message but
+    /// an error; elsewhere only when nothing else has been said.
+    fn chant_staff_notice(&mut self) {
+        let on_chant = self
+            .buffer()
+            .score
+            .tracks
+            .get(self.pane().cursor.track)
+            .is_some_and(|t| {
+                t.staves().get(staff_index(t, self.pane().cursor.staff)) == Some(&Staff::Chant)
+            });
+        let blocked = match &self.message {
+            Some(m) => m.error || !on_chant,
+            None => false,
+        };
+        if !blocked {
+            if let Some(problem) = self.chant_staff_problem() {
+                self.error(problem);
+            }
+        }
     }
 
     /// Shows the save prompt for a buffer and waits for the answer.
@@ -2089,7 +2128,8 @@ impl App {
             }
             StaffNext | StaffPrev => {
                 let forward = cmd == StaffNext;
-                self.move_cursor(|s, c| move_staff(s, c, forward));
+                let policy = self.chord_policy();
+                self.move_cursor(|s, c| move_staff(s, c, forward, policy));
             }
             BarNext => self.move_cursor(|s, c| set_bar(s, c, c.bar + 1)),
             BarPrev => self.move_cursor(|s, c| set_bar(s, c, c.bar.saturating_sub(1))),
@@ -2991,7 +3031,12 @@ fn own_rows(score: &Score, c: &Cursor) -> Vec<Row> {
 }
 
 /// The cursor to the next or previous staff of its track (it stops at the first and last).
-fn move_staff(score: &Score, c: &mut Cursor, forward: bool) {
+fn move_staff(
+    score: &Score,
+    c: &mut Cursor,
+    forward: bool,
+    policy: muse_core::melody::ChordPolicy,
+) {
     let Some(track) = score.tracks.get(c.track) else {
         return;
     };
@@ -3008,6 +3053,19 @@ fn move_staff(score: &Score, c: &mut Cursor, forward: bool) {
         let shown = staff_rows(score, c, track, to, staves[to]);
         if !shown.contains(&Row::Line(to, c.line)) {
             c.line = staff_middle(track, staves[to]);
+        }
+    }
+    // Onto a chant staff the cursor goes to the position of the beat's note.
+    if to != here && staves[to] == Staff::Chant && track.chant.is_none() {
+        let note = beats(score, c).get(c.beat).and_then(|b| {
+            let n = &b.notes[muse_core::melody::pick(track, b, policy)?];
+            Some(track.pitch_of(n))
+        });
+        if let (Some(p), Ok(v)) = (
+            note,
+            muse_core::melody::ChantView::build(score, track, policy),
+        ) {
+            c.line = v.clef.place(p, v.shift).0.clamp(0, 13);
         }
     }
 }
@@ -3202,6 +3260,67 @@ pub(crate) mod tests {
             app.pane_mut().cursor.beat = 0;
             assert_eq!(app.linked_note(app.pane()).map(|n| n.staff), Some(1));
         }
+    }
+
+    #[test]
+    fn chant_staff_follows_the_chord_policy() {
+        let mut app = test_app();
+        // A chord on the second beat of bar 2, and a chant staff to show it on.
+        let t = &mut app.buffers[0].score.tracks[0];
+        t.bars[1].voices[0].beats[1].notes = vec![Note::new(0, 3), Note::new(2, 5)];
+        t.staves = vec![Staff::Tab, Staff::Chant];
+        // The default skyline policy shows a chant staff: the highest note.
+        keys(&mut app, "<A-j>");
+        assert_eq!(app.chant_staff_problem(), None);
+        let (score, track) = (&app.buffers[0].score, &app.buffers[0].score.tracks[0]);
+        let top = muse_core::melody::ChantView::build(score, track, Default::default()).unwrap();
+        let chord = &track.bars[1].voices[0].beats[1].notes;
+        let high = chord.iter().map(|n| track.pitch_of(n)).max();
+        let low = chord.iter().map(|n| track.pitch_of(n)).min();
+        assert_ne!(high, low);
+        let picked = top
+            .events
+            .iter()
+            .find(|e| (e.bar, e.beat) == (1, 1))
+            .unwrap();
+        assert_eq!(Some(picked.pitch), high);
+        let bottom = muse_core::melody::ChantView::build(
+            score,
+            track,
+            muse_core::melody::ChordPolicy::Bottom,
+        )
+        .unwrap();
+        let picked = bottom
+            .events
+            .iter()
+            .find(|e| (e.bar, e.beat) == (1, 1))
+            .unwrap();
+        assert_eq!(Some(picked.pitch), low);
+        // The error policy names the chord instead.
+        app.config.file.ui.chant_chords = "error".into();
+        app.message = None;
+        keys(&mut app, "<A-k>");
+        let message = app.message.clone().expect("a message");
+        assert!(message.error);
+        assert!(message.text.contains("bar 2 beat 2"), "{}", message.text);
+        assert!(message.text.contains("monophonic"));
+        // A track without chords is fine whatever the policy.
+        app.buffers[0].score.tracks[0].bars[1].voices[0].beats[1]
+            .notes
+            .truncate(1);
+        assert_eq!(app.chant_staff_problem(), None);
+    }
+
+    #[test]
+    fn entering_a_chant_staff_lands_on_the_beats_note() {
+        let mut app = test_app();
+        app.buffers[0].score.tracks[0].staves = vec![Staff::Tab, Staff::Chant];
+        keys(&mut app, "<A-j>");
+        let c = app.pane().cursor;
+        let (score, track) = (&app.buffers[0].score, &app.buffers[0].score.tracks[0]);
+        let v = muse_core::melody::ChantView::build(score, track, Default::default()).unwrap();
+        assert_eq!(c.staff, 1);
+        assert_eq!(c.line, v.notes[0].pitch as i32);
     }
 
     #[test]
