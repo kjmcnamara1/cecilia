@@ -499,6 +499,8 @@ pub struct App {
     pub completion_ignore_case: bool,
     /// Command-line completion is fuzzy (`ui.completion_fuzzy`).
     pub completion_fuzzy: bool,
+    /// Every bar is numbered, not just the first of each line (`ui.bar_numbers`).
+    pub every_bar_number: bool,
     /// The toolbar is shown (`ui.toolbar`, `:toolbar`).
     pub toolbar: bool,
     /// Score panes show the progress bar along their bottom (`ui.progress_bar`,
@@ -567,6 +569,7 @@ impl App {
         let follow = config.file.ui.follow_playback;
         let completion_ignore_case = config.file.ui.completion_ignore_case;
         let completion_fuzzy = config.file.ui.completion_fuzzy;
+        let every_bar_number = config.file.ui.bar_numbers == "every";
         let toolbar = config.file.ui.toolbar;
         let progress_bar = config.file.ui.progress_bar;
         let scrollbar = config.file.ui.scrollbar;
@@ -636,6 +639,7 @@ impl App {
             seeked: None,
             completion_ignore_case,
             completion_fuzzy,
+            every_bar_number,
             toolbar,
             progress_bar,
             scrollbar,
@@ -1782,6 +1786,7 @@ impl App {
                 self.follow = self.config.file.ui.follow_playback;
                 self.completion_ignore_case = self.config.file.ui.completion_ignore_case;
                 self.completion_fuzzy = self.config.file.ui.completion_fuzzy;
+                self.every_bar_number = self.config.file.ui.bar_numbers == "every";
                 self.effects.push(Effect::ConfigReloaded);
                 if errors.is_empty() {
                     self.info(format!("config reloaded: {}", path.display()));
@@ -2224,6 +2229,14 @@ impl App {
                 self.effects.push(Effect::Pause);
             }
             Pick(kind) => self.open_picker(kind),
+            BarNumbers(every) => {
+                self.every_bar_number = every.unwrap_or(!self.every_bar_number);
+                self.info(if self.every_bar_number {
+                    "bar numbers: every bar"
+                } else {
+                    "bar numbers: first bar of each line"
+                });
+            }
             CompletionFuzzy(on) => {
                 self.completion_fuzzy = on.unwrap_or(!self.completion_fuzzy);
                 self.completion = None;
@@ -4203,5 +4216,25 @@ pub(crate) mod tests {
         app.pane_mut().cursor.bar = 2;
         app.run(Command::PageDown);
         assert_eq!(app.pane().cursor.bar, 4);
+    }
+
+    #[test]
+    fn bar_numbers_setting_and_command() {
+        let mut app = App::new(Config::default(), None);
+        assert!(!app.every_bar_number);
+        app.run(Command::parse("bar-numbers every").unwrap());
+        assert!(app.every_bar_number);
+        app.run(Command::parse("bar-numbers toggle").unwrap());
+        assert!(!app.every_bar_number);
+        app.run(Command::parse("bar-numbers").unwrap());
+        assert!(app.every_bar_number);
+        app.run(Command::parse("bar-numbers system").unwrap());
+        assert!(!app.every_bar_number);
+        assert!(Command::parse("bar-numbers sometimes").is_err());
+        let (config, errors) = Config::parse("[ui]\nbar_numbers = \"every\"\n").unwrap();
+        assert!(errors.is_empty());
+        assert!(App::new(config, None).every_bar_number);
+        let (_, errors) = Config::parse("[ui]\nbar_numbers = \"odd\"\n").unwrap();
+        assert!(errors[0].contains("ui.bar_numbers"), "{errors:?}");
     }
 }

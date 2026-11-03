@@ -32,6 +32,8 @@ pub struct Options {
     pub chant: bool,
     /// Which note of a chord a chant staff shows.
     pub chords: muse_core::melody::ChordPolicy,
+    /// Number every bar, not just the first of each system.
+    pub every_bar_number: bool,
 }
 
 impl Default for Options {
@@ -48,6 +50,7 @@ impl Default for Options {
             margin: 40.0,
             chant: true,
             chords: Default::default(),
+            every_bar_number: false,
         }
     }
 }
@@ -323,6 +326,10 @@ struct Ctx<'a> {
     above: std::cell::Cell<f64>,
     /// Baseline of the lowest line of lyrics above the staff, from the system's top.
     lyric_rel: std::cell::Cell<f64>,
+    /// Baseline of the first verse of lyrics under the staff, and the bottom of the last, from
+    /// the system's top.
+    lyric_below: std::cell::Cell<f64>,
+    below_bottom: std::cell::Cell<f64>,
     /// Top of the system being drawn.
     origin: std::cell::Cell<f64>,
     /// Measuring the system on a scratch page: lyrics above the staff are left out.
@@ -735,6 +742,8 @@ fn make_ctx<'a>(
         above: Default::default(),
         lyric_rel: Default::default(),
         origin: Default::default(),
+        lyric_below: Default::default(),
+        below_bottom: Default::default(),
         measuring: Default::default(),
         lyric_spans: Default::default(),
         lyric_end: Default::default(),
@@ -979,6 +988,58 @@ const MARKER_ZONE: f64 = 3.2;
 /// Clear space between lyrics above a staff and what is under them (staff spaces).
 const LYRIC_GAP: f64 = 0.9;
 
+/// The lowest point of the items that stand over any of the horizontal `spans`.
+fn lowest_under(items: &[Item], spans: &[(f64, f64)], sp: f64) -> f64 {
+    let reaches = |x0: f64, x1: f64| {
+        spans
+            .iter()
+            .any(|&(a, b)| x0 < b + 0.3 * sp && x1 > a - 0.3 * sp)
+    };
+    let mut low = f64::MIN;
+    for item in items {
+        let (x0, x1, y) = match item {
+            Item::Line {
+                from, to, width, ..
+            } => (
+                from.x.min(to.x),
+                from.x.max(to.x),
+                from.y.max(to.y) + width / 2.0,
+            ),
+            Item::Rect { rect, .. } => (rect.x0, rect.x1, rect.y1),
+            Item::Path { path, stroke, .. } => {
+                let b = path.bounding_box();
+                (b.x0, b.x1, b.y1 + stroke.map_or(0.0, |w| w / 2.0))
+            }
+            Item::Glyph {
+                font, ch, at, size, ..
+            } => {
+                let b = fonts().bbox(*font, *ch, *size);
+                (at.x + b.x0, at.x + b.x1, at.y + b.y1)
+            }
+            Item::Text {
+                font,
+                text,
+                at,
+                size,
+                align,
+                ..
+            } => {
+                let w = fonts().text_width(*font, text, *size);
+                let x0 = match align {
+                    Align::Left => at.x,
+                    Align::Center => at.x - w / 2.0,
+                    Align::Right => at.x - w,
+                };
+                (x0, x0 + w, at.y + 0.3 * size)
+            }
+        };
+        if reaches(x0, x1) {
+            low = low.max(y);
+        }
+    }
+    low
+}
+
 /// The highest point of the items that stand over any of the horizontal `spans`. Only what is
 /// over a syllable counts: a tempo mark at the bar's start does not push lyrics up elsewhere.
 fn highest_over(items: &[Item], spans: &[(f64, f64)], sp: f64, floor: f64) -> (f64, bool) {
@@ -1052,7 +1113,8 @@ impl Ctx<'_> {
         layout: &Layout,
     ) {
         self.above.set(0.0);
-        if self.lyrics_above == 0 {
+        self.below_bottom.set(0.0);
+        if self.lyrics_above == 0 && self.lyrics == 0 {
             return;
         }
         let sp = self.sp;
@@ -1078,7 +1140,24 @@ impl Ctx<'_> {
         );
         self.measuring.set(false);
         self.syllables.borrow_mut().truncate(syllables);
-        self.wedges.borrow_mut().truncate(wedges);
+        // Hairpins are drawn after the system: they count as lines where they will be.
+        let drawn: Vec<Wedge> = self.wedges.borrow_mut().drain(wedges..).collect();
+        for w in &drawn {
+            for dy in [-0.7 * sp, 0.7 * sp] {
+                page.line((w.4, w.6 + dy), (w.5, w.6 + dy), 0.12 * sp);
+            }
+        }
+        if self.lyrics_above == 0 {
+            // Under the staff: clear of whatever hangs below it (low notes and ledger lines,
+            // stems, dynamics, hairpins), at least a little below the staff itself.
+            let low =
+                lowest_under(&page.items, &self.lyric_spans.take(), sp).max(self.staff_span(0.0).1);
+            let first = low + LYRIC_GAP * sp + 1.4 * sp;
+            self.lyric_below.set(first);
+            self.below_bottom
+                .set(first + (self.lyrics - 1) as f64 * 1.8 * sp + 0.6 * sp);
+            return;
+        }
         // The section marker and tempo are drawn in a zone at the very top of the system, above
         // the room for lyrics; lyrics go between it and the notation, never above it.
         let zone = if self.first_staff {
@@ -1399,8 +1478,6 @@ impl Ctx<'_> {
         // Room above the top staff for markers, tempo and chord names; a further staff of the
         // track sits closer.
         let top = if self.first_staff { 10.0 } else { 3.0 } * sp + self.above.get();
-        let lyric_space =
-            self.lyrics as f64 * 1.8 * sp + if self.lyrics > 0 { 1.5 * sp } else { 0.0 };
         let staff = if self.tab {
             (self.track.strings.len().max(1) - 1) as f64 * 1.5 * sp
                 + if self.rhythm { 6.0 * sp } else { 0.0 }
@@ -1413,11 +1490,14 @@ impl Ctx<'_> {
         } else {
             0.0
         };
-        (
-            top,
-            top,
-            top + staff + lyric_space + below + dynamics + self.extra.get(),
-        )
+        let height = top + staff + below + dynamics + self.extra.get();
+        // Lyrics under the staff take the room their measured place needs.
+        let lyric_space = if self.lyrics > 0 {
+            (self.below_bottom.get() + sp - height).max(0.0)
+        } else {
+            0.0
+        };
+        (top, top, height + lyric_space)
     }
 
     fn header_width(&self) -> f64 {
@@ -1531,46 +1611,26 @@ impl Ctx<'_> {
         })
     }
 
-    /// Centre line of dynamics and hairpins: below the bottom staff, clear of the rhythm stems
-    /// under a lone tab staff and of lyrics.
-    /// Baseline of the first verse of lyrics: under the staff (and a tab+ staff's stems).
-    fn lyrics_top(&self, std_bottom: f64, tab_top: f64) -> f64 {
-        let sp = self.sp;
-        if self.tab {
-            let tab_bottom = tab_top + (self.track.strings.len().max(1) - 1) as f64 * 1.5 * sp;
-            tab_bottom + if self.rhythm { 8.0 } else { 3.0 } * sp
-        } else {
-            std_bottom + 5.0 * sp
-        }
-    }
-
     /// Baseline of verse `li` of lyrics: under the staff, or above it (and above the chord names
     /// of the top staff).
-    fn lyric_y(&self, li: usize, std_bottom: f64, tab_top: f64) -> f64 {
+    fn lyric_y(&self, li: usize) -> f64 {
         let sp = self.sp;
         if self.lyrics_above == 0 {
-            return self.lyrics_top(std_bottom, tab_top) + li as f64 * 1.8 * sp;
+            return self.origin.get() + self.lyric_below.get() + li as f64 * 1.8 * sp;
         }
         self.origin.get() + self.lyric_rel.get() - (self.lyrics_above - 1 - li) as f64 * 1.8 * sp
     }
 
     /// Draws the verses of lyrics of a beat, centred on `cx`.
-    fn draw_syllables(
-        &self,
-        page: &mut Page,
-        verses: &[String],
-        cx: f64,
-        (std_bottom, tab_top): (f64, f64),
-        page_index: usize,
-    ) {
+    fn draw_syllables(&self, page: &mut Page, verses: &[String], cx: f64, page_index: usize) {
         let sp = self.sp;
-        let measuring = self.measuring.get() && self.lyrics_above > 0;
+        let measuring = self.measuring.get();
         for (li, syl) in verses.iter().enumerate() {
             // A trailing hyphen is drawn between this syllable and the next.
             let continues = syl.ends_with('-');
             let text = syl.trim_end_matches('-');
             if !text.is_empty() {
-                let y = self.lyric_y(li, std_bottom, tab_top);
+                let y = self.lyric_y(li);
                 let w = fonts().text_width(FontKind::Text, text, 1.9 * sp);
                 // Syllables taken from another track's rhythm can fall on the same column or
                 // too close: each starts clear of the one before it in its verse, with room
@@ -1608,15 +1668,15 @@ impl Ctx<'_> {
         }
     }
 
+    /// Centre line of dynamics and hairpins: just under the bottom staff, clear of the rhythm
+    /// stems under a tab+ staff. Lyrics go outside them.
     fn dynamics_y(&self, std_bottom: f64, tab_top: f64) -> f64 {
         let sp = self.sp;
         if self.tab {
             let tab_bottom = tab_top + (self.track.strings.len().max(1) - 1) as f64 * 1.5 * sp;
             tab_bottom + if self.rhythm { 7.5 } else { 3.0 } * sp
         } else {
-            let lyrics =
-                self.lyrics as f64 * 1.8 * sp + if self.lyrics > 0 { 1.5 * sp } else { 0.0 };
-            std_bottom + lyrics + 3.0 * sp
+            std_bottom + 3.0 * sp
         }
     }
 
@@ -1928,7 +1988,7 @@ impl Ctx<'_> {
             page.glyph(TAB_CLEF, (x0 + 0.8 * sp, mid - (b.y0 + b.y1) / 2.0), size);
         }
         // Bar number above the first bar.
-        if self.first_staff && (system_index > 0 || first_bar > 0) {
+        if self.first_staff && (system_index > 0 || first_bar > 0 || self.o.every_bar_number) {
             page.text(
                 FontKind::Italic,
                 format!("{}", first_bar + 1),
@@ -1942,6 +2002,16 @@ impl Ctx<'_> {
         for &bi in bars {
             let plan = &plans[bi];
             let w = plan.natural * stretch;
+            // Every bar numbered: those after the first of the system, just past the barline.
+            if self.first_staff && self.o.every_bar_number && x > x0 + header {
+                page.text(
+                    FontKind::Italic,
+                    format!("{}", bi + 1),
+                    (x + 0.4 * sp, first_top - 1.4 * sp),
+                    1.8 * sp,
+                    Align::Left,
+                );
+            }
             layout.bars[bi] = (page_index, x, x + w);
             self.draw_measure(
                 page,
@@ -2275,13 +2345,7 @@ impl Ctx<'_> {
                         .map(|(_, v)| *v)
                 });
                 if let Some((bx, _)) = col {
-                    self.draw_syllables(
-                        page,
-                        &beat.lyrics,
-                        bx + self.nh_width / 2.0,
-                        (std_bottom, tab_top),
-                        page_index,
-                    );
+                    self.draw_syllables(page, &beat.lyrics, bx + self.nh_width / 2.0, page_index);
                 }
             }
         }
@@ -2565,7 +2629,6 @@ impl Ctx<'_> {
                             page,
                             &beat.lyrics,
                             bx + self.nh_width / 2.0,
-                            (std_bottom, tab_top),
                             page_index,
                         );
                     }
@@ -4670,5 +4733,140 @@ mod tests {
             "marker {marker_bottom}, lyrics {lyric}"
         );
         assert!(lyric < chord_top, "lyrics over the chord names");
+    }
+
+    /// Lyrics under a staff keep clear of the dynamics there, own or attached, on every kind of
+    /// staff; dynamics sit nearest the staff.
+    #[test]
+    fn lyrics_below_clear_dynamics() {
+        let sp = Options::default().sp;
+        let beat = |velocity: u8| {
+            let mut note = Note::new(2, 5);
+            note.velocity = velocity;
+            Beat {
+                duration: Duration::new(DurationValue::Quarter),
+                notes: vec![note],
+                lyrics: vec!["White".into()],
+                ..Beat::default()
+            }
+        };
+        for staff in [
+            Staff::Tab,
+            Staff::TabRhythm,
+            Staff::Standard(muse_core::Clef::Treble),
+            Staff::Slash,
+        ] {
+            for attached in [false, true] {
+                let mut track = Track {
+                    kind: TrackKind::Fretted,
+                    strings: vec![64, 59, 55, 50, 45, 40],
+                    staves: vec![staff],
+                    bars: vec![Bar {
+                        voices: vec![Voice {
+                            beats: vec![beat(80), beat(80), beat(100)],
+                        }],
+                    }],
+                    ..Track::default()
+                };
+                if attached {
+                    track.set_staff_lyrics(
+                        0,
+                        Some(muse_core::StaffLyrics {
+                            track: None,
+                            above: false,
+                        }),
+                    );
+                }
+                let score = Score {
+                    tempo: 100,
+                    master_bars: vec![MasterBar::default()],
+                    tracks: vec![track],
+                    ..Score::default()
+                };
+                let options = Options {
+                    header: false,
+                    ..Options::default()
+                };
+                let page = &engrave(&score, 0, &options).pages[0];
+                let mut dynamic_bottom = f64::MIN;
+                let mut lyric_top = f64::MAX;
+                for item in &page.items {
+                    match item {
+                        Item::Glyph {
+                            font: FontKind::Music,
+                            ch: '\u{E520}'..='\u{E522}',
+                            at,
+                            size,
+                            ..
+                        } => {
+                            dynamic_bottom = dynamic_bottom
+                                .max(at.y + fonts().bbox(FontKind::Music, '\u{E520}', *size).y1)
+                        }
+                        Item::Text { text, at, size, .. } if text == "White" => {
+                            lyric_top = lyric_top.min(at.y - 0.75 * size)
+                        }
+                        _ => {}
+                    }
+                }
+                assert!(dynamic_bottom > f64::MIN, "a dynamic is drawn");
+                assert!(
+                    dynamic_bottom + 0.3 * sp <= lyric_top,
+                    "{staff:?} attached {attached}: dynamics end at {dynamic_bottom}, lyrics start at {lyric_top}"
+                );
+            }
+        }
+    }
+
+    /// Bar numbers: the first bar of each system, or every bar when asked.
+    #[test]
+    fn every_bar_can_be_numbered() {
+        let note = Beat {
+            duration: Duration::new(DurationValue::Whole),
+            notes: vec![Note::new(0, 0)],
+            ..Beat::default()
+        };
+        let bars = 12;
+        let score = Score {
+            tempo: 100,
+            master_bars: vec![MasterBar::default(); bars],
+            tracks: vec![Track {
+                kind: TrackKind::Fretted,
+                strings: vec![64, 59, 55, 50, 45, 40],
+                bars: vec![
+                    Bar {
+                        voices: vec![Voice {
+                            beats: vec![note.clone()],
+                        }],
+                    };
+                    bars
+                ],
+                ..Track::default()
+            }],
+            ..Score::default()
+        };
+        let numbers = |every_bar_number| -> Vec<usize> {
+            let options = Options {
+                every_bar_number,
+                ..Options::default()
+            };
+            let mut found: Vec<usize> = engrave(&score, 0, &options)
+                .pages
+                .iter()
+                .flat_map(|p| &p.items)
+                .filter_map(|i| match i {
+                    Item::Text {
+                        font: FontKind::Italic,
+                        text,
+                        ..
+                    } => text.parse().ok(),
+                    _ => None,
+                })
+                .collect();
+            found.sort_unstable();
+            found
+        };
+        let some = numbers(false);
+        assert!(some.len() < bars && some.iter().all(|&n| n > 1));
+        assert_eq!(numbers(true), (1..=bars).collect::<Vec<_>>());
     }
 }

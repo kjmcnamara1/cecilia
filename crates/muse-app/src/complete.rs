@@ -66,6 +66,7 @@ pub const COMMANDS: &[&str] = &[
     "focus-prev",
     "focus-right",
     "focus-up",
+    "bar-numbers",
     "completion-fuzzy",
     "completion-ignore-case",
     "follow-toggle",
@@ -286,6 +287,7 @@ fn values(command: &str) -> Option<&'static [&'static str]> {
         ],
         "tracks" | "toolbar" | "palette" | "fretboard" | "piano" | "tuner" => &["off", "on"],
         "track-color" => &["off"],
+        "bar-numbers" => &["every", "system", "toggle"],
         "completion-ignore-case"
         | "completion-fuzzy"
         | "waveform"
@@ -759,6 +761,7 @@ pub fn describe(command: &str) -> Option<&'static str> {
         "close" | "pane-close" => "Close the pane",
         "command-mode" => "Open the command line",
         "completion-ignore-case" => "Toggle case-insensitive completion",
+        "bar-numbers" => "Number every bar, or only the first bar of each line",
         "completion-fuzzy" => "Toggle fuzzy completion (letters in order, anywhere)",
         "count-in" => "Toggle the count-in before playing",
         "delete" => "Delete operator",

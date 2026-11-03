@@ -78,7 +78,17 @@ type Lit = (muse_app::LinkedNote, [u8; 4], Vec<(usize, Scene)>);
 struct Cached {
     /// (buffer, track, layout mode, width bucket, score version, chant view, page + ink colors,
     /// chord policy)
-    key: (usize, usize, String, i64, u64, bool, [u8; 8], &'static str),
+    key: (
+        usize,
+        usize,
+        String,
+        i64,
+        u64,
+        bool,
+        [u8; 8],
+        &'static str,
+        bool,
+    ),
     layout: Layout,
     scenes: Vec<Scene>,
     /// The note shown in the mode's color on the track's other staves, its color, and the pages
@@ -1982,6 +1992,7 @@ fn draw_pane(
             [p.r, p.g, p.b, p.a, i.r, i.g, i.b, i.a]
         },
         app.chord_policy().name(),
+        app.every_bar_number,
     );
     if views.cache.get(&id).is_none_or(|c| c.key != key) {
         let mode = match mode_name {
@@ -2000,6 +2011,7 @@ fn draw_pane(
             margin: if mode_name == "page" { 40.0 } else { 16.0 },
             chant: app.chant_view,
             chords: app.chord_policy(),
+            every_bar_number: app.every_bar_number,
             ..Options::default()
         };
         let layout = muse_engrave::engrave(score, pane.cursor.track, &options);

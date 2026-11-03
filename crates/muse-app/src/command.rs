@@ -253,6 +253,9 @@ pub enum Command {
     CompletionIgnoreCase(Option<bool>),
     /// Whether command-line completion is fuzzy: on, off, or toggle (None).
     CompletionFuzzy(Option<bool>),
+    /// Number every bar (`Some(true)`) or only the first of each line (`Some(false)`); toggles
+    /// without an argument.
+    BarNumbers(Option<bool>),
     /// Save the session as a workspace (by name or path; the active one without).
     WorkspaceSave(Option<String>),
     /// Replace the session with a saved workspace (`!` discards unsaved changes).
@@ -767,6 +770,16 @@ impl Command {
                 .transpose()?
                 .map(|n| n.saturating_sub(1)),
             ),
+            "bar-numbers" => BarNumbers(match arg {
+                None | Some("toggle") => None,
+                Some("every" | "on" | "true" | "yes") => Some(true),
+                Some("system" | "off" | "false" | "no") => Some(false),
+                Some(other) => {
+                    return Err(format!(
+                        "bar-numbers: expected every, system or toggle, not '{other}'"
+                    ));
+                }
+            }),
             "completion-fuzzy" => CompletionFuzzy(match arg {
                 None | Some("toggle") => None,
                 Some("on" | "true" | "yes") => Some(true),
