@@ -76,8 +76,9 @@ const BASE_SCALE: f64 = 1.6;
 type Lit = (muse_app::LinkedNote, [u8; 4], Vec<(usize, Scene)>);
 
 struct Cached {
-    /// (buffer, track, layout mode, width bucket, score version, chant view, page + ink colors)
-    key: (usize, usize, String, i64, u64, bool, [u8; 8]),
+    /// (buffer, track, layout mode, width bucket, score version, chant view, page + ink colors,
+    /// chord policy)
+    key: (usize, usize, String, i64, u64, bool, [u8; 8], &'static str),
     layout: Layout,
     scenes: Vec<Scene>,
     /// The note shown in the mode's color on the track's other staves, its color, and the pages
@@ -1980,6 +1981,7 @@ fn draw_pane(
             let (p, i) = (app.config.theme.page, app.config.theme.ink);
             [p.r, p.g, p.b, p.a, i.r, i.g, i.b, i.a]
         },
+        app.chord_policy().name(),
     );
     if views.cache.get(&id).is_none_or(|c| c.key != key) {
         let mode = match mode_name {
@@ -1997,6 +1999,7 @@ fn draw_pane(
             header: mode_name != "horizontal",
             margin: if mode_name == "page" { 40.0 } else { 16.0 },
             chant: app.chant_view,
+            chords: app.chord_policy(),
             ..Options::default()
         };
         let layout = muse_engrave::engrave(score, pane.cursor.track, &options);
@@ -2250,16 +2253,14 @@ fn draw_pane(
                 }
                 None => whole,
             }
-        } else if staff == Some(muse_core::Staff::Chant) && !chant_layout {
-            whole
         } else if let Some((y, step)) = pos.line_y(c.staff, c.line) {
-            // Chant beats are the neume glyph itself; others start 0.4 spaces before the head.
-            let cx = if chant_layout {
-                x + w / 2.0
-            } else {
-                x + step * 2.0
-            };
+            // The square sits on the note head: chant beats are the neume glyph itself, others
+            // start 0.4 spaces before the head.
+            let cx = if chant_layout { x + w / 2.0 } else { pos.head };
             square(cx, y, (step * 2.4).clamp(8.0, 18.0))
+        } else if staff == Some(muse_core::Staff::Chant) && !chant_layout {
+            // A chant staff that is not drawn (a chord under the error policy): no position.
+            whole
         } else {
             whole
         };

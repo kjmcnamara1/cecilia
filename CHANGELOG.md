@@ -7,6 +7,42 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- `ui.chant_chords` (`top` default, `bottom`, `error`): which note of a chord the chant staff of
+  an ordinary track shows, since chant is monophonic. With `error` no chant staff is drawn: it
+  shows, and the status line says, where the first chord is ("Chant staff: chord at bar 12 beat 3
+  — chant is monophonic"). `:modern-to-chant` follows the same setting.
+- The chant staff of an ordinary track shows the neumes `:modern-to-chant` produces: notes are
+  grouped into syllables (lyrics, or quarter notes) and neumes (pes, clivis, torculus, porrectus,
+  climacus, scandicus …) by shared code in `muse-core`, joined by slanted strokes, with the same
+  clef and transposition, mora on long notes and divisions after rests (a rest of a quarter or
+  more is `:`, a shorter one `,`), double bars (`:`) and the end (`::`). A beat's own chant
+  division wins over those. `neume_start` marks still force a new neume.
+- A test checks that playback is the same whichever staves a track shows.
+
+### Changed
+
+- Square notation (GABC files and chant staves of ordinary tracks) is set with the bundled Caeciliae
+  chant font (SIL OFL 1.1): its heads, podatus, clivis, porrectus, virga, inclinata, quilisma,
+  oriscus, stropha, clefs, custos, divisions, flats and mora. Neumes are composed from its
+  glyphs and connecting lines; a neume is set whole at its first note, so it stays joined
+  across a barline or line break.
+- The chant staff's four lines now span the height of a modern five-line staff (ordinary tracks
+  and GABC); note heads are taller. A pes is a stacked column, a clivis has its stem, a
+  torculus sits side by side, and falling runs of three or more notes are a climacus (a virga
+  then diamonds, also in `:modern-to-chant` output). The custos sits on the open end of the
+  staff lines.
+- Square notation: note heads with flat sides and an arched top and bottom (the lower note of a
+  pes nearly square), larger mora dots, a tall rounded C clef with a round notch, a custos and a
+  red initial; the same in GABC files.
+- On the chant staff of an ordinary track only the first note of a neume sits in the beat column
+  shared with the other staves; the rest are packed right after it and joined, across barlines
+  too. The staff has no barlines, only divisions, and a custos at the end of each line shows the
+  next line's first note.
+- The edit cursor on a chant staff is a single square on the note position of that staff, not a
+  column across all staves; `<A-j>` / `<A-k>` onto a chant staff land on the beat's note.
+
 ## [0.10.1] - 2026-10-31
 
 ### Fixed

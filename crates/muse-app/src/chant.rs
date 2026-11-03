@@ -106,15 +106,16 @@ impl App {
             .get(c.track)
             .is_some_and(|t| t.chant.is_none());
         let duration = self.insert_duration();
+        let policy = self.chord_policy();
         match cmd {
             ChantNote(ch) if ordinary => {
                 let pos = letter_position(*ch).unwrap_or(0);
                 let upper = ch.is_ascii_uppercase();
-                self.edit(|cx| crate::edit::put_chant_note(cx, pos, upper, duration));
+                self.edit(|cx| crate::edit::put_chant_note(cx, policy, pos, upper, duration));
                 return true;
             }
             ChantMod(m) if ordinary => {
-                self.edit(|cx| crate::edit::toggle_chant_mark(cx, m));
+                self.edit(|cx| crate::edit::toggle_chant_mark(cx, policy, m));
                 return true;
             }
             ChantBar(sign) if ordinary => {
@@ -126,7 +127,7 @@ impl App {
             }
             ChantAppend | ChantBreak if ordinary => {
                 let neume = matches!(cmd, ChantBreak);
-                self.edit(|cx| crate::edit::append_chant_note(cx, neume, duration));
+                self.edit(|cx| crate::edit::append_chant_note(cx, policy, neume, duration));
                 return true;
             }
             ChantSyllable if ordinary => {
@@ -396,8 +397,9 @@ impl App {
             }
             ModernToChant => {
                 let c = self.pane().cursor;
+                let policy = self.chord_policy();
                 let score = &self.buffer().score;
-                match muse_convert::chant::modern_to_chant(score, c.track) {
+                match muse_convert::chant::modern_to_chant(score, c.track, policy) {
                     Ok(r) => {
                         let mut new = muse_formats::gabc::chant_score(r.chant);
                         new.meta.title = score.meta.title.clone();

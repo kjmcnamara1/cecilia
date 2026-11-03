@@ -8,6 +8,7 @@ pub mod chant;
 pub mod drums;
 mod duration;
 pub mod lyrics;
+pub mod melody;
 pub mod performance;
 mod score;
 pub mod staff;

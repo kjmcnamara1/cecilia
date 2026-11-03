@@ -8,6 +8,7 @@ leader = "<Space>"
 tab_width = 2            # horizontal spacing of the tab view (1–8)
 follow_playback = true   # the cursor and view move with the playhead (red bar) while playing
 jk_moves_between_staves = false   # true: j/k go on from a staff's last row into the next staff (default: they stay on the staff, with ledger-line rows above and below; <A-j>/<A-k> change staff)
+chant_chords = "top"   # chant is monophonic: which note of a chord a chant staff shows — "top", "bottom", or "error" (no chant staff; a message names the chord)
 hide_cursor_while_following = true   # …and only the red bar shows then (the edit cursor hides)
 completion_ignore_case = true   # Tab completion on the command line ignores letter case
 completion_fuzzy = true         # …and matches the typed letters in order anywhere ("sd" → sync-detect)

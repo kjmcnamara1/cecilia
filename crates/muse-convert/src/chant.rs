@@ -2,7 +2,8 @@
 //! module turns a modern melody into chant (always lossy) and carries edits made to a chant
 //! track's transcription back into its chant notation.
 
-use muse_core::chant::{Chant, ChantClef, ChantNote, ClefKind, NeumeItem, Syllable, transcribe};
+use muse_core::chant::{Chant, ChantClef, ChantNote, NeumeItem, Syllable, transcribe};
+use muse_core::melody::{ChantView, ChordPolicy, syllable_starts};
 use muse_core::{Bar, Score, TrackKind};
 
 /// The result of [`modern_to_chant`].
@@ -17,162 +18,34 @@ pub struct ToChant {
     pub chords: usize,
 }
 
-/// One sounded note of the melody.
-struct Event {
-    pitch: u8,
-    ticks: u32,
-    lyric: Option<String>,
-    /// Group used to form syllables when there are no lyrics (one per quarter beat).
-    beat: u32,
-    /// Division to place after this note.
-    division: Option<&'static str>,
-}
-
-fn melody(score: &Score, track: usize) -> (Vec<Event>, usize) {
-    let t = &score.tracks[track];
-    let mut events: Vec<Event> = Vec::new();
-    let mut chords = 0;
-    let mut tick_total = 0u32;
-    for (bi, bar) in t.bars.iter().enumerate() {
-        let mut tick = 0;
-        for beat in bar
-            .voices
-            .first()
-            .map(|v| v.beats.as_slice())
-            .unwrap_or_default()
-        {
-            if beat.empty {
-                continue;
-            }
-            let ticks = beat.ticks();
-            if beat.notes.is_empty() {
-                // A rest closes a phrase.
-                if let Some(last) = events.last_mut() {
-                    let d = if ticks >= muse_core::TICKS_PER_QUARTER {
-                        ":"
-                    } else {
-                        ","
-                    };
-                    if last.division.is_none_or(|x| x == ",") {
-                        last.division = Some(d);
-                    }
-                }
-            } else if beat.notes.iter().all(|n| n.tie) && !events.is_empty() {
-                events.last_mut().unwrap().ticks += ticks;
-            } else {
-                if beat.notes.len() > 1 {
-                    chords += 1;
-                }
-                let pitch = beat.notes.iter().map(|n| t.pitch_of(n)).max().unwrap_or(60);
-                let lyric = beat
-                    .lyrics
-                    .first()
-                    .filter(|l| !l.trim().is_empty())
-                    .cloned();
-                events.push(Event {
-                    pitch,
-                    ticks,
-                    lyric,
-                    beat: (tick_total + tick) / muse_core::TICKS_PER_QUARTER,
-                    division: None,
-                });
-            }
-            tick += ticks;
-        }
-        tick_total += score.master_bars.get(bi).map_or(tick, |m| m.ticks());
-        if score.master_bars.get(bi).is_some_and(|m| m.double_bar) {
-            if let Some(last) = events.last_mut() {
-                last.division = Some(":");
-            }
-        }
-    }
-    if let Some(last) = events.last_mut() {
-        last.division = Some("::");
-    }
-    (events, chords)
-}
-
-const DIATONIC: [i32; 7] = [0, 2, 4, 5, 7, 9, 11];
-
 /// Converts a track's melody to chant: syllables follow its lyrics (or quarter-note groups
 /// without lyrics), the melody moves to the white-key scale with B♭, and a clef is chosen to
-/// keep it on the staff.
-pub fn modern_to_chant(score: &Score, track: usize) -> Result<ToChant, String> {
+/// keep it on the staff. Chords are reduced as `policy` says (an error under
+/// [`ChordPolicy::Error`]). The chant staff of the engraver shows the same view
+/// ([`ChantView`]).
+pub fn modern_to_chant(
+    score: &Score,
+    track: usize,
+    policy: ChordPolicy,
+) -> Result<ToChant, String> {
     let t = score.tracks.get(track).ok_or("no such track")?;
     if t.kind == TrackKind::Drums {
         return Err("drum tracks cannot become chant".into());
     }
-    let (events, chords) = melody(score, track);
-    if events.is_empty() {
+    let view = ChantView::build(score, t, policy).map_err(|e| e.to_string())?;
+    if view.events.is_empty() {
         return Err("the track has no notes".into());
     }
-    // Transposition that puts most notes on the scale (B♭ allowed).
-    let cost = |shift: i32| -> f64 {
-        events
-            .iter()
-            .map(|e| {
-                let pc = (e.pitch as i32 + shift).rem_euclid(12);
-                if DIATONIC.contains(&pc) {
-                    0.0
-                } else if pc == 10 {
-                    0.3
-                } else {
-                    1.0
-                }
-            })
-            .sum::<f64>()
-            + shift.abs() as f64 * 0.01
-    };
-    let shift = (-6..=5)
-        .min_by(|a, b| cost(*a).total_cmp(&cost(*b)))
-        .unwrap_or(0);
-    // Clef and octave that keep the melody on the staff.
-    let clefs = [
-        ("c4", ClefKind::Do, 4),
-        ("c3", ClefKind::Do, 3),
-        ("f3", ClefKind::Fa, 3),
-        ("c2", ClefKind::Do, 2),
-        ("f4", ClefKind::Fa, 4),
-        ("c1", ClefKind::Do, 1),
-    ];
-    let mut best: Option<(f64, ChantClef, i32)> = None;
-    for (order, &(_, kind, line)) in clefs.iter().enumerate() {
-        let clef = ChantClef {
-            kind,
-            line,
-            flat: false,
-        };
-        for octave in [-24, -12, 0, 12, 24] {
-            let c: f64 = events
-                .iter()
-                .map(|e| {
-                    let p = (e.pitch as i32 + shift + octave).clamp(0, 127) as u8;
-                    let (pos, _) = clef.position_of(p, true);
-                    if !(0..=12).contains(&pos) {
-                        10.0
-                    } else if !(2..=10).contains(&pos) {
-                        1.0
-                    } else {
-                        0.0
-                    }
-                })
-                .sum::<f64>()
-                + octave.abs() as f64 * 0.02
-                + order as f64 * 0.01;
-            if best.as_ref().is_none_or(|b| c < b.0) {
-                best = Some((c, clef, octave));
-            }
-        }
-    }
-    let (_, clef, octave) = best.unwrap();
-    let transpose = shift + octave;
+    let chords = t
+        .bars
+        .iter()
+        .filter_map(|b| b.voices.first())
+        .flat_map(|v| &v.beats)
+        .filter(|b| !b.empty && b.notes.len() > 1)
+        .count();
+    let (clef, transpose) = (view.clef, view.shift);
+    let starts = syllable_starts(&view.events);
 
-    // Typical note length: longer notes get a mora.
-    let mut lengths: Vec<u32> = events.iter().map(|e| e.ticks).collect();
-    lengths.sort_unstable();
-    let base = lengths[lengths.len() / 2].max(1);
-
-    let has_lyrics = events.iter().any(|e| e.lyric.is_some());
     let mut chant = Chant::default();
     if !score.meta.title.is_empty() {
         chant
@@ -187,15 +60,8 @@ pub fn modern_to_chant(score: &Score, track: usize) -> Result<ToChant, String> {
     let mut rounded = 0;
     let mut flats: Vec<u8> = Vec::new();
     let mut continues = false;
-    let mut last_group = None;
-    for e in &events {
-        let starts = if has_lyrics {
-            e.lyric.is_some() || chant.syllables.len() == 1
-        } else {
-            last_group != Some(e.beat)
-        };
-        last_group = Some(e.beat);
-        if starts {
+    for (k, e) in view.events.iter().enumerate() {
+        if starts[k] {
             let (text, cont) = match &e.lyric {
                 Some(l) => {
                     let l = l.trim();
@@ -215,12 +81,13 @@ pub fn modern_to_chant(score: &Score, track: usize) -> Result<ToChant, String> {
             });
             continues = cont;
         }
-        let pitch = (e.pitch as i32 + transpose).clamp(0, 127) as u8;
-        let (pos, alter) = clef.position_of(pitch, true);
-        if clef.midi(pos, alter) != pitch {
+        let note = view.notes[k].clone();
+        let pos = note.pitch;
+        let alter = view.alters[k];
+        let (_, exact) = clef.place((e.pitch as i32 + transpose).clamp(0, 127) as u8, 0);
+        if exact == 1 {
             rounded += 1;
         }
-        let pos = pos.clamp(0, 13) as u8;
         let items = &mut chant.syllables.last_mut().unwrap().items;
         if alter == -1 && !flats.contains(&pos) {
             items.push(NeumeItem::Alteration {
@@ -235,16 +102,12 @@ pub fn modern_to_chant(score: &Score, track: usize) -> Result<ToChant, String> {
             });
             flats.retain(|&p| p != pos);
         }
-        let mut note = ChantNote::new(pos);
-        if e.ticks * 4 >= base * 7 {
-            note.mods.push(".".into());
-        }
         items.push(NeumeItem::Note(note));
-        if let Some(d) = e.division {
+        if let Some(d) = &e.division {
             chant.syllables.push(Syllable {
                 text: String::new(),
                 word_start: true,
-                items: vec![NeumeItem::Bar(d.into())],
+                items: vec![NeumeItem::Bar(d.clone())],
             });
             flats.clear();
             continues = false;
@@ -258,7 +121,6 @@ pub fn modern_to_chant(score: &Score, track: usize) -> Result<ToChant, String> {
     })
 }
 
-/// Escapes characters that are syntax in GABC text.
 fn escape(text: &str) -> String {
     text.chars()
         .flat_map(|c| match c {
@@ -562,7 +424,7 @@ mod tests {
             }],
             ..Track::default()
         });
-        let r = modern_to_chant(&score, 0).unwrap();
+        let r = modern_to_chant(&score, 0, ChordPolicy::Top).unwrap();
         assert_eq!(r.rounded, 0);
         let texts: Vec<_> = r
             .chant
@@ -589,6 +451,130 @@ mod tests {
         assert_eq!(
             r.chant.syllables.last().unwrap().division(),
             Some(muse_core::chant::Division::Finalis)
+        );
+    }
+
+    /// The chant staff of an ordinary track and modern-to-chant group notes into the same neumes
+    /// (pes, clivis, torculus, porrectus, climacus, scandicus, a stropha's repeated notes).
+    #[test]
+    fn staff_view_and_conversion_share_neumes() {
+        // Syllables of eighth notes, a quarter beat (two notes) each, or longer runs with
+        // lyrics on their first note.
+        let runs: [&[u8]; 7] = [
+            &[62, 65],                 // pes
+            &[65, 62],                 // clivis
+            &[62, 65, 62],             // torculus
+            &[65, 62, 65],             // porrectus
+            &[62, 64, 67, 69],         // scandicus
+            &[64, 64, 64],             // repeated notes
+            &[67, 64, 65, 67, 64, 62], // a longer melisma
+        ];
+        let mut track = Track {
+            kind: TrackKind::Pitched,
+            ..Track::default()
+        };
+        let mut lyric = 0;
+        for notes in runs {
+            let mut voice = Voice::default();
+            for (k, &p) in notes.iter().enumerate() {
+                let mut beat = Beat::rest(Duration::new(DurationValue::Eighth));
+                beat.notes.push(Note::new(0, p));
+                if k == 0 {
+                    lyric += 1;
+                    beat.lyrics.push(format!("s{lyric}"));
+                }
+                voice.beats.push(beat);
+            }
+            track.bars.push(Bar {
+                voices: vec![voice],
+            });
+        }
+        let score = Score {
+            master_bars: vec![MasterBar::default(); runs.len()],
+            tracks: vec![track],
+            ..Score::default()
+        };
+        let view = ChantView::build(&score, &score.tracks[0], ChordPolicy::Top).unwrap();
+        let converted = modern_to_chant(&score, 0, ChordPolicy::Top).unwrap();
+        // The converted chant's neumes: its runs of notes between separators, grouped as the
+        // engraver does.
+        let mut sizes = Vec::new();
+        let mut positions = Vec::new();
+        for syllable in &converted.chant.syllables {
+            let mut run: Vec<(usize, &ChantNote)> = Vec::new();
+            let flush = |run: &mut Vec<(usize, &ChantNote)>, sizes: &mut Vec<usize>| {
+                // A climacus (a virga then inclinati) is one neume, drawn from separate notes.
+                let mut open = false;
+                for g in muse_core::chant::group_neumes(run) {
+                    let n = g[0].1;
+                    if open && g.len() == 1 && n.inclinatum {
+                        *sizes.last_mut().unwrap() += 1;
+                    } else {
+                        sizes.push(g.len());
+                        open = g.len() == 1 && n.mods.iter().any(|m| m == "v");
+                    }
+                }
+                run.clear();
+            };
+            for (k, item) in syllable.items.iter().enumerate() {
+                match item {
+                    NeumeItem::Note(n) => {
+                        positions.push(n.pitch);
+                        run.push((k, n));
+                    }
+                    _ => flush(&mut run, &mut sizes),
+                }
+            }
+            flush(&mut run, &mut sizes);
+        }
+        let staff: Vec<usize> = view.neumes.iter().map(Vec::len).collect();
+        assert_eq!(sizes, staff);
+        assert_eq!(
+            positions,
+            view.notes.iter().map(|n| n.pitch).collect::<Vec<_>>()
+        );
+        // Not trivially single notes: the shapes above do group.
+        assert!(staff.iter().any(|&n| n >= 3) && staff.contains(&2));
+    }
+
+    /// Three or more falling notes in a neume become a climacus: a virga, then inclinati.
+    #[test]
+    fn falling_runs_become_a_climacus() {
+        let mut track = Track {
+            kind: TrackKind::Pitched,
+            ..Track::default()
+        };
+        let mut voice = Voice::default();
+        for (k, p) in [72u8, 69, 67, 65].into_iter().enumerate() {
+            let mut beat = Beat::rest(Duration::new(DurationValue::Eighth));
+            beat.notes.push(Note::new(0, p));
+            if k == 0 {
+                beat.lyrics.push("a".into());
+            }
+            voice.beats.push(beat);
+        }
+        track.bars.push(Bar {
+            voices: vec![voice],
+        });
+        let score = Score {
+            master_bars: vec![MasterBar::default()],
+            tracks: vec![track],
+            ..Score::default()
+        };
+        let view = ChantView::build(&score, &score.tracks[0], ChordPolicy::Top).unwrap();
+        assert_eq!(view.neumes, vec![vec![0, 1, 2, 3]]);
+        assert!(view.notes[0].mods.contains(&"v".to_string()));
+        assert!(view.notes[1..].iter().all(|n| n.inclinatum));
+        let gabc = modern_to_chant(&score, 0, ChordPolicy::Top)
+            .unwrap()
+            .chant
+            .syllables
+            .iter()
+            .map(|s| s.gabc_notes())
+            .collect::<String>();
+        assert!(
+            gabc.contains("v") && gabc.chars().filter(|c| c.is_ascii_uppercase()).count() == 3,
+            "{gabc}"
         );
     }
 }

@@ -3,6 +3,7 @@
 
 use std::collections::BTreeMap;
 
+use muse_core::melody::{self, ChordPolicy};
 use muse_core::*;
 
 use crate::Cursor;
@@ -264,39 +265,40 @@ pub fn set_accidental(cx: &mut EditCx, alter: i32) -> Result<(), String> {
     put_staff_note(cx, d, alter, Duration::default())
 }
 
-/// The chant clef and octave shift a chant staff of the cursor track shows its notes in
-/// (as the engraver chooses them).
-pub fn chant_clef_of(track: &Track) -> (chant::ChantClef, i32) {
-    let pitches: Vec<u8> = track
-        .bars
-        .iter()
-        .flat_map(|b| &b.voices)
-        .flat_map(|v| &v.beats)
-        .flat_map(|b| &b.notes)
-        .map(|n| track.pitch_of(n))
-        .collect();
-    chant::ChantClef::fitting(&pitches)
+/// The chant clef and shift (semitones) a chant staff of the cursor track shows its notes in:
+/// the one the engraver and modern-to-chant choose for its melody.
+pub fn chant_clef_of(
+    score: &Score,
+    track: &Track,
+    policy: muse_core::melody::ChordPolicy,
+) -> (chant::ChantClef, i32) {
+    // Under `error` the staff is not shown with chords; its notes are edited as the top ones.
+    let view = muse_core::melody::ChantView::build(score, track, policy)
+        .or_else(|_| muse_core::melody::ChantView::build(score, track, Default::default()));
+    view.map_or((chant::ChantClef::default(), 0), |v| (v.clef, v.shift))
 }
 
 /// On a chant staff of an ordinary track: the cursor beat's note at a GABC position (its
 /// first note, added if the beat has none), as an inclinatum or not.
 pub fn put_chant_note(
     cx: &mut EditCx,
+    policy: ChordPolicy,
     position: u8,
     inclinatum: bool,
     duration: Duration,
 ) -> Result<(), String> {
     let track = cx.track().clone();
-    let (clef, octave) = chant_clef_of(&track);
+    let (clef, octave) = chant_clef_of(cx.score, &track, policy);
     let pitch = (clef.midi(position as i32, 0) as i32 - octave).clamp(0, 127) as u8;
     ensure_real(cx.beat(), duration);
-    let first = cx.beat().notes.first().map(|n| n.string);
+    let picked = melody::pick(&track, cx.beat(), policy);
+    let first = picked.map(|i| cx.beat().notes[i].string);
     if track.kind == TrackKind::Fretted {
         set_pitch_on(cx, pitch, first.unwrap_or(0))?;
     } else {
         let beat = cx.beat();
-        match beat.notes.first_mut() {
-            Some(n) => n.fret = pitch,
+        match picked {
+            Some(i) => beat.notes[i].fret = pitch,
             None => beat.notes.push(Note::new(0, pitch)),
         }
         renumber_pitched(beat);
@@ -313,9 +315,11 @@ pub fn put_chant_note(
 
 /// On a chant staff of an ordinary track: toggles a chant sign of the cursor beat's note
 /// (`-` is the initio debilis, others GABC modifiers).
-pub fn toggle_chant_mark(cx: &mut EditCx, mark: &str) -> Result<(), String> {
+pub fn toggle_chant_mark(cx: &mut EditCx, policy: ChordPolicy, mark: &str) -> Result<(), String> {
+    let track = cx.track().clone();
     let beat = cx.beat();
-    let n = beat.notes.first_mut().ok_or("no note under the cursor")?;
+    let i = melody::pick(&track, beat, policy).ok_or("no note under the cursor")?;
+    let n = &mut beat.notes[i];
     let marks = n.chant.get_or_insert_with(Default::default);
     if mark == "-" {
         marks.initio_debilis = !marks.initio_debilis;
@@ -343,18 +347,23 @@ pub fn set_chant_division(cx: &mut EditCx, sign: &str) {
 
 /// On a chant staff of an ordinary track: a new beat after the cursor with the same pitch,
 /// starting a new neume when `neume` is set.
-pub fn append_chant_note(cx: &mut EditCx, neume: bool, duration: Duration) -> Result<(), String> {
+pub fn append_chant_note(
+    cx: &mut EditCx,
+    policy: ChordPolicy,
+    neume: bool,
+    duration: Duration,
+) -> Result<(), String> {
     let track = cx.track().clone();
-    let (clef, octave) = chant_clef_of(&track);
-    let position = cx
-        .beat()
-        .notes
-        .first()
-        .map_or(6, |n| clef.place(track.pitch_of(n), octave).0);
+    let (clef, octave) = chant_clef_of(cx.score, &track, policy);
+    let position = melody::pick(&track, cx.beat(), policy).map_or(6, |i| {
+        clef.place(track.pitch_of(&cx.beat().notes[i]), octave).0
+    });
     insert_beat(cx, true, duration);
-    put_chant_note(cx, position.clamp(0, 13) as u8, false, duration)?;
+    put_chant_note(cx, policy, position.clamp(0, 13) as u8, false, duration)?;
     if neume {
-        if let Some(n) = cx.beat().notes.first_mut() {
+        let beat = cx.beat();
+        let picked = melody::pick(&track, beat, policy).unwrap_or(0);
+        if let Some(n) = beat.notes.get_mut(picked) {
             n.chant.get_or_insert_with(Default::default).neume_start = true;
         }
     }

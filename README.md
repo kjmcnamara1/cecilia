@@ -93,6 +93,11 @@ cargo clippy --workspace --all-targets -- -D warnings
 Format tests also parse every Guitar Pro file under `test-corpus/` (gitignored; point it at
 your own collection, e.g. `ln -s ~/Music/Tabs test-corpus`).
 
+## Fonts
+
+Bundled under the SIL Open Font License 1.1 (texts in `assets/fonts/`): Bravura (music symbols),
+Source Sans 3 (text) and Caeciliae by the Oblates of St. Joseph (square chant notation).
+
 ## License
 
 Licensed under either of [Apache License 2.0](LICENSE-APACHE) or [MIT](LICENSE-MIT) at your option.

@@ -10,11 +10,12 @@ use ttf_parser::{Face, GlyphId, OutlineBuilder};
 use crate::display::{Align, FontKind};
 
 static MUSIC: &[u8] = include_bytes!("../../../assets/fonts/Bravura.otf");
+static CHANT: &[u8] = include_bytes!("../../../assets/fonts/Caeciliae-Staffless.ttf");
 static TEXT: &[u8] = include_bytes!("../../../assets/fonts/SourceSans3-Regular.otf");
 static BOLD: &[u8] = include_bytes!("../../../assets/fonts/SourceSans3-Bold.otf");
 
 pub struct Fonts {
-    faces: [Face<'static>; 3],
+    faces: [Face<'static>; 4],
     /// Unit-space outline per (font, glyph).
     cache: Mutex<HashMap<(usize, u16), Option<BezPath>>>,
 }
@@ -27,6 +28,7 @@ pub fn fonts() -> &'static Fonts {
             Face::parse(MUSIC, 0).expect("bundled music font"),
             Face::parse(TEXT, 0).expect("bundled text font"),
             Face::parse(BOLD, 0).expect("bundled bold font"),
+            Face::parse(CHANT, 0).expect("bundled chant font"),
         ],
         cache: Mutex::new(HashMap::new()),
     })
@@ -62,6 +64,7 @@ impl Fonts {
             FontKind::Music => 0,
             FontKind::Text | FontKind::Italic => 1,
             FontKind::Bold => 2,
+            FontKind::Chant => 3,
         }
     }
 

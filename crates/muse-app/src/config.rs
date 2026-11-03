@@ -201,6 +201,9 @@ pub struct UiConfig {
     pub layout: String,
     /// GUI zoom factor.
     pub zoom: f64,
+    /// Which note of a chord a chant staff of an ordinary track shows (chant is monophonic):
+    /// "top" (the default), "bottom", or "error" (no chant staff: a message names the chord).
+    pub chant_chords: String,
 }
 
 impl Default for UiConfig {
@@ -227,6 +230,7 @@ impl Default for UiConfig {
             piano: false,
             hide_cursor_while_following: true,
             layout: "vertical".into(),
+            chant_chords: "top".into(),
             zoom: 1.0,
         }
     }
@@ -879,6 +883,12 @@ impl Config {
             "keymap.command",
             &mut errors,
         );
+        if muse_core::melody::ChordPolicy::parse(&file.ui.chant_chords).is_none() {
+            errors.push(format!(
+                "ui.chant_chords: '{}' is not top, bottom or error (using top)",
+                file.ui.chant_chords
+            ));
+        }
         if file.ui.global_waveform.is_some() {
             errors.push(
                 "ui.global_waveform: no longer used; list \"waveform\" in ui.global_tools and open it with :waveform".into(),

@@ -30,6 +30,8 @@ pub struct Options {
     pub margin: f64,
     /// Show chant tracks in square notation (otherwise as their modern transcription).
     pub chant: bool,
+    /// Which note of a chord a chant staff shows.
+    pub chords: muse_core::melody::ChordPolicy,
 }
 
 impl Default for Options {
@@ -45,6 +47,7 @@ impl Default for Options {
             header: true,
             margin: 40.0,
             chant: true,
+            chords: Default::default(),
         }
     }
 }
@@ -57,6 +60,8 @@ pub struct BeatPos {
     pub width: f64,
     pub top: f64,
     pub bottom: f64,
+    /// Centre x of the note heads of the beat (a note's square cursor goes there).
+    pub head: f64,
     /// Where the beat lies on each of the track's staves, for a cursor on any of them.
     pub staves: Vec<StaffPos>,
 }
@@ -241,7 +246,9 @@ impl Clef {
     }
 }
 
+use crate::neume::{self, Kind, N, Typeset, digit};
 use muse_core::chant::{ChantClef, ClefKind};
+use muse_core::melody::ChantView;
 use muse_core::staff::{key_alters, spell};
 
 fn drum_position(key: u8) -> (i32, bool) {
@@ -291,8 +298,10 @@ struct Ctx<'a> {
     rhythm: bool,
     /// The standard staff shows rhythm slashes instead of pitches.
     slash: bool,
-    /// A four-line chant staff: its clef and the octave shift (semitones) of the notes on it.
-    chant: Option<(ChantClef, i32)>,
+    /// A four-line chant staff: the melody it shows, or why it cannot.
+    chant: Option<ChantCtx>,
+    /// The last chant note drawn: its event, head x and y, and system (a neume goes on from it).
+    chant_set: std::cell::RefCell<Option<ChantSet>>,
     /// Index of this staff among the track's staves.
     staff_index: usize,
     /// The half of a grand staff this is: split pitch, treble half.
@@ -387,6 +396,21 @@ struct Placed {
     tab_top: f64,
     /// Width of the fret label on the tab staff.
     tab_w: f64,
+}
+
+/// What a chant staff of an ordinary track shows: the track's melody as chant, or the message
+/// that says why there is none (a chord under the `error` policy).
+#[derive(Clone)]
+struct ChantCtx {
+    view: Option<ChantView>,
+    error: Option<String>,
+}
+
+/// The neume last set on a chant staff: which, where its heads are and where it ends.
+struct ChantSet {
+    neume: usize,
+    centers: Vec<f64>,
+    right: f64,
 }
 
 /// How one staff of a track is drawn.
@@ -497,6 +521,18 @@ pub fn engrave(score: &Score, track_index: usize, options: &Options) -> Layout {
         .iter()
         .map(|h| h.as_ref().map_or(shown.as_ref(), |(t, _)| t))
         .collect();
+    let chant_ctx = specs.iter().any(|s| s.chant).then(|| {
+        match ChantView::build(score, track, options.chords) {
+            Ok(view) => ChantCtx {
+                view: Some(view),
+                error: None,
+            },
+            Err(e) => ChantCtx {
+                view: None,
+                error: Some(e.to_string()),
+            },
+        }
+    });
     let keyed = specs
         .iter()
         .any(|s| s.standard && !s.slash && !s.chant && track.kind != TrackKind::Drums);
@@ -515,6 +551,7 @@ pub fn engrave(score: &Score, track_index: usize, options: &Options) -> Layout {
                 tracks.clone(),
                 spec,
                 k == 0,
+                chant_ctx.as_ref(),
             );
             c.last_staff = k + 1 == n;
             c.keyed = keyed;
@@ -563,6 +600,7 @@ fn grand_half(track: &Track, split: u8, high: bool) -> (Track, HiddenBeats) {
     (half, hidden)
 }
 
+#[allow(clippy::too_many_arguments)]
 fn make_ctx<'a>(
     score: &'a Score,
     track: &'a Track,
@@ -571,6 +609,7 @@ fn make_ctx<'a>(
     part: Vec<&'a Track>,
     spec: &StaffSpec,
     first_staff: bool,
+    chant: Option<&ChantCtx>,
 ) -> Ctx<'a> {
     let sp = options.sp;
     // Lyrics are written under the top staff only.
@@ -604,17 +643,8 @@ fn make_ctx<'a>(
         tab: spec.tab,
         rhythm: spec.rhythm,
         slash: spec.slash,
-        chant: spec.chant.then(|| {
-            let pitches: Vec<u8> = track
-                .bars
-                .iter()
-                .flat_map(|b| &b.voices)
-                .flat_map(|v| &v.beats)
-                .flat_map(|b| &b.notes)
-                .map(|n| track.pitch_of(n))
-                .collect();
-            ChantClef::fitting(&pitches)
-        }),
+        chant: chant.filter(|_| spec.chant).cloned(),
+        chant_set: Default::default(),
         staff_index: spec.index,
         half: spec.half,
         last_staff: true,
@@ -971,110 +1001,160 @@ impl Ctx<'_> {
         });
     }
 
+    /// Gap between the lines of a chant staff: its four lines take the height of five modern ones.
+    fn chant_gap(&self) -> f64 {
+        self.sp * 4.0 / 3.0
+    }
+
     /// A chant clef (do or fa) on its line of a four-line staff whose bottom line is at
     /// `bottom`.
     fn draw_chant_clef(&self, page: &mut Page, x: f64, clef: ChantClef, bottom: f64) {
-        let sp = self.sp;
-        let ly = bottom - (clef.position() - 3) as f64 * sp / 2.0;
-        let mut block =
-            |x0: f64, y0: f64, x1: f64, y1: f64| page.rect(Rect::new(x0, y0, x1, y1), Color::BLACK);
-        block(x, ly - 0.95 * sp, x + 0.22 * sp, ly + 0.95 * sp);
-        block(x, ly - 0.95 * sp, x + 0.75 * sp, ly - 0.2 * sp);
-        block(x, ly + 0.2 * sp, x + 0.75 * sp, ly + 0.95 * sp);
-        if clef.kind == ClefKind::Fa {
-            block(x + 0.95 * sp, ly - 0.75 * sp, x + 1.55 * sp, ly - 0.15 * sp);
-            block(x + 0.95 * sp, ly + 0.15 * sp, x + 1.55 * sp, ly + 0.75 * sp);
-        }
+        let mut ts = Typeset {
+            page,
+            bottom,
+            g: self.chant_gap(),
+        };
+        ts.clef(x, clef.kind == ClefKind::Fa, clef.position());
     }
 
-    /// A beat on a chant staff: a square note per pitch (a diamond for an inclinatum, with a
-    /// stem for a virga), its signs (mora, episema, ictus, a flat or sharp), and the division
-    /// after it.
+    /// A beat on a chant staff. The first note of a neume sets the whole neume (a pes, clivis,
+    /// torculus, climacus … in Caeciliae glyphs) with its first head in the beat's column, the
+    /// other notes packed against it; their beats draw nothing but the division after them.
+    /// Returns the centre x of the head of this beat's note.
     #[allow(clippy::too_many_arguments)]
     fn draw_chant_beat(
         &self,
         page: &mut Page,
-        beat: &Beat,
+        view: &ChantView,
+        (bi, vi, i): (usize, usize, usize),
         x: f64,
         bottom: f64,
-        clef: ChantClef,
-        octave: i32,
         at: BeatRef,
-    ) {
-        let sp = self.sp;
-        let y_of = |pos: i32| bottom - (pos - 3) as f64 * sp / 2.0;
-        let h = 0.42 * sp;
-        let cx = x + self.nh_width / 2.0;
-        for n in &beat.notes {
-            let (pos, alter) = clef.place(self.track.pitch_of(n), octave);
-            let y = y_of(pos);
-            let marks = n.chant.as_deref().cloned().unwrap_or_default();
-            let has = |m: &str| marks.mods.iter().any(|x| x == m);
-            let small = has("~") || marks.initio_debilis;
-            let h = if small { h * 0.7 } else { h };
-            if marks.inclinatum {
-                let mut d = BezPath::new();
-                d.move_to((cx, y - h));
-                d.line_to((cx + h, y));
-                d.line_to((cx, y + h));
-                d.line_to((cx - h, y));
-                d.close_path();
-                page.items.push(Item::Path {
-                    path: d,
-                    color: Color::BLACK,
-                    stroke: None,
-                });
-            } else {
-                page.rect(Rect::new(cx - h, y - h, cx + h, y + h), Color::BLACK);
-            }
-            page.mark_last(MarkKind::Body, at, n.string, self.staff_index);
-            if has("v") {
-                page.line(
-                    (cx + h - 0.06 * sp, y),
-                    (cx + h - 0.06 * sp, y + 1.6 * sp),
-                    0.12 * sp,
-                );
-            }
-            if has(".") {
-                page.rect(
-                    Rect::new(
-                        cx + h + 0.25 * sp,
-                        y - 0.12 * sp,
-                        cx + h + 0.49 * sp,
-                        y + 0.12 * sp,
-                    ),
-                    Color::BLACK,
-                );
-            }
-            if has("_") {
-                page.line(
-                    (cx - h, y - h - 0.3 * sp),
-                    (cx + h, y - h - 0.3 * sp),
-                    0.12 * sp,
-                );
-            }
-            if has("'") {
-                page.line((cx, y + h + 0.2 * sp), (cx, y + h + 0.7 * sp), 0.12 * sp);
-            }
-            if alter != 0 {
-                let sign = if alter < 0 { FLAT } else { SHARP };
-                page.glyph(sign, (cx - h - 1.1 * sp, y), 3.0 * sp);
-            }
-        }
-        if let Some(d) = &beat.chant_division {
-            // Divisions after the beat: a short stroke, a half or full one, a double bar.
-            let x = x + self.nh_width + 0.6 * sp;
-            let (top, low) = (y_of(9), y_of(3));
-            match d.as_str() {
-                "," => page.line((x, top - 0.5 * sp), (x, top + 0.5 * sp), 0.1 * sp),
-                ";" => page.line((x, top + 0.5 * sp), (x, low - 0.5 * sp), 0.1 * sp),
-                "::" => {
-                    page.line((x, top), (x, low), 0.1 * sp);
-                    page.line((x + 0.4 * sp, top), (x + 0.4 * sp, low), 0.2 * sp);
+    ) -> Option<f64> {
+        let g = self.chant_gap();
+        let (ei, is_head) = view.at(bi, i).filter(|_| vi == 0)?;
+        let event = &view.events[ei];
+        let mut head_x = None;
+        let mut ts = Typeset { page, bottom, g };
+        let u = ts.u();
+        if is_head {
+            let (neume, k, len) = view.neume_of(ei).unwrap_or((usize::MAX, 0, 1));
+            let kind_of = |e: usize| {
+                let n = &view.notes[e];
+                if n.initio_debilis || n.mods.iter().any(|m| m == "~") {
+                    Kind::Small
+                } else if n.inclinatum {
+                    Kind::Inclinatum
+                } else if n.mods.iter().any(|m| m == "v") {
+                    Kind::Virga
+                } else {
+                    Kind::Punctum
                 }
-                _ => page.line((x, top), (x, low), 0.1 * sp),
+            };
+            let set = self.chant_set.borrow();
+            let cached = set
+                .as_ref()
+                .filter(|s| s.neume == neume && k > 0)
+                .map(|s| s.centers[k.min(s.centers.len() - 1)]);
+            drop(set);
+            let cx = match cached {
+                Some(cx) => cx,
+                None => {
+                    let members: Vec<usize> =
+                        view.neumes.get(neume).cloned().unwrap_or_else(|| vec![ei]);
+                    let ns: Vec<N> = members
+                        .iter()
+                        .map(|&e| N {
+                            pos: view.notes[e].pitch as i32,
+                            kind: kind_of(e),
+                        })
+                        .collect();
+                    let left = x + self.nh_width / 2.0 - neume::HEAD / 2.0 * u;
+                    // Flats go before the neume.
+                    if let Some(&e) = members.iter().find(|&&e| view.alters[e] < 0) {
+                        ts.accidental(left - 0.1 * g, view.notes[e].pitch as i32, true);
+                    }
+                    let first_item = ts.page.items.len();
+                    let (width, centers) = if ns.len() == 1 {
+                        ts.single(left, ns[0], 1)
+                    } else {
+                        ts.neume(left, &ns)
+                    };
+                    // Every note of the neume lights up with the glyphs that draw it.
+                    for &e in &members {
+                        let ev = &view.events[e];
+                        let r = BeatRef {
+                            track: at.track,
+                            bar: ev.bar,
+                            voice: 0,
+                            beat: ev.beat,
+                        };
+                        for item in first_item..ts.page.items.len() {
+                            ts.page.marks.push(NoteMark {
+                                item,
+                                kind: MarkKind::Body,
+                                beat: r,
+                                string: ev.string,
+                                staff: self.staff_index,
+                            });
+                        }
+                    }
+                    // Signs: the mora after a head, an episema over it, an ictus under it.
+                    for (&e, &c) in members.iter().zip(&centers) {
+                        let note = &view.notes[e];
+                        let (pos, y) = (note.pitch as i32, ts.y(digit(note.pitch as i32)));
+                        let has = |m: &str| note.mods.iter().any(|x| x == m);
+                        if note.mora() > 0 {
+                            ts.mora(c + 64.0 * u, pos);
+                        }
+                        if has("_") {
+                            let ey = y - 0.5 * neume::HEAD_H * u - 0.2 * g;
+                            ts.page
+                                .line((c - 64.0 * u, ey), (c + 64.0 * u, ey), 0.07 * g);
+                        }
+                        if has("'") {
+                            ts.page.line(
+                                (c, y + 0.5 * neume::HEAD_H * u + 0.1 * g),
+                                (c, y + 0.5 * neume::HEAD_H * u + 0.45 * g),
+                                0.07 * g,
+                            );
+                        }
+                    }
+                    let right = left + width;
+                    let first = centers[0];
+                    self.chant_set.replace(Some(ChantSet {
+                        neume,
+                        centers,
+                        right,
+                    }));
+                    first
+                }
+            };
+            head_x = Some(cx);
+            let _ = len;
+        }
+        if event.last_beat() == (bi, i) {
+            if let Some(d) = &event.division {
+                let after = self
+                    .chant_set
+                    .borrow()
+                    .as_ref()
+                    .map_or(0.0, |s| s.right + 0.7 * g);
+                let dx = (x + self.nh_width + 0.5 * g).max(after);
+                self.draw_chant_division(page, d, dx, bottom);
             }
         }
+        head_x
+    }
+
+    /// A division after a note: a virgula, a short, long or full bar, or a double bar.
+    fn draw_chant_division(&self, page: &mut Page, d: &str, x: f64, bottom: f64) {
+        let mut ts = Typeset {
+            page,
+            bottom,
+            g: self.chant_gap(),
+        };
+        ts.division(x, muse_core::chant::Division::of(d));
     }
 
     /// Staff positions this staff shows: all, or one side of a grand staff's split.
@@ -1497,6 +1577,7 @@ impl Ctx<'_> {
         placed: &mut HashMap<(usize, usize, usize, u8), Placed>,
     ) -> f64 {
         let sp = self.sp;
+        self.chant_set.replace(None);
         let (std_rel, tab_rel, _) = self.metrics();
         let std_top = top + std_rel;
         let std_bottom = std_top + 4.0 * sp;
@@ -1509,13 +1590,29 @@ impl Ctx<'_> {
         let x1 = x0 + header + total;
 
         // Staff lines: four for chant, five otherwise, and just the middle one for slashes.
-        if self.standard {
+        let chant_error = self.chant.as_ref().and_then(|c| c.error.as_deref());
+        if let Some(message) = chant_error {
+            // No staff: the reason, where it would be.
+            page.items.push(Item::Text {
+                font: FontKind::Italic,
+                text: message.to_string(),
+                at: Point::new(x0 + 0.8 * sp, std_bottom - 1.5 * sp),
+                size: 1.6 * sp,
+                align: Align::Left,
+                color: Color::RED,
+            });
+        } else if self.standard {
             let lines = if self.chant.is_some() { 4 } else { 5 };
+            let gap = if self.chant.is_some() {
+                self.chant_gap()
+            } else {
+                sp
+            };
             for l in 0..lines {
                 if self.slash && l != 2 {
                     continue;
                 }
-                let y = std_bottom - l as f64 * sp;
+                let y = std_bottom - l as f64 * gap;
                 page.line((x0, y), (x1, y), 0.13 * sp);
             }
         }
@@ -1534,8 +1631,8 @@ impl Ctx<'_> {
         let last_bottom = if self.tab { tab_bottom } else { std_bottom };
         page.line((x0, first_top), (x0, last_bottom), 0.16 * sp);
         let first_bar = bars[0];
-        if let Some((clef, _)) = self.chant {
-            self.draw_chant_clef(page, x0 + 0.8 * sp, clef, std_bottom);
+        if let Some(view) = self.chant.as_ref().and_then(|c| c.view.as_ref()) {
+            self.draw_chant_clef(page, x0 + 0.8 * sp, view.clef, std_bottom);
         }
         // A slash staff has neither clef nor key: it shows rhythm only.
         if self.standard && !self.slash && self.chant.is_none() {
@@ -1582,6 +1679,22 @@ impl Ctx<'_> {
                 placed,
             );
             x += w;
+        }
+        // A custos at the end of a chant staff shows where the next system begins; it sits on
+        // the staff's open-ended lines, at the next note's height.
+        if let (Some(view), Some(&last)) = (
+            self.chant.as_ref().and_then(|c| c.view.as_ref()),
+            bars.last(),
+        ) {
+            if let Some(next) = view.events.iter().position(|e| e.bar > last) {
+                let g = self.chant_gap();
+                let mut ts = Typeset {
+                    page,
+                    bottom: std_bottom,
+                    g,
+                };
+                ts.custos(x1 - 0.3 * g, view.notes[next].pitch as i32);
+            }
         }
         x1
     }
@@ -1636,9 +1749,10 @@ impl Ctx<'_> {
         let top = staves.first().map_or(std_top, |s| s.0);
         let bottom = staves.last().map_or(std_bottom, |s| s.1);
 
-        // Barlines and repeats.
+        // Barlines and repeats (a chant staff has only its divisions).
         let end = x + width;
-        for &(a, b) in &staves {
+        let staves_for_bars: &[(f64, f64)] = if self.chant.is_some() { &[] } else { &staves };
+        for &(a, b) in staves_for_bars {
             if mb.repeat_end.is_some() {
                 page.line((end - 0.8 * sp, a), (end - 0.8 * sp, b), 0.16 * sp);
                 page.rect(Rect::new(end - 0.5 * sp, a, end, b), Color::BLACK);
@@ -1665,7 +1779,7 @@ impl Ctx<'_> {
             );
         }
         if bi + 1 == self.score.master_bars.len() && mb.repeat_end.is_none() {
-            for &(a, b) in &staves {
+            for &(a, b) in staves_for_bars {
                 page.rect(Rect::new(end - 0.5 * sp, a, end, b), Color::BLACK);
                 page.line((end - 1.0 * sp, a), (end - 1.0 * sp, b), 0.16 * sp);
             }
@@ -1917,6 +2031,7 @@ impl Ctx<'_> {
                     width: bw,
                     top: top - 2.0 * sp,
                     bottom: bottom + 2.0 * sp,
+                    head: bx + self.nh_width / 2.0,
                     staves: Vec::new(),
                 });
                 entry.top = entry.top.min(top - 2.0 * sp);
@@ -1927,15 +2042,15 @@ impl Ctx<'_> {
                         ys: string_ys.clone(),
                     });
                 }
-                if self.chant.is_some() {
+                if self.chant.as_ref().is_some_and(|c| c.view.is_some()) {
                     // GABC positions: d (3) on the bottom line.
                     entry.staves.push(StaffPos::Lines {
                         staff: self.staff_index,
-                        y0: std_bottom + 1.5 * sp,
-                        step: sp / 2.0,
+                        y0: std_bottom + 1.5 * self.chant_gap(),
+                        step: self.chant_gap() / 2.0,
                         range: (i32::MIN, i32::MAX),
                     });
-                } else if self.standard && self.clef != Clef::Percussion {
+                } else if self.standard && self.chant.is_none() && self.clef != Clef::Percussion {
                     entry.staves.push(StaffPos::Lines {
                         staff: self.staff_index,
                         y0: std_bottom + self.clef.bottom() as f64 * sp / 2.0,
@@ -1974,8 +2089,16 @@ impl Ctx<'_> {
 
                 // Standard notation.
                 let mut chord: Option<(Vec<f64>, bool)> = None;
-                if let Some((clef, octave)) = self.chant {
-                    self.draw_chant_beat(page, beat, bx, std_bottom, clef, octave, beat_ref);
+                if let Some(view) = self.chant.as_ref().and_then(|c| c.view.as_ref()) {
+                    if let Some(hx) =
+                        self.draw_chant_beat(page, view, (bi, vi, i), bx, std_bottom, beat_ref)
+                    {
+                        if let Some(entry) = layout.beats.get_mut(&beat_ref) {
+                            entry.head = hx;
+                        }
+                    }
+                } else if self.chant.is_some() {
+                    // No chant staff to draw (see the message).
                 } else if self.standard {
                     if beat.notes.is_empty() {
                         let off = match up_voice {
@@ -3765,5 +3888,58 @@ mod tests {
                 .iter()
                 .all(|&(_, a, b)| a >= 40.0 && b <= 595.0 - 39.0)
         );
+    }
+
+    #[test]
+    fn chant_staff_of_an_ordinary_track() {
+        use muse_core::melody::ChordPolicy;
+        let beat = |frets: &[u8]| Beat {
+            duration: Duration::new(DurationValue::Quarter),
+            notes: frets.iter().map(|&f| Note::new(f % 3, f)).collect(),
+            ..Beat::default()
+        };
+        let track = Track {
+            strings: vec![64, 59, 55, 50, 45, 40],
+            staves: vec![Staff::Standard(muse_core::Clef::Treble), Staff::Chant],
+            bars: vec![Bar {
+                voices: vec![Voice {
+                    beats: vec![beat(&[2]), beat(&[5, 7]), beat(&[3]), beat(&[])],
+                }],
+            }],
+            ..Track::default()
+        };
+        let score = Score {
+            tempo: 100,
+            master_bars: vec![MasterBar::default()],
+            tracks: vec![track],
+            ..Score::default()
+        };
+        let at = |beat| BeatRef {
+            track: 0,
+            bar: 0,
+            voice: 0,
+            beat,
+        };
+        // The skyline policy engraves a chant staff, whose positions know where the head is.
+        let layout = engrave(&score, 0, &Options::default());
+        let pos = &layout.beats[&at(1)];
+        assert!(pos.line_y(1, 6).is_some());
+        assert!(pos.head > pos.x && pos.head < pos.x + pos.width);
+        // The staff line positions run only over the chant staff's own height.
+        let (y3, _) = pos.line_y(1, 3).unwrap();
+        let (y9, _) = pos.line_y(1, 9).unwrap();
+        assert!(y9 < y3 && y3 - y9 < pos.bottom - pos.top);
+        // A chord under the error policy: no staff, the message says where.
+        let options = Options {
+            chords: ChordPolicy::Error,
+            ..Options::default()
+        };
+        let layout = engrave(&score, 0, &options);
+        assert!(layout.beats[&at(1)].line_y(1, 6).is_none());
+        let message = layout.pages[0].items.iter().find_map(|i| match i {
+            Item::Text { text, .. } if text.contains("chord at bar 1 beat 2") => Some(text),
+            _ => None,
+        });
+        assert!(message.is_some_and(|m| m.contains("monophonic")));
     }
 }
