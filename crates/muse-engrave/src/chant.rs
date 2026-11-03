@@ -23,7 +23,7 @@ const NATURAL: char = '\u{E261}';
 const SHARP: char = '\u{E262}';
 
 /// Chant staff spaces are larger than modern ones.
-const SCALE: f64 = 1.6;
+const SCALE: f64 = 4.0 / 3.0;
 
 struct Ctx<'a> {
     score: &'a Score,
@@ -87,9 +87,9 @@ pub fn engrave_chant(
         chant,
         o: *options,
         sp,
-        w: 0.95 * sp,
-        h: 0.8 * sp,
-        text_size: 1.55 * sp,
+        w: 0.62 * sp,
+        h: 0.74 * sp,
+        text_size: 1.86 * sp,
         beats,
     };
     ctx.run()
@@ -164,7 +164,7 @@ impl Ctx<'_> {
                 let c = text.trim().chars().next()?;
                 Some((i, c.to_uppercase().collect()))
             });
-        let initial_size = 4.4 * sp;
+        let initial_size = 5.3 * sp;
         let initial_w = initial.as_ref().map_or(0.0, |(_, c)| {
             fonts().text_width(FontKind::Text, c, initial_size) + 0.6 * sp
         });
@@ -494,7 +494,7 @@ impl Ctx<'_> {
             // Custos: the first note of the next line.
             if let Some(next) = lines.get(li + 1) {
                 if let Some(pitch) = next.iter().find_map(|p| measures[p.index].first_pitch) {
-                    self.draw_custos(&mut page, staff_x1 - 0.7 * sp, pitch as i32, &ymap);
+                    self.draw_custos(&mut page, staff_x1 - 0.1 * sp, pitch as i32, &ymap);
                 }
             }
             y += line_h;
@@ -725,7 +725,7 @@ impl Ctx<'_> {
             .windows(2)
             .map(|p| p[1].1.pitch > p[0].1.pitch)
             .collect();
-        let stroke = 0.09 * sp;
+        let stroke = 0.07 * sp;
         let vline = |page: &mut Page, x: f64, a: f64, b: f64| {
             page.items.push(Item::Line {
                 from: Point::new(x, a.min(b) - self.h * 0.35),
@@ -741,12 +741,12 @@ impl Ctx<'_> {
             self.draw_signs(page, x, wd, note, ymap);
             return (wd, vec![x + wd / 2.0]);
         }
-        // Pes: stacked.
+        // Pes: stacked, the lower note a block, joined by a solid column.
         if n == 2 && ups[0] {
             let (a, b) = (notes[0].1, notes[1].1);
+            neume::fill(page, neume::joint(x + w / 2.0, y(a), y(b), w));
             self.draw_note(page, x, y(a), a, small(0, a), true);
             self.draw_note(page, x, y(b), b, small(1, b), false);
-            vline(page, x + w - stroke / 2.0, y(a), y(b));
             self.draw_signs(page, x, w, a, ymap);
             self.draw_signs(page, x, w, b, ymap);
             return (w, vec![x + w / 2.0, x + w / 2.0]);
@@ -799,16 +799,21 @@ impl Ctx<'_> {
                 continue;
             }
             if k > 0 {
-                vline(page, cx, y(notes[k - 1].1), y(note));
+                if (y(note) - y(notes[k - 1].1)).abs() > self.h {
+                    neume::fill(
+                        page,
+                        neume::joint(cx, y(notes[k - 1].1), y(note), 0.08 * sp),
+                    );
+                }
             } else if !ups[0] {
-                // Clivis-style first note: stem on the left, down past the next note.
+                // Clivis: a stem down the left edge, past the next note.
                 let next = y(notes[1].1);
-                vline(
-                    page,
-                    cx + stroke / 2.0,
-                    y(note),
-                    next.max(y(note) + 0.9 * sp),
-                );
+                page.items.push(Item::Line {
+                    from: Point::new(cx + 0.03 * sp, y(note) - self.h / 2.0),
+                    to: Point::new(cx + 0.03 * sp, next + self.h / 2.0 + 0.4 * sp),
+                    width: 0.07 * sp,
+                    color: Color::BLACK,
+                });
             }
             let wd = self.draw_note(
                 page,
@@ -854,7 +859,7 @@ impl Ctx<'_> {
             page.items.push(Item::Line {
                 from: Point::new(x, from),
                 to: Point::new(x, to),
-                width: 0.09 * sp,
+                width: 0.07 * sp,
                 color: Color::BLACK,
             })
         };
@@ -894,7 +899,7 @@ impl Ctx<'_> {
                 p.close_path();
                 black(page, p);
                 if stem_down {
-                    stem(page, x + w - 0.05 * sp, y, y + 1.6 * sp);
+                    stem(page, x + w - 0.05 * sp, y, y + 1.3 * sp);
                 }
                 return w;
             }
@@ -917,7 +922,7 @@ impl Ctx<'_> {
                 for i in 0..count as usize {
                     let vx = x + i as f64 * (w + 0.3 * sp);
                     black(page, punctum(vx, w, h));
-                    stem(page, vx + w - 0.045 * sp, y, y + 1.9 * sp);
+                    stem(page, vx + w - 0.045 * sp, y, y + 1.3 * sp);
                 }
                 return count as f64 * w + (count as f64 - 1.0) * 0.3 * sp;
             }
@@ -937,8 +942,8 @@ impl Ctx<'_> {
             stem(page, x + w + 0.2 * sp, y - 0.8 * sp, y + 0.8 * sp);
         }
         match n.shape() {
-            Shape::Virga => stem(page, x + w - 0.045 * sp, y, y + 1.9 * sp),
-            Shape::VirgaReversa => stem(page, x + 0.045 * sp, y, y + 1.9 * sp),
+            Shape::Virga => stem(page, x + w - 0.045 * sp, y, y + 1.3 * sp),
+            Shape::VirgaReversa => stem(page, x + 0.045 * sp, y, y + 1.3 * sp),
             _ => {}
         }
         match n.liquescence() {

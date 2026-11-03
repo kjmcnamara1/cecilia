@@ -23,6 +23,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- The chant staff's four lines now span the height of a modern five-line staff (ordinary tracks
+  and GABC); note heads are taller. A pes is a stacked column, a clivis has its stem, a
+  torculus sits side by side, and falling runs of three or more notes are a climacus (a virga
+  then diamonds, also in `:modern-to-chant` output). The custos sits on the open end of the
+  staff lines.
 - Square notation: note heads with flat sides and an arched top and bottom (the lower note of a
   pes nearly square), larger mora dots, a tall rounded C clef with a round notch, a custos and a
   red initial; the same in GABC files.

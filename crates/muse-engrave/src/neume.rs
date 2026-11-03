@@ -28,32 +28,40 @@ pub fn rounded_polygon(points: &[(f64, f64)], r: f64) -> BezPath {
     path
 }
 
-/// A punctum (square note) centred on `(cx, cy)`: crisp flat sides with an arched top and
-/// bottom (a curve bulging up in the middle), as in engraved chant books. `square` makes the
-/// arch nearly flat: the lower note of a pes is almost a square.
+/// A punctum (square note) centred on `(cx, cy)`: crisp flat sides, an arched top and a gently
+/// concave bottom, as in engraved chant books. `square` is the lower note of a pes: a block with
+/// a flat top and rounded lower corners.
 pub fn punctum(cx: f64, cy: f64, w: f64, h: f64, square: bool) -> BezPath {
     let (x0, x1, y0, y1) = (cx - w / 2.0, cx + w / 2.0, cy - h / 2.0, cy + h / 2.0);
-    let a = if square { 0.04 * h } else { 0.13 * h };
     let mut p = BezPath::new();
-    p.move_to((x0, y0 + a));
-    p.quad_to((cx, y0 - a), (x1, y0 + a));
-    p.line_to((x1, y1));
-    p.quad_to((cx, y1 - 2.0 * a), (x0, y1));
+    if square {
+        let r = 0.16 * w;
+        p.move_to((x0, y0));
+        p.line_to((x1, y0));
+        p.line_to((x1, y1 - r));
+        p.quad_to((x1, y1), (x1 - r, y1));
+        p.line_to((x0 + r, y1));
+        p.quad_to((x0, y1), (x0, y1 - r));
+    } else {
+        let a = 0.14 * h;
+        p.move_to((x0, y0 + a));
+        p.quad_to((cx, y0 - a), (x1, y0 + a));
+        p.line_to((x1, y1));
+        p.quad_to((cx, y1 - 2.0 * a), (x0, y1));
+    }
     p.close_path();
     p
 }
 
-/// A punctum inclinatum: a rounded diamond.
+/// A punctum inclinatum: a diamond with crisp corners.
 pub fn inclinatum(cx: f64, cy: f64, w: f64, h: f64) -> BezPath {
-    rounded_polygon(
-        &[
-            (cx, cy - h / 2.0),
-            (cx + w / 2.0, cy),
-            (cx, cy + h / 2.0),
-            (cx - w / 2.0, cy),
-        ],
-        0.12 * w,
-    )
+    let mut p = BezPath::new();
+    p.move_to((cx, cy - h / 2.0));
+    p.line_to((cx + w / 2.0, cy));
+    p.line_to((cx, cy + h / 2.0));
+    p.line_to((cx - w / 2.0, cy));
+    p.close_path();
+    p
 }
 
 /// The vertical stroke joining the notes of a neume at the edge where they touch: `x` its
@@ -70,66 +78,73 @@ pub fn joint(x: f64, y0: f64, y1: f64, thick: f64) -> BezPath {
     p
 }
 
-/// The bracket of the C clef: a tall bar with rounded ends and a half-round notch cut into its
-/// right side at the clef's line `(x, y)` (its left edge), `sp` a staff space.
-fn clef_bar(x: f64, y: f64, sp: f64) -> BezPath {
-    let (w, hh, r, n) = (0.95 * sp, 1.15 * sp, 0.46 * sp, 0.46 * sp);
+/// The bracket of the C clef: a tall bar with rounded ends and a big round notch cut into its
+/// right side on the clef's line `(x, y)` (its left edge), `g` the gap between staff lines.
+fn clef_bar(x: f64, y: f64, g: f64) -> BezPath {
+    let (w, hh, n) = (0.56 * g, 0.86 * g, 0.42 * g);
     let k = 0.5523 * n;
-    let (x1, cx) = (x + w, x + w);
+    let x1 = x + w;
+    // Rounded ends: quarter ellipses, wide on the left and tight on the right.
+    let (rl, rr, ry) = (0.52 * w, 0.2 * w, 0.3 * g);
     let mut p = BezPath::new();
-    p.move_to((x + r, y - hh));
-    p.line_to((x1 - r, y - hh));
+    p.move_to((x + rl, y - hh));
+    p.line_to((x1 - rr, y - hh));
     p.curve_to(
-        (x1 - r * 0.45, y - hh),
-        (x1, y - hh + r * 0.45),
-        (x1, y - hh + r),
+        (x1 - rr * 0.4, y - hh),
+        (x1, y - hh + ry * 0.7),
+        (x1, y - hh + ry),
     );
-    p.line_to((cx, y - n));
-    p.curve_to((cx - k, y - n), (cx - n, y - k), (cx - n, y));
-    p.curve_to((cx - n, y + k), (cx - k, y + n), (cx, y + n));
-    p.line_to((x1, y + hh - r));
+    p.line_to((x1, y - n));
+    p.curve_to((x1 - k, y - n), (x1 - n, y - k), (x1 - n, y));
+    p.curve_to((x1 - n, y + k), (x1 - k, y + n), (x1, y + n));
+    p.line_to((x1, y + hh - ry));
     p.curve_to(
-        (x1, y + hh - r * 0.45),
-        (x1 - r * 0.45, y + hh),
-        (x1 - r, y + hh),
+        (x1, y + hh - ry * 0.7),
+        (x1 - rr * 0.4, y + hh),
+        (x1 - rr, y + hh),
     );
-    p.line_to((x + r, y + hh));
+    p.line_to((x + rl, y + hh));
     p.curve_to(
-        (x + r * 0.45, y + hh),
-        (x, y + hh - r * 0.45),
-        (x, y + hh - r),
+        (x + rl * 0.4, y + hh),
+        (x, y + hh - ry * 0.7),
+        (x, y + hh - ry),
     );
-    p.line_to((x, y - hh + r));
+    p.line_to((x, y - hh + ry));
     p.curve_to(
-        (x, y - hh + r * 0.45),
-        (x + r * 0.45, y - hh),
-        (x + r, y - hh),
+        (x, y - hh + ry * 0.7),
+        (x + rl * 0.4, y - hh),
+        (x + rl, y - hh),
     );
     p.close_path();
     p
 }
 
 /// A C (do) clef on the line at `(x, y)`: a tall rounded bar with a round notch.
-pub fn do_clef(x: f64, y: f64, sp: f64) -> BezPath {
-    clef_bar(x, y, sp)
+pub fn do_clef(x: f64, y: f64, g: f64) -> BezPath {
+    clef_bar(x, y, g)
 }
 
 /// An F (fa) clef: the same bar, and two squares either side of the line its F is on.
-pub fn fa_clef(x: f64, y: f64, sp: f64) -> Vec<BezPath> {
-    let dot = |dy: f64| punctum(x + 1.4 * sp, y + dy * sp, 0.55 * sp, 0.5 * sp, false);
-    vec![clef_bar(x, y, sp), dot(-0.62), dot(0.62)]
+pub fn fa_clef(x: f64, y: f64, g: f64) -> Vec<BezPath> {
+    let dot = |dy: f64| punctum(x + 1.0 * g, y + dy * g, 0.4 * g, 0.36 * g, false);
+    vec![clef_bar(x, y, g), dot(-0.45), dot(0.45)]
 }
 
-/// A custos at `(x, y)` pointing to the next note: a small head with a curved tail up or down.
-pub fn custos(x: f64, y: f64, sp: f64, tail_up: bool) -> BezPath {
+/// A custos with its right edge at `x` on the line of height `y`: a small block with a curved
+/// left top and a thin stem up (or down) its right side.
+pub fn custos(x: f64, y: f64, g: f64, tail_up: bool) -> BezPath {
     let s = if tail_up { -1.0 } else { 1.0 };
+    let (w, t) = (0.46 * g, 0.05 * g);
     let mut p = BezPath::new();
-    p.move_to((x, y + 0.25 * sp));
-    p.line_to((x, y - 0.05 * sp));
-    p.line_to((x + 0.7 * sp, y - 0.3 * sp));
-    p.line_to((x + 0.7 * sp, y + s * 1.0 * sp));
-    p.line_to((x + 0.85 * sp, y + s * 1.25 * sp));
-    p.line_to((x + 0.85 * sp, y + 0.3 * sp));
+    p.move_to((x - w, y + 0.26 * g));
+    p.line_to((x - w, y - 0.04 * g));
+    p.quad_to((x - w, y - 0.3 * g), (x - w * 0.2, y - 0.3 * g));
+    p.line_to((x - t, y - 0.3 * g));
+    p.line_to((x - t, y + s * 1.0 * g));
+    p.line_to((x + t, y + s * 1.0 * g));
+    p.line_to((x + t, y + 0.3 * g));
+    p.line_to((x - w * 0.2, y + 0.3 * g));
+    p.quad_to((x - w, y + 0.3 * g), (x - w, y + 0.26 * g));
     p.close_path();
     p
 }

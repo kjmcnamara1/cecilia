@@ -278,7 +278,8 @@ impl ChantView {
         let mut syllable_of = Vec::new();
         let mut run: Vec<usize> = Vec::new();
         let mut syllable = 0;
-        let flush = |run: &mut Vec<usize>, neumes: &mut Vec<Vec<usize>>| {
+        let mut climaci: Vec<Vec<usize>> = Vec::new();
+        let mut flush = |run: &mut Vec<usize>, neumes: &mut Vec<Vec<usize>>| {
             let mut part: Vec<usize> = Vec::new();
             let mut parts: Vec<Vec<usize>> = Vec::new();
             for &i in run.iter() {
@@ -290,11 +291,41 @@ impl ChantView {
             }
             parts.extend((!part.is_empty()).then_some(part));
             for p in parts {
-                let notes_of: Vec<(usize, &ChantNote)> =
-                    p.iter().map(|&i| (i, &notes[i])).collect();
-                for g in group_neumes(&notes_of) {
-                    neumes.push(g.iter().map(|&(i, _)| i).collect());
+                // Falling stretches of three or more plain notes are climaci; the rest group
+                // by contour.
+                let plain = |i: usize| {
+                    !notes[i].inclinatum && notes[i].mods.iter().all(|m| m.starts_with('.'))
+                };
+                let mut rest: Vec<usize> = Vec::new();
+                let mut k = 0;
+                let drain = |rest: &mut Vec<usize>, neumes: &mut Vec<Vec<usize>>| {
+                    let notes_of: Vec<(usize, &ChantNote)> =
+                        rest.iter().map(|&i| (i, &notes[i])).collect();
+                    for g in group_neumes(&notes_of) {
+                        neumes.push(g.iter().map(|&(i, _)| i).collect());
+                    }
+                    rest.clear();
+                };
+                while k < p.len() {
+                    let mut e = k;
+                    while e + 1 < p.len()
+                        && plain(p[e])
+                        && plain(p[e + 1])
+                        && notes[p[e + 1]].pitch < notes[p[e]].pitch
+                    {
+                        e += 1;
+                    }
+                    if e - k >= 2 {
+                        drain(&mut rest, neumes);
+                        neumes.push(p[k..=e].to_vec());
+                        climaci.push(p[k..=e].to_vec());
+                        k = e + 1;
+                    } else {
+                        rest.push(p[k]);
+                        k += 1;
+                    }
                 }
+                drain(&mut rest, neumes);
             }
             run.clear();
         };
@@ -310,6 +341,13 @@ impl ChantView {
             }
         }
         flush(&mut run, &mut neumes);
+        // A climacus: a virga and then puncta inclinata, as they are written.
+        for g in &climaci {
+            notes[g[0]].mods.insert(0, "v".into());
+            for &i in &g[1..] {
+                notes[i].inclinatum = true;
+            }
+        }
         let mut by_beat = HashMap::new();
         for (i, e) in events.iter().enumerate() {
             by_beat.insert((e.bar, e.beat), (i, true));

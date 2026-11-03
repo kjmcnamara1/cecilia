@@ -460,12 +460,11 @@ mod tests {
     fn staff_view_and_conversion_share_neumes() {
         // Syllables of eighth notes, a quarter beat (two notes) each, or longer runs with
         // lyrics on their first note.
-        let runs: [&[u8]; 8] = [
+        let runs: [&[u8]; 7] = [
             &[62, 65],                 // pes
             &[65, 62],                 // clivis
             &[62, 65, 62],             // torculus
             &[65, 62, 65],             // porrectus
-            &[72, 69, 67, 65],         // climacus
             &[62, 64, 67, 69],         // scandicus
             &[64, 64, 64],             // repeated notes
             &[67, 64, 65, 67, 64, 62], // a longer melisma
@@ -504,8 +503,16 @@ mod tests {
         for syllable in &converted.chant.syllables {
             let mut run: Vec<(usize, &ChantNote)> = Vec::new();
             let flush = |run: &mut Vec<(usize, &ChantNote)>, sizes: &mut Vec<usize>| {
+                // A climacus (a virga then inclinati) is one neume, drawn from separate notes.
+                let mut open = false;
                 for g in muse_core::chant::group_neumes(run) {
-                    sizes.push(g.len());
+                    let n = g[0].1;
+                    if open && g.len() == 1 && n.inclinatum {
+                        *sizes.last_mut().unwrap() += 1;
+                    } else {
+                        sizes.push(g.len());
+                        open = g.len() == 1 && n.mods.iter().any(|m| m == "v");
+                    }
                 }
                 run.clear();
             };
@@ -528,5 +535,46 @@ mod tests {
         );
         // Not trivially single notes: the shapes above do group.
         assert!(staff.iter().any(|&n| n >= 3) && staff.contains(&2));
+    }
+
+    /// Three or more falling notes in a neume become a climacus: a virga, then inclinati.
+    #[test]
+    fn falling_runs_become_a_climacus() {
+        let mut track = Track {
+            kind: TrackKind::Pitched,
+            ..Track::default()
+        };
+        let mut voice = Voice::default();
+        for (k, p) in [72u8, 69, 67, 65].into_iter().enumerate() {
+            let mut beat = Beat::rest(Duration::new(DurationValue::Eighth));
+            beat.notes.push(Note::new(0, p));
+            if k == 0 {
+                beat.lyrics.push("a".into());
+            }
+            voice.beats.push(beat);
+        }
+        track.bars.push(Bar {
+            voices: vec![voice],
+        });
+        let score = Score {
+            master_bars: vec![MasterBar::default()],
+            tracks: vec![track],
+            ..Score::default()
+        };
+        let view = ChantView::build(&score, &score.tracks[0], ChordPolicy::Top).unwrap();
+        assert_eq!(view.neumes, vec![vec![0, 1, 2, 3]]);
+        assert!(view.notes[0].mods.contains(&"v".to_string()));
+        assert!(view.notes[1..].iter().all(|n| n.inclinatum));
+        let gabc = modern_to_chant(&score, 0, ChordPolicy::Top)
+            .unwrap()
+            .chant
+            .syllables
+            .iter()
+            .map(|s| s.gabc_notes())
+            .collect::<String>();
+        assert!(
+            gabc.contains("v") && gabc.chars().filter(|c| c.is_ascii_uppercase()).count() == 3,
+            "{gabc}"
+        );
     }
 }
