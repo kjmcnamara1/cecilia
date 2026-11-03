@@ -7,6 +7,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- `:clef` picks the clef of the cursor's staff by its notation: `treble`, `bass`, `grand [split]` or `neutral` (the percussion clef, now the clef of drum staves) for standard notation, `do` or `fa` for chant (a chant staff on an ordinary track fits its melody to a C or an F clef). Tab and slash staves have no clef. On a chant track it still takes `c1`–`c4`, `f1`–`f4` and `cb3`.
+- `:lyrics-attach above|below [TRACK]` (or `none`) attaches lyrics to the cursor's staff, above or below it, taken from any track (the staff's own by default) and aligned with the staff's beats by position in the bar.
+
+### Changed
+
+- `:staff` is now `:notation NOTATION` (`standard`, `tab`, `tab+`, `slash`, `chant`); `:staff` still works as an alias. `:notation standard` keeps the staff's clef. `<A-j>` / `<A-k>` still move between staves.
+
 ## [0.12.0] - 2026-11-03
 
 ### Added

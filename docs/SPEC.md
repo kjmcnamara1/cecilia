@@ -115,7 +115,7 @@ transcription is what plays, exports to modern formats and carries the cursor; e
 (pitch changes, deletions, insertions) are reconciled back into the chant, adding flats or
 naturals where needed.
 
-**Chant staff on ordinary tracks.** Any track can show a chant staff (`:staff chant`). It is a
+**Chant staff on ordinary tracks.** Any track can show a chant staff (`:notation chant`, on a `do` or `fa` clef: `:clef do|fa`). It is a
 view: the track's notes are never changed and playback (which plays every note of the track,
 chords included) does not depend on which staves are shown. The view is built in `muse-core`
 (`melody::ChantView`) and is exactly what `modern-to-chant` converts, so both agree:
