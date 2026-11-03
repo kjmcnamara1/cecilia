@@ -2499,20 +2499,6 @@ fn draw_cmdline(f: &mut Frame, app: &App, area: Rect) {
     }
 }
 
-/// Converts a command to its kebab-case name for display.
-fn command_name(cmd: &muse_app::Command) -> String {
-    let dbg = format!("{cmd:?}");
-    let head = dbg.split(['(', ' ', '{']).next().unwrap_or(&dbg);
-    let mut out = String::new();
-    for (i, c) in head.chars().enumerate() {
-        if c.is_uppercase() && i > 0 {
-            out.push('-');
-        }
-        out.push(c.to_ascii_lowercase());
-    }
-    out
-}
-
 fn draw_which_key(f: &mut Frame, app: &App, title: &str, rows: &[(String, String)], main: Rect) {
     let lines: Vec<Line> = rows
         .iter()
@@ -2547,19 +2533,7 @@ fn draw_which_key(f: &mut Frame, app: &App, title: &str, rows: &[(String, String
 }
 
 fn draw_help(f: &mut Frame, app: &App, main: Rect) {
-    let mut items: Vec<(String, String)> = app
-        .config
-        .keymap(Mode::Normal)
-        .bindings
-        .iter()
-        .map(|(k, c)| {
-            (
-                muse_app::keys::format_keys(k),
-                c.iter().map(command_name).collect::<Vec<_>>().join(", "),
-            )
-        })
-        .collect();
-    items.sort_by(|a, b| a.1.cmp(&b.1).then(a.0.cmp(&b.0)));
+    let (title, items) = app.help_view();
     let w = main.width.saturating_sub(4).min(100);
     let h = main.height.saturating_sub(2);
     let area = Rect {
@@ -2579,24 +2553,9 @@ fn draw_help(f: &mut Frame, app: &App, main: Rect) {
     f.render_widget(Clear, area);
     f.render_widget(
         Paragraph::new(lines.join("\n"))
-            .block(Block::bordered().title(" Key bindings — Esc to close ")),
+            .block(Block::bordered().title(format!(" {title} — F1 or Esc to close "))),
         area,
     );
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn command_names_are_kebab_case() {
-        assert_eq!(command_name(&muse_app::Command::BarNext), "bar-next");
-        assert_eq!(command_name(&muse_app::Command::GotoBar(3)), "goto-bar");
-        assert_eq!(
-            command_name(&muse_app::Command::Quit { force: true }),
-            "quit"
-        );
-    }
 }
 
 #[cfg(test)]
@@ -2612,6 +2571,25 @@ mod render_tests {
     }
     use ratatui::Terminal;
     use ratatui::backend::TestBackend;
+
+    #[test]
+    fn f1_draws_the_help_of_the_mode() {
+        let mut app = App::new(muse_app::Config::default(), None);
+        app.run(muse_app::Command::New);
+        app.handle_key(muse_app::keys::Key::char(':'));
+        app.handle_key(muse_app::keys::Key::new(muse_app::keys::KeyCode::F(1)));
+        let mut term = Terminal::new(TestBackend::new(100, 30)).unwrap();
+        term.draw(|f| draw_help(f, &app, f.area())).unwrap();
+        let text: String = term
+            .backend()
+            .buffer()
+            .content()
+            .iter()
+            .map(|c| c.symbol())
+            .collect();
+        assert!(text.contains("Command line keys"));
+        assert!(text.contains("run the command"));
+    }
 
     #[test]
     fn the_toolbar_shows_its_buttons_and_runs_them() {

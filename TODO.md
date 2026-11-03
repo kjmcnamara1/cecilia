@@ -84,7 +84,6 @@ Planned work. Finished items move to `CHANGELOG.md` under `[Unreleased]`.
 - [ ] TODO: Deep dive on keymap architecture and how to define (config.toml seems lacking)
   - Should be dependent on mode and currently focused window/pane/staf
 - [x] FIX: ctrl-c in any pane (score,tool,properties,etc.) should close that pane.
-- [ ] <F1>: always bring up help of available keymaps in current mode
 
 ### UI
 
