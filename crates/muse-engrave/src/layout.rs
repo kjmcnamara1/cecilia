@@ -4028,7 +4028,7 @@ mod tests {
             name: "Piano (2)".into(),
             kind: TrackKind::Pitched,
             extra_staff: true,
-            bars: vec![bar(vec![beat(&[48], DurationValue::Whole)])],
+            bars: vec![bar(vec![beat(&[47], DurationValue::Whole)])],
             ..Track::default()
         };
         let mut score = Score {
@@ -4045,11 +4045,11 @@ mod tests {
         assert_eq!(layout.beats.keys().filter(|b| b.voice == 1).count(), 1);
         let top = layout.beats.iter().find(|(b, _)| b.voice == 0).unwrap().1;
         let low = layout.beats.iter().find(|(b, _)| b.voice == 1).unwrap().1;
-        assert!(low.line_y(0, 23).unwrap().0 > top.line_y(0, 35).unwrap().0);
+        assert!(low.line_y(0, 20).unwrap().0 > top.line_y(0, 35).unwrap().0);
         // Written out again, the hands are two staves of one part.
         let split = score.split_grand();
         assert_eq!(split.parts(), vec![0..2]);
-        assert_eq!(split.tracks[1].bars[0].voices[0].beats[0].notes[0].fret, 48);
+        assert_eq!(split.tracks[1].bars[0].voices[0].beats[0].notes[0].fret, 47);
         assert_eq!(split.tracks[0].bars[0].voices.len(), 1);
 
         // Drums: hands and feet in one voice are shown as two.

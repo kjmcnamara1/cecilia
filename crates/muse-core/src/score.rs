@@ -392,8 +392,8 @@ pub enum Clef {
     },
 }
 
-/// Default split of a grand staff: middle C.
-pub const GRAND_SPLIT: u8 = 60;
+/// Default split of a grand staff: C3 (MIDI 48).
+pub const GRAND_SPLIT: u8 = 48;
 
 impl Clef {
     pub fn name(self) -> String {

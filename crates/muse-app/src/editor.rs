@@ -1895,7 +1895,7 @@ mod tests {
         assert_eq!(a.buffer().score.tracks.len(), 2);
         assert_eq!(
             a.buffer().score.tracks[t].staves(),
-            vec![Staff::Standard(Grand { split: 60 })]
+            vec![Staff::Standard(Grand { split: 48 })]
         );
         keys(&mut a, "ic<Esc>");
         a.run(Command::StaffAdd(Some("tab".into())));

@@ -14,6 +14,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- A grand staff now splits between its treble and bass halves at C3 (MIDI 48) by default instead of middle C; `:clef grand NOTE` still sets another split.
 - `:staff` is now `:notation NOTATION` (`standard`, `tab`, `tab+`, `slash`, `chant`); `:staff` still works as an alias. `:notation standard` keeps the staff's clef. `<A-j>` / `<A-k>` still move between staves.
 
 ## [0.13.0] - 2026-11-03
