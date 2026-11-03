@@ -973,15 +973,22 @@ fn run_part(ctxs: &[Ctx]) -> Layout {
     layout
 }
 
+/// Bottom of the zone, from the top of the system, where the section marker and tempo are drawn
+/// (in staff spaces).
+const MARKER_ZONE: f64 = 3.2;
+/// Clear space between lyrics above a staff and what is under them (staff spaces).
+const LYRIC_GAP: f64 = 0.9;
+
 /// The highest point of the items that stand over any of the horizontal `spans`. Only what is
 /// over a syllable counts: a tempo mark at the bar's start does not push lyrics up elsewhere.
-fn highest_over(items: &[Item], spans: &[(f64, f64)], sp: f64) -> f64 {
+fn highest_over(items: &[Item], spans: &[(f64, f64)], sp: f64, floor: f64) -> (f64, bool) {
     let reaches = |x0: f64, x1: f64| {
         spans
             .iter()
             .any(|&(a, b)| x0 < b + 0.3 * sp && x1 > a - 0.3 * sp)
     };
     let mut high = f64::MAX;
+    let mut above_floor = false;
     for item in items {
         let (x0, x1, y) = match item {
             Item::Line {
@@ -1019,11 +1026,14 @@ fn highest_over(items: &[Item], spans: &[(f64, f64)], sp: f64) -> f64 {
                 (x0, x0 + w, at.y - 0.75 * size)
             }
         };
-        if reaches(x0, x1) {
+        if y < floor {
+            // The section marker and tempo zone: lyrics stay below it, whatever its x.
+            above_floor = true;
+        } else if reaches(x0, x1) {
             high = high.min(y);
         }
     }
-    high
+    (high, above_floor)
 }
 
 impl Ctx<'_> {
@@ -1069,15 +1079,24 @@ impl Ctx<'_> {
         self.measuring.set(false);
         self.syllables.borrow_mut().truncate(syllables);
         self.wedges.borrow_mut().truncate(wedges);
-        let high = highest_over(&page.items, &self.lyric_spans.take(), sp);
+        // The section marker and tempo are drawn in a zone at the very top of the system, above
+        // the room for lyrics; lyrics go between it and the notation, never above it.
+        let zone = if self.first_staff {
+            MARKER_ZONE * sp
+        } else {
+            f64::MIN
+        };
+        let (high, marked) = highest_over(&page.items, &self.lyric_spans.take(), sp, zone);
         let (top, ..) = self.metrics();
         let high = high.min(top);
-        // A line of lyrics stands 1.5 spaces tall and 0.45 clear of what is under it.
-        let gap = 0.45 * sp;
-        let needed = 1.5 * sp + (self.lyrics_above - 1) as f64 * 1.8 * sp + gap;
-        let grow = (needed - high).max(0.0);
+        // A line of lyrics stands 1.5 spaces tall, and keeps clear of what is under it.
+        let gap = LYRIC_GAP * sp;
+        let lowest = high - gap;
+        let height = 1.5 * sp + (self.lyrics_above - 1) as f64 * 1.8 * sp;
+        let floor = if marked { zone + 0.5 * sp } else { 0.0 };
+        let grow = (floor + height - lowest).max(0.0);
         self.above.set(grow);
-        self.lyric_rel.set(high + grow - gap);
+        self.lyric_rel.set(lowest + grow);
     }
 
     /// Moves the tab of a system down far enough to clear the stems, beams and brackets of
@@ -2065,7 +2084,8 @@ impl Ctx<'_> {
         }
         // Section marker, directions and tempo.
         if self.first_staff {
-            let mut above = top - 7.5 * sp;
+            // Anchored to the top of the system: room made for lyrics above the staff goes under it.
+            let mut above = top - self.above.get() - 7.5 * sp;
             if let Some(m) = &mb.marker {
                 let (letter, title) = (m.letter.trim(), m.title.trim());
                 if !letter.is_empty() || !title.is_empty() {
@@ -4451,9 +4471,24 @@ mod tests {
                     }
                     _ => {}
                 }
+                // The tempo mark has a zone of its own at the top of the system.
+                if matches!(
+                    item,
+                    Item::Glyph {
+                        ch: METRONOME_QUARTER,
+                        ..
+                    }
+                ) || matches!(item, Item::Text { text, .. } if text.starts_with("= "))
+                {
+                    continue;
+                }
                 rest.push(item.clone());
             }
-            (staff_top, lyric, highest_over(&rest, &spans, sp))
+            (
+                staff_top,
+                lyric,
+                highest_over(&rest, &spans, sp, f64::MIN).0,
+            )
         };
         let treble = Staff::Standard(muse_core::Clef::Treble);
         // High notes (ledger lines, stems down from them on a staff above) push the lyrics up.
@@ -4563,5 +4598,75 @@ mod tests {
                 assert!(pair[0].1 + 0.3 * sp <= pair[1].0, "overlap {pair:?}");
             }
         }
+    }
+
+    /// Above a staff the order is: section marker, lyrics, then chord names and notation.
+    #[test]
+    fn lyrics_above_sit_under_the_section_marker() {
+        let sp = Options::default().sp;
+        let beat = |name: &str| Beat {
+            duration: Duration::new(DurationValue::Quarter),
+            notes: vec![Note::new(0, 3)],
+            lyrics: vec!["la".into()],
+            chord: Some(muse_core::Chord {
+                name: name.into(),
+                ..Default::default()
+            }),
+            ..Beat::default()
+        };
+        let mut mb = MasterBar::default();
+        mb.marker = Some(muse_core::Marker {
+            title: "Pre-Chorus".into(),
+            color: Default::default(),
+            letter: "B".into(),
+        });
+        let mut track = Track {
+            kind: TrackKind::Fretted,
+            strings: vec![64, 59, 55, 50, 45, 40],
+            staves: vec![Staff::Standard(muse_core::Clef::Treble)],
+            bars: vec![Bar {
+                voices: vec![Voice {
+                    beats: vec![beat("Bm7"), beat("D5")],
+                }],
+            }],
+            ..Track::default()
+        };
+        track.set_staff_lyrics(
+            0,
+            Some(muse_core::StaffLyrics {
+                track: None,
+                above: true,
+            }),
+        );
+        let score = Score {
+            tempo: 100,
+            master_bars: vec![mb],
+            tracks: vec![track],
+            ..Score::default()
+        };
+        let options = Options {
+            header: false,
+            ..Options::default()
+        };
+        let page = &engrave(&score, 0, &options).pages[0];
+        let (mut marker_bottom, mut lyric, mut chord_top) = (f64::MIN, f64::MAX, f64::MAX);
+        for item in &page.items {
+            match item {
+                Item::Rect { rect, color } if *color == Color::rgb(235, 235, 235) => {
+                    marker_bottom = marker_bottom.max(rect.y1)
+                }
+                Item::Text { text, at, size, .. } if text == "la" => lyric = lyric.min(at.y - size),
+                Item::Text { text, at, size, .. } if text == "Bm7" => {
+                    chord_top = chord_top.min(at.y - 0.75 * size)
+                }
+                _ => {}
+            }
+        }
+        assert!(marker_bottom > f64::MIN && lyric < f64::MAX && chord_top < f64::MAX);
+        assert!(
+            marker_bottom + 0.3 * sp <= lyric,
+            "marker {marker_bottom}, lyrics {lyric}"
+        );
+        assert!(lyric < chord_top, "lyrics over the chord names");
     }
 }
