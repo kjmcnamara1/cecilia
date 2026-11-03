@@ -163,6 +163,8 @@ pub struct Theme {
     pub icon_midi: Rgba,
     pub icon_chant: Rgba,
     pub icon_muse: Rgba,
+    /// The outline of the edit cursor; `None` contrasts with the page (see [`Theme::cursor_border`]).
+    pub cursor_border: Option<Rgba>,
     /// Colors given to tracks in order (a track can have its own with `:track-color`).
     pub track_colors: Vec<Rgba>,
 }
@@ -259,6 +261,7 @@ impl Theme {
             icon_midi: Rgba::rgb(90, 190, 110),
             icon_chant: Rgba::rgb(180, 110, 210),
             icon_muse: Rgba::rgb(60, 190, 190),
+            cursor_border: None,
             track_colors: spectrum(accent, 8, 0.62),
         }
     }
@@ -294,6 +297,7 @@ impl Theme {
             mode_command: Rgba::rgb(60, 160, 90),
             mode_picker: Rgba::rgb(40, 160, 175),
             mode_tracks: Rgba::rgb(210, 100, 60),
+            cursor_border: None,
             track_colors: spectrum(accent, 8, 0.48),
             ..Self::dark()
         }
@@ -337,6 +341,7 @@ impl Theme {
             icon_midi: hex("#a3be8c"),
             icon_chant: hex("#b48ead"),
             icon_muse: hex("#8fbcbb"),
+            cursor_border: None,
             track_colors: spectrum(accent, 8, 0.65),
         }
     }
@@ -379,6 +384,7 @@ impl Theme {
             icon_midi: hex("#b8bb26"),
             icon_chant: hex("#d3869b"),
             icon_muse: hex("#8ec07c"),
+            cursor_border: None,
             track_colors: spectrum(accent, 8, 0.6),
         }
     }
@@ -421,6 +427,7 @@ impl Theme {
             icon_midi: hex("#859900"),
             icon_chant: hex("#6c71c4"),
             icon_muse: hex("#2aa198"),
+            cursor_border: None,
             track_colors: spectrum(accent, 8, 0.55),
         }
     }
@@ -497,6 +504,13 @@ impl Theme {
             "icon_muse" => &mut self.icon_muse,
             _ => return None,
         })
+    }
+
+    /// The outline drawn around the edit cursor: the theme's `cursor_border`, else near-black
+    /// on a light page and near-white on a dark one.
+    pub fn cursor_border(&self) -> Rgba {
+        self.cursor_border
+            .unwrap_or_else(|| self.text_on(self.page))
     }
 
     /// The color of a mode: its status-line label, and the edit cursor while in it.
@@ -579,6 +593,15 @@ impl Theme {
         let mut track_colors = None;
         for layer in layers {
             for (name, value) in &layer.colors {
+                if name == "cursor_border" {
+                    match Rgba::parse(value) {
+                        Some(color) => t.cursor_border = Some(color),
+                        None => {
+                            errors.push(format!("theme.{name}: '{value}' is not a color (#rrggbb)"))
+                        }
+                    }
+                    continue;
+                }
                 let Some(slot) = t.color_mut(name) else {
                     errors.push(format!("theme.{name}: not a theme color"));
                     continue;
@@ -691,6 +714,25 @@ mod tests {
         assert_eq!(t.track_color(3), Rgba::rgb(0, 255, 0));
         // Unknown names are reported.
         let c: ThemeConfig = toml::from_str("chrom = \"#000000\"").unwrap();
+        assert_eq!(Theme::from_config(&c).1.len(), 1);
+    }
+
+    #[test]
+    fn cursor_border_is_set_or_contrasts_with_the_page() {
+        let (t, e) = Theme::from_config(&toml::from_str("").unwrap());
+        assert!(e.is_empty());
+        assert_eq!(t.cursor_border(), Rgba::rgb(20, 20, 24));
+        let c: ThemeConfig = toml::from_str("page = \"#101010\"").unwrap();
+        assert_eq!(
+            Theme::from_config(&c).0.cursor_border(),
+            Rgba::rgb(245, 245, 248)
+        );
+        let c: ThemeConfig = toml::from_str("cursor_border = \"#ff0000\"").unwrap();
+        assert_eq!(
+            Theme::from_config(&c).0.cursor_border(),
+            Rgba::rgb(255, 0, 0)
+        );
+        let c: ThemeConfig = toml::from_str("cursor_border = \"nope\"").unwrap();
         assert_eq!(Theme::from_config(&c).1.len(), 1);
     }
 

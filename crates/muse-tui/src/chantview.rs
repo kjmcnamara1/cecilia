@@ -231,7 +231,8 @@ impl Widget for ChantView<'_> {
             on(th.mode_color(self.app.mode))
         } else {
             on(th.dim)
-        };
+        }
+        .add_modifier(Modifier::BOLD | Modifier::UNDERLINED);
         let play_style = Style::default().bg(rc(th.playhead));
         let mut clef = chant.initial_clef();
         for (li, line) in lines.iter().enumerate() {

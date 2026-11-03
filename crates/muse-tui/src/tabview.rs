@@ -266,7 +266,8 @@ impl Widget for TabView<'_> {
             on(th.mode_color(self.app.mode))
         } else {
             on(th.dim)
-        };
+        }
+        .add_modifier(Modifier::BOLD | Modifier::UNDERLINED);
         let playhead_style = on(th.playhead);
 
         for (row, system) in systems.iter().enumerate().skip(scroll).take(visible) {

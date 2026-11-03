@@ -2265,6 +2265,12 @@ fn draw_pane(
             whole
         };
         scene.fill(Fill::NonZero, to_screen(pos.page), color, None, &r);
+        // An outline in a contrasting color, so the cursor shows in every mode.
+        let border = tc(|t| {
+            t.cursor_border()
+                .with_alpha(if focused { 255 } else { 130 })
+        });
+        scene.stroke(&Stroke::new(1.5), to_screen(pos.page), border, None, &r);
     }
     // Playhead: a red bar at the exact playback position, drawn over the cursor.
     if let Some((page, x, top, bottom)) = playhead {
