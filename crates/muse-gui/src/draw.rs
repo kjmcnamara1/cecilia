@@ -119,7 +119,7 @@ pub struct Views {
     geometry: Vec<Geometry>,
     /// What each score pane showed this frame, for the app's half-page movement.
     view_infos: Vec<(PaneId, Option<muse_app::ViewInfo>)>,
-    last_cursor: HashMap<PaneId, (usize, usize, usize)>,
+    last_cursor: HashMap<PaneId, muse_app::Cursor>,
     /// The drawn cursor per pane (page, top, x, width) and when: while following playback it
     /// glides after the playhead instead of jumping from beat to beat.
     glide: HashMap<PaneId, (usize, f64, f64, f64, std::time::Instant)>,
@@ -2072,7 +2072,7 @@ fn draw_pane(
     let mut scroll = views.scroll.get(&id).copied().unwrap_or((0.0, 0.0));
     let view_w = content.width() / scale;
     let view_h = content.height() / scale;
-    let cursor_key = (pane.cursor.track, pane.cursor.bar, pane.cursor.beat);
+    let cursor_key = pane.cursor;
     let moved = views.last_cursor.insert(id, cursor_key) != Some(cursor_key);
     // The playhead, while this buffer plays: (page, x, top, bottom).
     let playhead = play
@@ -2088,7 +2088,16 @@ fn draw_pane(
             .beats
             .get(&cursor_ref)
             .or_else(|| beat_fallback(&cached.layout, &cursor_ref))
-            .map(|p| (p.page, p.x, p.width, p.top, p.bottom)),
+            .map(|p| {
+                // Just the cursor's own place, not the beat's whole height (which spans every
+                // staff of the track and can be taller than a zoomed view).
+                let staff = score
+                    .tracks
+                    .get(cursor_ref.track)
+                    .map_or(0, |t| muse_app::staff_index(t, pane.cursor.staff));
+                let (top, bottom) = cursor_span(p, staff, &pane.cursor);
+                (p.page, p.x, p.width, top, bottom)
+            }),
         None => None,
     };
     if let Some((page, x, w, top, bottom)) = target {
@@ -2650,6 +2659,27 @@ fn playhead_at(
         a.2
     };
     Some((a.1, x, a.3, a.4))
+}
+
+/// The vertical extent (page points) of the edit cursor within a beat: its string or staff
+/// position with some margin, else the staff it is on, else the whole beat.
+fn cursor_span(pos: &muse_engrave::BeatPos, staff: usize, cursor: &muse_app::Cursor) -> (f64, f64) {
+    let margin = 12.0;
+    if let Some(ys) = pos.strings(staff) {
+        if let Some(&y) = ys.get(cursor.string) {
+            return (y - margin, y + margin);
+        }
+        let (lo, hi) = ys
+            .iter()
+            .fold((f64::MAX, f64::MIN), |a, &y| (a.0.min(y), a.1.max(y)));
+        if lo <= hi {
+            return (lo - margin, hi + margin);
+        }
+    } else if let Some((y, step)) = pos.line_y(staff, cursor.line) {
+        let m = margin.max(step * 2.0);
+        return (y - m, y + m);
+    }
+    (pos.top, pos.bottom)
 }
 
 fn beat_fallback<'a>(layout: &'a Layout, r: &BeatRef) -> Option<&'a muse_engrave::BeatPos> {
@@ -5258,5 +5288,41 @@ mod tests {
         assert!(x(960) > x(480) && x(3800) > x(2880));
         // The last beat runs on towards the barline.
         assert!(x(3800) < layout.bars[0].2);
+    }
+}
+
+#[cfg(test)]
+mod follow_tests {
+    use super::*;
+    use muse_engrave::{BeatPos, StaffPos};
+
+    #[test]
+    fn cursor_span_targets_the_cursors_staff_not_the_top_one() {
+        let pos = BeatPos {
+            page: 0,
+            x: 0.0,
+            width: 10.0,
+            top: 0.0,
+            bottom: 400.0,
+            head: 5.0,
+            staves: vec![
+                StaffPos::Strings {
+                    staff: 0,
+                    ys: vec![10.0, 20.0],
+                },
+                StaffPos::Strings {
+                    staff: 1,
+                    ys: vec![300.0, 310.0],
+                },
+            ],
+        };
+        let c = muse_app::Cursor {
+            staff: 1,
+            string: 1,
+            ..Default::default()
+        };
+        let (top, bottom) = cursor_span(&pos, 1, &c);
+        assert!(top > 250.0 && bottom < 400.0, "{top} {bottom}");
+        assert!(top <= 310.0 && bottom >= 310.0);
     }
 }
