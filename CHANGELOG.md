@@ -11,6 +11,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - GUI: scrolling to keep the edit cursor in view now targets the cursor itself (its string or staff position) instead of the whole beat's height, so a zoomed view no longer snaps to the top staff; moving between staves or strings in the same beat also scrolls.
 
+## [0.13.0] - 2026-11-03
+
+### Added
+
+- `<F1>` shows the key bindings of the current mode in every mode (insert, visual, command line, picker and tool panes included), from the effective keymaps; `<F1>` or `<Esc>` hides it.
+
 ## [0.12.0] - 2026-11-03
 
 ### Added

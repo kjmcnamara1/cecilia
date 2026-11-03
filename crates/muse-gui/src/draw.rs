@@ -4653,23 +4653,6 @@ fn draw_workspace_icon(scene: &mut Scene, x: f64, cy: f64, color: Color) {
     fill(scene, Rect::new(x, cy - 0.3, x + 13.0, cy + 0.9), color);
 }
 
-fn command_name(cmd: &muse_app::Command) -> String {
-    let dbg = format!("{cmd:?}");
-    let head = dbg
-        .split(['(', ' ', '{'])
-        .next()
-        .unwrap_or(&dbg)
-        .to_string();
-    let mut out = String::new();
-    for (i, c) in head.chars().enumerate() {
-        if c.is_uppercase() && i > 0 {
-            out.push('-');
-        }
-        out.push(c.to_ascii_lowercase());
-    }
-    out
-}
-
 fn panel(scene: &mut Scene, r: Rect, title: &str) {
     scene.fill(
         Fill::NonZero,
@@ -4731,21 +4714,9 @@ fn draw_which_key(scene: &mut Scene, title: &str, rows: &[(String, String)], mai
 }
 
 fn draw_help(scene: &mut Scene, app: &App, main: Rect) {
-    let mut items: Vec<(String, String)> = app
-        .config
-        .keymap(Mode::Normal)
-        .bindings
-        .iter()
-        .map(|(k, c)| {
-            (
-                muse_app::keys::format_keys(k),
-                c.iter().map(command_name).collect::<Vec<_>>().join(", "),
-            )
-        })
-        .collect();
-    items.sort_by(|a, b| a.1.cmp(&b.1).then(a.0.cmp(&b.0)));
+    let (title, items) = app.help_view();
     let r = main.inset(-60.0);
-    panel(scene, r, "Key bindings — Esc to close");
+    panel(scene, r, &format!("{title} — F1 or Esc to close"));
     let rows = ((r.height() - 50.0) / 19.0).floor().max(1.0) as usize;
     for (i, (k, c)) in items.iter().enumerate() {
         let col = (i / rows) as f64;
