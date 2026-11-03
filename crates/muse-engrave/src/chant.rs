@@ -6,7 +6,7 @@
 
 use std::collections::HashMap;
 
-use kurbo::{BezPath, Circle, Point, Rect, Shape as _};
+use kurbo::{BezPath, Point, Rect};
 use muse_core::chant::{
     Chant, ChantClef, ChantNote, ClefKind, Division, Liquescence, NeumeItem, Shape, Syllable,
     group_neumes, transcribe,
@@ -16,10 +16,9 @@ use muse_core::{Score, Track};
 use crate::display::{Align, BeatRef, Color, FontKind, Hit, Item, Page};
 use crate::fonts::fonts;
 use crate::layout::{BeatPos, Layout, Mode, Options, StaffPos};
-use crate::neume;
+use crate::neume::{Kind, N, Typeset};
 
 const FLAT: char = '\u{E260}';
-const NATURAL: char = '\u{E261}';
 const SHARP: char = '\u{E262}';
 
 /// Chant staff spaces are larger than modern ones.
@@ -87,8 +86,8 @@ pub fn engrave_chant(
         chant,
         o: *options,
         sp,
-        w: 0.62 * sp,
-        h: 0.74 * sp,
+        w: 0.512 * sp,
+        h: 0.632 * sp,
         text_size: 1.86 * sp,
         beats,
     };
@@ -653,17 +652,23 @@ impl Ctx<'_> {
                     if started {
                         x += pending_gap.min(0.3 * sp);
                     }
-                    let ch = match sign.chars().next() {
-                        Some('x' | 'X') => FLAT,
-                        Some('#') => SHARP,
-                        _ => NATURAL,
-                    };
-                    let size = 3.0 * sp;
-                    page.glyph(ch, (x, ymap(*pitch as i32)), size);
-                    x += fonts()
-                        .bbox(crate::display::FontKind::Music, ch, size)
-                        .width()
-                        + 0.3 * sp;
+                    let sharp = matches!(sign.chars().next(), Some('#'));
+                    let flat = matches!(sign.chars().next(), Some('x' | 'X'));
+                    if sharp {
+                        page.glyph(SHARP, (x, ymap(*pitch as i32)), 3.0 * sp);
+                        x += fonts()
+                            .bbox(crate::display::FontKind::Music, SHARP, 3.0 * sp)
+                            .width()
+                            + 0.3 * sp;
+                    } else {
+                        let mut ts = Typeset {
+                            page,
+                            bottom: ymap(3),
+                            g: sp,
+                        };
+                        ts.accidental(x + 0.512 * sp, *pitch as i32, flat);
+                        x += 0.512 * sp + 0.3 * sp;
+                    }
                     m.low = m.low.min(*pitch as i32);
                     m.high = m.high.max(*pitch as i32 + 1);
                     started = true;
@@ -707,7 +712,23 @@ impl Ctx<'_> {
         m
     }
 
-    /// Draws one ligature; returns its width and each note's centre x.
+    /// The shape the font draws for a note.
+    fn kind_of(n: &ChantNote, small: bool) -> Kind {
+        if small {
+            return Kind::Small;
+        }
+        match n.shape() {
+            _ if n.cavum() => Kind::Hollow,
+            Shape::Inclinatum => Kind::Inclinatum,
+            Shape::Virga | Shape::VirgaReversa | Shape::Bivirga(_) => Kind::Virga,
+            Shape::Quilisma => Kind::Quilisma,
+            Shape::Oriscus(_) => Kind::Oriscus(true),
+            Shape::Stropha(_) => Kind::Stropha,
+            Shape::Punctum | Shape::Quadratum => Kind::Punctum,
+        }
+    }
+
+    /// Draws one ligature with Caeciliae; returns its width and each note's centre x.
     fn draw_glyph(
         &self,
         page: &mut Page,
@@ -715,243 +736,71 @@ impl Ctx<'_> {
         notes: &[(usize, &ChantNote)],
         ymap: &dyn Fn(i32) -> f64,
     ) -> (f64, Vec<f64>) {
-        let (w, sp) = (self.w, self.sp);
-        let y = |n: &ChantNote| ymap(n.pitch as i32);
+        let sp = self.sp;
         let small = |k: usize, n: &ChantNote| {
             (k + 1 == notes.len() && n.liquescence() == Liquescence::Deminutus && notes.len() > 1)
                 || (k == 0 && n.initio_debilis && notes.len() > 1)
         };
-        let ups: Vec<bool> = notes
-            .windows(2)
-            .map(|p| p[1].1.pitch > p[0].1.pitch)
-            .collect();
-        let stroke = 0.07 * sp;
-        let vline = |page: &mut Page, x: f64, a: f64, b: f64| {
-            page.items.push(Item::Line {
-                from: Point::new(x, a.min(b) - self.h * 0.35),
-                to: Point::new(x, a.max(b) + self.h * 0.35),
-                width: stroke,
-                color: Color::BLACK,
-            });
+        let mut ts = Typeset {
+            page,
+            bottom: ymap(3),
+            g: sp,
         };
-        let n = notes.len();
-        if n == 1 {
+        let (width, centers) = if notes.len() == 1 {
             let note = notes[0].1;
-            let wd = self.draw_note(page, x, y(note), note, false, false);
-            self.draw_signs(page, x, wd, note, ymap);
-            return (wd, vec![x + wd / 2.0]);
-        }
-        // Pes: stacked, the lower note a block, joined by a solid column.
-        if n == 2 && ups[0] {
-            let (a, b) = (notes[0].1, notes[1].1);
-            neume::fill(page, neume::joint(x + w / 2.0, y(a), y(b), w));
-            self.draw_note(page, x, y(a), a, small(0, a), true);
-            self.draw_note(page, x, y(b), b, small(1, b), false);
-            self.draw_signs(page, x, w, a, ymap);
-            self.draw_signs(page, x, w, b, ymap);
-            return (w, vec![x + w / 2.0, x + w / 2.0]);
-        }
-        // Porrectus (and flexus): an oblique stroke for the first two notes.
-        let oblique_at = if ups.first() == Some(&false) && ups.get(1) == Some(&true) {
-            Some(0)
-        } else if n >= 4 && ups[0] && !ups[1] && ups[2] {
-            Some(1)
+            let count = match note.shape() {
+                Shape::Stropha(c) | Shape::Bivirga(c) => c,
+                _ => 1,
+            };
+            let kind = Self::kind_of(note, false);
+            ts.single(
+                x,
+                N {
+                    pos: note.pitch as i32,
+                    kind,
+                },
+                count,
+            )
         } else {
-            None
+            let ns: Vec<N> = notes
+                .iter()
+                .enumerate()
+                .map(|(k, (_, n))| N {
+                    pos: n.pitch as i32,
+                    kind: Self::kind_of(n, small(k, n)),
+                })
+                .collect();
+            ts.neume(x, &ns)
         };
-        let mut centers = Vec::new();
-        let mut cx = x;
-        let mut k = 0;
-        while k < n {
-            let note = notes[k].1;
-            if Some(k) == oblique_at {
-                let next = notes[k + 1].1;
-                let len = 1.8 * w;
-                let (y1, y2) = (y(note), y(next));
-                let mut p = BezPath::new();
-                p.move_to((cx, y1 - self.h / 2.0));
-                p.line_to((cx + len, y2 - self.h / 2.0));
-                p.line_to((cx + len, y2 + self.h / 2.0));
-                p.line_to((cx, y1 + self.h / 2.0));
-                p.close_path();
-                page.items.push(Item::Path {
-                    path: p,
-                    color: Color::BLACK,
-                    stroke: None,
-                });
-                if k == 0 {
-                    vline(page, cx + stroke / 2.0, y1, y1 + 1.2 * sp);
-                } else {
-                    vline(page, cx, y(notes[k - 1].1), y1);
+        for ((_, note), &cx) in notes.iter().zip(&centers) {
+            let w = self.w;
+            let y = ymap(note.pitch as i32);
+            if note.linea() {
+                for dx in [-0.5 * sp, 0.5 * sp] {
+                    page.items.push(Item::Line {
+                        from: Point::new(cx + dx, y - 0.7 * sp),
+                        to: Point::new(cx + dx, y + 0.7 * sp),
+                        width: 0.07 * sp,
+                        color: Color::BLACK,
+                    });
                 }
-                centers.push(cx + 0.3 * w);
-                centers.push(cx + len - 0.3 * w);
-                self.draw_signs(page, cx, 0.6 * w, note, ymap);
-                // The note after the oblique sits above its end.
-                let third = notes[k + 2].1;
-                let tx = cx + len - w;
-                self.draw_note(page, tx, y(third), third, small(k + 2, third), false);
-                vline(page, cx + len - stroke / 2.0, y2, y(third));
-                centers.push(tx + w / 2.0);
-                self.draw_signs(page, tx, w, third, ymap);
-                cx += len;
-                k += 3;
-                continue;
             }
-            if k > 0 {
-                if (y(note) - y(notes[k - 1].1)).abs() > self.h {
-                    neume::fill(
-                        page,
-                        neume::joint(cx, y(notes[k - 1].1), y(note), 0.08 * sp),
-                    );
-                }
-            } else if !ups[0] {
-                // Clivis: a stem down the left edge, past the next note.
-                let next = y(notes[1].1);
+            let stem = match note.liquescence() {
+                Liquescence::AuctusAscendens => Some(-0.8 * sp),
+                Liquescence::AuctusDescendens => Some(0.8 * sp),
+                _ => None,
+            };
+            if let Some(dy) = stem {
                 page.items.push(Item::Line {
-                    from: Point::new(cx + 0.03 * sp, y(note) - self.h / 2.0),
-                    to: Point::new(cx + 0.03 * sp, next + self.h / 2.0 + 0.4 * sp),
+                    from: Point::new(cx + w / 2.0 - 0.03 * sp, y),
+                    to: Point::new(cx + w / 2.0 - 0.03 * sp, y + dy),
                     width: 0.07 * sp,
                     color: Color::BLACK,
                 });
             }
-            let wd = self.draw_note(
-                page,
-                cx,
-                y(note),
-                note,
-                small(k, note),
-                k == 0 && ups.first() == Some(&true),
-            );
-            self.draw_signs(page, cx, wd, note, ymap);
-            centers.push(cx + wd / 2.0);
-            cx += wd;
-            k += 1;
+            self.draw_signs(page, cx - w / 2.0, w, note, ymap);
         }
-        (cx - x, centers)
-    }
-
-    /// Draws a note head; returns its width.
-    fn draw_note(
-        &self,
-        page: &mut Page,
-        x: f64,
-        y: f64,
-        n: &ChantNote,
-        small: bool,
-        square: bool,
-    ) -> f64 {
-        let sp = self.sp;
-        let (w, h) = if small {
-            (self.w * 0.6, self.h * 0.6)
-        } else {
-            (self.w, self.h)
-        };
-        let x = if small { x + (self.w - w) / 2.0 } else { x };
-        let black = |page: &mut Page, p: BezPath| {
-            page.items.push(Item::Path {
-                path: p,
-                color: Color::BLACK,
-                stroke: None,
-            })
-        };
-        let stem = |page: &mut Page, x: f64, from: f64, to: f64| {
-            page.items.push(Item::Line {
-                from: Point::new(x, from),
-                to: Point::new(x, to),
-                width: 0.07 * sp,
-                color: Color::BLACK,
-            })
-        };
-        let punctum = |x: f64, w: f64, h: f64| neume::punctum(x + w / 2.0, y, w, h, square);
-        match n.shape() {
-            Shape::Inclinatum => {
-                black(page, neume::inclinatum(x + w / 2.0, y, w, h * 1.1));
-                return w;
-            }
-            Shape::Quilisma => {
-                let mut p = BezPath::new();
-                p.move_to((x, y + 0.45 * h));
-                p.line_to((x + w, y + 0.25 * h));
-                p.line_to((x + w, y - 0.5 * h));
-                for (i, t) in [0.8, 0.6, 0.4, 0.2, 0.0].iter().enumerate() {
-                    let up = if i % 2 == 0 { -0.1 } else { -0.55 };
-                    p.line_to((x + t * w, y + up * h));
-                }
-                p.close_path();
-                black(page, p);
-                return w;
-            }
-            Shape::Oriscus(stem_down) => {
-                let mut p = BezPath::new();
-                p.move_to((x, y - 0.1 * h));
-                p.curve_to(
-                    (x + 0.35 * w, y - 0.75 * h),
-                    (x + 0.6 * w, y + 0.05 * h),
-                    (x + w, y - 0.55 * h),
-                );
-                p.line_to((x + w, y + 0.15 * h));
-                p.curve_to(
-                    (x + 0.6 * w, y + 0.75 * h),
-                    (x + 0.35 * w, y - 0.05 * h),
-                    (x, y + 0.55 * h),
-                );
-                p.close_path();
-                black(page, p);
-                if stem_down {
-                    stem(page, x + w - 0.05 * sp, y, y + 1.3 * sp);
-                }
-                return w;
-            }
-            Shape::Stropha(count) => {
-                let sw = w * 0.75;
-                for i in 0..count as usize {
-                    let sx = x + i as f64 * (sw + 0.25 * sp);
-                    let mut p = BezPath::new();
-                    p.move_to((sx, y - 0.4 * h));
-                    p.line_to((sx + sw, y - 0.4 * h));
-                    p.line_to((sx + sw, y + 0.15 * h));
-                    p.line_to((sx + 0.45 * sw, y + 0.55 * h));
-                    p.line_to((sx, y + 0.3 * h));
-                    p.close_path();
-                    black(page, p);
-                }
-                return count as f64 * sw + (count as f64 - 1.0) * 0.25 * sp;
-            }
-            Shape::Bivirga(count) => {
-                for i in 0..count as usize {
-                    let vx = x + i as f64 * (w + 0.3 * sp);
-                    black(page, punctum(vx, w, h));
-                    stem(page, vx + w - 0.045 * sp, y, y + 1.3 * sp);
-                }
-                return count as f64 * w + (count as f64 - 1.0) * 0.3 * sp;
-            }
-            _ => {}
-        }
-        if n.cavum() {
-            page.items.push(Item::Path {
-                path: punctum(x + 0.05 * sp, w - 0.1 * sp, h - 0.1 * sp),
-                color: Color::BLACK,
-                stroke: Some(0.1 * sp),
-            });
-        } else {
-            black(page, punctum(x, w, h));
-        }
-        if n.linea() {
-            stem(page, x - 0.2 * sp, y - 0.8 * sp, y + 0.8 * sp);
-            stem(page, x + w + 0.2 * sp, y - 0.8 * sp, y + 0.8 * sp);
-        }
-        match n.shape() {
-            Shape::Virga => stem(page, x + w - 0.045 * sp, y, y + 1.3 * sp),
-            Shape::VirgaReversa => stem(page, x + 0.045 * sp, y, y + 1.3 * sp),
-            _ => {}
-        }
-        match n.liquescence() {
-            Liquescence::AuctusAscendens => stem(page, x + w - 0.045 * sp, y, y - 0.9 * sp),
-            Liquescence::AuctusDescendens => stem(page, x + w - 0.045 * sp, y, y + 0.9 * sp),
-            _ => {}
-        }
-        w
+        (width, centers)
     }
 
     /// Mora, episemata.
@@ -966,17 +815,13 @@ impl Ctx<'_> {
         let sp = self.sp;
         let p = n.pitch as i32;
         let y = ymap(p);
-        let on_line = self.lines().contains(&p)
-            || (p % 2 == 1 && p < 3)
-            || (p % 2 == 1 && p > self.top_position());
         for d in 0..n.mora() {
-            let dy = if on_line { y - sp / 2.0 } else { y };
-            let c = Circle::new((x + w + 0.4 * sp + d as f64 * 0.65 * sp, dy), 0.24 * sp);
-            page.items.push(Item::Path {
-                path: c.to_path(0.05),
-                color: Color::BLACK,
-                stroke: None,
-            });
+            let mut ts = Typeset {
+                page,
+                bottom: ymap(3),
+                g: sp,
+            };
+            ts.mora(x + w + d as f64 * 0.5 * sp, p);
         }
         if n.episema() {
             let below = n.mods.iter().any(|m| {
@@ -1007,15 +852,12 @@ impl Ctx<'_> {
 
     fn draw_clef(&self, page: &mut Page, x: f64, clef: ChantClef, ymap: &dyn Fn(i32) -> f64) {
         let sp = self.sp;
-        let ly = ymap(clef.position());
-        match clef.kind {
-            ClefKind::Do => neume::fill(page, neume::do_clef(x, ly, sp)),
-            ClefKind::Fa => {
-                for p in neume::fa_clef(x, ly, sp) {
-                    neume::fill(page, p);
-                }
-            }
-        }
+        let mut ts = Typeset {
+            page,
+            bottom: ymap(3),
+            g: sp,
+        };
+        ts.clef(x, clef.kind == ClefKind::Fa, clef.position());
         if clef.flat {
             // The flat sits on ti, the step below do.
             let mut ti = clef.position();
@@ -1027,6 +869,15 @@ impl Ctx<'_> {
     }
 
     fn draw_division(&self, page: &mut Page, x: f64, d: Division, ymap: &dyn Fn(i32) -> f64) {
+        if self.lines().len() == 4 {
+            let mut ts = Typeset {
+                page,
+                bottom: ymap(3),
+                g: self.sp,
+            };
+            ts.division(x, d);
+            return;
+        }
         let sp = self.sp;
         let lines = self.lines();
         let (bottom, top) = (ymap(lines[0]), ymap(*lines.last().unwrap()));
@@ -1071,9 +922,12 @@ impl Ctx<'_> {
     }
 
     fn draw_custos(&self, page: &mut Page, x: f64, pitch: i32, ymap: &dyn Fn(i32) -> f64) {
-        let y = ymap(pitch);
-        let middle = (3 + self.top_position()) / 2;
-        neume::fill(page, neume::custos(x, y, self.sp, pitch > middle));
+        let mut ts = Typeset {
+            page,
+            bottom: ymap(3),
+            g: self.sp,
+        };
+        ts.custos(x - 0.26 * self.sp, pitch);
     }
 }
 

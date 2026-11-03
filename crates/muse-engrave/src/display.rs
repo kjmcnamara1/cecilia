@@ -25,6 +25,8 @@ impl Color {
 pub enum FontKind {
     /// SMuFL music font (Bravura); one em equals four staff spaces.
     Music,
+    /// Caeciliae, the chant font: glyphs are picked by code, one em is four staff-line gaps.
+    Chant,
     Text,
     Bold,
     Italic,

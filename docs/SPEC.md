@@ -249,7 +249,8 @@ select, drag pane borders, click tabs, scroll/zoom, context menus that invoke th
 
 - **GUI** (`muse-gui`): full functionality. Score views support three layouts: page, continuous
   horizontal, continuous vertical. Notation uses SMuFL fonts (Bravura, SIL OFL), including the
-  plainchant ranges.
+  plainchant ranges; square notation is set with the Caeciliae chant font (Oblates of St. Joseph,
+  SIL OFL 1.1, bundled unmodified; see `assets/fonts/OFL-Caeciliae.txt`).
 - **TUI** (`muse-tui`): chant tracks show as a text staff with neume marks and syllables; read,
   play and basic editing of tablature (frets, durations, ties, rests,
   basic techniques) rendered as text tab. Same keymaps, config and commands as the GUI; commands not

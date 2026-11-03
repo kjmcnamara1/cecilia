@@ -23,6 +23,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- Square notation (GABC files and chant staves of ordinary tracks) is set with the bundled Caeciliae
+  chant font (SIL OFL 1.1): its heads, podatus, clivis, porrectus, virga, inclinata, quilisma,
+  oriscus, stropha, clefs, custos, divisions, flats and mora. Neumes are composed from its
+  glyphs and connecting lines; a neume is set whole at its first note, so it stays joined
+  across a barline or line break.
 - The chant staff's four lines now span the height of a modern five-line staff (ordinary tracks
   and GABC); note heads are taller. A pes is a stacked column, a clivis has its stem, a
   torculus sits side by side, and falling runs of three or more notes are a climacus (a virga
