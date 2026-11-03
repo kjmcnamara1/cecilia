@@ -327,6 +327,10 @@ pub struct Track {
     /// ([`Track::default_staves`]).
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub staves: Vec<Staff>,
+    /// Lyrics attached to the staves, by staff position (shorter than `staves` means none for
+    /// the rest). Without any attached lyrics a track shows its own below its top staff.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub staff_lyrics: Vec<Option<StaffLyrics>>,
     pub extras: Extras,
 }
 
@@ -341,8 +345,36 @@ pub enum Staff {
     TabRhythm,
     /// Rhythm slashes.
     Slash,
-    /// Gregorian square notation.
+    /// Gregorian square notation, on a do (C) clef.
     Chant,
+    /// Gregorian square notation, on a fa (F) clef.
+    ChantFa,
+}
+
+/// The kind of notation a staff holds.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+pub enum Notation {
+    Standard,
+    Tab,
+    Slash,
+    Chant,
+}
+
+impl Notation {
+    /// Every notation, as typed after `:notation`.
+    pub const NAMES: [&str; 5] = ["standard", "tab", "tab+", "slash", "chant"];
+}
+
+/// Lyrics shown with a staff: those of any track (the staff's own by default), aligned with the
+/// beats of the staff, above or below it.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+pub struct StaffLyrics {
+    /// Track the lyrics come from; `None` is the staff's own track.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub track: Option<usize>,
+    /// Above the staff rather than below it.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub above: bool,
 }
 
 /// Clef of a standard staff. Fretted tracks read an octave above their sound (the small 8
@@ -351,6 +383,8 @@ pub enum Staff {
 pub enum Clef {
     Treble,
     Bass,
+    /// The percussion clef of drum staves: lines carry no pitch.
+    Neutral,
     /// Treble and bass staves joined by a brace: notes from `split` (a MIDI pitch) up on the
     /// treble staff, lower ones on the bass staff.
     Grand {
@@ -366,6 +400,7 @@ impl Clef {
         match self {
             Clef::Treble => "treble".into(),
             Clef::Bass => "bass".into(),
+            Clef::Neutral => "neutral".into(),
             Clef::Grand { split } if split == GRAND_SPLIT => "grand".into(),
             Clef::Grand { split } => format!("grand {}", pitch_name(split)),
         }
@@ -408,7 +443,9 @@ pub fn parse_pitch(s: &str) -> Option<u8> {
 
 impl Staff {
     /// Every kind, as typed: `standard`, `tab`, `tab+`, `slash`, `chant`.
-    pub const KINDS: [&str; 7] = ["treble", "bass", "grand", "tab", "tab+", "slash", "chant"];
+    pub const KINDS: [&str; 8] = [
+        "treble", "bass", "grand", "neutral", "tab", "tab+", "slash", "chant",
+    ];
 
     /// Parses `treble`, `bass`, `grand [split note]`, `tab`, `tab+`, `slash` or `chant` (standard
     /// notation is `standard [clef]`, which still works; `standard` alone takes `clef`).
@@ -429,14 +466,16 @@ impl Staff {
             ["standard" | "std", rest @ ..] => return Staff::parse(&rest.join(" "), clef),
             ["treble"] => Staff::Standard(Clef::Treble),
             ["bass"] => Staff::Standard(Clef::Bass),
+            ["neutral"] => Staff::Standard(Clef::Neutral),
             ["grand", rest @ ..] => Staff::Standard(grand(rest)?),
             ["tab"] => Staff::Tab,
             ["tab+"] => Staff::TabRhythm,
             ["slash"] => Staff::Slash,
-            ["chant"] => Staff::Chant,
+            ["chant"] | ["chant", "do"] => Staff::Chant,
+            ["chant", "fa"] => Staff::ChantFa,
             _ => {
                 return Err(format!(
-                    "'{s}' is not a staff (treble, bass, grand [split], tab, tab+, slash, chant)"
+                    "'{s}' is not a staff (treble, bass, grand [split], neutral, tab, tab+, slash, chant [do|fa])"
                 ));
             }
         })
@@ -466,6 +505,29 @@ impl Staff {
             Staff::TabRhythm => "tab+".into(),
             Staff::Slash => "slash".into(),
             Staff::Chant => "chant".into(),
+            Staff::ChantFa => "chant fa".into(),
+        }
+    }
+
+    pub fn notation(self) -> Notation {
+        match self {
+            Staff::Standard(_) => Notation::Standard,
+            Staff::Tab | Staff::TabRhythm => Notation::Tab,
+            Staff::Slash => Notation::Slash,
+            Staff::Chant | Staff::ChantFa => Notation::Chant,
+        }
+    }
+
+    pub fn is_chant(self) -> bool {
+        self.notation() == Notation::Chant
+    }
+
+    /// The family of a chant staff's clef (do or fa).
+    pub fn chant_family(self) -> Option<crate::chant::ClefKind> {
+        match self {
+            Staff::Chant => Some(crate::chant::ClefKind::Do),
+            Staff::ChantFa => Some(crate::chant::ClefKind::Fa),
+            _ => None,
         }
     }
 
@@ -530,6 +592,9 @@ impl Track {
         if self.chant.is_some() {
             return vec![Staff::Chant];
         }
+        if self.kind == TrackKind::Drums {
+            return vec![Staff::Standard(Clef::Neutral)];
+        }
         let clef = if self.staff_clef().is_bass() {
             Clef::Bass
         } else {
@@ -559,11 +624,64 @@ impl Track {
         &mut self.staves
     }
 
+    /// The lyrics attached to staff `i`.
+    pub fn staff_lyrics_of(&self, i: usize) -> Option<StaffLyrics> {
+        self.staff_lyrics.get(i).copied().flatten()
+    }
+
+    /// Attaches lyrics to staff `i` (or detaches them).
+    pub fn set_staff_lyrics(&mut self, i: usize, lyrics: Option<StaffLyrics>) {
+        if self.staff_lyrics.len() <= i {
+            self.staff_lyrics.resize(i + 1, None);
+        }
+        self.staff_lyrics[i] = lyrics;
+        while self.staff_lyrics.last() == Some(&None) {
+            self.staff_lyrics.pop();
+        }
+    }
+
+    /// Whether any staff of the track has lyrics attached.
+    pub fn has_attached_lyrics(&self) -> bool {
+        self.staff_lyrics.iter().any(Option::is_some)
+    }
+
+    /// Removes staff `i` and its lyrics attachment.
+    pub fn remove_staff(&mut self, i: usize) {
+        self.staves_mut().remove(i);
+        if i < self.staff_lyrics.len() {
+            self.staff_lyrics.remove(i);
+        }
+        while self.staff_lyrics.last() == Some(&None) {
+            self.staff_lyrics.pop();
+        }
+    }
+
+    /// Moves staff `from` to position `to`, taking its lyrics attachment along.
+    pub fn move_staff(&mut self, from: usize, to: usize) {
+        let lyrics = self.staff_lyrics_of(from);
+        let n = self.staves_mut().len();
+        let mut attached: Vec<Option<StaffLyrics>> =
+            (0..n).map(|k| self.staff_lyrics_of(k)).collect();
+        let staff = self.staves_mut().remove(from);
+        attached.remove(from);
+        self.staves_mut().insert(to, staff);
+        attached.insert(to, lyrics);
+        self.staff_lyrics = attached;
+        while self.staff_lyrics.last() == Some(&None) {
+            self.staff_lyrics.pop();
+        }
+    }
+
+    /// The family of clef the track's chant staff uses, if it has one.
+    pub fn chant_family(&self) -> Option<crate::chant::ClefKind> {
+        self.staves().iter().find_map(|s| s.chant_family())
+    }
+
     /// The clef a standard staff with `clef` shows (one half of a grand staff for `bass`).
     pub fn written_clef(&self, clef: Clef, bass: bool) -> StaffClef {
         let octave_down = self.staff_clef().octave_down();
         let bass = match clef {
-            Clef::Treble => false,
+            Clef::Treble | Clef::Neutral => false,
             Clef::Bass => true,
             Clef::Grand { .. } => bass,
         };

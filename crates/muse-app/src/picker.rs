@@ -591,15 +591,24 @@ impl App {
                         "grand",
                         "Standard notation, treble and bass joined",
                     ),
+                    (
+                        "neutral",
+                        "neutral",
+                        "Standard notation, percussion clef (drum tracks)",
+                    ),
                     ("tab", "tab", "Tablature"),
                     ("tab+", "tab+", "Tablature with rhythm"),
                     ("slash", "slash", "Rhythm slashes"),
-                    ("chant", "chant", "Gregorian square notation"),
+                    ("chant", "chant", "Gregorian square notation, do clef"),
+                    ("chant fa", "chant fa", "Gregorian square notation, fa clef"),
                 ];
+                let drums = track.kind == muse_core::TrackKind::Drums;
                 let clef = self.config.default_clef();
                 let mut out: Vec<Entry> = kinds
                     .into_iter()
-                    .filter(|(k, ..)| tab_ok || !k.starts_with("tab"))
+                    .filter(|(k, ..)| {
+                        (tab_ok || !k.starts_with("tab")) && (drums || *k != "neutral")
+                    })
                     .map(|(kind, label, about)| {
                         let staff = muse_core::Staff::parse(kind, clef).ok();
                         // A grand staff counts whatever its split.
@@ -618,7 +627,7 @@ impl App {
                                 about.into()
                             },
                             action: if here.is_some() {
-                                Command::Staff(kind.into())
+                                Command::Notation(kind.into())
                             } else {
                                 Command::StaffAdd(Some(kind.into()))
                             },

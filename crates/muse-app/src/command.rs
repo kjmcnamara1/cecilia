@@ -105,9 +105,9 @@ pub enum Command {
     Transpose(i32),
     TrackAdd(String),
     TrackDelete,
-    /// Show the cursor's staff another way: `standard [treble|bass|grand [split]]`, `tab`,
-    /// `tab+`, `slash` or `chant`. The notes stay the same.
-    Staff(String),
+    /// Show the cursor's staff in another notation: `standard`, `tab`, `tab+`, `slash` or
+    /// `chant`. The notes stay the same.
+    Notation(String),
     /// Add a staff at the bottom of the cursor's track (standard when not given).
     StaffAdd(Option<String>),
     /// Remove a staff of the cursor's track (1 = top; the cursor's when not given).
@@ -279,8 +279,14 @@ pub enum Command {
     Gabc(Option<String>),
     /// Chant rhythm: "equalist" or "solesmes" (None shows it).
     Interpretation(Option<String>),
+    /// Clef of the cursor's staff, by its notation: `treble`, `bass`, `grand [split]` or `neutral`
+    /// (standard), `do` or `fa` (chant); a chant track also takes `c4`, `cb3`, `f3`.
+    Clef(String),
     /// Initial clef of a chant track (`c4`, `cb3`, `f3`); notes keep their staff positions.
     ChantClef(String),
+    /// Attach lyrics to the cursor's staff: `above` or `below`, optionally `TRACK`; `none`
+    /// detaches them.
+    LyricsAttach(String),
     /// Turn a chant track into an ordinary staff track (its transcription).
     ChantToModern,
     /// Open the cursor track's melody as chant in a new buffer.
@@ -621,11 +627,10 @@ impl Command {
             ),
             "track-add" => TrackAdd(arg.unwrap_or("guitar").to_string()),
             "track-delete" => TrackDelete,
-            "staff" => Staff(
-                arg.ok_or(
-                    "staff: expected treble, bass, grand [split], tab, tab+, slash or chant",
-                )?
-                .to_string(),
+            // `staff` is the old name of `notation`.
+            "notation" | "staff" => Notation(
+                arg.ok_or("notation: expected standard, tab, tab+, slash or chant")?
+                    .to_string(),
             ),
             "staff-add" => StaffAdd(arg.map(String::from)),
             "staff-remove" => StaffRemove(match arg {
@@ -822,7 +827,14 @@ impl Command {
             ),
             "gabc" => Gabc(arg.map(String::from)),
             "interpretation" => Interpretation(arg.map(String::from)),
-            "clef" => ChantClef(arg.ok_or("clef: expected c1–c4, f1–f4 or cb3")?.to_string()),
+            "clef" => Clef(
+                arg.ok_or("clef: expected treble, bass, grand, neutral, do or fa")?
+                    .to_string(),
+            ),
+            "lyrics-attach" => LyricsAttach(
+                arg.ok_or("lyrics-attach: expected above|below [TRACK] or none")?
+                    .to_string(),
+            ),
             "chant-to-modern" => ChantToModern,
             "modern-to-chant" => ModernToChant,
             "chant-view" => ChantView,

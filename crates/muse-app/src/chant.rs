@@ -493,7 +493,7 @@ mod tests {
         let mut a = app();
         let chant = a.buffer().score.tracks[0].chant.clone();
         // Shown as standard notation and tab, the chant itself stays.
-        a.run(Command::Staff("treble".into()));
+        a.run(Command::Notation("treble".into()));
         a.run(Command::StaffAdd(Some("chant".into())));
         let t = &a.buffer().score.tracks[0];
         assert_eq!(t.chant, chant);

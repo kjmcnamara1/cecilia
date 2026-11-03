@@ -316,7 +316,13 @@ struct Ctx<'a> {
     keyed: bool,
     /// Beats left out of this staff (the other half's notes on a grand staff).
     hidden: HiddenBeats,
+    /// Lines of lyrics under the staff, and above it.
     lyrics: usize,
+    lyrics_above: usize,
+    /// Lyrics attached to this staff: the track they come from (they are aligned to this
+    /// staff's columns by their tick in the bar). Without it a track's own lyrics go under its
+    /// top staff.
+    lyric_source: Option<&'a Track>,
     nh_width: f64,
     /// Syllables drawn so far, for hyphens: (page, verse y, left, right, continues).
     syllables: std::cell::RefCell<Vec<Syllable>>,
@@ -498,7 +504,7 @@ pub fn engrave(score: &Score, track_index: usize, options: &Options) -> Layout {
                 Some(track.written_clef(clef, false)),
                 None,
             )),
-            Staff::Chant => specs.push(StaffSpec {
+            Staff::Chant | Staff::ChantFa => specs.push(StaffSpec {
                 chant: true,
                 ..spec(true, false, false, false, None, None)
             }),
@@ -543,6 +549,27 @@ pub fn engrave(score: &Score, track_index: usize, options: &Options) -> Layout {
         .iter()
         .enumerate()
         .map(|(k, spec)| {
+            // Lyrics attached to a staff go above its first part or under its last.
+            let role = if !track.has_attached_lyrics() {
+                if k == 0 {
+                    LyricsRole::Own
+                } else {
+                    LyricsRole::None
+                }
+            } else {
+                let same = |j: usize| specs[j].index == spec.index;
+                match track.staff_lyrics_of(spec.index) {
+                    Some(l) if l.above && (0..k).all(|j| !same(j)) => LyricsRole::Attached {
+                        source: l.track.and_then(|t| score.tracks.get(t)).unwrap_or(track),
+                        above: true,
+                    },
+                    Some(l) if !l.above && (k + 1..n).all(|j| !same(j)) => LyricsRole::Attached {
+                        source: l.track.and_then(|t| score.tracks.get(t)).unwrap_or(track),
+                        above: false,
+                    },
+                    _ => LyricsRole::None,
+                }
+            };
             let mut c = make_ctx(
                 score,
                 tracks[k],
@@ -552,6 +579,7 @@ pub fn engrave(score: &Score, track_index: usize, options: &Options) -> Layout {
                 spec,
                 k == 0,
                 chant_ctx.as_ref(),
+                role,
             );
             c.last_staff = k + 1 == n;
             c.keyed = keyed;
@@ -600,6 +628,19 @@ fn grand_half(track: &Track, split: u8, high: bool) -> (Track, HiddenBeats) {
     (half, hidden)
 }
 
+/// Where a staff shows lyrics.
+#[derive(Clone, Copy)]
+enum LyricsRole<'a> {
+    None,
+    /// The track's own, under its top staff (when no staff has lyrics attached).
+    Own,
+    /// Those of a track, attached to the staff.
+    Attached {
+        source: &'a Track,
+        above: bool,
+    },
+}
+
 #[allow(clippy::too_many_arguments)]
 fn make_ctx<'a>(
     score: &'a Score,
@@ -610,20 +651,29 @@ fn make_ctx<'a>(
     spec: &StaffSpec,
     first_staff: bool,
     chant: Option<&ChantCtx>,
+    role: LyricsRole<'a>,
 ) -> Ctx<'a> {
     let sp = options.sp;
-    // Lyrics are written under the top staff only.
-    let lyrics = if first_staff {
-        track
-            .bars
+    let verses = |t: &Track| {
+        t.bars
             .iter()
             .flat_map(|b| &b.voices)
             .flat_map(|v| &v.beats)
             .map(|b| b.lyrics.len())
             .max()
             .unwrap_or(0)
-    } else {
-        0
+    };
+    let (lyrics, lyrics_above, lyric_source) = match role {
+        LyricsRole::None => (0, 0, None),
+        LyricsRole::Own => (verses(track), 0, None),
+        LyricsRole::Attached {
+            source,
+            above: true,
+        } => (0, verses(source), Some(source)),
+        LyricsRole::Attached {
+            source,
+            above: false,
+        } => (verses(source), 0, Some(source)),
     };
     let head = if spec.slash { SLASH_BLACK } else { HEAD_BLACK };
     let nh_width = fonts().bbox(FontKind::Music, head, 4.0 * sp).width();
@@ -653,6 +703,8 @@ fn make_ctx<'a>(
         keyed: true,
         hidden: HiddenBeats::new(),
         lyrics,
+        lyrics_above,
+        lyric_source,
         nh_width,
         syllables: Default::default(),
         dynamics: track
@@ -1186,7 +1238,13 @@ impl Ctx<'_> {
         let sp = self.sp;
         // Room above the top staff for markers, tempo and chord names; a further staff of the
         // track sits closer.
-        let top = if self.first_staff { 10.0 } else { 3.0 } * sp;
+        let above = if self.lyrics_above > 0 {
+            (self.lyrics_above - 1) as f64 * 1.8 * sp
+                + if self.first_staff { 1.5 } else { 1.0 } * sp
+        } else {
+            0.0
+        };
+        let top = if self.first_staff { 10.0 } else { 3.0 } * sp + above;
         let lyric_space =
             self.lyrics as f64 * 1.8 * sp + if self.lyrics > 0 { 1.5 * sp } else { 0.0 };
         let staff = if self.tab {
@@ -1329,6 +1387,57 @@ impl Ctx<'_> {
             tab_bottom + if self.rhythm { 8.0 } else { 3.0 } * sp
         } else {
             std_bottom + 5.0 * sp
+        }
+    }
+
+    /// Baseline of verse `li` of lyrics: under the staff, or above it (and above the chord names
+    /// of the top staff).
+    fn lyric_y(&self, li: usize, std_bottom: f64, tab_top: f64) -> f64 {
+        let sp = self.sp;
+        if self.lyrics_above == 0 {
+            return self.lyrics_top(std_bottom, tab_top) + li as f64 * 1.8 * sp;
+        }
+        let staff_top = if self.tab {
+            tab_top
+        } else {
+            std_bottom - 4.0 * sp
+        };
+        let lowest = staff_top - if self.first_staff { 8.0 } else { 1.0 } * sp;
+        lowest - (self.lyrics_above - 1 - li) as f64 * 1.8 * sp
+    }
+
+    /// Draws the verses of lyrics of a beat, centred on `cx`.
+    fn draw_syllables(
+        &self,
+        page: &mut Page,
+        verses: &[String],
+        cx: f64,
+        (std_bottom, tab_top): (f64, f64),
+        page_index: usize,
+    ) {
+        let sp = self.sp;
+        for (li, syl) in verses.iter().enumerate() {
+            // A trailing hyphen is drawn between this syllable and the next.
+            let continues = syl.ends_with('-');
+            let text = syl.trim_end_matches('-');
+            if !text.is_empty() {
+                let y = self.lyric_y(li, std_bottom, tab_top);
+                let w = fonts().text_width(FontKind::Text, text, 1.9 * sp);
+                page.text(
+                    FontKind::Text,
+                    text.to_string(),
+                    (cx, y),
+                    1.9 * sp,
+                    Align::Center,
+                );
+                self.syllables.borrow_mut().push((
+                    page_index,
+                    y,
+                    cx - w / 2.0,
+                    cx + w / 2.0,
+                    continues,
+                ));
+            }
         }
     }
 
@@ -1977,6 +2086,35 @@ impl Ctx<'_> {
         let key_alter = key_alters(mb.key_signature.accidentals);
         let mut alters: HashMap<i32, i32> = HashMap::new();
         let mut shown = false;
+        // Lyrics attached to this staff, from the first voice of their track.
+        if let Some(src) = self.lyric_source {
+            let beats = src.bars.get(bi).and_then(|b| b.voices.first());
+            let mut t = 0;
+            for beat in beats.map_or(&[][..], |v| &v.beats[..]) {
+                let start = t;
+                t += beat.ticks();
+                if beat.lyrics.iter().all(|l| l.is_empty()) {
+                    continue;
+                }
+                // The staff's column at that tick, or the last one before it.
+                let col = col_x.get(&start).copied().or_else(|| {
+                    col_x
+                        .iter()
+                        .filter(|(k, _)| **k <= start)
+                        .max_by_key(|(k, _)| **k)
+                        .map(|(_, v)| *v)
+                });
+                if let Some((bx, _)) = col {
+                    self.draw_syllables(
+                        page,
+                        &beat.lyrics,
+                        bx + self.nh_width / 2.0,
+                        (std_bottom, tab_top),
+                        page_index,
+                    );
+                }
+            }
+        }
         for (vi, voice) in bar.voices.iter().enumerate() {
             let mut t = 0;
             let mut beamable: Vec<(usize, f64, Vec<f64>, DurationValue, u32)> = Vec::new();
@@ -2252,29 +2390,14 @@ impl Ctx<'_> {
                             );
                         }
                     }
-                    for (li, syl) in beat.lyrics.iter().enumerate() {
-                        // A trailing hyphen is drawn between this syllable and the next.
-                        let continues = syl.ends_with('-');
-                        let text = syl.trim_end_matches('-');
-                        if !text.is_empty() {
-                            let y = self.lyrics_top(std_bottom, tab_top) + li as f64 * 1.8 * sp;
-                            let cx = bx + self.nh_width / 2.0;
-                            let w = fonts().text_width(FontKind::Text, text, 1.9 * sp);
-                            page.text(
-                                FontKind::Text,
-                                text.to_string(),
-                                (cx, y),
-                                1.9 * sp,
-                                Align::Center,
-                            );
-                            self.syllables.borrow_mut().push((
-                                page_index,
-                                y,
-                                cx - w / 2.0,
-                                cx + w / 2.0,
-                                continues,
-                            ));
-                        }
+                    if self.lyrics > 0 && self.lyric_source.is_none() {
+                        self.draw_syllables(
+                            page,
+                            &beat.lyrics,
+                            bx + self.nh_width / 2.0,
+                            (std_bottom, tab_top),
+                            page_index,
+                        );
                     }
                 }
                 // Tablature.
@@ -4055,5 +4178,65 @@ mod tests {
             _ => None,
         });
         assert!(message.is_some_and(|m| m.contains("monophonic")));
+    }
+
+    #[test]
+    fn lyrics_attach_to_a_staff_from_any_track() {
+        let beat = |syl: &str| Beat {
+            duration: Duration::new(DurationValue::Quarter),
+            notes: vec![Note::new(0, 0)],
+            lyrics: vec![syl.into()],
+            ..Beat::default()
+        };
+        let track = |syl: &str, staves, staff_lyrics| Track {
+            kind: TrackKind::Fretted,
+            strings: vec![64, 59, 55, 50, 45, 40],
+            staves,
+            staff_lyrics,
+            bars: vec![Bar {
+                voices: vec![Voice {
+                    beats: vec![beat(syl), beat(syl)],
+                }],
+            }],
+            ..Track::default()
+        };
+        let mut score = Score {
+            tempo: 100,
+            master_bars: vec![MasterBar::default()],
+            tracks: vec![
+                track(
+                    "own",
+                    vec![Staff::Standard(muse_core::Clef::Treble)],
+                    vec![],
+                ),
+                track("other", vec![Staff::Tab], vec![]),
+            ],
+            ..Score::default()
+        };
+        let texts = |score: &Score, text: &str| -> Vec<f64> {
+            engrave(score, 0, &Options::default()).pages[0]
+                .items
+                .iter()
+                .filter_map(|i| match i {
+                    Item::Text { text: t, at, .. } if t == text => Some(at.y),
+                    _ => None,
+                })
+                .collect()
+        };
+        // Without attachments a track's own lyrics go under its top staff.
+        let below = texts(&score, "own");
+        assert_eq!(below.len(), 2);
+        // Attached above, from the other track: its syllables replace the own ones, over the staff.
+        score.tracks[0].set_staff_lyrics(
+            0,
+            Some(muse_core::StaffLyrics {
+                track: Some(1),
+                above: true,
+            }),
+        );
+        assert!(texts(&score, "own").is_empty());
+        let above = texts(&score, "other");
+        assert_eq!(above.len(), 2);
+        assert!(above[0] < below[0]);
     }
 }

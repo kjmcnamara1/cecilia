@@ -2466,7 +2466,7 @@ mod tests {
         app.props.selected = field_row(&app, Field::StaffAt(2));
         keys(&mut app, "h");
         let staves = app.buffer().score.tracks[0].staves();
-        assert_eq!(crate::picker::staff_label(staves[2]), "chant");
+        assert_eq!(crate::picker::staff_label(staves[2]), "chant fa");
         app.props.selected = field_row(&app, Field::StaffAt(3));
         keys(&mut app, "l");
         let staves = app.buffer().score.tracks[0].staves();

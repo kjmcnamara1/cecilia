@@ -2258,7 +2258,7 @@ fn draw_pane(
             // start 0.4 spaces before the head.
             let cx = if chant_layout { x + w / 2.0 } else { pos.head };
             square(cx, y, (step * 3.0).clamp(10.0, 22.0))
-        } else if staff == Some(muse_core::Staff::Chant) && !chant_layout {
+        } else if staff.is_some_and(|s| s.is_chant()) && !chant_layout {
             // A chant staff that is not drawn (a chord under the error policy): no position.
             whole
         } else {

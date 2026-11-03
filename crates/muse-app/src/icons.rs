@@ -27,13 +27,13 @@ impl Icon {
     pub fn of_staff(staff: Staff) -> Icon {
         use muse_core::Clef;
         match staff {
-            Staff::Standard(Clef::Treble) => Icon::Treble,
+            Staff::Standard(Clef::Treble | Clef::Neutral) => Icon::Treble,
             Staff::Standard(Clef::Bass) => Icon::Bass,
             Staff::Standard(Clef::Grand { .. }) => Icon::Grand,
             Staff::Tab => Icon::Tab,
             Staff::TabRhythm => Icon::TabRhythm,
             Staff::Slash => Icon::Slash,
-            Staff::Chant => Icon::Chant,
+            Staff::Chant | Staff::ChantFa => Icon::Chant,
         }
     }
 

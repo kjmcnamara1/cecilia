@@ -1195,7 +1195,7 @@ impl App {
             .get(c.beat)?;
         let string = if uses_strings(track, kind) {
             u8::try_from(c.string).ok()?
-        } else if matches!(kind, Staff::Slash | Staff::Chant) {
+        } else if matches!(kind, Staff::Slash) || kind.is_chant() {
             beat.notes.first()?.string
         } else {
             let key = score
@@ -1811,7 +1811,7 @@ impl App {
     /// Why the cursor track's chant staff is not drawn: the chord the `error` policy refuses.
     pub fn chant_staff_problem(&self) -> Option<String> {
         let track = self.buffer().score.tracks.get(self.pane().cursor.track)?;
-        if track.chant.is_some() || !track.staves().contains(&Staff::Chant) {
+        if track.chant.is_some() || !track.staves().iter().any(|s| s.is_chant()) {
             return None;
         }
         muse_core::melody::ChantView::build(&self.buffer().score, track, self.chord_policy())
@@ -1828,7 +1828,9 @@ impl App {
             .tracks
             .get(self.pane().cursor.track)
             .is_some_and(|t| {
-                t.staves().get(staff_index(t, self.pane().cursor.staff)) == Some(&Staff::Chant)
+                t.staves()
+                    .get(staff_index(t, self.pane().cursor.staff))
+                    .is_some_and(|s| s.is_chant())
             });
         let blocked = match &self.message {
             Some(m) => m.error || !on_chant,
@@ -2896,14 +2898,14 @@ pub(crate) fn uses_strings(track: &Track, staff: Staff) -> bool {
     match staff {
         Staff::Tab | Staff::TabRhythm => !track.strings.is_empty(),
         Staff::Standard(_) => track.kind == TrackKind::Drums,
-        Staff::Slash | Staff::Chant => false,
+        Staff::Slash | Staff::Chant | Staff::ChantFa => false,
     }
 }
 
 /// Middle of a staff (its treble half on a grand staff; a GABC position on chant).
 fn staff_middle(track: &Track, staff: Staff) -> i32 {
     match staff {
-        Staff::Chant => 6,
+        Staff::Chant | Staff::ChantFa => 6,
         Staff::Standard(clef) => track.written_clef(clef, false).bottom_line() + 4,
         _ => track.written_clef(Clef::Treble, false).bottom_line() + 4,
     }
@@ -2938,7 +2940,7 @@ fn staff_rows(score: &Score, c: &Cursor, track: &Track, index: usize, staff: Sta
         (lo, hi)
     };
     match staff {
-        Staff::Chant => lines(1, 11).collect(),
+        Staff::Chant | Staff::ChantFa => lines(1, 11).collect(),
         Staff::Slash => vec![Row::Line(index, staff_middle(track, staff))],
         Staff::Standard(clef @ Clef::Grand { split }) => {
             let (t_lo, t_hi) = range(track.written_clef(clef, false), &|p| p >= split);
@@ -3015,7 +3017,7 @@ fn own_rows(score: &Score, c: &Cursor) -> Vec<Row> {
     let index = staff_index(track, c.staff);
     let staff = staves[index];
     let mut rows = staff_rows(score, c, track, index, staff);
-    if !matches!(staff, Staff::Chant | Staff::Slash) && !uses_strings(track, staff) {
+    if !(staff.is_chant() || staff == Staff::Slash) && !uses_strings(track, staff) {
         if let (Some(&Row::Line(_, top)), Some(&Row::Line(_, bottom))) = (rows.first(), rows.last())
         {
             let above = (top + 1..=top + LEDGER_ROWS)
@@ -3056,7 +3058,7 @@ fn move_staff(
         }
     }
     // Onto a chant staff the cursor goes to the position of the beat's note.
-    if to != here && staves[to] == Staff::Chant && track.chant.is_none() {
+    if to != here && staves[to].is_chant() && track.chant.is_none() {
         let note = beats(score, c).get(c.beat).and_then(|b| {
             let n = &b.notes[muse_core::melody::pick(track, b, policy)?];
             Some(track.pitch_of(n))
