@@ -4614,12 +4614,14 @@ mod tests {
             }),
             ..Beat::default()
         };
-        let mut mb = MasterBar::default();
-        mb.marker = Some(muse_core::Marker {
-            title: "Pre-Chorus".into(),
-            color: Default::default(),
-            letter: "B".into(),
-        });
+        let mb = MasterBar {
+            marker: Some(muse_core::Marker {
+                title: "Pre-Chorus".into(),
+                color: Default::default(),
+                letter: "B".into(),
+            }),
+            ..MasterBar::default()
+        };
         let mut track = Track {
             kind: TrackKind::Fretted,
             strings: vec![64, 59, 55, 50, 45, 40],
