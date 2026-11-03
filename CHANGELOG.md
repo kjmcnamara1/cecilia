@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.11.1] - 2026-11-03
+
 ### Changed
 
 - The `tab+` staff engraves rests in the middle of the strings, and both tab staves set their time signature in standard-size digits close together on the middle line.
