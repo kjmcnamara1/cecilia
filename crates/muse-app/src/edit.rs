@@ -178,7 +178,7 @@ impl<'a> EditCx<'a> {
             .beats
             .get(self.cursor.beat)?;
         // Slashes and chant show one note per beat.
-        if matches!(self.staff(), Some(Staff::Slash | Staff::Chant)) {
+        if matches!(self.staff(), Some(s) if s == Staff::Slash || s.is_chant()) {
             return beat.notes.first().map(|n| n.string);
         }
         beat.notes

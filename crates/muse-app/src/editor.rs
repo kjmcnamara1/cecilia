@@ -3,6 +3,7 @@
 
 use std::collections::HashMap;
 
+use muse_core::chant::ClefKind;
 use muse_core::*;
 
 use crate::app::{beats, clamp_cursor};
@@ -437,7 +438,7 @@ impl App {
         };
         match t.staves().get(crate::app::staff_index(t, c.staff)).copied() {
             Some(s) if crate::app::uses_strings(t, s) => InsertKind::Tab,
-            Some(Staff::Chant) => InsertKind::Chant,
+            Some(Staff::Chant | Staff::ChantFa) => InsertKind::Chant,
             Some(Staff::Slash) => InsertKind::Slash,
             _ => InsertKind::Standard,
         }
@@ -1074,7 +1075,9 @@ impl App {
                 });
             }
             TrackAdd(kind) => self.add_track(kind),
-            Staff(arg) => self.set_staff(arg),
+            Notation(arg) => self.set_notation(arg),
+            Clef(arg) => self.set_clef(arg),
+            LyricsAttach(arg) => self.attach_lyrics(arg),
             StaffAdd(arg) => self.add_staff(arg.as_deref()),
             StaffRemove(n) => self.remove_staff(*n),
             StaffMove(to) => self.move_staff(to),
@@ -1086,6 +1089,23 @@ impl App {
                     let t = cx.cursor.track;
                     let tracks = &mut cx.whole().tracks;
                     tracks.remove(t);
+                    // Lyrics attached from the deleted track go; later tracks shift down.
+                    for track in tracks.iter_mut() {
+                        for l in track.staff_lyrics.iter_mut() {
+                            match l.as_mut().and_then(|l| l.track) {
+                                Some(src) if src == t => *l = None,
+                                Some(src) if src > t => {
+                                    if let Some(l) = l.as_mut() {
+                                        l.track = Some(src - 1);
+                                    }
+                                }
+                                _ => {}
+                            }
+                        }
+                        while track.staff_lyrics.last() == Some(&None) {
+                            track.staff_lyrics.pop();
+                        }
+                    }
                     cx.cursor.track = t.saturating_sub(1);
                     Ok(())
                 });
@@ -1249,23 +1269,61 @@ impl App {
     }
 
     /// The staff `arg` names (`standard grand C4`, `tab+` …), the clef of a plain `standard`
-    /// coming from the config.
+    /// being the cursor staff's, or the config's.
     fn parse_staff(&mut self, arg: &str) -> Option<Staff> {
-        match Staff::parse(arg.trim(), self.config.default_clef()) {
-            Ok(s) => Some(s),
+        let (track, here) = self.cursor_staff();
+        let clef = match here {
+            Some(Staff::Standard(c)) => c,
+            _ if track.is_some_and(|t| t.kind == TrackKind::Drums) => Clef::Neutral,
+            _ => self.config.default_clef(),
+        };
+        let arg = arg.trim();
+        match Staff::parse(arg, clef) {
+            // A plain `chant` keeps a fa clef.
+            Ok(Staff::Chant) if arg == "chant" && here == Some(Staff::ChantFa) => {
+                Some(Staff::ChantFa)
+            }
+            Ok(s) => self.fit_clef(track.map(|t| t.kind), s),
             Err(e) => {
-                self.error(format!("staff: {e}"));
+                self.error(format!("notation: {e}"));
                 None
             }
         }
     }
 
-    /// Shows the cursor's staff in another way. The notes stay as they are; a tab on a track
-    /// without strings first puts them on strings (refused if any would not fit).
-    fn set_staff(&mut self, arg: &str) {
+    /// The cursor's track and staff.
+    fn cursor_staff(&self) -> (Option<&Track>, Option<Staff>) {
+        let c = self.pane().cursor;
+        let track = self.buffer().score.tracks.get(c.track);
+        let staff =
+            track.and_then(|t| t.staves().get(crate::app::staff_index(t, c.staff)).copied());
+        (track, staff)
+    }
+
+    /// A drum track reads the neutral clef only, and no other track does.
+    fn fit_clef(&mut self, kind: Option<TrackKind>, staff: Staff) -> Option<Staff> {
+        let drums = kind == Some(TrackKind::Drums);
+        match staff {
+            Staff::Standard(Clef::Neutral) if !drums => {
+                self.error("clef: the neutral clef is for drum tracks");
+                None
+            }
+            Staff::Standard(Clef::Neutral) => Some(staff),
+            Staff::Standard(_) if drums => Some(Staff::Standard(Clef::Neutral)),
+            s => Some(s),
+        }
+    }
+
+    /// Shows the cursor's staff in another notation. The notes stay as they are; a tab on a
+    /// track without strings first puts them on strings (refused if any would not fit).
+    fn set_notation(&mut self, arg: &str) {
         let Some(staff) = self.parse_staff(arg) else {
             return;
         };
+        self.put_staff(staff);
+    }
+
+    fn put_staff(&mut self, staff: Staff) {
         let done = self.edit(|cx| {
             let (i, t) = (cx.cursor.staff, cx.cursor.track);
             let track = &mut cx.whole().tracks[t];
@@ -1280,6 +1338,119 @@ impl App {
         }
     }
 
+    /// Sets the clef of the cursor's staff, among those its notation has: treble, bass, grand
+    /// or neutral for standard notation; do or fa for chant. Tab and slash have none.
+    fn set_clef(&mut self, arg: &str) {
+        let arg = arg.trim();
+        let (track, here) = self.cursor_staff();
+        let (Some(track), Some(here)) = (track, here) else {
+            return;
+        };
+        let chant_track = track.chant.is_some();
+        let kind = track.kind;
+        match here.notation() {
+            Notation::Tab | Notation::Slash => {
+                self.error(format!("clef: a {} staff has no clef", here.name()));
+            }
+            Notation::Standard => match Staff::parse(arg, Clef::Treble) {
+                Ok(s @ Staff::Standard(_)) => {
+                    if let Some(s) = self.fit_clef(Some(kind), s) {
+                        self.put_staff(s);
+                    }
+                }
+                _ => self.error(format!(
+                    "clef: '{arg}' is not a standard clef (treble, bass, grand [split], neutral)"
+                )),
+            },
+            Notation::Chant => {
+                let family = match arg.chars().next() {
+                    _ if arg == "do" => Some(ClefKind::Do),
+                    _ if arg == "fa" => Some(ClefKind::Fa),
+                    Some('c') => Some(ClefKind::Do),
+                    Some('f') => Some(ClefKind::Fa),
+                    _ => None,
+                };
+                let Some(family) = family else {
+                    self.error(format!(
+                        "clef: '{arg}' is not a chant clef (do, fa{})",
+                        if chant_track {
+                            ", c1–c4, f1–f4, cb3"
+                        } else {
+                            ""
+                        }
+                    ));
+                    return;
+                };
+                if chant_track {
+                    // The clef of the chant itself; do / fa keep its line.
+                    let spec = match arg {
+                        "do" | "fa" => {
+                            let line = track.chant.as_ref().map_or(3, |c| c.initial_clef().line);
+                            format!("{}{line}", if arg == "do" { 'c' } else { 'f' })
+                        }
+                        _ => arg.to_string(),
+                    };
+                    self.run(Command::ChantClef(spec));
+                } else if arg == "do" || arg == "fa" {
+                    self.put_staff(if family == ClefKind::Do {
+                        Staff::Chant
+                    } else {
+                        Staff::ChantFa
+                    });
+                } else {
+                    self.error("clef: a chant staff of an ordinary track takes do or fa");
+                }
+            }
+        }
+    }
+
+    /// Attaches lyrics to the cursor's staff: `above` or `below` it, from the staff's own
+    /// track or from track N; `none` detaches them. A staff has them above or below, not both.
+    fn attach_lyrics(&mut self, arg: &str) {
+        let words: Vec<&str> = arg.split_whitespace().collect();
+        let (lyrics, from) = match words.as_slice() {
+            ["none" | "off"] => (None, None),
+            [side @ ("above" | "below"), rest @ ..] if rest.len() <= 1 => {
+                let from = match rest {
+                    [n] => match n.parse::<usize>() {
+                        Ok(n) if (1..=self.buffer().score.tracks.len()).contains(&n) => Some(n - 1),
+                        _ => {
+                            return self.error(format!("lyrics-attach: there is no track '{n}'"));
+                        }
+                    },
+                    _ => None,
+                };
+                (Some(*side == "above"), from)
+            }
+            _ => {
+                return self.error("lyrics-attach: expected above|below [TRACK] or none");
+            }
+        };
+        let done = self.edit(|cx| {
+            let (i, t) = (cx.cursor.staff, cx.cursor.track);
+            let track = &mut cx.whole().tracks[t];
+            let i = i.min(track.staves_mut().len() - 1);
+            track.set_staff_lyrics(
+                i,
+                lyrics.map(|above| StaffLyrics {
+                    track: from.filter(|&f| f != t),
+                    above,
+                }),
+            );
+            Ok(i)
+        });
+        if let Some(i) = done {
+            self.info(match lyrics {
+                None => format!("staff {}: no lyrics attached", i + 1),
+                Some(above) => format!(
+                    "staff {}: lyrics {} the staff",
+                    i + 1,
+                    if above { "above" } else { "below" }
+                ),
+            });
+        }
+    }
+
     /// Adds one or more staves at the bottom of the cursor's track, in the order given.
     fn add_staff(&mut self, arg: Option<&str>) {
         let default = self.config.default_clef();
@@ -1290,6 +1461,14 @@ impl App {
         let new = match parsed {
             Ok(new) => new,
             Err(e) => return self.error(format!("staff: {e}")),
+        };
+        let kind = self.cursor_staff().0.map(|t| t.kind);
+        let Some(new) = new
+            .into_iter()
+            .map(|s| self.fit_clef(kind, s))
+            .collect::<Option<Vec<_>>>()
+        else {
+            return;
         };
         let done = self.edit(|cx| {
             let t = cx.cursor.track;
@@ -1327,8 +1506,8 @@ impl App {
             if i >= staves.len() {
                 return Err(format!("staff-remove: there is no staff {}", i + 1));
             }
-            staves.remove(i);
-            let left = staves.len();
+            let left = staves.len() - 1;
+            cx.whole().tracks[t].remove_staff(i);
             cx.cursor.staff = here.min(left - 1);
             Ok(())
         });
@@ -1358,8 +1537,8 @@ impl App {
                 }
             };
             let target = target.clamp(0, n - 1) as usize;
-            let staff = staves.remove(from.min(staves.len() - 1));
-            staves.insert(target, staff);
+            let from = from.min(staves.len() - 1);
+            cx.whole().tracks[t].move_staff(from, target);
             cx.cursor.staff = target;
             Ok(())
         });
@@ -1590,6 +1769,85 @@ mod tests {
     }
 
     #[test]
+    fn notation_and_clef_commands() {
+        use muse_core::Clef::{Bass, Grand, Treble};
+        let mut a = app();
+        let staves = |a: &App| a.buffer().score.tracks[0].staves();
+        a.run(Command::StaffPrev);
+        // `:clef` works on the cursor staff by its notation.
+        a.run(Command::Clef("bass".into()));
+        assert_eq!(staves(&a), vec![Staff::Standard(Bass), Staff::Tab]);
+        a.run(Command::Clef("grand G3".into()));
+        assert_eq!(staves(&a)[0], Staff::Standard(Grand { split: 55 }));
+        // Neutral is for drum tracks.
+        a.run(Command::Clef("neutral".into()));
+        assert_eq!(staves(&a)[0], Staff::Standard(Grand { split: 55 }));
+        // `:notation standard` keeps the clef the staff had.
+        a.run(Command::Notation("slash".into()));
+        a.run(Command::Notation("standard".into()));
+        assert_eq!(staves(&a)[0], Staff::Standard(Treble));
+        // Tab and slash have no clef.
+        a.run(Command::Notation("tab".into()));
+        a.run(Command::Clef("treble".into()));
+        assert_eq!(staves(&a)[0], Staff::Tab);
+        a.run(Command::Notation("slash".into()));
+        a.run(Command::Clef("treble".into()));
+        assert_eq!(staves(&a)[0], Staff::Slash);
+        // Chant staves take do or fa, and keep fa when asked for `chant` again.
+        a.run(Command::Notation("chant".into()));
+        assert_eq!(staves(&a)[0], Staff::Chant);
+        a.run(Command::Clef("fa".into()));
+        assert_eq!(staves(&a)[0], Staff::ChantFa);
+        a.run(Command::Clef("treble".into()));
+        assert_eq!(staves(&a)[0], Staff::ChantFa);
+        a.run(Command::Notation("chant".into()));
+        assert_eq!(staves(&a)[0], Staff::ChantFa);
+        a.run(Command::Clef("do".into()));
+        assert_eq!(staves(&a)[0], Staff::Chant);
+        // Drums read the neutral clef, whatever is asked.
+        a.run(Command::TrackAdd("drums".into()));
+        let t = a.pane().cursor.track;
+        assert_eq!(
+            a.buffer().score.tracks[t].staves(),
+            vec![Staff::Standard(muse_core::Clef::Neutral)]
+        );
+        a.run(Command::Clef("treble".into()));
+        assert_eq!(
+            a.buffer().score.tracks[t].staves(),
+            vec![Staff::Standard(muse_core::Clef::Neutral)]
+        );
+    }
+
+    #[test]
+    fn lyrics_attach_to_staves_and_follow_them() {
+        let mut a = app();
+        a.run(Command::TrackAdd("guitar".into()));
+        a.run(Command::Track(1));
+        let lyrics = |a: &App| a.buffer().score.tracks[0].staff_lyrics.clone();
+        let l = |track, above| Some(StaffLyrics { track, above });
+        a.run(Command::StaffPrev);
+        a.run(Command::LyricsAttach("above 2".into()));
+        assert_eq!(lyrics(&a), vec![l(Some(1), true)]);
+        a.run(Command::LyricsAttach("below".into()));
+        assert_eq!(lyrics(&a), vec![l(None, false)]);
+        a.run(Command::LyricsAttach("above 9".into()));
+        assert_eq!(lyrics(&a), vec![l(None, false)]);
+        // The attachment goes with its staff when it moves, and is dropped with it.
+        a.run(Command::StaffMove("+1".into()));
+        assert_eq!(lyrics(&a), vec![None, l(None, false)]);
+        a.run(Command::StaffRemove(None));
+        assert!(lyrics(&a).is_empty());
+        a.run(Command::LyricsAttach("above 2".into()));
+        a.run(Command::LyricsAttach("none".into()));
+        assert!(lyrics(&a).is_empty());
+        // Deleting the source track detaches lyrics taken from it.
+        a.run(Command::LyricsAttach("below 2".into()));
+        a.run(Command::Track(2));
+        a.run(Command::TrackDelete);
+        assert!(lyrics(&a).is_empty());
+    }
+
+    #[test]
     fn staves_of_a_track() {
         let mut a = app();
         keys(&mut a, "i3<Space>5<Esc>");
@@ -1602,7 +1860,7 @@ mod tests {
         a.run(Command::StaffAdd(Some("grand G3".into())));
         assert_eq!(staves(&a)[3], Staff::Standard(Grand { split: 55 }));
         assert_eq!(a.pane().cursor.staff, 3);
-        a.run(Command::Staff("tab+".into()));
+        a.run(Command::Notation("tab+".into()));
         // Reordered: to the top, then two places down.
         a.run(Command::StaffMove("1".into()));
         assert_eq!(
@@ -1624,7 +1882,7 @@ mod tests {
         a.run(Command::StaffRemove(None));
         a.run(Command::StaffRemove(None));
         assert_eq!(staves(&a).len(), 1);
-        a.run(Command::Staff("bogus".into()));
+        a.run(Command::Notation("bogus".into()));
         assert_eq!(staves(&a).len(), 1);
         // The notes never changed; undo brings the staves back.
         assert_eq!(a.buffer().score.tracks[0].bars, bars);
@@ -1637,7 +1895,7 @@ mod tests {
         assert_eq!(a.buffer().score.tracks.len(), 2);
         assert_eq!(
             a.buffer().score.tracks[t].staves(),
-            vec![Staff::Standard(Grand { split: 60 })]
+            vec![Staff::Standard(Grand { split: 48 })]
         );
         keys(&mut a, "ic<Esc>");
         a.run(Command::StaffAdd(Some("tab".into())));

@@ -66,6 +66,7 @@ pub const COMMANDS: &[&str] = &[
     "focus-prev",
     "focus-right",
     "focus-up",
+    "bar-numbers",
     "completion-fuzzy",
     "completion-ignore-case",
     "follow-toggle",
@@ -84,7 +85,9 @@ pub const COMMANDS: &[&str] = &[
     "loop",
     "loop-toggle",
     "lyrics",
+    "lyrics-attach",
     "lyrics-clear",
+    "notation",
     "metronome",
     "mix",
     "modern-to-chant",
@@ -184,7 +187,6 @@ pub const COMMANDS: &[&str] = &[
     "speed-up",
     "slash",
     "split",
-    "staff",
     "staff-add",
     "staff-move",
     "staff-remove",
@@ -261,11 +263,16 @@ fn values(command: &str) -> Option<&'static [&'static str]> {
         "mix" => &["audio", "both", "midi"],
         "interpretation" => &["equalist", "solesmes"],
         "clef" => &[
-            "c1", "c2", "c3", "c4", "cb2", "cb3", "cb4", "f1", "f2", "f3", "f4",
+            "treble", "bass", "grand", "neutral", "do", "fa", "c1", "c2", "c3", "c4", "cb2", "cb3",
+            "cb4", "f1", "f2", "f3", "f4",
         ],
         "global-tool" => &["fretboard", "piano", "tracks", "tuner", "waveform"],
         "track-add" => &["bass", "drums", "guitar", "piano", "voice"],
-        "staff" | "staff-add" => &["chant", "slash", "bass", "grand", "treble", "tab", "tab+"],
+        "notation" => &["standard", "tab", "tab+", "slash", "chant"],
+        "lyrics-attach" => &["above", "below", "none"],
+        "staff-add" => &[
+            "chant", "slash", "bass", "grand", "neutral", "treble", "tab", "tab+",
+        ],
         "accidental" => &["flat", "natural", "sharp"],
         "chant-bar" => &[",", ":", "::", ";"],
         "volume" => &["audio", "metronome", "midi"],
@@ -280,6 +287,7 @@ fn values(command: &str) -> Option<&'static [&'static str]> {
         ],
         "tracks" | "toolbar" | "palette" | "fretboard" | "piano" | "tuner" => &["off", "on"],
         "track-color" => &["off"],
+        "bar-numbers" => &["every", "system", "toggle"],
         "completion-ignore-case"
         | "completion-fuzzy"
         | "waveform"
@@ -749,10 +757,11 @@ pub fn describe(command: &str) -> Option<&'static str> {
         "change" => "Change operator (delete, then insert)",
         "chant-to-modern" => "Turn the chant track into a staff track",
         "chant-view" => "Square notation / modern view of chant",
-        "clef" => "Chant clef (c1–c4, f1–f4, cb3)",
+        "clef" => "Clef of the staff: treble, bass, grand, neutral (standard); do, fa (chant)",
         "close" | "pane-close" => "Close the pane",
         "command-mode" => "Open the command line",
         "completion-ignore-case" => "Toggle case-insensitive completion",
+        "bar-numbers" => "Number every bar, or only the first bar of each line",
         "completion-fuzzy" => "Toggle fuzzy completion (letters in order, anywhere)",
         "count-in" => "Toggle the count-in before playing",
         "delete" => "Delete operator",
@@ -784,6 +793,8 @@ pub fn describe(command: &str) -> Option<&'static str> {
         "loop" => "Loop bars a–b",
         "loop-toggle" => "Loop the selection or cursor bar",
         "lyrics" => "Lyrics from the cursor on",
+        "lyrics-attach" => "Attach lyrics to the cursor staff: above|below [track], or none",
+        "notation" => "Notation of the cursor's staff (standard, tab, tab+, slash, chant)",
         "lyrics-clear" => "Remove a verse of lyrics",
         "metronome" => "Toggle the metronome",
         "mix" => "Mix: both, audio or midi",
@@ -937,9 +948,6 @@ pub fn describe(command: &str) -> Option<&'static str> {
         "track-rename-start" => "Rename the selected track in place in the tracks pane",
         "track-instrument" => {
             "Set a track's instrument: PROGRAM (1-128) or drums [track number]; without one, a picker"
-        }
-        "staff" => {
-            "Show the cursor's staff another way (treble, bass, grand [split], tab, tab+, slash, chant)"
         }
         "staff-add" => "Add a staff at the bottom of the track",
         "staff-remove" => "Remove a staff of the track (1 = top; the cursor's by default)",

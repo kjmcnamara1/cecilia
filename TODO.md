@@ -107,29 +107,6 @@ Planned work. Finished items move to `CHANGELOG.md` under `[Unreleased]`.
   - values for width/height can be fixed or dynamic (%)
   - :resize-default will set current w/h of the focused pane back to the default values
   - auto-resize should essentially run :resize-equal after opening or closing panes
-- [ ] Refactor staffs and clefs:
-  - A "Staff" is a set of lines that hold musical notation. Can add/remove
-    staves and navigate between them (alt-j/k)
-  - A Staff has a particular "Notation" associated with it. Notation can be:
-    - standard
-    - tab
-    - slash
-    - chant
-  - Standard notation clefs:
-    - treble
-    - bass
-    - grand
-    - neutral (for drum tracks)
-  - Tab notation has no clef
-  - Slash notation has no clef
-  - Chant notation clefs:
-    - Do
-    - Fa
-  - Any staff can have lyrics attached above or below it (not both)
-    - The lyrics can come from any track (default current track) and should be aligned with the beats on
-      the staff they are attached to
-  - :staff command should be changed to :notation NOTATION
-  - :clef should be a new command to select the clef based on the current notation
 
 ### TUI
 

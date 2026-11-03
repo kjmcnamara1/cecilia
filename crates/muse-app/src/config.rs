@@ -204,6 +204,8 @@ pub struct UiConfig {
     /// Which note of a chord a chant staff of an ordinary track shows (chant is monophonic):
     /// "top" (the default), "bottom", or "error" (no chant staff: a message names the chord).
     pub chant_chords: String,
+    /// Bar numbers on the score: `"system"` (the first bar of each line) or `"every"` bar.
+    pub bar_numbers: String,
 }
 
 impl Default for UiConfig {
@@ -231,6 +233,7 @@ impl Default for UiConfig {
             hide_cursor_while_following: true,
             layout: "vertical".into(),
             chant_chords: "top".into(),
+            bar_numbers: "system".into(),
             zoom: 1.0,
         }
     }
@@ -883,6 +886,12 @@ impl Config {
             "keymap.command",
             &mut errors,
         );
+        if !matches!(file.ui.bar_numbers.as_str(), "system" | "every") {
+            errors.push(format!(
+                "ui.bar_numbers: '{}' is not system or every (using system)",
+                file.ui.bar_numbers
+            ));
+        }
         if muse_core::melody::ChordPolicy::parse(&file.ui.chant_chords).is_none() {
             errors.push(format!(
                 "ui.chant_chords: '{}' is not top, bottom or error (using top)",

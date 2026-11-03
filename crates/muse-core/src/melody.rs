@@ -9,7 +9,7 @@
 use std::collections::HashMap;
 use std::fmt;
 
-use crate::chant::{ChantClef, ChantNote, group_neumes};
+use crate::chant::{ChantClef, ChantNote, ClefKind, group_neumes};
 use crate::{ChantMarks, Score, TICKS_PER_QUARTER, Track};
 
 /// Which note of a chord the chant staff shows.
@@ -196,7 +196,7 @@ const DIATONIC: [i32; 7] = [0, 2, 4, 5, 7, 9, 11];
 
 /// The clef and shift (in semitones) that put a melody on the white-key scale (B♭ allowed) and
 /// keep it on the four-line staff.
-pub fn fit(pitches: &[u8]) -> (ChantClef, i32) {
+pub fn fit(pitches: &[u8], family: Option<ClefKind>) -> (ChantClef, i32) {
     let cost = |shift: i32| -> f64 {
         pitches
             .iter()
@@ -221,6 +221,7 @@ pub fn fit(pitches: &[u8]) -> (ChantClef, i32) {
             .iter()
             .map(|&p| (p as i32 + shift).clamp(0, 127) as u8)
             .collect::<Vec<_>>(),
+        family,
     );
     (clef, shift + octave)
 }
@@ -246,12 +247,13 @@ pub struct ChantView {
 impl ChantView {
     pub fn build(score: &Score, track: &Track, policy: ChordPolicy) -> Result<Self, ChordError> {
         let events = melody(score, track, policy)?;
-        Ok(Self::of(events))
+        Ok(Self::of(events, track.chant_family()))
     }
 
-    pub fn of(events: Vec<MelodyEvent>) -> Self {
+    /// A view of `events` on a clef of the given family (the best fitting one if `None`).
+    pub fn of(events: Vec<MelodyEvent>, family: Option<ClefKind>) -> Self {
         let pitches: Vec<u8> = events.iter().map(|e| e.pitch).collect();
-        let (clef, shift) = fit(&pitches);
+        let (clef, shift) = fit(&pitches, family);
         // A typical note length: longer notes get a mora.
         let mut lengths: Vec<u32> = events.iter().map(|e| e.ticks).collect();
         lengths.sort_unstable();

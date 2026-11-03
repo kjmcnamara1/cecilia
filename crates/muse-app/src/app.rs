@@ -499,6 +499,8 @@ pub struct App {
     pub completion_ignore_case: bool,
     /// Command-line completion is fuzzy (`ui.completion_fuzzy`).
     pub completion_fuzzy: bool,
+    /// Every bar is numbered, not just the first of each line (`ui.bar_numbers`).
+    pub every_bar_number: bool,
     /// The toolbar is shown (`ui.toolbar`, `:toolbar`).
     pub toolbar: bool,
     /// Score panes show the progress bar along their bottom (`ui.progress_bar`,
@@ -567,6 +569,7 @@ impl App {
         let follow = config.file.ui.follow_playback;
         let completion_ignore_case = config.file.ui.completion_ignore_case;
         let completion_fuzzy = config.file.ui.completion_fuzzy;
+        let every_bar_number = config.file.ui.bar_numbers == "every";
         let toolbar = config.file.ui.toolbar;
         let progress_bar = config.file.ui.progress_bar;
         let scrollbar = config.file.ui.scrollbar;
@@ -636,6 +639,7 @@ impl App {
             seeked: None,
             completion_ignore_case,
             completion_fuzzy,
+            every_bar_number,
             toolbar,
             progress_bar,
             scrollbar,
@@ -1195,7 +1199,7 @@ impl App {
             .get(c.beat)?;
         let string = if uses_strings(track, kind) {
             u8::try_from(c.string).ok()?
-        } else if matches!(kind, Staff::Slash | Staff::Chant) {
+        } else if matches!(kind, Staff::Slash) || kind.is_chant() {
             beat.notes.first()?.string
         } else {
             let key = score
@@ -1782,6 +1786,7 @@ impl App {
                 self.follow = self.config.file.ui.follow_playback;
                 self.completion_ignore_case = self.config.file.ui.completion_ignore_case;
                 self.completion_fuzzy = self.config.file.ui.completion_fuzzy;
+                self.every_bar_number = self.config.file.ui.bar_numbers == "every";
                 self.effects.push(Effect::ConfigReloaded);
                 if errors.is_empty() {
                     self.info(format!("config reloaded: {}", path.display()));
@@ -1811,7 +1816,7 @@ impl App {
     /// Why the cursor track's chant staff is not drawn: the chord the `error` policy refuses.
     pub fn chant_staff_problem(&self) -> Option<String> {
         let track = self.buffer().score.tracks.get(self.pane().cursor.track)?;
-        if track.chant.is_some() || !track.staves().contains(&Staff::Chant) {
+        if track.chant.is_some() || !track.staves().iter().any(|s| s.is_chant()) {
             return None;
         }
         muse_core::melody::ChantView::build(&self.buffer().score, track, self.chord_policy())
@@ -1828,7 +1833,9 @@ impl App {
             .tracks
             .get(self.pane().cursor.track)
             .is_some_and(|t| {
-                t.staves().get(staff_index(t, self.pane().cursor.staff)) == Some(&Staff::Chant)
+                t.staves()
+                    .get(staff_index(t, self.pane().cursor.staff))
+                    .is_some_and(|s| s.is_chant())
             });
         let blocked = match &self.message {
             Some(m) => m.error || !on_chant,
@@ -2222,6 +2229,14 @@ impl App {
                 self.effects.push(Effect::Pause);
             }
             Pick(kind) => self.open_picker(kind),
+            BarNumbers(every) => {
+                self.every_bar_number = every.unwrap_or(!self.every_bar_number);
+                self.info(if self.every_bar_number {
+                    "bar numbers: every bar"
+                } else {
+                    "bar numbers: first bar of each line"
+                });
+            }
             CompletionFuzzy(on) => {
                 self.completion_fuzzy = on.unwrap_or(!self.completion_fuzzy);
                 self.completion = None;
@@ -2896,14 +2911,14 @@ pub(crate) fn uses_strings(track: &Track, staff: Staff) -> bool {
     match staff {
         Staff::Tab | Staff::TabRhythm => !track.strings.is_empty(),
         Staff::Standard(_) => track.kind == TrackKind::Drums,
-        Staff::Slash | Staff::Chant => false,
+        Staff::Slash | Staff::Chant | Staff::ChantFa => false,
     }
 }
 
 /// Middle of a staff (its treble half on a grand staff; a GABC position on chant).
 fn staff_middle(track: &Track, staff: Staff) -> i32 {
     match staff {
-        Staff::Chant => 6,
+        Staff::Chant | Staff::ChantFa => 6,
         Staff::Standard(clef) => track.written_clef(clef, false).bottom_line() + 4,
         _ => track.written_clef(Clef::Treble, false).bottom_line() + 4,
     }
@@ -2938,7 +2953,7 @@ fn staff_rows(score: &Score, c: &Cursor, track: &Track, index: usize, staff: Sta
         (lo, hi)
     };
     match staff {
-        Staff::Chant => lines(1, 11).collect(),
+        Staff::Chant | Staff::ChantFa => lines(1, 11).collect(),
         Staff::Slash => vec![Row::Line(index, staff_middle(track, staff))],
         Staff::Standard(clef @ Clef::Grand { split }) => {
             let (t_lo, t_hi) = range(track.written_clef(clef, false), &|p| p >= split);
@@ -3015,7 +3030,7 @@ fn own_rows(score: &Score, c: &Cursor) -> Vec<Row> {
     let index = staff_index(track, c.staff);
     let staff = staves[index];
     let mut rows = staff_rows(score, c, track, index, staff);
-    if !matches!(staff, Staff::Chant | Staff::Slash) && !uses_strings(track, staff) {
+    if !(staff.is_chant() || staff == Staff::Slash) && !uses_strings(track, staff) {
         if let (Some(&Row::Line(_, top)), Some(&Row::Line(_, bottom))) = (rows.first(), rows.last())
         {
             let above = (top + 1..=top + LEDGER_ROWS)
@@ -3056,7 +3071,7 @@ fn move_staff(
         }
     }
     // Onto a chant staff the cursor goes to the position of the beat's note.
-    if to != here && staves[to] == Staff::Chant && track.chant.is_none() {
+    if to != here && staves[to].is_chant() && track.chant.is_none() {
         let note = beats(score, c).get(c.beat).and_then(|b| {
             let n = &b.notes[muse_core::melody::pick(track, b, policy)?];
             Some(track.pitch_of(n))
@@ -4201,5 +4216,25 @@ pub(crate) mod tests {
         app.pane_mut().cursor.bar = 2;
         app.run(Command::PageDown);
         assert_eq!(app.pane().cursor.bar, 4);
+    }
+
+    #[test]
+    fn bar_numbers_setting_and_command() {
+        let mut app = App::new(Config::default(), None);
+        assert!(!app.every_bar_number);
+        app.run(Command::parse("bar-numbers every").unwrap());
+        assert!(app.every_bar_number);
+        app.run(Command::parse("bar-numbers toggle").unwrap());
+        assert!(!app.every_bar_number);
+        app.run(Command::parse("bar-numbers").unwrap());
+        assert!(app.every_bar_number);
+        app.run(Command::parse("bar-numbers system").unwrap());
+        assert!(!app.every_bar_number);
+        assert!(Command::parse("bar-numbers sometimes").is_err());
+        let (config, errors) = Config::parse("[ui]\nbar_numbers = \"every\"\n").unwrap();
+        assert!(errors.is_empty());
+        assert!(App::new(config, None).every_bar_number);
+        let (_, errors) = Config::parse("[ui]\nbar_numbers = \"odd\"\n").unwrap();
+        assert!(errors[0].contains("ui.bar_numbers"), "{errors:?}");
     }
 }
