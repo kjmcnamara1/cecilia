@@ -106,6 +106,7 @@ clef = "treble"          # clef of a standard staff added without one: treble, b
 # "gb" = ["goto-first", "play"]
 # "<C-S-q>" = "quit!"     # Ctrl+Shift+Q, distinct from <C-q> (GUI, kitty-protocol terminals)
 # "<D-s>" = "write"       # Super/Windows/Cmd+S
+# <F1> shows the key help of the current mode in every mode; binding it here overrides that in the Normal modes.
 
 [keymap.insert]
 # Insert-mode keys on every staff, e.g. durations.
