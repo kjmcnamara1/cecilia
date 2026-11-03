@@ -70,6 +70,8 @@ Planned work. Finished items move to `CHANGELOG.md` under `[Unreleased]`.
   - :resize-default will set current w/h of the focused pane back to the default values
   - auto-resize should essentially run :resize-equal after opening or closing panes
 - [ ] Add the ability to attach vocals to any staff (below or above)
+- [ ] When zoomed, the view should always prioritize focus on the main edit
+      cursor (not the top staff) when moving the cursor around
 
 ### TUI
 
