@@ -58,6 +58,7 @@ preset = "dark"
 # status_b = "#3c3f49"        # the status line's second sections (layout, progress)
 # toolbar = "#2e3037"
 # button_hover = "#484b56"
+# cursor_border = "#141418"  # outline of the edit cursor (default: contrasts with the page)
 # capo = "#e1e1e6"            # the capo on the fretboard
 # panel = "#1e2025"           # tracks panel, waveform bar
 # empty_bar = "#373a42"       # bars without notes in the tracks panel
