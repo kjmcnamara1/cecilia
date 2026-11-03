@@ -109,8 +109,24 @@ clef = "treble"          # clef of a standard staff added without one: treble, b
 # "<D-s>" = "write"       # Super/Windows/Cmd+S
 # <F1> shows the key help of the current mode in every mode; binding it here overrides that in the Normal modes.
 
+# Normal-mode keys for the notation under the cursor, looked up before [keymap.normal]:
+# [keymap.normal-tab], [keymap.normal-standard], [keymap.normal-slash], [keymap.normal-chant].
+# The defaults put the technique keys (th tb ts ...) on a tab, a smaller set and the accidentals
+# (t# t& t=) on a standard staff.
+[keymap.normal-tab]
+# "tp" = "toggle palm-mute"
+
+[keymap.normal-standard]
+# "t%" = "accidental flat"
+
+[keymap.normal-slash]
+[keymap.normal-chant]
+
 [keymap.insert]
-# Insert-mode keys on every staff, e.g. durations.
+# Insert-mode keys on every staff, e.g. durations. Shared defaults: h j k l move the cursor
+# (beat back, string down, string up, beat on), <CR> puts a note at the cursor and moves to the
+# next beat (<A-CR> only adds a beat). On a tab H is hammer-on / pull-off and L let ring.
+# "<A-8>" = "duration 128"
 # "<A-8>" = "duration 128"
 
 # Insert-mode keys for the notation under the cursor, looked up before [keymap.insert]:
