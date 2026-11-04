@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.16.0] - 2026-11-04
+
 ### Fixed
 
 - On a slash staff the cursor always sits on the staff's single line: clicking above or below the line selects the beat only, and the cursor's line is normalised whenever it lands on a slash staff (click, `<A-j>` / `<A-k>`, `j` / `k`, loading a score).
