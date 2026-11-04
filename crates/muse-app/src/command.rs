@@ -455,6 +455,8 @@ pub enum Command {
     Help,
     /// Score view layout: "page", "vertical" or "horizontal"; None cycles.
     Layout(Option<String>),
+    /// Scroll the view so the cursor sits in the middle, at the top or at the bottom.
+    ScrollCursor(crate::app::ScrollTo),
     ZoomIn,
     ZoomOut,
     ZoomReset,
@@ -620,6 +622,9 @@ impl Command {
                     ));
                 }
             },
+            "scroll-center" => ScrollCursor(crate::app::ScrollTo::Center),
+            "scroll-top" => ScrollCursor(crate::app::ScrollTo::Top),
+            "scroll-bottom" => ScrollCursor(crate::app::ScrollTo::Bottom),
             "zoom-in" => ZoomIn,
             "zoom-out" => ZoomOut,
             "zoom-reset" => ZoomReset,

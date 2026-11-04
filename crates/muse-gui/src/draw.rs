@@ -133,6 +133,8 @@ pub struct Views {
     geometry: Vec<Geometry>,
     /// What each score pane showed this frame, for the app's half-page movement.
     view_infos: Vec<(PaneId, Option<muse_app::ViewInfo>)>,
+    /// Panes whose `zz` / `zt` / `zb` request was applied this frame.
+    scroll_taken: Vec<PaneId>,
     last_cursor: HashMap<PaneId, muse_app::Cursor>,
     /// The drawn cursor per pane (page, top, x, width) and when: while following playback it
     /// glides after the playhead instead of jumping from beat to beat.
@@ -1043,6 +1045,7 @@ pub fn build(
     }
     views.geometry.clear();
     views.view_infos.clear();
+    views.scroll_taken.clear();
     let focused = app.window_focus();
     let layout = app.layout();
     for (id, r) in layout {
@@ -1139,6 +1142,9 @@ pub fn build(
     }
     for (id, info) in std::mem::take(&mut views.view_infos) {
         app.set_view_info(id, info);
+    }
+    for id in std::mem::take(&mut views.scroll_taken) {
+        app.take_scroll_request(id);
     }
     draw_status(scene, app, views, play, width, height);
     // Keys that can follow the ones typed, or the marks while ' ` m wait for one.
@@ -2141,7 +2147,32 @@ fn draw_pane(
     // across the horizontal one), by half a view; the other way only as far as it extends.
     // What the cursor needs in view always stays scrollable (a bar can be wider than its page).
     let mut reach = (0.0f64, 0.0f64);
-    if let Some((page, (x0, x1), (top, bottom))) = target {
+    if let Some(to) = pane.scroll_request {
+        // `zz` / `zt` / `zb`: the cursor's own extent goes where asked, whatever the follow
+        // logic would do; later frames find it in view and leave the scroll alone.
+        views.scroll_taken.push(id);
+        let at = cached
+            .layout
+            .beats
+            .get(&cursor_ref)
+            .or_else(|| beat_fallback(&cached.layout, &cursor_ref));
+        if let Some(p) = at {
+            let staff = score
+                .tracks
+                .get(cursor_ref.track)
+                .map_or(0, |t| muse_app::staff_index(t, pane.cursor.staff));
+            let ((x0, x1), (top, bottom)) = cursor_extent(p, staff, &pane.cursor);
+            let off = cached.offsets[p.page];
+            scroll = align_scroll(
+                scroll,
+                (view_w, view_h),
+                (x0 + page_x, x1 + page_x),
+                (top + off, bottom + off),
+                to,
+                mode_name == "horizontal",
+            );
+        }
+    } else if let Some((page, (x0, x1), (top, bottom))) = target {
         let off = cached.offsets[page];
         scroll = follow_scroll(
             scroll,
@@ -2869,6 +2900,32 @@ fn nearest_hit(
     hits.iter()
         .filter(|h| h.beat.track == track && h.beat.voice == 0)
         .min_by(|a, b| dist(&a.rect).total_cmp(&dist(&b.rect)))
+}
+
+/// The scroll (points) that places the `x` and `y` ranges of the cursor in the middle, at the
+/// start (top, or left in the `horizontal` layout) or at the end of the `view` along the axis the
+/// score flows on (`zz`, `zt`, `zb`), leaving the other axis alone unless the range is out of
+/// view there. Not yet clamped to the scrollable range.
+fn align_scroll(
+    scroll: (f64, f64),
+    view: (f64, f64),
+    x: (f64, f64),
+    y: (f64, f64),
+    to: muse_app::ScrollTo,
+    horizontal: bool,
+) -> (f64, f64) {
+    use muse_app::ScrollTo::*;
+    let place = |view: f64, (lo, hi): (f64, f64)| match to {
+        Center => (lo + hi) / 2.0 - view / 2.0,
+        Top => lo,
+        Bottom => hi - view,
+    };
+    let kept = follow_scroll(scroll, view, x, y);
+    if horizontal {
+        (place(view.0, x), kept.1)
+    } else {
+        (kept.0, place(view.1, y))
+    }
 }
 
 fn follow_scroll(scroll: (f64, f64), view: (f64, f64), x: (f64, f64), y: (f64, f64)) -> (f64, f64) {
@@ -5855,6 +5912,39 @@ mod follow_tests {
                 },
             ],
         }
+    }
+
+    #[test]
+    fn align_scroll_places_the_cursor_in_the_view() {
+        use muse_app::ScrollTo::*;
+        let a = |to, h| {
+            align_scroll(
+                (0.0, 0.0),
+                (100.0, 200.0),
+                (10.0, 20.0),
+                (500.0, 540.0),
+                to,
+                h,
+            )
+        };
+        // Centre: the middle of the extent (520) in the middle of the view (100).
+        assert_eq!(a(Center, false).1, 420.0);
+        assert_eq!(a(Top, false).1, 500.0);
+        assert_eq!(a(Bottom, false).1, 340.0);
+        // The horizontal layout aligns along x and keeps y in view.
+        assert_eq!(a(Center, true).0, -35.0);
+        assert_eq!(a(Top, true).0, 10.0);
+        assert_eq!(a(Bottom, true).0, -80.0);
+        // An extent taller than the view is centred all the same.
+        let tall = align_scroll(
+            (0.0, 0.0),
+            (100.0, 100.0),
+            (0.0, 10.0),
+            (300.0, 500.0),
+            Center,
+            false,
+        );
+        assert_eq!(tall.1, 350.0);
     }
 
     #[test]

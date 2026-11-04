@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- `zz` / `zt` / `zb` scroll the view so the cursor sits in the middle / at the top / at the bottom of the score pane (the left / right in the horizontal layout), without moving it (`:scroll-center`, `:scroll-top`, `:scroll-bottom`). The view then stays put until the cursor leaves it.
+
 ## [0.19.0] - 2026-11-04
 
 ### Added
