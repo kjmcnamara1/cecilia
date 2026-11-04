@@ -5774,6 +5774,7 @@ mod tests {
                     .into_iter()
                     .map(|beats| Bar {
                         voices: vec![Voice { beats }],
+                        ..Default::default()
                     })
                     .collect(),
                 ..Track::default()
