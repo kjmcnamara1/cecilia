@@ -8,6 +8,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Fixed
+- The whole-note circle of a tab+ staff sits level with the feet of the stems.
+
+### Fixed
 - The cursor follows the note to its new staff position after `:pitch-up`/`:pitch-down`/`<C-a>`/`<C-x>` on standard notation.
 
 ## [0.21.0] - 2026-11-04
