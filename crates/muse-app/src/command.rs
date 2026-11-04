@@ -193,6 +193,8 @@ pub enum Command {
     /// Show or hide the progress bar of the score panes.
     ProgressBar(Option<bool>),
     Scrollbar(Option<bool>),
+    /// Design mode and the manual page-layout commands.
+    Design(crate::design::DesignCmd),
     /// Level of "midi", "audio" or "metronome" in percent.
     Volume(String, u32),
     /// Mute / solo a track (the cursor's when not given), the audio track or the synth master
@@ -790,6 +792,8 @@ impl Command {
                     _ => AudioPane(on),
                 }
             }
+            "design" | "bar-width" | "bars-per-line" | "line-break" | "line-join"
+            | "beat-nudge" | "design-reset" => Design(crate::design::DesignCmd::parse(name, arg)?),
             "global-tool" => GlobalTool(
                 arg.ok_or("global-tool: expected tracks, waveform, fretboard, piano or tuner")?
                     .to_string(),

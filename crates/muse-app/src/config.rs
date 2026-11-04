@@ -326,6 +326,8 @@ pub struct KeymapConfig {
     pub tracks: HashMap<String, Binding>,
     pub properties: HashMap<String, Binding>,
     pub palette: HashMap<String, Binding>,
+    /// Keys that apply while design mode is on, looked up before the normal ones.
+    pub design: HashMap<String, Binding>,
     /// No longer used (Play mode was removed); kept so old configs still load, with a warning.
     pub play: HashMap<String, Binding>,
 }
@@ -458,6 +460,7 @@ const DEFAULT_NORMAL: &[(&str, &str)] = &[
     ("t3", "tuplet 3"),
     ("<F1>", "help"),
     ("<leader>v", "layout"),
+    ("<leader>d", "design"),
     ("<leader>a", "mix"),
     ("<leader>m", "metronome"),
     ("<leader>c", "count-in"),
@@ -657,6 +660,22 @@ const DEFAULT_TRACKS: &[(&str, &str)] = &[
     (":", "command-mode"),
 ];
 
+/// Normal-mode keys that apply while design mode is on (page layout), over the normal ones.
+const DEFAULT_DESIGN: &[(&str, &str)] = &[
+    ("<", "bar-width -10"),
+    (">", "bar-width +10"),
+    ("=", "bar-width auto"),
+    ("<A-h>", "beat-nudge -2"),
+    ("<A-l>", "beat-nudge +2"),
+    ("<A-0>", "beat-nudge reset"),
+    ("|", "line-break"),
+    ("_", "line-join"),
+    ("+", "bars-per-line +1"),
+    ("-", "bars-per-line -1"),
+    ("<A-=>", "bars-per-line auto"),
+    ("<leader>d", "design off"),
+];
+
 const DEFAULT_PALETTE: &[(&str, &str)] = &[
     ("j", "palette-down"),
     ("<Down>", "palette-down"),
@@ -802,6 +821,8 @@ pub struct Config {
     pub insert_keymaps: HashMap<InsertKind, Keymap>,
     /// Normal-mode keys per notation, looked up before the shared normal keymap.
     pub normal_keymaps: HashMap<InsertKind, Keymap>,
+    /// Normal-mode keys while design mode is on, looked up before all the others.
+    pub design_keymap: Keymap,
     pub leader: Vec<Key>,
     /// Interface colors (`[theme]`).
     pub theme: crate::theme::Theme,
@@ -895,6 +916,18 @@ impl Config {
             &mut errors,
         );
         keymaps.insert(Mode::Palette, palette);
+        let mut design_keymap = Keymap::default();
+        for (keys, cmd) in DEFAULT_DESIGN {
+            let keys = parse_keys(keys, &leader).expect("valid default key");
+            design_keymap.bind_default(keys, cmd);
+        }
+        apply_user(
+            &mut design_keymap,
+            &file.keymap.design,
+            &leader,
+            "keymap.design",
+            &mut errors,
+        );
         let mut insert_keymaps = HashMap::new();
         for (kind, defaults, user, name) in [
             (
@@ -1026,6 +1059,7 @@ impl Config {
                 keymaps,
                 insert_keymaps,
                 normal_keymaps,
+                design_keymap,
                 leader,
                 theme,
             },

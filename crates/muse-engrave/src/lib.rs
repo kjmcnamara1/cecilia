@@ -8,4 +8,4 @@ pub mod layout;
 pub mod neume;
 pub mod output;
 
-pub use layout::{BeatPos, Layout, Mode, Options, StaffPos, engrave};
+pub use layout::{BeatPos, Layout, Mode, Options, StaffPos, SystemInfo, engrave};

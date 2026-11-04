@@ -1,6 +1,7 @@
 //! Branching undo history (vim's undo tree). Each node holds the change that leads to it from
 //! its parent: either the bars it touched or, for structural edits, whole-score snapshots.
 
+use muse_core::design::DesignOverrides;
 use muse_core::{Bar, Score};
 use serde::{Deserialize, Serialize};
 
@@ -20,6 +21,11 @@ pub enum Change {
     Score {
         before: Box<Score>,
         after: Box<Score>,
+    },
+    /// A change of the page-layout design only.
+    Design {
+        before: DesignOverrides,
+        after: DesignOverrides,
     },
 }
 
@@ -48,6 +54,9 @@ impl Change {
                     (**before).clone()
                 }
             }
+            Change::Design { before, after } => {
+                score.design = if forward { after } else { before }.clone();
+            }
         }
     }
 }
@@ -55,6 +64,12 @@ impl Change {
 /// One change equivalent to applying `a` then `b`.
 fn merge(a: Change, b: Change) -> Change {
     match (a, b) {
+        (Change::Design { before, .. }, Change::Design { after, .. }) => {
+            Change::Design { before, after }
+        }
+        // A design change beside others (never done on purpose: design edits are their own
+        // undo steps).
+        (a @ Change::Design { .. }, b) | (a, b @ Change::Design { .. }) => merge_mixed(a, b),
         (Change::Bars(mut a), Change::Bars(b)) => {
             for c in b {
                 match a.iter_mut().find(|x| x.track == c.track && x.bar == c.bar) {
@@ -83,6 +98,25 @@ fn merge(a: Change, b: Change) -> Change {
         (Change::Score { before, .. }, Change::Score { after, .. }) => {
             Change::Score { before, after }
         }
+    }
+}
+
+/// Merges a design change with a bar or score change by way of two whole-score snapshots.
+fn merge_mixed(a: Change, b: Change) -> Change {
+    // Without the score at hand, the bars of a bar change are folded into the snapshots the
+    // other change carries; a design change next to a bar change never happens (design edits
+    // are their own undo steps), so this keeps the later change.
+    match (a, b) {
+        (Change::Score { before, after }, Change::Design { after: design, .. }) => {
+            let mut after = after;
+            after.design = design;
+            Change::Score { before, after }
+        }
+        (Change::Design { before: design, .. }, Change::Score { mut before, after }) => {
+            before.design = design;
+            Change::Score { before, after }
+        }
+        (_, b) => b,
     }
 }
 

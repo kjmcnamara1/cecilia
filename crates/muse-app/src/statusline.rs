@@ -179,6 +179,11 @@ impl App {
             Segment::new(pane.layout.clone(), SegKind::ModeText)
                 .on_click(crate::command::Command::Layout(None)),
         ];
+        if self.design_active() {
+            left.push(Segment::new("design", SegKind::ModeText).on_click(
+                crate::command::Command::Design(crate::design::DesignCmd::Mode(Some(false))),
+            ));
+        }
         if let Some(ws) = self.workspace_name() {
             left.push(
                 Segment {
