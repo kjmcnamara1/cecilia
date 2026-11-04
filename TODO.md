@@ -85,3 +85,4 @@ Planned work. Finished items move to `CHANGELOG.md` under `[Unreleased]`.
 ### Scripting
 
 - [ ] Add mlua for ability to script application and create plugins
+- [ ] Add MCP server integration
