@@ -600,6 +600,7 @@ impl App {
                     zoom: p.zoom.unwrap_or(ws.zoom),
                     recent,
                     jump_back: None,
+                    scroll_request: None,
                 },
             );
         }
@@ -664,6 +665,7 @@ impl App {
                     zoom: ws.zoom,
                     recent: Vec::new(),
                     jump_back: None,
+                    scroll_request: None,
                 },
             );
             self.views.push(View {

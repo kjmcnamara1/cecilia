@@ -212,7 +212,9 @@ impl Widget for ChantView<'_> {
         let sh = system_height();
         let visible = (area.height / sh).max(1) as usize;
         let mut scroll = (*self.scroll).min(lines.len().saturating_sub(1));
-        if !self.follow {
+        if let Some(to) = self.app.panes[&self.pane].scroll_request {
+            scroll = crate::tabview::scroll_for(to, cursor_line, visible);
+        } else if !self.follow {
             scroll = scroll.min(lines.len().saturating_sub(visible));
         } else if cursor_line < scroll {
             scroll = cursor_line;

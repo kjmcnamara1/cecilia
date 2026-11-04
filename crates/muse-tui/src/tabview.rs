@@ -213,6 +213,16 @@ fn pitch_name(midi: u8) -> &'static str {
     ][midi as usize % 12]
 }
 
+/// The first row shown when `zz` / `zt` / `zb` puts the cursor's `row` in the middle, at the
+/// top or at the bottom of `visible` rows.
+pub fn scroll_for(to: muse_app::ScrollTo, row: usize, visible: usize) -> usize {
+    match to {
+        muse_app::ScrollTo::Center => row.saturating_sub((visible - 1) / 2),
+        muse_app::ScrollTo::Top => row,
+        muse_app::ScrollTo::Bottom => (row + 1).saturating_sub(visible),
+    }
+}
+
 pub struct TabView<'a> {
     pub app: &'a App,
     pub pane: u32,
@@ -249,7 +259,9 @@ impl Widget for TabView<'_> {
         };
         let cursor_sys = system_of_bar(&systems, focus_bar);
         let mut scroll = (*self.scroll).min(systems.len().saturating_sub(1));
-        if !self.follow {
+        if let Some(to) = pane.scroll_request {
+            scroll = scroll_for(to, cursor_sys, visible);
+        } else if !self.follow {
             scroll = scroll.min(systems.len().saturating_sub(visible));
         } else if cursor_sys < scroll {
             scroll = cursor_sys;
@@ -531,5 +543,20 @@ mod tests {
         assert_eq!(note_text(&n, &Track::default()), "7h");
         n.tie = true;
         assert_eq!(note_text(&n, &Track::default()), "(7)h");
+    }
+}
+
+#[cfg(test)]
+mod scroll_tests {
+    use super::scroll_for;
+    use muse_app::ScrollTo::*;
+
+    #[test]
+    fn scroll_for_places_the_row() {
+        assert_eq!(scroll_for(Center, 10, 5), 8);
+        assert_eq!(scroll_for(Center, 1, 5), 0);
+        assert_eq!(scroll_for(Top, 10, 5), 10);
+        assert_eq!(scroll_for(Bottom, 10, 5), 6);
+        assert_eq!(scroll_for(Bottom, 2, 5), 0);
     }
 }

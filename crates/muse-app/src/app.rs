@@ -161,6 +161,18 @@ pub struct Pane {
     pub recent: Vec<(usize, Cursor)>,
     /// Where the cursor was before the last jump (`''`).
     pub jump_back: Option<(usize, Cursor)>,
+    /// Where `zz` / `zt` / `zb` asked the cursor to sit in the view, until the frontend that
+    /// owns the scroll position has applied it (`App::take_scroll_request`).
+    pub scroll_request: Option<ScrollTo>,
+}
+
+/// Where in a score pane's view the cursor is placed (`zz`, `zt`, `zb`): the middle, the top
+/// (the left in the horizontal layout) or the bottom (the right).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ScrollTo {
+    Center,
+    Top,
+    Bottom,
 }
 
 /// What a pane shows. Tool panes (all but `Score`) work on their view's score pane: the score
@@ -612,6 +624,7 @@ impl App {
                 zoom,
                 recent: Vec::new(),
                 jump_back: None,
+                scroll_request: None,
             },
         );
         let mut app = Self {
@@ -924,6 +937,12 @@ impl App {
             Some(i) => self.view_info.insert(pane, i),
             None => self.view_info.remove(&pane),
         };
+    }
+
+    /// The pending `zz` / `zt` / `zb` request of a pane, which the frontend applies to its own
+    /// scroll position; taking it clears it, so it applies once.
+    pub fn take_scroll_request(&mut self, pane: PaneId) -> Option<ScrollTo> {
+        self.panes.get_mut(&pane)?.scroll_request.take()
     }
 
     /// Moves the focused pane's cursor half a screen (`down` or up): across half the displayed
@@ -2549,6 +2568,12 @@ impl App {
                 let msg = format!("layout: {}", pane.layout);
                 self.info(msg);
             }
+            ScrollCursor(to) => {
+                let id = self.focused();
+                if let Some(p) = self.panes.get_mut(&id) {
+                    p.scroll_request = Some(to);
+                }
+            }
             ZoomIn => self.zoom_pane(self.focused(), 1.15),
             ZoomOut => self.zoom_pane(self.focused(), 1.0 / 1.15),
             ZoomReset => {
@@ -2718,6 +2743,7 @@ impl App {
                 zoom,
                 recent: Vec::new(),
                 jump_back: None,
+                scroll_request: None,
             },
         );
         id
@@ -4283,6 +4309,40 @@ pub(crate) mod tests {
         }
         app.run(Command::GotoFirst);
         app
+    }
+
+    #[test]
+    fn scroll_keys_request_a_scroll_taken_once() {
+        let mut app = app_with_bars(12);
+        let id = app.focused();
+        for (k, to) in [
+            ("zz", ScrollTo::Center),
+            ("zt", ScrollTo::Top),
+            ("zb", ScrollTo::Bottom),
+        ] {
+            keys(&mut app, k);
+            assert_eq!(app.pane().scroll_request, Some(to), "{k}");
+            assert_eq!(app.take_scroll_request(id), Some(to));
+            assert_eq!(app.take_scroll_request(id), None);
+        }
+    }
+
+    #[test]
+    fn scroll_commands_parse_and_ignore_counts() {
+        let mut app = app_with_bars(12);
+        let id = app.focused();
+        keys(&mut app, "3zz");
+        assert_eq!(app.take_scroll_request(id), Some(ScrollTo::Center));
+        assert_eq!(app.pane().cursor.bar, 0);
+        for (c, to) in [
+            ("scroll-center", ScrollTo::Center),
+            ("scroll-top", ScrollTo::Top),
+            ("scroll-bottom", ScrollTo::Bottom),
+        ] {
+            app.run(Command::parse(c).unwrap());
+            assert_eq!(app.take_scroll_request(id), Some(to));
+        }
+        assert!(!Command::ScrollCursor(ScrollTo::Top).repeatable());
     }
 
     #[test]

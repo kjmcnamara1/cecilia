@@ -761,6 +761,7 @@ fn draw(f: &mut Frame, app: &mut App, play: Option<(usize, Location, f64, f64)>,
         if ui.last_view.insert(id, view_key) != Some(view_key) {
             ui.scrolled.remove(&id);
         }
+        let requested = pane.scroll_request.is_some();
         let follow = !ui.scrolled.contains(&id);
         let mut extent = (0, 0);
         let chant = app.chant_view && track.is_some_and(|t| t.chant.is_some());
@@ -809,6 +810,9 @@ fn draw(f: &mut Frame, app: &mut App, play: Option<(usize, Location, f64, f64)>,
         }
         if let Some(p) = app.panes.get_mut(&id) {
             p.scroll = scroll;
+        }
+        if requested {
+            app.take_scroll_request(id);
         }
     }
 
