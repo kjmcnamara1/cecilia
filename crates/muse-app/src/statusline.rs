@@ -364,7 +364,7 @@ mod tests {
         };
         // Not in normal mode.
         assert_eq!(count(&app), None);
-        app.run(Command::parse("insert").unwrap());
+        app.run(Command::parse("insert-here").unwrap());
         assert_eq!(app.mode, Mode::Insert);
         assert_eq!(count(&app), Some(("0.0/4.0".into(), SegKind::Warn)));
         let b = app.pane().buffer;
