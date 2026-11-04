@@ -151,7 +151,7 @@ impl App {
                 self.props_search_key(key)
             }
             // The palette's search field takes every key.
-            Mode::Normal | Mode::Tracks | Mode::Properties | Mode::Palette
+            Mode::Normal | Mode::Tracks | Mode::Properties | Mode::Palette | Mode::Visual
                 if self.palette.search.is_some()
                     && self.focused_kind() == crate::app::PaneKind::Palette =>
             {
@@ -164,8 +164,9 @@ impl App {
             {
                 self.props_edit_key(key)
             }
-            // Escape in a tool pane goes back to the score pane worked on last.
-            Mode::Normal | Mode::Tracks
+            // Escape in a tool pane goes back to the score pane worked on last (the Visual
+            // selection stays).
+            Mode::Normal | Mode::Tracks | Mode::Visual
                 if key.code == KeyCode::Esc
                     && self.pending.is_empty()
                     && self.focused_kind() != crate::app::PaneKind::Score =>
@@ -178,7 +179,8 @@ impl App {
             {
                 self.properties_key(key)
             }
-            Mode::Normal | Mode::Tracks | Mode::Properties
+            // The palette's keys, in Visual mode too: the selection stays for its tools.
+            Mode::Normal | Mode::Tracks | Mode::Properties | Mode::Visual
                 if self.focused_kind() == crate::app::PaneKind::Palette =>
             {
                 self.palette_key(key)
@@ -557,7 +559,7 @@ impl App {
         }
     }
 
-    fn visual_key(&mut self, key: Key) {
+    pub(crate) fn visual_key(&mut self, key: Key) {
         if self.ed.awaiting.is_some() {
             return self.normal_key(key);
         }

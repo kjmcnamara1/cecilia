@@ -1052,8 +1052,13 @@ impl App {
             crate::config::Lookup::Prefix => return,
             // Not a palette key: the keys go on as in any pane (`<C-w>` moves, `:` …).
             crate::config::Lookup::None => {
+                let visual = self.mode == crate::config::Mode::Visual;
                 for k in std::mem::take(&mut self.pending) {
-                    self.normal_key(k);
+                    if visual {
+                        self.visual_key(k);
+                    } else {
+                        self.normal_key(k);
+                    }
                 }
                 return;
             }

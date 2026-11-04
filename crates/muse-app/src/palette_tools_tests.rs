@@ -905,3 +905,55 @@ fn a_tool_that_changed_nothing_does_not_replace_the_last_change() {
     keys(&mut a, "l.");
     assert!(beat(&a, 0, 1).notes[0].ghost);
 }
+
+#[test]
+fn hjkl_move_in_the_palette_while_visual_mode_stays() {
+    let mut a = app();
+    fill(&mut a, 0, 6);
+    select(&mut a, 3);
+    let (anchor, cursor) = (a.ed.visual_anchor, a.pane().cursor);
+    keys(&mut a, "<leader>E");
+    assert_eq!(a.focused_kind(), crate::app::PaneKind::Palette);
+    assert_eq!(a.mode, Mode::Visual, "the selection stays");
+    // The grid as the frontends lay it out: 5 buttons to a line.
+    a.set_palette_cols(5);
+    // The first row is a section title; the buttons start below it.
+    keys(&mut a, "j");
+    let sel = a.palette_selected();
+    keys(&mut a, "l");
+    assert_ne!(a.palette_selected(), sel, "l moves to the next button");
+    keys(&mut a, "h");
+    assert_eq!(a.palette_selected(), sel);
+    keys(&mut a, "jj");
+    assert_ne!(a.palette_selected(), sel, "j moves down the rows");
+    keys(&mut a, "kk");
+    assert_eq!(a.palette_selected(), sel);
+    keys(&mut a, "<Down><Right><Left><Up>");
+    assert_eq!(a.palette_selected(), sel);
+    // The score selection and cursor did not move.
+    assert_eq!(a.ed.visual_anchor, anchor);
+    assert_eq!(a.pane().cursor, cursor);
+    assert_eq!(a.mode, Mode::Visual);
+    // Enter applies the tool to the selection.
+    a.palette.selected = a
+        .palette_rows()
+        .iter()
+        .position(|r| r.command == "toggle staccato")
+        .unwrap();
+    keys(&mut a, "<CR>");
+    assert!((0..3).all(|i| beat(&a, 0, i).notes[0].effects.staccato));
+    assert!(!beat(&a, 0, 3).notes[0].effects.staccato);
+    // Escape goes back to the score and keeps the selection; there hjkl move it again.
+    keys(&mut a, "<Esc>");
+    assert_eq!(a.focused_kind(), crate::app::PaneKind::Score);
+    assert_eq!(a.mode, Mode::Visual);
+    assert!(a.selection().is_some());
+    keys(&mut a, "l");
+    assert_eq!(a.pane().cursor.beat, cursor.beat + 1);
+    // The focus keys work from the palette too, and a search there keeps the selection.
+    keys(&mut a, "<leader>E/fermata<CR>");
+    assert_eq!(a.palette_rows()[a.palette_selected()].label, "Fermata");
+    keys(&mut a, "<leader>E");
+    assert_eq!(a.focused_kind(), crate::app::PaneKind::Score);
+    assert!(a.selection().is_some());
+}

@@ -451,6 +451,8 @@ cursor from one staff to another.
 commands typed (`:toggle staccato`, `:dynamic p` …) apply to every beat of the selection in one
 undo step, and a button is tinted when the whole selection has it:
 
+- Moving between the score and the palette keeps the selection: `<leader>E` focuses the palette (the mode stays Visual); while it has the focus `h` `j` `k` `l` and the arrows move in its grid, not the selection, `<CR>` applies the selected tool to the selection, `/` searches, and `<Esc>` (or `<leader>E` again) gives the focus back to the score, where `hjkl` extend the selection again.
+- Moving between the score and the palette keeps the selection: `<leader>E` focuses the palette (the mode stays Visual); while it has the focus `h` `j` `k` `l` and the arrows move in its grid, not the selection, `<CR>` applies the selected tool to the selection, `/` searches, and `<Esc>` (or `<leader>E` again) gives the focus back to the score, where `hjkl` extend the selection again.
 - Techniques (`:toggle`: staccato, accent, marcato, let ring, palm mute, vibrato, harmonics,
   tremolo, tap / slap / pop, strokes, arpeggio, rasgueado, pick strokes, fermata, fades, grace
   notes, left-hand tapping …): if every beat or note has it, it is taken off all; otherwise it
