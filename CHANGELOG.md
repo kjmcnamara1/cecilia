@@ -24,6 +24,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- A dynamic belongs to the beat, not to its notes: `Beat.dynamic` drives the velocity of all the beat's notes in playback, the palette, the range tools, `:dynamic-step` and the engraver (one mark per beat where it changes). Older `.muse` files and formats with a velocity per note are read by giving each beat its first note's velocity, and every note of a beat is written with the beat's dynamic.
 - Let ring and palm mute are drawn as one span over consecutive beats, as in Guitar Pro: the label (`let ring`, `P.M.`) at the first beat, a dashed line across the beats that have the effect and a hook down at the end of the last. A rest (or a beat without the effect) ends a span; spans run on across bars and, without the label, over line breaks. Both together stack as two lines. They are shown on tab staves, and on the standard staff when the track has no tab.
 
 ## [0.17.0] - 2026-11-04

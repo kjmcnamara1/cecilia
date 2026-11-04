@@ -838,7 +838,7 @@ fn make_ctx<'a>(
             .flat_map(|v| &v.beats)
             .any(|b| {
                 b.effects.hairpin.is_some()
-                    || b.notes.iter().any(|n| n.velocity != DEFAULT_VELOCITY)
+                    || (!b.notes.is_empty() && b.dynamic_velocity() != DEFAULT_VELOCITY)
             }),
         wedges: Default::default(),
         span_floor: Default::default(),
@@ -1865,8 +1865,8 @@ impl Ctx<'_> {
             );
         earlier
             .flat_map(|beats| beats.iter().rev())
-            .find_map(|b| b.notes.first())
-            .map(|n| n.velocity)
+            .find(|b| !b.notes.is_empty())
+            .map(|b| b.dynamic_velocity())
     }
 
     /// A dynamic marking (p, mf, ff...) centred on x, its letters sitting on the line y.
@@ -2798,12 +2798,14 @@ impl Ctx<'_> {
                 // Dynamics where the first voice's loudness changes, and hairpins.
                 if vi == 0 && self.last_staff {
                     let dyn_y = self.dynamics_y(std_bottom, tab_top);
-                    if let Some(n) = beat.notes.first() {
+                    // One mark per beat, where its dynamic differs from the one before.
+                    if !beat.notes.is_empty() {
+                        let velocity = beat.dynamic_velocity();
                         let before = self.previous_velocity(bi, i);
-                        if before.map_or(n.velocity != DEFAULT_VELOCITY, |v| {
-                            dynamic_name(v) != dynamic_name(n.velocity)
+                        if before.map_or(velocity != DEFAULT_VELOCITY, |v| {
+                            dynamic_name(v) != dynamic_name(velocity)
                         }) {
-                            self.draw_dynamic(page, n.velocity, bx + self.nh_width / 2.0, dyn_y);
+                            self.draw_dynamic(page, velocity, bx + self.nh_width / 2.0, dyn_y);
                         }
                     }
                     if let Some(h) = beat.effects.hairpin {

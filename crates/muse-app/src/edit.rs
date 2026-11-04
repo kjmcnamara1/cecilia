@@ -1006,24 +1006,14 @@ fn for_beats(cx: &mut EditCx, from: Pos, to: Pos, mut f: impl FnMut(&mut Beat)) 
     }
 }
 
-/// Sets the velocity of the cursor note (on a fretted track the one on its string) to a dynamic
-/// marking (`ppp` … `fff`).
+/// Sets the dynamic (`ppp` … `fff`) of the cursor beat.
 pub fn set_dynamic(cx: &mut EditCx, dynamic: &str) -> Result<(), String> {
     let velocity = crate::palette::dynamic_velocity(dynamic).ok_or("unknown dynamic")?;
-    let string = cx.string();
-    let fretted = cx.track().kind == TrackKind::Fretted;
-    let notes: Vec<&mut Note> = cx
-        .beat()
-        .notes
-        .iter_mut()
-        .filter(|n| !fretted || n.string == string)
-        .collect();
-    if notes.is_empty() {
-        return Err("no note under the cursor".into());
+    let beat = cx.beat();
+    if beat.notes.is_empty() {
+        return Err("no note in the beat".into());
     }
-    for n in notes {
-        n.velocity = velocity;
-    }
+    beat.set_dynamic(velocity);
     Ok(())
 }
 
@@ -1623,14 +1613,15 @@ pub fn toggle_range(cx: &mut EditCx, from: Pos, to: Pos, technique: &str) -> Res
     Ok(())
 }
 
-/// Sets the dynamic of every note of a range (rests are left alone).
+/// Sets the dynamic of every beat with notes in a range (rests are left alone).
 pub fn set_dynamic_range(cx: &mut EditCx, from: Pos, to: Pos, dynamic: &str) -> Result<(), String> {
     let velocity = crate::palette::dynamic_velocity(dynamic).ok_or("unknown dynamic")?;
     let (t, v) = (cx.cursor.track, cx.cursor.voice);
     let mut any = false;
     for (b, i) in beat_positions(cx.score, t, v, from, to) {
-        for n in &mut cx.bar(t, b).voices[v].beats[i].notes {
-            n.velocity = velocity;
+        let beat = &mut cx.bar(t, b).voices[v].beats[i];
+        if !beat.notes.is_empty() {
+            beat.set_dynamic(velocity);
             any = true;
         }
     }
@@ -1644,20 +1635,22 @@ pub fn set_dynamic_range(cx: &mut EditCx, from: Pos, to: Pos, dynamic: &str) -> 
 /// The dynamics, softest first, as velocities.
 const DYNAMIC_STEPS: [u8; 8] = [15, 31, 47, 63, 79, 95, 111, 127];
 
-/// Moves the dynamic of every note of a range `by` steps louder (positive) or softer, each
-/// note keeping its distance from the others until it reaches ppp or fff.
+/// Moves the dynamic of every beat of a range `by` steps louder (positive) or softer, each
+/// beat keeping its distance from the others until it reaches ppp or fff.
 pub fn step_dynamic_range(cx: &mut EditCx, from: Pos, to: Pos, by: i32) -> Result<(), String> {
     let (t, v) = (cx.cursor.track, cx.cursor.voice);
     let mut any = false;
     for (b, i) in beat_positions(cx.score, t, v, from, to) {
-        for n in &mut cx.bar(t, b).voices[v].beats[i].notes {
-            let level = DYNAMIC_STEPS
-                .iter()
-                .position(|s| dynamic_name(*s) == dynamic_name(n.velocity))
-                .unwrap_or(5) as i32;
-            n.velocity = DYNAMIC_STEPS[(level + by).clamp(0, 7) as usize];
-            any = true;
+        let beat = &mut cx.bar(t, b).voices[v].beats[i];
+        if beat.notes.is_empty() {
+            continue;
         }
+        let level = DYNAMIC_STEPS
+            .iter()
+            .position(|s| dynamic_name(*s) == dynamic_name(beat.dynamic_velocity()))
+            .unwrap_or(5) as i32;
+        beat.set_dynamic(DYNAMIC_STEPS[(level + by).clamp(0, 7) as usize]);
+        any = true;
     }
     if any {
         Ok(())
@@ -1666,7 +1659,7 @@ pub fn step_dynamic_range(cx: &mut EditCx, from: Pos, to: Pos, by: i32) -> Resul
     }
 }
 
-/// Whether every note of a range has the dynamic.
+/// Whether every beat with notes in a range has the dynamic.
 pub fn range_has_dynamic(
     score: &Score,
     track: usize,
@@ -1679,14 +1672,15 @@ pub fn range_has_dynamic(
         return false;
     };
     let t = &score.tracks[track];
-    let notes: Vec<&Note> = beat_positions(score, track, voice, from, to)
+    let beats: Vec<&Beat> = beat_positions(score, track, voice, from, to)
         .iter()
-        .flat_map(|&(b, i)| &t.bars[b].voices[voice].beats[i].notes)
+        .map(|&(b, i)| &t.bars[b].voices[voice].beats[i])
+        .filter(|b| !b.notes.is_empty())
         .collect();
-    !notes.is_empty()
-        && notes
+    !beats.is_empty()
+        && beats
             .iter()
-            .all(|n| dynamic_name(n.velocity) == dynamic_name(velocity))
+            .all(|b| dynamic_name(b.dynamic_velocity()) == dynamic_name(velocity))
 }
 
 /// Changes the duration of every beat of a range; returns how many beats there are.

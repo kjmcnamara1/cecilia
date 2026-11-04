@@ -1069,6 +1069,7 @@ pub fn read_musicxml(bytes: &[u8]) -> Result<Score> {
         return Err(err("no parts"));
     }
     score.merge_staves();
+    score.normalize_dynamics();
     Ok(score)
 }
 

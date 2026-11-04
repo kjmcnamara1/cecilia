@@ -505,6 +505,7 @@ pub fn read_midi(bytes: &[u8]) -> Result<Score> {
         track.bars = build_bars(&score, &bar_starts, &quantized, &track);
         score.tracks.push(track);
     }
+    score.normalize_dynamics();
     Ok(score)
 }
 

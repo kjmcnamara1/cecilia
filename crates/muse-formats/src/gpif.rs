@@ -240,6 +240,7 @@ pub fn read_gpif(xml: &str) -> Result<Score> {
     score.anacrusis = path(root, &["MasterTrack", "Anacrusis"]).is_some();
     read_automations(root, &mut score);
     score.merge_staves();
+    score.normalize_dynamics();
     Ok(score)
 }
 

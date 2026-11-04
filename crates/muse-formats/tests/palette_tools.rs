@@ -135,3 +135,37 @@ fn files_written_before_the_new_fields_still_read() {
     let back: Score = serde_json::from_str(&json).unwrap();
     assert_eq!(back, plain);
 }
+
+#[test]
+fn dynamics_are_per_beat_in_every_format() {
+    // A chord whose notes disagree: the beat takes its first note's velocity.
+    let mut score = sample();
+    {
+        let beat = &mut score.tracks[0].bars[0].voices[0].beats[0];
+        beat.notes[0].velocity = 63;
+        let mut other = Note::new(1, 5);
+        other.velocity = 111;
+        beat.notes.push(other);
+    }
+    // Old `.muse` files have no beat dynamic: the first note's velocity becomes it.
+    let json = serde_json::to_string(&score).unwrap();
+    let old: Score = serde_json::from_str(&json).unwrap();
+    assert_eq!(beats(&old, 0)[0].dynamic, None);
+    let bytes = muse_formats::native::write_muse(&score).unwrap();
+    let back = muse_formats::native::read_muse(&bytes).unwrap();
+    let b = &beats(&back, 0)[0];
+    assert_eq!(b.dynamic, Some(63));
+    assert!(b.notes.iter().all(|n| n.velocity == 63));
+    // Guitar Pro 7 stores a dynamic per beat.
+    let bytes = muse_formats::gpif_write::write_gp7(&score).unwrap();
+    let back = muse_formats::gpif::read_gp7(&bytes).unwrap();
+    let b = &beats(&back, 0)[0];
+    assert_eq!(b.dynamic_velocity(), 63);
+    assert!(b.notes.iter().all(|n| n.velocity == 63));
+    // A beat dynamic is written for all its notes.
+    let mut set = sample();
+    set.tracks[0].bars[0].voices[0].beats[1].dynamic = Some(31);
+    let bytes = muse_formats::write_bytes(&set, "gp").unwrap();
+    let back = muse_formats::gpif::read_gp7(&bytes).unwrap();
+    assert_eq!(beats(&back, 0)[1].dynamic, Some(31));
+}

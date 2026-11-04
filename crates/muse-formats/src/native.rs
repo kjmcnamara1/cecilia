@@ -82,6 +82,7 @@ pub fn read_muse(bytes: &[u8]) -> Result<Score> {
             }
         }
     }
+    score.normalize_dynamics();
     Ok(score)
 }
 

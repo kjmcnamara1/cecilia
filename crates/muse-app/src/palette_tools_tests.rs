@@ -1041,3 +1041,35 @@ fn stepping_the_dynamics_keeps_the_differences_and_clamps() {
     apply(&mut a, "dynamic-step +1");
     assert_eq!(velocities(&a, 5)[4], 127);
 }
+
+#[test]
+fn a_dynamic_belongs_to_the_beat() {
+    let mut a = app();
+    fill(&mut a, 0, 3);
+    // A chord whose notes differ in velocity, and a note added after the dynamic was set.
+    {
+        let b = a.pane().buffer;
+        let beat = &mut a.buffers[b].score.tracks[0].bars[0].voices[0].beats[0];
+        let mut second = Note::new(1, 2);
+        second.velocity = 40;
+        beat.notes.push(second);
+    }
+    a.pane_mut().cursor.beat = 0;
+    run(&mut a, "dynamic mf");
+    let b = beat(&a, 0, 0);
+    assert_eq!(b.dynamic, Some(79));
+    assert!(b.notes.iter().all(|n| n.velocity == 79), "the whole chord");
+    assert!(row(&a.palette_rows(), "dynamic mf").active);
+    assert_eq!(beat(&a, 0, 1).dynamic, None, "other beats keep theirs");
+    // A range sets every beat's.
+    select(&mut a, 3);
+    run(&mut a, "dynamic ff");
+    assert!((0..3).all(|i| beat(&a, 0, i).dynamic == Some(111)));
+    // Playback follows the beat, whatever a note's own velocity says.
+    {
+        let b = a.pane().buffer;
+        a.buffers[b].score.tracks[0].bars[0].voices[0].beats[0].notes[0].velocity = 20;
+    }
+    let perf = muse_core::Performance::build(score(&a), &[false]);
+    assert!(perf.notes.iter().take(3).all(|n| n.velocity == 111));
+}

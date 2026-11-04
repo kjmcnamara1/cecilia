@@ -616,10 +616,12 @@ impl App {
                     }),
                     ("dot", _) => duration.dots == 1,
                     ("tuplet", _) => duration.tuplet.is_some(),
-                    ("dynamic", d) => note.as_ref().is_some_and(|n| {
-                        dynamic_velocity(d).is_some_and(|v| {
-                            muse_core::dynamic_name(n.velocity) == muse_core::dynamic_name(v)
-                        })
+                    ("dynamic", d) => beat.as_ref().is_some_and(|b| {
+                        !b.notes.is_empty()
+                            && dynamic_velocity(d).is_some_and(|v| {
+                                muse_core::dynamic_name(b.dynamic_velocity())
+                                    == muse_core::dynamic_name(v)
+                            })
                     }),
                     ("toggle", t) => note.as_ref().is_some_and(|n| match t {
                         "tie" => n.tie,

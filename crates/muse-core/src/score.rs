@@ -861,6 +861,10 @@ pub struct Beat {
     /// Stem direction (automatic by default).
     #[serde(default, skip_serializing_if = "is_default")]
     pub stem: StemDir,
+    /// The beat's dynamic as a MIDI velocity (`ppp` 15 … `fff` 127), which all its notes
+    /// play at; none: the velocity of its first note (forte by default).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub dynamic: Option<u8>,
 }
 
 fn is_default<T: Default + PartialEq>(v: &T) -> bool {
@@ -890,6 +894,21 @@ pub enum StemDir {
 }
 
 impl Beat {
+    /// The velocity the beat plays at: its dynamic, else its first note's.
+    pub fn dynamic_velocity(&self) -> u8 {
+        self.dynamic
+            .or_else(|| self.notes.first().map(|n| n.velocity))
+            .unwrap_or(DEFAULT_VELOCITY)
+    }
+
+    /// Sets the beat's dynamic; its notes follow (files keep a velocity per note).
+    pub fn set_dynamic(&mut self, velocity: u8) {
+        self.dynamic = Some(velocity);
+        for n in &mut self.notes {
+            n.velocity = velocity;
+        }
+    }
+
     pub fn rest(duration: Duration) -> Self {
         Self {
             duration,
@@ -1187,6 +1206,46 @@ fn beats_label(ticks: u32) -> String {
 }
 
 impl Score {
+    /// Puts every beat's dynamic on all its notes' velocities (for formats that keep a velocity
+    /// per note).
+    pub fn apply_dynamics(&mut self) {
+        for beat in self
+            .tracks
+            .iter_mut()
+            .flat_map(|t| &mut t.bars)
+            .flat_map(|b| &mut b.voices)
+            .flat_map(|v| &mut v.beats)
+        {
+            if let Some(v) = beat.dynamic {
+                for n in &mut beat.notes {
+                    n.velocity = v;
+                }
+            }
+        }
+    }
+
+    /// Makes every beat's dynamic its own: the one it has, else its first note's velocity
+    /// (forte is the default and stays unset), with all its notes at that velocity. Formats
+    /// that only know a velocity per note are read through this.
+    pub fn normalize_dynamics(&mut self) {
+        for beat in self
+            .tracks
+            .iter_mut()
+            .flat_map(|t| &mut t.bars)
+            .flat_map(|b| &mut b.voices)
+            .flat_map(|v| &mut v.beats)
+        {
+            if beat.notes.is_empty() {
+                continue;
+            }
+            let v = beat.dynamic_velocity();
+            beat.dynamic = (v != DEFAULT_VELOCITY).then_some(v);
+            for n in &mut beat.notes {
+                n.velocity = v;
+            }
+        }
+    }
+
     /// The count of `voice` in `bar` of `track`; `None` for a bar of free time or a pickup
     /// first bar, which have no required length, and for a bar or voice that doesn't exist.
     pub fn bar_count(&self, track: usize, bar: usize, voice: usize) -> Option<BarCount> {

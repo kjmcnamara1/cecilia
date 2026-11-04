@@ -75,7 +75,8 @@ Score
 │  └─ bars[] (one per master bar; repeat sign `simile`) → voices[] (≥4) → beats[]
 │        beat: duration (value, dots, tuplet), rest/empty, text, chord diagram ref,
 │              lyrics, stroke/brush, pick stroke, tremolo/whammy bar, slap/pop/tap, fade in/out,
-│              volume swell, fermata, hairpin, octave sign, beam and stem overrides
+│              volume swell, fermata, hairpin, octave sign, beam and stem overrides,
+│              dynamic (one per beat: a MIDI velocity all its notes play at)
 │        notes[]: string+fret (fretted) or pitch (staff/chant), velocity, tie, dead, ghost, accent,
 │                 written alteration (double sharp / flat), effects (see 4.1)
 │  └─ chant (chant tracks; see 4.2)
