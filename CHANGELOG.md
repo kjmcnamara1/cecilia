@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.23.0] - 2026-11-04
+
 ### Added
 
 - `ui.equalize_on_close` (`:equalize-on-close [on|off]` toggles it) (default on): closing a pane gives the split it was in equal weights again, so the remaining panes share the space equally; other splits keep their sizes. Off: the neighbour takes the closed pane's space as before.
