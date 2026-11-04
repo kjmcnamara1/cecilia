@@ -181,6 +181,9 @@ pub struct UiConfig {
     pub properties: bool,
     /// The editing palette (durations, rests, effects …) along the left of the window.
     pub palette: bool,
+    /// The palette's keyboard motions wrap around at its edges (down from the last line to the
+    /// first, right from the last button of a line to the first of the next …).
+    pub palette_wrap: bool,
     /// Tool panes that dock along the bottom of the whole view, at its full width, and show
     /// the last active score pane ("tracks", "waveform", "fretboard", "piano", "tuner"); the
     /// others dock under the score pane they open from, as wide as it, and always show it.
@@ -224,6 +227,7 @@ impl Default for UiConfig {
             tracks_panel: false,
             properties: false,
             palette: false,
+            palette_wrap: true,
             global_tools: ["tracks", "waveform", "fretboard", "piano", "tuner"]
                 .map(String::from)
                 .to_vec(),
@@ -679,6 +683,8 @@ const DEFAULT_DESIGN: &[(&str, &str)] = &[
 ];
 
 const DEFAULT_PALETTE: &[(&str, &str)] = &[
+    ("gg", "palette-first"),
+    ("G", "palette-last"),
     ("j", "palette-down"),
     ("<Down>", "palette-down"),
     ("<Tab>", "palette-down"),

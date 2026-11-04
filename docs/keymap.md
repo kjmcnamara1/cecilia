@@ -449,8 +449,9 @@ are `[keymap.palette]`, then the usual ones:
 
 | keys | command |
 | --- | --- |
-| `h` `l` `<Left>` `<Right>` | select the button to the left / right in its line (no wrapping) |
-| `j` `<Down>` `<Tab>` / `k` `<Up>` `<S-Tab>` | select the button below / above (keeping the column), through the section titles |
+| `h` `l` `<Left>` `<Right>` | select the button to the left / right; past the end of a line it goes on to the next / previous line of buttons, and around the ends of the grid (`ui.palette_wrap`; off: stops at the ends of the line) |
+| `j` `<Down>` `<Tab>` / `k` `<Up>` `<S-Tab>` | select the button below / above (keeping the column), through the section titles, wrapping from the last line to the first and back (`ui.palette_wrap`) |
+| `gg` / `G` | select the first / last row of the palette (the top / bottom; sections folded away and tools not shown for the mode and staff are not there), scrolling it into view; the score's cursor and selection stay (`:palette-first`, `:palette-last`). While the palette has the focus `g` is a prefix of `gg` only |
 | `<CR>` `<Space>` | apply the selected button (on a section title: fold or unfold it) |
 | `za` `zc` `zo` | toggle / close / open the section |
 | `/` | search the tools (`:palette-search`): a field opens along the bottom of the pane and the selection jumps to the first tool (or section) whose name, tooltip (with its keys), command or section title has the typed text, as you type; lower case matches any case, a capital is exact. `<Esc>` goes back to where the search began, `<CR>` keeps the jump (and sets the `/` register; it does not apply the tool), `<Backspace>` on an empty field cancels, `<C-u>` clears it |
@@ -510,7 +511,7 @@ A click applies a button (and returns to the score pane) or folds a section; the
 | command | |
 | --- | --- |
 | `:palette [on\|off]` / `:palette-focus` | show or hide the pane / focus it |
-| `:palette-down` `:palette-up` `:palette-left` `:palette-right` `:palette-activate` `:palette-fold [open\|close]` | move, apply, fold |
+| `:palette-down` `:palette-up` `:palette-first` `:palette-last` `:palette-left` `:palette-right` `:palette-activate` `:palette-fold [open\|close]` | move, apply, fold |
 | `:dynamic ppp\|pp\|p\|mp\|mf\|f\|ff\|fff` | set the dynamic of the note under the cursor (velocity 15 … 127) |
 
 ## Playing
