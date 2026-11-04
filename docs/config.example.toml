@@ -151,7 +151,7 @@ clef = "treble"          # clef of a standard staff added without one: treble, b
 [keymap.design]
 # Keys while design mode is on (<leader>d, page layout), looked up before [keymap.normal].
 # ">" = "bar-width +20"
-# Defaults: <A-]> <A-[> bars-per-line +1/-1, > < bar-width +10/-10, <A-l> <A-h> beat-nudge +2/-2.
+# Defaults: + - bars-per-line +1/-1, > < bar-width +10/-10, <A-l> <A-h> beat-nudge +2/-2.
 
 [keymap.command]
 # "<C-p>" = "normal"

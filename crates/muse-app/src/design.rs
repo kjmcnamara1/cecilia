@@ -462,12 +462,12 @@ mod tests {
             }
         };
         // Outside design mode they do nothing to the layout, and + / - keep their meaning.
-        press(&mut app, "<A-]>>");
+        press(&mut app, "+>");
         assert!(design(&app).is_empty());
         run(&mut app, "design on");
-        press(&mut app, "<A-]>");
+        press(&mut app, "+");
         assert_eq!(design(&app).line_start(0).unwrap().count, Some(4));
-        press(&mut app, "<A-[><A-[>");
+        press(&mut app, "--");
         assert_eq!(design(&app).line_start(0).unwrap().count, Some(2));
         press(&mut app, "<A-=>");
         assert!(design(&app).line_starts.is_empty());
@@ -481,11 +481,10 @@ mod tests {
         assert_eq!(design(&app).offset(0, 0, 0, 0), 2);
         press(&mut app, "<A-0>");
         assert!(design(&app).beat_offsets.is_empty());
-        // + and - are still the duration keys.
-        let before = app.buffer().score.clone();
+        // Back out of design mode, + / - are the duration keys again.
+        run(&mut app, "design off");
         press(&mut app, "-");
         assert!(design(&app).is_empty());
-        let _ = before;
     }
 
     #[test]

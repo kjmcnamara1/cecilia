@@ -84,11 +84,11 @@ is an undo step (a mouse drag is one step) and is stored in the score: `.muse` f
 other formats ignore it, and bars with no adjustment stay automatic.
 
 Keys while design mode is on (`[keymap.design]`, looked up before the normal keys; every other
-key keeps its normal meaning, `+` / `-` included). They act on the cursor's line, bar and beat:
+key keeps its normal meaning, but `+` / `-` stop being the duration keys here). They act on the cursor's line, bar and beat:
 
 | keys | action | command |
 | --- | --- | --- |
-| `<A-]>` / `<A-[>` | one more / one fewer bar on the cursor's line (the "+" / "-" buttons) | `:bars-per-line +1` / `-1` |
+| `+` / `-` | one more / one fewer bar on the cursor's line (the "+" / "-" buttons) | `:bars-per-line +1` / `-1` |
 | `<A-=>` | the cursor's line back to automatic | `:bars-per-line auto` |
 | `>` / `<` | cursor bar wider / narrower (10%) | `:bar-width +10` / `-10` |
 | `=` | cursor bar back to its automatic width | `:bar-width auto` |

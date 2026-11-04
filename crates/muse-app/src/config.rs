@@ -670,8 +670,8 @@ const DEFAULT_DESIGN: &[(&str, &str)] = &[
     ("<A-0>", "beat-nudge reset"),
     ("|", "line-break"),
     ("_", "line-join"),
-    ("<A-]>", "bars-per-line +1"),
-    ("<A-[>", "bars-per-line -1"),
+    ("+", "bars-per-line +1"),
+    ("-", "bars-per-line -1"),
     ("<A-=>", "bars-per-line auto"),
     ("<leader>d", "design off"),
 ];
