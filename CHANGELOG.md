@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- Select with the mouse: press on a beat and drag across others to highlight them as a Visual selection (anchor at the pressed beat, the cursor end follows the pointer, bars and systems included; in the GUI the view scrolls when the pointer is held near or beyond the pane's edge). The selection stays after the release for `d` `y` `c`, the palette and the other keys. `Shift`+click extends the selection, `Ctrl`/`Alt` selects whole bars (as `V`), a double click selects the bar. A plain click is unchanged. Works in the terminal too. The logic lives in `muse-app` (`App::mouse_press`, `mouse_drag`, `mouse_release`).
+
 ## [0.17.0] - 2026-11-04
 
 ### Added
