@@ -431,6 +431,8 @@ are `[keymap.palette]`, then the usual ones:
 | `j` `<Down>` `<Tab>` / `k` `<Up>` `<S-Tab>` | select the button below / above (keeping the column), through the section titles |
 | `<CR>` `<Space>` | apply the selected button (on a section title: fold or unfold it) |
 | `za` `zc` `zo` | toggle / close / open the section |
+| `/` | search the tools (`:palette-search`): a field opens along the bottom of the pane and the selection jumps to the first tool (or section) whose name, tooltip (with its keys), command or section title has the typed text, as you type; lower case matches any case, a capital is exact. `<Esc>` goes back to where the search began, `<CR>` keeps the jump (and sets the `/` register; it does not apply the tool), `<Backspace>` on an empty field cancels, `<C-u>` clears it |
+| `n` `N` | the next / previous match of the `/` register (`:palette-search-next`, `:palette-search-prev`), wrapping around |
 | `<Esc>` `q` | back to the score pane |
 
 The palette lists only the tools that apply to the mode and to the staff under the cursor (a
@@ -446,6 +448,8 @@ The duration selected in it (the tinted button) is the length of the beats `i`, 
 and Enter in Insert mode make.
 
 A button's name (tooltip and label) ends with the insert-mode keys bound to its command, from the live keymaps so your overrides show ("Palm mute (m)", at most three, "Quarter note (<A-3>)"; none: no parentheses). Buttons that can't take effect at the cursor are dimmed and named "(unavailable)" after that: note-level ones (pitch, tie, dead and ghost notes, dynamics, articulations, most effects) off a note, accidentals on a tab. They are worked out by trying the command's own edit, so they follow what the command refuses. They stay selectable, but applying one does nothing and the status line says why.
+
+Search is the properties pane's (`/`, `n`, `N`), and only looks through the tools shown at the moment: those of the staff and mode, in sections not folded. The buttons' icons are the engraver's own symbols in the GUI; the terminal draws the closest Unicode or Nerd Font glyph (`tabline.icons`: `nerd`, `unicode`, or `none` for short text labels).
 
 A click applies a button (and returns to the score pane) or folds a section; the wheel scrolls.
 

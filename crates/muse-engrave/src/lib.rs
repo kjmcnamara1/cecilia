@@ -7,5 +7,6 @@ pub mod fonts;
 pub mod layout;
 pub mod neume;
 pub mod output;
+pub mod symbols;
 
 pub use layout::{BeatPos, Layout, Mode, Options, StaffPos, SystemInfo, engrave};

@@ -145,6 +145,13 @@ impl App {
             {
                 self.props_search_key(key)
             }
+            // The palette's search field takes every key.
+            Mode::Normal | Mode::Tracks | Mode::Properties | Mode::Palette
+                if self.palette.search.is_some()
+                    && self.focused_kind() == crate::app::PaneKind::Palette =>
+            {
+                self.palette_search_key(key)
+            }
             // A property being typed takes every key.
             Mode::Normal | Mode::Tracks | Mode::Properties
                 if self.props.edit.is_some()

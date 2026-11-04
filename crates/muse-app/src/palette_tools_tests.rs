@@ -470,3 +470,65 @@ fn old_scores_without_the_new_fields_still_load() {
     let bar: Bar = serde_json::from_str(r#"{"voices":[]}"#).unwrap();
     assert!(bar.simile.is_none());
 }
+
+#[test]
+fn search_jumps_as_typed_like_the_properties_pane() {
+    let mut a = app();
+    keys(&mut a, "<leader>E");
+    assert_eq!(a.focused_kind(), crate::app::PaneKind::Palette);
+    let name = |a: &App| a.palette_rows()[a.palette_selected()].label;
+    let start = a.palette_selected();
+    // `/` opens the field and jumps as it is typed: a tool by name, a section by title.
+    keys(&mut a, "/fermata");
+    assert!(a.palette.search.is_some());
+    assert_eq!(name(&a), "Fermata");
+    keys(&mut a, "<C-u>slides");
+    assert_eq!(name(&a), "Slides");
+    // Backspace takes characters off; Escape goes back and sets nothing.
+    keys(&mut a, "<Esc>");
+    assert!(a.palette.search.is_none() && a.palette.last_search.is_empty());
+    assert_eq!(a.palette_selected(), start);
+    // Enter keeps the jump and sets the register; `n` and `N` go on and back.
+    keys(&mut a, "/slide<CR>");
+    assert_eq!(a.palette.last_search, "slide");
+    let first = a.palette_selected();
+    keys(&mut a, "n");
+    let second = a.palette_selected();
+    assert_ne!(first, second);
+    assert!(name(&a).to_lowercase().contains("slide") || name(&a) == "Shift slide");
+    keys(&mut a, "N");
+    assert_eq!(a.palette_selected(), first);
+    // Enter did not apply anything.
+    assert_eq!(undo_steps(&a), 0);
+    // A match is found through the tooltip's keys and the section too (a capital is exact).
+    keys(&mut a, "/Strokes<CR>");
+    assert_eq!(name(&a), "Strokes");
+    // A query nothing matches leaves the selection where the search began.
+    let here = a.palette_selected();
+    keys(&mut a, "/nosuchtool");
+    assert_eq!(a.palette_selected(), here);
+    keys(&mut a, "<Esc>");
+}
+
+#[test]
+fn search_only_finds_the_tools_of_the_notation_and_mode() {
+    let mut a = app();
+    keys(&mut a, "<leader>E");
+    let found = |a: &mut App, q: &str| {
+        let before = a.palette_selected();
+        keys(a, &format!("/{q}<Esc>"));
+        let _ = before;
+        a.palette.last_search = q.to_string();
+        a.palette_rows().iter().any(|r| {
+            r.kind == crate::palette::PaletteKind::Item && r.label.to_lowercase().contains(q)
+        })
+    };
+    // On the tab staff there is no double sharp; on a standard staff there is.
+    assert!(!found(&mut a, "double sharp"));
+    keys(&mut a, "/double sharp");
+    assert_ne!(a.palette_rows()[a.palette_selected()].label, "Double sharp");
+    keys(&mut a, "<Esc><Esc>");
+    a.pane_mut().cursor.staff = 0;
+    keys(&mut a, "<leader>E/double sharp<CR>");
+    assert_eq!(a.palette_rows()[a.palette_selected()].label, "Double sharp");
+}

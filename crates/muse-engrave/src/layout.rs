@@ -5298,6 +5298,7 @@ mod tests {
         };
         let bar = |beats| Bar {
             voices: vec![Voice { beats }],
+            ..Default::default()
         };
         let whole = beat(DurationValue::Whole);
         let half = beat(DurationValue::Half);
@@ -5433,6 +5434,7 @@ mod tests {
             voices: vec![Voice {
                 beats: (0..8).map(|i| beat(i % 5)).collect(),
             }],
+            ..Default::default()
         };
         Score {
             tempo: 100,

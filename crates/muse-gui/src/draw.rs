@@ -3591,10 +3591,43 @@ fn draw_edit_palette(scene: &mut Scene, app: &App, views: &mut Views, r: Rect) {
         }
         y += height(line);
     }
+    // The search field along the bottom of the pane, as in the properties pane.
+    if let Some(search) = &app.palette.search {
+        let b = Rect::new(r.x0 + 8.0, r.y1 - 40.0, r.x1 - 8.0, r.y1 - 8.0);
+        let shape = b.to_rounded_rect(6.0);
+        scene.fill(Fill::NonZero, Affine::IDENTITY, col(th.tab), None, &shape);
+        scene.stroke(
+            &Stroke::new(1.0),
+            Affine::IDENTITY,
+            col(th.mode_normal),
+            None,
+            &shape,
+        );
+        let line = format!("/{}", search.query);
+        text(
+            scene,
+            &line,
+            b.x0 + 10.0,
+            b.y0 + 21.0,
+            13.0,
+            Align::Left,
+            chrome_text(),
+            false,
+        );
+        let cx = b.x0
+            + 10.0
+            + muse_engrave::fonts::fonts().text_width(FontKind::Text, &line, 13.0)
+            + 1.0;
+        fill(
+            scene,
+            Rect::new(cx, b.y0 + 8.0, cx + 2.0, b.y1 - 8.0),
+            col(th.mode_normal),
+        );
+    }
     // The name of the highlighted button along the bottom of the pane.
     if let Some(row) = rows
         .get(sel)
-        .filter(|r| show_sel && r.kind == PaletteKind::Item)
+        .filter(|r| show_sel && r.kind == PaletteKind::Item && app.palette.search.is_none())
     {
         let name = row.name();
         let w = muse_engrave::fonts::fonts().text_width(FontKind::Text, &name, 12.5) + 16.0;
@@ -3632,6 +3665,51 @@ fn draw_edit_palette(scene: &mut Scene, app: &App, views: &mut Views, r: Rect) {
 }
 
 /// An icon of the editing palette for its command, in a 16 px square around `c`.
+/// Draws music-font glyphs (in a row, or stacked) centred on `c`, as large as fit the icon.
+fn draw_icon_glyphs(
+    scene: &mut Scene,
+    glyphs: &[char],
+    stacked: bool,
+    c: vello::kurbo::Point,
+    color: Color,
+) {
+    use muse_engrave::display::FontKind;
+    let fonts = muse_engrave::fonts::fonts();
+    const EM: f64 = 100.0;
+    // Where each glyph's origin goes, at EM, and the box they fill together.
+    let mut origins = Vec::new();
+    let mut at = 0.0;
+    let mut bounds: Option<Rect> = None;
+    for (i, &g) in glyphs.iter().enumerate() {
+        let b = fonts.bbox(FontKind::Music, g, EM);
+        let o = if stacked {
+            (
+                0.0,
+                (i as f64 - (glyphs.len() as f64 - 1.0) / 2.0) * (b.height() + 4.0),
+            )
+        } else {
+            (at, 0.0)
+        };
+        let moved = Rect::new(b.x0 + o.0, b.y0 + o.1, b.x1 + o.0, b.y1 + o.1);
+        bounds = Some(bounds.map_or(moved, |r| r.union(moved)));
+        origins.push(o);
+        at += fonts.advance(FontKind::Music, g, EM);
+    }
+    let Some(b) = bounds.filter(|b| b.width() > 0.0 && b.height() > 0.0) else {
+        return;
+    };
+    // The icon is about 17 x 16 px.
+    let k = (17.0 / b.width()).min(16.0 / b.height()).min(0.3);
+    let (cx, cy) = ((b.x0 + b.x1) / 2.0, (b.y0 + b.y1) / 2.0);
+    for (&g, o) in glyphs.iter().zip(origins) {
+        let x = c.x + (o.0 - cx) * k;
+        let y = c.y + (o.1 - cy) * k;
+        if let Some(p) = fonts.glyph_path(FontKind::Music, g, x, y, EM * k) {
+            scene.fill(Fill::NonZero, Affine::IDENTITY, color, None, &p);
+        }
+    }
+}
+
 fn draw_palette_icon(
     scene: &mut Scene,
     command: &str,
@@ -3728,7 +3806,79 @@ fn draw_palette_icon(
         .trim_end()
         .split_once(' ')
         .unwrap_or((command.trim_end(), ""));
+    // Symbols the engraver draws with a music-font glyph use that same glyph.
+    match muse_engrave::symbols::palette_icon(command) {
+        muse_engrave::symbols::Icon::Row(glyphs) => {
+            return draw_icon_glyphs(scene, glyphs, false, c, color);
+        }
+        muse_engrave::symbols::Icon::Stack(glyphs) => {
+            return draw_icon_glyphs(scene, glyphs, true, c, color);
+        }
+        muse_engrave::symbols::Icon::Text => {
+            return label(
+                scene,
+                short,
+                if short.chars().count() > 2 { 8.0 } else { 10.0 },
+            );
+        }
+        muse_engrave::symbols::Icon::Drawn => {}
+    }
     match (name, arg) {
+        // Beams: two eighths, as the engraver beams them (the mode shows in the gap).
+        ("beams", mode) => {
+            let (xs, flags): (&[f64], bool) = match mode {
+                "break" => (&[3.5, 11.5], true),
+                "force" => (&[2.0, 6.5, 11.0, 15.0], false),
+                _ => (&[4.5, 11.5], false),
+            };
+            for &sx in xs {
+                let head = Ellipse::new((x + sx - 1.2, y + 13.0), (2.4, 1.8), -0.4);
+                scene.fill(Fill::NonZero, Affine::IDENTITY, color, None, &head);
+                line(
+                    scene,
+                    &path(&[(sx + 0.9, 12.5), (sx + 0.9, 3.0)], false),
+                    1.1,
+                );
+                if flags {
+                    line(
+                        scene,
+                        &path(&[(sx + 0.9, 3.0), (sx + 3.5, 6.0)], false),
+                        1.1,
+                    );
+                }
+            }
+            if !flags {
+                let (a, b) = (xs[0] + 0.9, xs[xs.len() - 1] + 0.9);
+                line(scene, &path(&[(a, 3.2), (b, 3.2)], false), 2.0);
+                if mode == "break-secondary" {
+                    line(scene, &path(&[(a, 6.0), (a + 2.5, 6.0)], false), 1.6);
+                    line(scene, &path(&[(b - 2.5, 6.0), (b, 6.0)], false), 1.6);
+                } else if mode == "auto" {
+                    label(scene, "A", 6.0);
+                }
+            }
+        }
+        // Stems: a quarter note with its stem up or down (both for automatic).
+        ("stems", dir) => {
+            let one = |scene: &mut Scene, hx: f64, up: bool| {
+                let head = Ellipse::new((x + hx, y + 8.0), (2.8, 2.0), -0.4);
+                scene.fill(Fill::NonZero, Affine::IDENTITY, color, None, &head);
+                let (sx, a, b) = if up {
+                    (hx + 2.5, 7.5, -0.5)
+                } else {
+                    (hx - 2.5, 8.5, 16.5)
+                };
+                line(scene, &path(&[(sx, a), (sx, b)], false), 1.2);
+            };
+            match dir {
+                "up" => one(scene, 7.0, true),
+                "down" => one(scene, 9.0, false),
+                _ => {
+                    one(scene, 4.5, true);
+                    one(scene, 11.5, false);
+                }
+            }
+        }
         ("duration", "1") => note(scene, false, false, 0, 0.0),
         ("double-dot", _) => {
             note(scene, true, true, 0, -3.0);

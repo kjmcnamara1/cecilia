@@ -162,6 +162,53 @@ pub const SECTIONS: &[(&str, &[Item])] = &[
     ),
 ];
 
+/// The terminal's icon of a palette command: the closest Unicode / Nerd Font glyph to the
+/// symbol the engraver draws for it, or `None` where there is none and the item's short label
+/// stands in. `nerd` picks the Nerd Font glyphs (Material Design music notes) over the plain
+/// Unicode ones. This one table is the place to adjust the terminal's icons.
+pub fn palette_glyph(command: &str, nerd: bool) -> Option<&'static str> {
+    let (name, arg) = command
+        .trim_end()
+        .split_once(' ')
+        .unwrap_or((command.trim_end(), ""));
+    // (Nerd Font, Unicode); the Nerd Font column is empty where Unicode does as well.
+    let (n, u): (&str, &str) = match (name, arg) {
+        ("duration", "1") => ("\u{f038d}", "\u{1D15D}"),
+        ("duration", "2") => ("\u{f0389}", "\u{1D15E}"),
+        ("duration", "4") => ("\u{f038b}", "\u{2669}"),
+        ("duration", "8") => ("\u{f0388}", "\u{266A}"),
+        ("duration", "16") => ("\u{f038c}", "\u{266C}"),
+        ("duration", "32") => ("", "\u{1D162}"),
+        ("duration", "64") => ("", "\u{1D163}"),
+        ("dot", _) => ("", "\u{2669}."),
+        ("double-dot", _) => ("", "\u{2669}.."),
+        ("tuplet", _) => ("", "\u{00B3}"),
+        ("rest", _) => ("", "\u{1D13D}"),
+        ("accidental", "sharp") => ("", "\u{266F}"),
+        ("accidental", "flat") => ("", "\u{266D}"),
+        ("accidental", "natural") => ("", "\u{266E}"),
+        ("accidental", "double-sharp") => ("", "\u{1D12A}"),
+        ("accidental", "double-flat") => ("", "\u{1D12B}"),
+        ("toggle", "tie") => ("", "\u{2040}"),
+        ("toggle", "fermata") => ("", "\u{1D110}"),
+        ("toggle", "pick-down") => ("", "\u{2293}"),
+        ("toggle", "pick-up") => ("", "\u{2228}"),
+        ("clef", _) => ("", "\u{1D11E}"),
+        ("key", _) => ("", "\u{266D}\u{266F}"),
+        ("time", _) => ("", "\u{1D134}"),
+        ("double-bar", _) => ("", "\u{1D101}"),
+        ("repeat-start", _) => ("", "\u{1D106}"),
+        ("repeat-end", _) => ("", "\u{1D107}"),
+        ("direction", _) => ("", "\u{1D10B}"),
+        _ => return None,
+    };
+    if nerd && !n.is_empty() {
+        Some(n)
+    } else {
+        Some(u)
+    }
+}
+
 /// The palette's selection and fold state.
 #[derive(Debug, Default)]
 pub struct PaletteState {
@@ -176,9 +223,21 @@ pub struct PaletteState {
     pub cols: Cell<usize>,
     /// The column up/down moves keep to (the one last chosen with left/right or a click).
     pub want_col: Cell<usize>,
+    /// A search being typed (`/`): the field at the bottom of the pane.
+    pub search: Option<PalSearch>,
+    /// The `/` register: what `n` and `N` look for.
+    pub last_search: String,
     /// Which commands can't take effect at the cursor, and why; kept for the cursor and score
     /// version it was worked out for.
     avail: RefCell<Option<Availability>>,
+}
+
+/// A search being typed in the palette, as in the properties pane.
+#[derive(Debug, Clone, PartialEq)]
+pub struct PalSearch {
+    pub query: String,
+    /// The selected row when it began: Escape goes back there.
+    origin: usize,
 }
 
 /// The commands that can't take effect at a cursor (with the reason), for a buffer and version.
@@ -803,6 +862,113 @@ impl App {
         }
     }
 
+    /// Opens the search field (`/`).
+    pub(crate) fn palette_start_search(&mut self) {
+        self.palette.search = Some(PalSearch {
+            query: String::new(),
+            origin: self.palette_selected(),
+        });
+    }
+
+    /// Jumps to the match of `query` that is `dir` (1, -1) from row `from`, wrapping around:
+    /// a section by its title, a tool by its name, tooltip, command, label or section. Only
+    /// the rows shown now are searched (the tools of the notation and mode, unfolded).
+    fn palette_jump(&mut self, query: &str, from: usize, dir: isize) -> bool {
+        if query.is_empty() {
+            return false;
+        }
+        let rows = self.palette_rows();
+        let n = rows.len();
+        let mut section = "";
+        let hays: Vec<String> = rows
+            .iter()
+            .map(|r| match r.kind {
+                PaletteKind::Header { .. } => {
+                    section = r.label;
+                    r.label.to_string()
+                }
+                PaletteKind::Item => format!(
+                    "{}  {}  {}  {}  {}",
+                    r.name(),
+                    r.command,
+                    r.short,
+                    r.label,
+                    section
+                ),
+            })
+            .collect();
+        for step in 0..n {
+            let i = match dir {
+                -1 => (from + n - step) % n,
+                _ => (from + step) % n,
+            };
+            if Self::has_text(&hays[i], query) {
+                self.palette.selected = i;
+                let lines = self.palette_lines();
+                self.palette.want_col.set(self.palette_at(&lines).1);
+                return true;
+            }
+        }
+        false
+    }
+
+    /// Keys while the search field is open: they type the query, which jumps as it is typed;
+    /// Enter keeps the jump and sets the `/` register, Escape goes back.
+    pub(crate) fn palette_search_key(&mut self, key: crate::keys::Key) {
+        use crate::keys::KeyCode;
+        let Some(mut search) = self.palette.search.take() else {
+            return;
+        };
+        match key.code {
+            KeyCode::Esc => {
+                self.palette.selected = search.origin;
+                return;
+            }
+            KeyCode::Enter => {
+                if !search.query.is_empty() {
+                    self.palette.last_search = search.query.clone();
+                }
+                return;
+            }
+            KeyCode::Backspace if search.query.is_empty() => {
+                self.palette.selected = search.origin;
+                return;
+            }
+            KeyCode::Backspace => {
+                search.query.pop();
+            }
+            KeyCode::Char('u') if key.ctrl => search.query.clear(),
+            _ => {
+                if let Some(c) = key.as_char() {
+                    search.query.push(c);
+                }
+            }
+        }
+        // Each change looks again from where the search began.
+        if !self.palette_jump(&search.query, search.origin, 1) {
+            self.palette.selected = search.origin;
+        }
+        self.palette.search = Some(search);
+    }
+
+    /// `n` / `N`: the next / previous match of the `/` register.
+    fn palette_search_step(&mut self, dir: isize) {
+        let query = self.palette.last_search.clone();
+        if query.is_empty() {
+            return self.info("no previous search");
+        }
+        let n = self.palette_rows().len().max(1);
+        let sel = self.palette_selected();
+        let from = if dir > 0 {
+            (sel + 1) % n
+        } else {
+            (sel + n - 1) % n
+        };
+        if !self.palette_jump(&query, from, dir) {
+            self.error(format!("pattern not found: {query}"));
+        }
+    }
+
     /// The mouse moved over a row: the keyboard selection moves there, so there is one highlight.
     pub fn hover_palette(&mut self, row: usize) {
         if row < self.palette_rows().len() && row != self.palette.selected {
@@ -871,6 +1037,8 @@ impl App {
             PaletteLeft => self.palette_horizontal(-1),
             PaletteRight => self.palette_horizontal(1),
             PaletteActivate => self.activate_palette(),
+            PaletteSearch(0) => self.palette_start_search(),
+            PaletteSearch(dir) => self.palette_search_step(*dir),
             PaletteFold(fold) => self.fold_palette(*fold),
             _ => return false,
         }
@@ -892,6 +1060,26 @@ mod tests {
             .position(|r| r.command == command)
             .unwrap();
         app.palette.selected = at;
+    }
+
+    #[test]
+    fn every_item_has_a_terminal_icon_or_a_short_label() {
+        for (_, items) in SECTIONS {
+            for (label, command, short) in items.iter() {
+                assert!(
+                    palette_glyph(command, true).is_some() || !short.is_empty(),
+                    "{label}"
+                );
+                assert!(
+                    palette_glyph(command, false).is_some() || !short.is_empty(),
+                    "{label}"
+                );
+                assert!(short.chars().count() <= 3, "{label}: label too wide");
+            }
+        }
+        assert_eq!(palette_glyph("duration 4", true), Some("\u{f038b}"));
+        assert_eq!(palette_glyph("duration 4", false), Some("\u{2669}"));
+        assert_eq!(palette_glyph("toggle bend", true), None);
     }
 
     #[test]

@@ -200,6 +200,7 @@ mod tests {
             voices: vec![Voice {
                 beats: (0..8).map(|i| beat(i % 5)).collect(),
             }],
+            ..Default::default()
         };
         Score {
             tempo: 100,

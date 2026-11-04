@@ -1420,6 +1420,7 @@ mod tests {
             tracks: vec![Track {
                 bars: vec![Bar {
                     voices: voices.into_iter().map(|beats| Voice { beats }).collect(),
+                    ..Default::default()
                 }],
                 ..Track::default()
             }],

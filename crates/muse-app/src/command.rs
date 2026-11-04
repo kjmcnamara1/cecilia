@@ -265,6 +265,9 @@ pub enum Command {
     /// The properties pane's search: 0 opens the field, 1 / -1 jump to the next / previous match
     /// of the `/` register.
     PropertiesSearch(isize),
+    /// The palette's search, as the properties pane's: 0 opens the field, 1 / -1 jump to the
+    /// next / previous match of the `/` register.
+    PaletteSearch(isize),
     /// Sets a switch off (-1) or on (+1), or moves a choice to the previous or next one.
     PropertiesStep(isize),
     /// Clears the selected property's text and edits it.
@@ -1029,6 +1032,9 @@ impl Command {
                 Some(a) => return Err(format!("properties-fold: '{a}' is not open or close")),
             }),
             "properties-clear" => PropertiesClear,
+            "palette-search" => PaletteSearch(0),
+            "palette-search-next" => PaletteSearch(1),
+            "palette-search-prev" => PaletteSearch(-1),
             "properties-search" => PropertiesSearch(0),
             "properties-search-next" => PropertiesSearch(1),
             "properties-search-prev" => PropertiesSearch(-1),
