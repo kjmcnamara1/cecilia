@@ -57,7 +57,6 @@ Planned work. Finished items move to `CHANGELOG.md` under `[Unreleased]`.
     workspace by default
   - can still start "muse --workspace NAME" to open a window in
     a new/different workspace
-- [ ] Allow modifying the bar layout in "page layout". i.e. design mode
 - [ ] Pane Resizing
   - Config setting for auto-resize
   - able to change via command

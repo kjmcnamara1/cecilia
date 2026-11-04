@@ -177,7 +177,7 @@ impl App {
                 if design.line_start(cursor.bar).is_some() {
                     design.set_line_start(cursor.bar, None);
                     format!("bar {} no longer starts a line by decree", cursor.bar + 1)
-                } else if line.start == cursor.bar && cursor.bar > 0 && line.len() > 0 {
+                } else if line.start == cursor.bar && cursor.bar > 0 {
                     // Pull the bar up: the previous line holds one more.
                     let before = (0..cursor.bar)
                         .rev()

@@ -73,7 +73,36 @@ only be used in the GUI there, and `<D-…>` bindings never fire.
 | `<leader>t`                 | sync tap: place the next bar at the current audio time                                                                                                                                                                  | _(M5)_ |
 | `<leader>w`                 | show / hide the waveform tool pane (`:waveform`) | _(M5)_ |
 | `<leader>v`                 | cycle the focused pane's score layout (vertical / page / horizontal); new splits and views copy it                                                                                                                      | _(M3)_ |
+| `<leader>d`                 | design mode on / off: adjust the page layout by hand (see _Design mode_ below)                                                                                                                                           | _(M3)_ |
 | `<C-=>` / `<C-->` / `<C-0>` | zoom the focused pane in / out / reset (GUI); Ctrl+wheel zooms the pane under the mouse                                                                                                                                                                        | _(M3)_ |
+
+### Design mode
+
+`:design on` (`<leader>d`) lets you fix the page layout by hand, for clashes the automatic layout
+cannot see. It works in the page layout only and shows `design` in the status line. Every change
+is an undo step (a mouse drag is one step) and is stored in the score: `.muse` files keep it,
+other formats ignore it, and bars with no adjustment stay automatic.
+
+Keys while design mode is on (`[keymap.design]`, looked up before the normal keys; `<leader>d`
+turns it off again):
+
+| keys | command |
+| --- | --- |
+| `<` / `>` / `=` | bar width −10% / +10% / automatic (`:bar-width`) |
+| `<A-h>` / `<A-l>` / `<A-0>` | nudge the cursor beat left / right (0.2 space) / back (`:beat-nudge`) |
+| `\|` / `_` | new line at the cursor bar / join the cursor bar to the previous line (`:line-break`, `:line-join`) |
+| `+` / `-` / `<A-=>` | one more / fewer bar on the cursor's line / automatic (`:bars-per-line`) |
+
+With the mouse (GUI), handles appear over the page: drag a **bar line** left or right to resize
+the two bars beside it (they trade width, the line stays as long as it was); drag the **tab past a
+line's end** to take bars in from the next line or push them down (a bar moves once the drag
+passes half of it); drag the **dots under the cursor bar's beats** to nudge them. The page
+re-flows live while dragging.
+
+Limits: only the page layout is affected (the vertical and horizontal layouts and square-notation
+chant staves ignore the adjustments); lyrics attached from another track do not follow a nudged
+beat; adjustments are keyed by bar number, so they follow bars through inserting, deleting and
+pasting bars, but a beat nudge stays on its beat number when beats are added or removed.
 
 ### Buffers, panes, views
 
@@ -601,4 +630,10 @@ flat or natural when needed), `x` deletes it and `u` undoes, as on any track.
 | `:scrollbar [on\|off]`                    | the scrollbars on every score pane: down the right side and along the bottom, each shown when the score scrolls that way (a bar wider than the pane, a zoomed page, a tall horizontal layout), in their own gutter (the score never draws under it). Click or drag it to scroll (the view then stays put until the cursor moves). `ui.scrollbar` sets the default (on) |
 | `:progress-bar [on\|off]`                  | the progress bar along the bottom of every score pane: the sections (letter and title), a translucent red mark at the play position (or the cursor), and the time; clicking it moves the cursor to that bar. `ui.progress_bar` sets the default (on) |
 | `:export {file}`                           | export by extension                                                                                                                                                                                      |
+| `:design [on\|off\|toggle]`               | design mode (page layout only): the layout can be adjusted by hand, with handles in the GUI and the keys of `[keymap.design]`; the status line shows `design`. The adjustments are saved in `.muse` files |
+| `:bar-width N\|+N\|-N\|auto`              | width of the cursor bar in the page layout, in percent of its automatic share of the line (the other bars of the line give up or take the difference so the line still fills the page; a bar is never narrower than 35% of its natural width) |
+| `:bars-per-line N\|+N\|-N\|auto`          | exactly N bars on the cursor's line (squeezed if need be) from the line's first bar on; `auto` hands the line back to the layout |
+| `:line-break` / `:line-join`              | start a new line at the cursor bar / bring the cursor bar back onto the previous line |
+| `:beat-nudge N\|+N\|-N\|reset`            | move the cursor beat sideways (tenths of a staff space; notes, tab, lyrics and marks on the beat move together) |
+| `:design-reset`                           | discard every manual adjustment of the score |
 | `:layout [page\|vertical\|horizontal]`     | GUI score layout of the focused pane _(M3)_                                                                                                                                                              |

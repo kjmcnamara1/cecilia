@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- Design mode for the page layout (`:design`, `<leader>d`): fix clashes by hand. Bar widths (`:bar-width`), bars per line (`:bars-per-line`, `:line-break`, `:line-join`) and beat positions (`:beat-nudge`) can be set with commands and the keys of the new `[keymap.design]`, or in the GUI by dragging bar lines, the tab past a line's end and the dots under the cursor bar's beats, with a live re-flow. Every change is an undo step (one drag is one); `:design-reset` returns to the automatic layout. The adjustments are stored in `.muse` files and follow bars through inserting, deleting and pasting.
+
 ## [0.15.0] - 2026-11-03
 
 ### Added
