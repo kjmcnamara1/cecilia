@@ -215,6 +215,9 @@ const DOT: char = '\u{E1E7}';
 const METRONOME_QUARTER: char = '\u{E1D5}';
 const BRACE: char = '\u{E000}';
 const OPEN: char = '\u{E5E7}';
+const ACCENT: char = '\u{E4A0}';
+const STACCATO: char = '\u{E4A2}';
+const MARCATO: char = '\u{E4AC}';
 const VIBRATO: char = '\u{EAB3}';
 const TIME_PAREN_LEFT: char = '\u{E094}';
 const TIME_PAREN_RIGHT: char = '\u{E095}';
@@ -413,6 +416,8 @@ struct Ctx<'a> {
     dynamics: bool,
     /// Beats under a hairpin, drawn once the layout is done.
     wedges: std::cell::RefCell<Vec<Wedge>>,
+    /// Where the label of a let ring / palm mute span ends: (page, system, x) per kind.
+    span_floor: [std::cell::Cell<(usize, usize, f64)>; 2],
     /// Extra room above the tab in the system being drawn, to clear the standard staff.
     extra: std::cell::Cell<f64>,
     /// Lowest point reached by the standard notation drawn so far.
@@ -423,6 +428,12 @@ struct Ctx<'a> {
 
 /// A beat under a hairpin: its kind, (bar, beat) in the first voice, page, system, the beat's
 /// left and right x, and the hairpin's centre line.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum SpanKind {
+    PalmMute,
+    LetRing,
+}
+
 type Wedge = (Hairpin, (usize, usize), usize, usize, f64, f64, f64);
 
 /// Two consecutive notes on one string: positions (bar, voice, beat), frets, and whether
@@ -823,6 +834,7 @@ fn make_ctx<'a>(
                     || b.notes.iter().any(|n| n.velocity != DEFAULT_VELOCITY)
             }),
         wedges: Default::default(),
+        span_floor: Default::default(),
         extra: Default::default(),
         low: std::cell::Cell::new(f64::MIN),
         stems: Default::default(),
@@ -2722,6 +2734,7 @@ impl Ctx<'_> {
                             placed,
                         );
                         chord = Some((ys.clone(), up));
+                        self.draw_articulations_std(page, beat, bx, std_bottom, &ys, up);
                         let level = beam_count(beat.duration.value);
                         // Beams group the notes of each beat; a note across a beat stands alone.
                         let unit = self.beam_unit(mb);
@@ -2850,8 +2863,31 @@ impl Ctx<'_> {
                         );
                     }
                 }
+                if self.chant.is_none() && (self.tab || (self.first_staff && !self.track_has_tab()))
+                {
+                    for kind in Self::SPANS {
+                        self.draw_span(
+                            page,
+                            kind,
+                            (bi, vi, i),
+                            (bx, bw),
+                            self.span_y(top, tab_top, beat),
+                            (page_index, system),
+                        );
+                    }
+                }
                 // Tablature.
                 if self.tab {
+                    // Marks over the tab, unless a standard staff of the track carries them.
+                    if !self.standard && self.chant.is_none() {
+                        let marks = Self::articulations(beat);
+                        let layers = Self::SPANS
+                            .iter()
+                            .filter(|k| Self::has_span(beat, **k))
+                            .count();
+                        let y = self.span_y(top, tab_top, beat) - (layers as f64 * 1.8 + 0.8) * sp;
+                        self.draw_marks(page, &marks, bx + self.nh_width / 2.0, y, false);
+                    }
                     self.draw_tab_beat(
                         page,
                         beat,
@@ -3161,6 +3197,250 @@ impl Ctx<'_> {
             x + 0.06 * sp
         };
         (stem_x, ys, up)
+    }
+
+    /// The two kinds of sustained marks drawn as spans.
+    const SPANS: [SpanKind; 2] = [SpanKind::PalmMute, SpanKind::LetRing];
+
+    fn track_has_tab(&self) -> bool {
+        self.track.kind == TrackKind::Fretted
+            && !self.track.strings.is_empty()
+            && self
+                .track
+                .staves()
+                .iter()
+                .any(|s| matches!(s, Staff::Tab | Staff::TabRhythm))
+    }
+
+    /// Whether the beat carries the effect on any of its notes.
+    fn has_span(beat: &Beat, kind: SpanKind) -> bool {
+        !beat.empty
+            && beat.notes.iter().any(|n| match kind {
+                SpanKind::PalmMute => n.effects.palm_mute,
+                SpanKind::LetRing => n.effects.let_ring,
+            })
+    }
+
+    /// The beat before or after (bar, voice, beat) in its voice, across barlines. Beats shown on
+    /// the other half of a grand staff and empty beats are passed over.
+    fn neighbour(
+        &self,
+        (bar, voice, beat): (usize, usize, usize),
+        next: bool,
+    ) -> Option<((usize, usize, usize), &Beat)> {
+        let (mut bar, mut beat) = (bar, beat as isize);
+        loop {
+            let beats = &self.track.bars.get(bar)?.voices.get(voice)?.beats;
+            beat += if next { 1 } else { -1 };
+            if beat >= 0 && (beat as usize) < beats.len() {
+                let b = &beats[beat as usize];
+                if b.empty {
+                    continue;
+                }
+                return Some(((bar, voice, beat as usize), b));
+            }
+            if next {
+                bar += 1;
+                beat = -1;
+            } else {
+                bar = bar.checked_sub(1)?;
+                beat = self.track.bars.get(bar)?.voices.get(voice)?.beats.len() as isize;
+            }
+        }
+    }
+
+    /// Baseline of the first (nearest) span line over a beat.
+    fn span_y(&self, top: f64, tab_top: f64, beat: &Beat) -> f64 {
+        let sp = self.sp;
+        if self.tab {
+            let vib = beat.effects.vibrato || beat.notes.iter().any(|n| n.effects.vibrato);
+            tab_top - if self.vibrato && vib { 2.2 } else { 1.0 } * sp
+        } else if self.first_staff {
+            top - 4.2 * sp
+        } else {
+            top - 1.6 * sp
+        }
+    }
+
+    /// One beat's share of a let ring / palm mute span. A span covers the consecutive beats of a
+    /// voice that have the effect, across barlines and system breaks; a beat without notes (a
+    /// rest) ends it. The label stands at its first beat, then a dashed line runs on to the end
+    /// of the last beat, closed by a hook pointing down at the staff. A span cut by a system
+    /// break goes on at the start of the next without its label. Palm mute sits nearest the
+    /// staff, let ring a line above it when both are on.
+    fn draw_span(
+        &self,
+        page: &mut Page,
+        kind: SpanKind,
+        pos: (usize, usize, usize),
+        (bx, bw): (f64, f64),
+        y: f64,
+        (page_index, system): (usize, usize),
+    ) {
+        let sp = self.sp;
+        let Some(beat) = self
+            .track
+            .bars
+            .get(pos.0)
+            .and_then(|b| b.voices.get(pos.1))
+            .and_then(|v| v.beats.get(pos.2))
+        else {
+            return;
+        };
+        if !Self::has_span(beat, kind) {
+            return;
+        }
+        let continues = |next: bool| {
+            self.neighbour(pos, next)
+                .is_some_and(|(_, b)| Self::has_span(b, kind))
+        };
+        let (from_before, goes_on) = (continues(false), continues(true));
+        // Let ring takes the upper line when palm mute is on anywhere in its span.
+        let mut layer = 0.0;
+        if kind == SpanKind::LetRing {
+            let other = SpanKind::PalmMute;
+            let mut found = Self::has_span(beat, other);
+            for dir in [false, true] {
+                let mut cur = pos;
+                while !found {
+                    let Some((at, b)) = self.neighbour(cur, dir) else {
+                        break;
+                    };
+                    if !Self::has_span(b, kind) {
+                        break;
+                    }
+                    found |= Self::has_span(b, other);
+                    cur = at;
+                }
+            }
+            if found {
+                layer = 1.8;
+            }
+        }
+        let y = y - layer * sp;
+        let (label, slot) = match kind {
+            SpanKind::PalmMute => ("P.M.", 0),
+            SpanKind::LetRing => ("let ring", 1),
+        };
+        let size = 1.5 * sp;
+        let line_y = y - 0.5 * sp;
+        let mut x0 = bx;
+        if !from_before {
+            page.text(FontKind::Italic, label, (bx, y), size, Align::Left);
+            x0 = bx + fonts().text_width(FontKind::Italic, label, size) + 0.3 * sp;
+            self.span_floor[slot].set((page_index, system, x0));
+        } else {
+            let (p, s, floor) = self.span_floor[slot].get();
+            if (p, s) == (page_index, system) {
+                x0 = x0.max(floor);
+            }
+        }
+        let col_end = bx + self.nh_width;
+        let x1 = if goes_on {
+            // On to the next beat (it starts where its own column does).
+            bx + bw
+        } else {
+            (col_end + 0.3 * sp).max(x0 + 1.2 * sp)
+        };
+        let mut path = BezPath::new();
+        let (dash, gap) = (0.9 * sp, 0.5 * sp);
+        let mut x = x0;
+        while x < x1 {
+            path.move_to((x, line_y));
+            path.line_to(((x + dash).min(x1), line_y));
+            x += dash + gap;
+        }
+        if !goes_on {
+            path.move_to((x1, line_y));
+            path.line_to((x1, line_y + 0.9 * sp));
+        }
+        page.items.push(Item::Path {
+            path,
+            color: Color::BLACK,
+            stroke: Some(0.12 * sp),
+        });
+    }
+
+    /// The articulations a beat shows: (staccato, accent or marcato). Tied notes carry none, and
+    /// a rest has no notes.
+    fn articulations(beat: &Beat) -> (bool, Option<char>) {
+        let shown = || beat.notes.iter().filter(|n| !n.tie);
+        let accent = if shown().any(|n| n.accent == Accent::Heavy) {
+            Some(MARCATO)
+        } else if shown().any(|n| n.accent == Accent::Normal) {
+            Some(ACCENT)
+        } else {
+            None
+        };
+        (shown().any(|n| n.effects.staccato), accent)
+    }
+
+    /// Draws articulations centred on x, the first at y and the rest further out (`down`: the
+    /// marks go downwards). The staccato dot is nearest, the accent outside it.
+    fn draw_marks(
+        &self,
+        page: &mut Page,
+        marks: &(bool, Option<char>),
+        x: f64,
+        y: f64,
+        down: bool,
+    ) {
+        let sp = self.sp;
+        let dir = if down { 1.0 } else { -1.0 };
+        let mut y = y;
+        let mut first = true;
+        for (ch, size) in [(STACCATO, 4.0 * sp), (marks.1.unwrap_or(' '), 4.0 * sp)] {
+            let shown = if ch == STACCATO {
+                marks.0
+            } else {
+                marks.1.is_some()
+            };
+            if !shown {
+                continue;
+            }
+            if !first {
+                y += dir * 1.0 * sp;
+            }
+            first = false;
+            let b = fonts().bbox(FontKind::Music, ch, size);
+            let gx = x - (b.x0 + b.x1) / 2.0;
+            let gy = y - (b.y0 + b.y1) / 2.0;
+            // The glyphs point up; the ones for below are the next code point.
+            let g = if down {
+                char::from_u32(ch as u32 + 1).unwrap_or(ch)
+            } else {
+                ch
+            };
+            page.glyph(g, (gx, gy), size);
+            self.reach(gy + b.y1 + 0.2 * sp);
+        }
+    }
+
+    /// Articulations of a standard-staff beat: on the side away from the stem, in the space past
+    /// the outermost head.
+    fn draw_articulations_std(
+        &self,
+        page: &mut Page,
+        beat: &Beat,
+        x: f64,
+        bottom: f64,
+        ys: &[f64],
+        up: bool,
+    ) {
+        let marks = Self::articulations(beat);
+        if marks.0 || marks.1.is_some() {
+            let sp = self.sp;
+            let cx = x + self.nh_width / 2.0;
+            // Heads on a line need the next space past them, those in a space the one beyond.
+            let (lo, hi) = (
+                ys.iter().cloned().fold(f64::MAX, f64::min),
+                ys.iter().cloned().fold(f64::MIN, f64::max),
+            );
+            let (edge, dir) = if up { (hi, 1.0) } else { (lo, -1.0) };
+            let on_line = ((bottom - edge) / (sp / 2.0)).round() as i32 % 2 == 0;
+            let y = edge + dir * if on_line { 1.5 } else { 1.0 } * sp;
+            self.draw_marks(page, &marks, cx, y, up);
+        }
     }
 
     fn draw_stem(&self, page: &mut Page, x: f64, ys: &[f64], up: bool, to: Option<f64>) {
@@ -3580,12 +3860,6 @@ impl Ctx<'_> {
                     Align::Center,
                 );
             }
-            if n.effects.palm_mute {
-                above_marks.push("P.M.".into());
-            }
-            if n.effects.let_ring {
-                above_marks.push("let ring".into());
-            }
             // Slides to the next note are drawn as lines with the ties; slides in and out here.
             if n.effects
                 .slides
@@ -3615,21 +3889,6 @@ impl Ctx<'_> {
             }
         }
         above_marks.dedup();
-        // Sustained marks (let ring, palm mute) are shown where they start.
-        let previous = pos
-            .2
-            .checked_sub(1)
-            .and_then(|i| self.track.bars.get(pos.0)?.voices.get(pos.1)?.beats.get(i));
-        let sustained =
-            |b: &Beat, f: fn(&NoteEffects) -> bool| b.notes.iter().any(|n| f(&n.effects));
-        if let Some(prev) = previous {
-            if sustained(prev, |e| e.let_ring) {
-                above_marks.retain(|m| m != "let ring");
-            }
-            if sustained(prev, |e| e.palm_mute) {
-                above_marks.retain(|m| m != "P.M.");
-            }
-        }
         if !above_marks.is_empty() {
             page.text(
                 FontKind::Italic,
@@ -5190,6 +5449,275 @@ mod tests {
             }],
             ..Score::default()
         }
+    }
+
+    fn mark_score(staff: Staff, bars: Vec<Vec<Beat>>) -> Score {
+        Score {
+            tempo: 100,
+            master_bars: vec![MasterBar::default(); bars.len()],
+            tracks: vec![Track {
+                kind: TrackKind::Fretted,
+                strings: vec![64, 59, 55, 50, 45, 40],
+                staves: vec![staff],
+                bars: bars
+                    .into_iter()
+                    .map(|beats| Bar {
+                        voices: vec![Voice { beats }],
+                    })
+                    .collect(),
+                ..Track::default()
+            }],
+            ..Score::default()
+        }
+    }
+
+    fn plain() -> Beat {
+        Beat {
+            duration: Duration::new(DurationValue::Quarter),
+            notes: vec![Note::new(2, 5)],
+            ..Beat::default()
+        }
+    }
+
+    fn with(f: impl Fn(&mut Note)) -> Beat {
+        let mut b = plain();
+        f(&mut b.notes[0]);
+        b
+    }
+
+    fn rest() -> Beat {
+        Beat::rest(Duration::new(DurationValue::Quarter))
+    }
+
+    fn options() -> Options {
+        Options {
+            header: false,
+            ..Options::default()
+        }
+    }
+
+    fn glyphs(page: &Page, ch: char) -> Vec<Point> {
+        page.items
+            .iter()
+            .filter_map(|i| match i {
+                Item::Glyph { ch: c, at, .. } if *c == ch => Some(*at),
+                _ => None,
+            })
+            .collect()
+    }
+
+    #[test]
+    fn articulations_are_engraved() {
+        let beats = vec![
+            with(|n| n.effects.staccato = true),
+            with(|n| n.accent = Accent::Normal),
+            with(|n| n.accent = Accent::Heavy),
+            with(|n| {
+                n.tie = true;
+                n.effects.staccato = true;
+                n.accent = Accent::Normal;
+            }),
+            rest(),
+            plain(),
+        ];
+        for staff in [
+            Staff::Standard(muse_core::Clef::Treble),
+            Staff::Slash,
+            Staff::Tab,
+            Staff::TabRhythm,
+        ] {
+            let score = mark_score(staff, vec![beats.clone()]);
+            let layout = engrave(&score, 0, &options());
+            let page = &layout.pages[0];
+            let counts = [STACCATO, ACCENT, MARCATO].map(|c| {
+                let both = glyphs(page, c).len();
+                let below = glyphs(page, char::from_u32(c as u32 + 1).unwrap()).len();
+                both + below
+            });
+            assert_eq!(
+                counts,
+                [1, 1, 1],
+                "{staff:?}: tied, rest and plain beats have none"
+            );
+            let pos = |i| {
+                layout.beats[&BeatRef {
+                    track: 0,
+                    bar: 0,
+                    voice: 0,
+                    beat: i,
+                }]
+                    .head
+            };
+            let near = |ch: char, i: usize| {
+                [ch, char::from_u32(ch as u32 + 1).unwrap()]
+                    .iter()
+                    .flat_map(|c| glyphs(page, *c))
+                    .any(|p| (p.x - pos(i)).abs() < 2.0 * options().sp)
+            };
+            assert!(
+                near(STACCATO, 0) && near(ACCENT, 1) && near(MARCATO, 2),
+                "{staff:?}"
+            );
+        }
+        // Standard: below an up stem, above a down stem, the dot nearer than the accent.
+        let both = with(|n| {
+            n.effects.staccato = true;
+            n.accent = Accent::Normal;
+        });
+        let score = mark_score(Staff::Standard(muse_core::Clef::Treble), vec![vec![both]]);
+        let page = &engrave(&score, 0, &options()).pages[0];
+        let find = |ch: char| {
+            let glyph = [ch, char::from_u32(ch as u32 + 1).unwrap()];
+            glyph.iter().find_map(|c| {
+                let b = fonts().bbox(FontKind::Music, *c, 4.0 * options().sp);
+                glyphs(page, *c).first().map(|p| p.y + (b.y0 + b.y1) / 2.0)
+            })
+        };
+        let head = glyphs(page, HEAD_BLACK)[0].y;
+        let (dot, acc) = (find(STACCATO).unwrap(), find(ACCENT).unwrap());
+        // The dot is nearer the head than the accent, both clear of it.
+        assert!((dot - head).abs() > 0.5 * options().sp);
+        assert!((acc - head).abs() > (dot - head).abs() + 0.5 * options().sp);
+        assert_eq!((acc - head).signum(), (dot - head).signum());
+    }
+
+    /// The dashed line paths of spans: (x0, x1, y).
+    fn span_paths(page: &Page) -> Vec<(f64, f64, f64)> {
+        page.items
+            .iter()
+            .filter_map(|i| match i {
+                Item::Path {
+                    path,
+                    stroke: Some(_),
+                    ..
+                } => {
+                    let b = path.bounding_box();
+                    (b.width() > 0.0).then_some((b.x0, b.x1, b.y0))
+                }
+                _ => None,
+            })
+            .collect()
+    }
+
+    fn labels(page: &Page, text: &str) -> Vec<Point> {
+        page.items
+            .iter()
+            .filter_map(|i| match i {
+                Item::Text { text: t, at, .. } if t == text => Some(*at),
+                _ => None,
+            })
+            .collect()
+    }
+
+    #[test]
+    fn palm_mute_and_let_ring_are_spans() {
+        let pm = || with(|n| n.effects.palm_mute = true);
+        let lr = || with(|n| n.effects.let_ring = true);
+        let pos = |l: &Layout, bar, i| {
+            l.beats[&BeatRef {
+                track: 0,
+                bar,
+                voice: 0,
+                beat: i,
+            }]
+                .head
+        };
+        for staff in [
+            Staff::Tab,
+            Staff::TabRhythm,
+            Staff::Standard(muse_core::Clef::Treble),
+        ] {
+            // A run of four: one label, one line from the first to the last beat, one hook.
+            let score = mark_score(staff, vec![vec![plain(), pm(), pm(), pm(), pm(), plain()]]);
+            let layout = engrave(&score, 0, &options());
+            let page = &layout.pages[0];
+            assert_eq!(labels(page, "P.M.").len(), 1, "{staff:?}");
+            let (first, last) = (pos(&layout, 0, 1), pos(&layout, 0, 4));
+            let spans = span_paths(page);
+            let x0 = spans.iter().map(|s| s.0).fold(f64::MAX, f64::min);
+            let x1 = spans.iter().map(|s| s.1).fold(f64::MIN, f64::max);
+            assert!(x0 >= first - 5.0, "{staff:?} starts at {first}: {x0}");
+            assert!(
+                x1 >= last && x1 < pos(&layout, 0, 5),
+                "{staff:?} ends at {last}: {x1}"
+            );
+            // Plain notes alone: nothing.
+            let score = mark_score(staff, vec![vec![plain(), plain()]]);
+            let page = &engrave(&score, 0, &options()).pages[0];
+            assert!(labels(page, "P.M.").is_empty() && span_paths(page).is_empty());
+            // A single beat: label, short line and hook.
+            let score = mark_score(staff, vec![vec![plain(), lr(), plain()]]);
+            let page = &engrave(&score, 0, &options()).pages[0];
+            assert_eq!(labels(page, "let ring").len(), 1);
+            assert_eq!(span_paths(page).len(), 1);
+            // Two separate runs, and one broken by a rest.
+            let score = mark_score(staff, vec![vec![pm(), plain(), pm(), pm()]]);
+            let page = &engrave(&score, 0, &options()).pages[0];
+            assert_eq!(labels(page, "P.M.").len(), 2);
+            let score = mark_score(staff, vec![vec![pm(), rest(), pm(), pm()]]);
+            let page = &engrave(&score, 0, &options()).pages[0];
+            assert_eq!(
+                labels(page, "P.M.").len(),
+                2,
+                "{staff:?}: a rest ends the run"
+            );
+            // Across a barline: one label.
+            let score = mark_score(
+                staff,
+                vec![vec![plain(), pm(), pm()], vec![pm(), pm(), plain()]],
+            );
+            let page = &engrave(&score, 0, &options()).pages[0];
+            assert_eq!(labels(page, "P.M.").len(), 1, "{staff:?}");
+            // Palm mute and let ring together: two labels on different lines.
+            let both = || {
+                with(|n| {
+                    n.effects.palm_mute = true;
+                    n.effects.let_ring = true;
+                })
+            };
+            let score = mark_score(staff, vec![vec![both(), both(), both()]]);
+            let page = &engrave(&score, 0, &options()).pages[0];
+            let (a, b) = (labels(page, "P.M."), labels(page, "let ring"));
+            assert!(a.len() == 1 && b.len() == 1 && (a[0].y - b[0].y).abs() > 1.5 * options().sp);
+        }
+    }
+
+    #[test]
+    fn spans_continue_over_a_system_break() {
+        let pm = || with(|n| n.effects.palm_mute = true);
+        let bars: Vec<Vec<Beat>> = (0..12).map(|_| vec![pm(), pm(), pm(), pm()]).collect();
+        let score = mark_score(Staff::Tab, bars);
+        let layout = engrave(&score, 0, &options());
+        assert!(layout.systems.len() > 1);
+        let all: Vec<&Page> = layout.pages.iter().collect();
+        let n: usize = all.iter().map(|p| labels(p, "P.M.").len()).sum();
+        assert_eq!(n, 1, "one label for the whole run");
+        // The span has a line on every system and a single hook, at the very end.
+        let paths: usize = all.iter().map(|p| span_paths(p).len()).sum();
+        assert!(paths >= 40, "{paths}");
+    }
+
+    #[test]
+    fn lyrics_above_clear_spans() {
+        let mut b = with(|n| n.effects.palm_mute = true);
+        b.lyrics = vec!["la".into()];
+        let mut score = mark_score(Staff::Tab, vec![vec![b.clone(), b]]);
+        score.tracks[0].set_staff_lyrics(
+            0,
+            Some(muse_core::StaffLyrics {
+                track: None,
+                above: true,
+            }),
+        );
+        let page = &engrave(&score, 0, &options()).pages[0];
+        let label = labels(page, "P.M.")[0];
+        let lyric = labels(page, "la")[0];
+        assert!(
+            lyric.y < label.y - 1.0,
+            "lyric {} over label {}",
+            lyric.y,
+            label.y
+        );
     }
 
     fn rows(layout: &Layout) -> Vec<std::ops::Range<usize>> {
