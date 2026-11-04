@@ -4547,6 +4547,41 @@ mod tests {
     }
 
     #[test]
+    fn a_hairpin_on_consecutive_beats_is_one_wedge() {
+        // The wedge's two arms are slanted lines; a note's stem is vertical.
+        let wedge_lines = |score: &Score| {
+            engrave(score, 0, &Options::default()).pages[0]
+                .items
+                .iter()
+                .filter(|i| {
+                    matches!(i, Item::Line { from, to, .. } if from.x != to.x && from.y != to.y)
+                })
+                .count()
+        };
+        let beats = || {
+            (0..4)
+                .map(|_| pitched(72, DurationValue::Quarter))
+                .collect::<Vec<_>>()
+        };
+        let mut score = staff_score(beats());
+        let plain = wedge_lines(&score);
+        for b in &mut score.tracks[0].bars[0].voices[0].beats {
+            b.effects.hairpin = Some(Hairpin::Crescendo);
+        }
+        // One run of four beats: one pair of arms across them.
+        assert_eq!(wedge_lines(&score), plain + 2);
+        // The same hairpin on a single beat is a pair of arms too, so four separate ones would
+        // be eight.
+        let mut separate = staff_score(beats());
+        for i in [0, 2] {
+            separate.tracks[0].bars[0].voices[0].beats[i]
+                .effects
+                .hairpin = Some(Hairpin::Crescendo);
+        }
+        assert_eq!(wedge_lines(&separate), plain + 4);
+    }
+
+    #[test]
     fn directions_print_as_text() {
         let mut score = staff_score(vec![pitched(72, DurationValue::Quarter)]);
         score.master_bars[0].directions = vec![Direction::DaCapoAlCoda];

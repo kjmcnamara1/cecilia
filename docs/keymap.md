@@ -213,7 +213,7 @@ is typed after it, is one undo step.
 | `y{motion}` / `yy`, `p` / `P`                          | yank beats or bars (`yl`, `yh` …, `yy` the bar) / put after / before the cursor                   |
 | `c{motion}` / `cc`                                     | change: the beats become rests of the same lengths (the cursor beat for `cl`, the one before it for `ch`, which the cursor moves to) and Insert mode starts on them; `cc` clears the bar of the cursor's track, leaving an empty bar |
 | `"{reg}`                                               | use register for the next yank/delete/put                                                         |
-| `.`                                                    | repeat the last change (including an insert session)                                              |
+| `.`                                                    | repeat the last change (including an insert session), or the last palette tool: applied again at the cursor (a toggle toggles there; a tool used over a Visual selection repeats over as many beats or bars from the cursor; a tool that asked for an argument, like `:direction`, with the same one) |
 | `u` / `U` / `g-` / `g+`                                | undo / redo / older / newer state across undo branches                                            |
 | `q{reg}` … `q` / `[count]@{reg}` / `@@`                | record / play / replay a macro; `q{A-Z}` appends to the lowercase register                        |
 | `v` / `V`                                              | visual beats / visual bars (then `d`, `y`, `c`, `x`; `i` / `a` below)                            |
@@ -238,6 +238,8 @@ current ones):
 
 | keys | command |
 | --- | --- |
+| `+` / `-` | step the duration of every selected beat one note value longer / shorter (dots and tuplets stay; a whole note is the longest; the status line says when a bar runs over) (`:duration-longer`, `:duration-shorter`) |
+| `t…` `H` `L` … (the Normal-mode technique keys of the staff), the palette | the range tools below, on every beat of the selection (the selection stays, so several can be applied; `<Esc>` leaves) |
 | `i` / `a` | leave the selection and insert a new beat before its first / after its last beat (a bar selection: at the start of its first bar / the end of its last bar), then Insert mode (`:visual-insert`, `:visual-append`) |
 
 Choices where the wish was open: `e` is vim's end-of-word, so on a note that does not start a
@@ -440,14 +442,39 @@ section with none left is hidden; folds are kept): on a **tab** everything but t
 on a **standard** staff the accidentals and the marks it can show (no bends, palm mute, let
 ring, tap / slap / pop, fades or left-hand tapping); on a **slash** staff the note values, rest,
 tie, accents, staccato, dynamics, hairpins, fermata and beams; on **chant** the note values and
-the clef; in **Visual** mode the note values (the length of the beats `i` / `a` add) and the
-beams and stems tools, which then apply to every beat of the selection. The bar and repeat
-tools (everything but the clef) apply on every notation but chant; the clef on standard and chant
-staves, stems on standard staves only. It follows the cursor from one staff to another.
+the clef; in **Visual** mode (see below) every tool that makes sense over a range, for the
+staff's notation. The bar and repeat tools (everything but the clef) apply on every notation but
+chant; the clef on standard and chant staves, stems on standard staves only. It follows the
+cursor from one staff to another.
+
+**Over a Visual selection** (`v` beats, `V` bars) the palette's tools, `+` / `-`, and the same
+commands typed (`:toggle staccato`, `:dynamic p` …) apply to every beat of the selection in one
+undo step, and a button is tinted when the whole selection has it:
+
+- Techniques (`:toggle`: staccato, accent, marcato, let ring, palm mute, vibrato, harmonics,
+  tremolo, tap / slap / pop, strokes, arpeggio, rasgueado, pick strokes, fermata, fades, grace
+  notes, left-hand tapping …): if every beat or note has it, it is taken off all; otherwise it
+  is put on those that lack it.
+- Crescendo / decrescendo: one hairpin from the first selected beat to the last (consecutive
+  beats with the same hairpin are drawn as one wedge); again takes it off. Dynamics (`ppp` …
+  `fff`) go on the first beat.
+- Legato (hammer-on / pull-off), legato slide and shift slide link each beat to the next, so the
+  last beat of the selection is left out (a single beat is just toggled); ties join each note to
+  the note before it on the same string (or of the same pitch).
+- Note values: a value sets every beat, dot / double dot / triplet toggle on all (a triplet over
+  three selected beats), `+` / `-` step longer / shorter, rest turns the selection into rests.
+- Pitch: semitone up / down, octave up / down, and the accidentals (also double) over the
+  selection; notes that would leave the neck stay and are reported.
+- Beams (auto, force, break, break secondary: `force` leaves the first beat alone) and stems.
+- With **bar** selections (`V`) the bar tools too: repeat open, section, key and time signature
+  at the first bar; repeat close, double bar and direction at the last; free time and alternate
+  endings on every selected bar. The clef and bar repeat signs stay out.
 The duration selected in it (the tinted button) is the length of the beats `i`, `a`, `I`, `A`
 and Enter in Insert mode make.
 
 A button's name (tooltip and label) ends with the insert-mode keys bound to its command, from the live keymaps so your overrides show ("Palm mute (m)", at most three, "Quarter note (<A-3>)"; none: no parentheses). Buttons that can't take effect at the cursor are dimmed and named "(unavailable)" after that: note-level ones (pitch, tie, dead and ghost notes, dynamics, articulations, most effects) off a note, accidentals on a tab. They are worked out by trying the command's own edit, so they follow what the command refuses. They stay selectable, but applying one does nothing and the status line says why.
+
+`.` repeats the last tool applied from the palette (or by a key over a Visual selection) as long as no editing key changed something after it: it runs again at the cursor, as one undo step. Moving about or searching in the palette, or a tool that changed nothing, leave what `.` repeats alone. Tools typed on the command line (`:toggle staccato`) are not repeated, except those begun from a palette button that asks for an argument.
 
 Search is the properties pane's (`/`, `n`, `N`), and only looks through the tools shown at the moment: those of the staff and mode, in sections not folded. The buttons' icons are the engraver's own symbols in the GUI; the terminal draws the closest Unicode or Nerd Font glyph (`tabline.icons`: `nerd`, `unicode`, or `none` for short text labels).
 

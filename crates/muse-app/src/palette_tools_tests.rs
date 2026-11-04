@@ -42,6 +42,13 @@ fn fill(a: &mut App, bar: usize, n: u8) {
     };
 }
 
+fn status(a: &App) -> String {
+    a.message
+        .as_ref()
+        .map(|m| m.text.clone())
+        .unwrap_or_default()
+}
+
 fn score(a: &App) -> &Score {
     &a.buffer().score
 }
@@ -403,8 +410,10 @@ fn beams_and_stems_apply_to_the_beat_or_the_selection() {
     assert!(rows.iter().any(|r| r.command == "stems up"));
     let steps = undo_steps(&a);
     run(&mut a, "stems up");
-    assert_eq!(a.mode, Mode::Normal);
+    // The selection stays, so more can be applied to it.
+    assert_eq!(a.mode, Mode::Visual);
     assert_eq!(undo_steps(&a), steps + 1);
+    keys(&mut a, "<Esc>");
     for i in 0..3 {
         assert_eq!(beat(&a, 0, i).stem, StemDir::Up);
     }
@@ -531,4 +540,368 @@ fn search_only_finds_the_tools_of_the_notation_and_mode() {
     a.pane_mut().cursor.staff = 0;
     keys(&mut a, "<leader>E/double sharp<CR>");
     assert_eq!(a.palette_rows()[a.palette_selected()].label, "Double sharp");
+}
+
+/// Selects the first `n` beats of bar 0 in Visual mode.
+fn select(a: &mut App, n: usize) {
+    a.pane_mut().cursor.bar = 0;
+    a.pane_mut().cursor.beat = 0;
+    keys(a, "v");
+    for _ in 1..n {
+        keys(a, "l");
+    }
+    assert_eq!(a.mode, Mode::Visual);
+}
+
+#[test]
+fn one_hairpin_across_the_selection() {
+    let mut a = app();
+    fill(&mut a, 0, 6);
+    select(&mut a, 4);
+    let steps = undo_steps(&a);
+    run(&mut a, "toggle crescendo");
+    assert_eq!(undo_steps(&a), steps + 1, "one undo step");
+    for i in 0..6 {
+        assert_eq!(beat(&a, 0, i).effects.hairpin.is_some(), i < 4, "beat {i}");
+    }
+    assert!(row(&a.palette_rows(), "toggle crescendo").active);
+    assert!(!row(&a.palette_rows(), "toggle decrescendo").active);
+    // A decrescendo replaces it; the same again takes it off.
+    run(&mut a, "toggle decrescendo");
+    assert_eq!(beat(&a, 0, 2).effects.hairpin, Some(Hairpin::Decrescendo));
+    run(&mut a, "toggle decrescendo");
+    assert!((0..4).all(|i| beat(&a, 0, i).effects.hairpin.is_none()));
+    // Typed on the command line from Visual mode it applies to the selection too.
+    keys(&mut a, ":toggle crescendo<CR>");
+    assert_eq!(a.mode, Mode::Visual);
+    assert!((0..4).all(|i| beat(&a, 0, i).effects.hairpin == Some(Hairpin::Crescendo)));
+    run(&mut a, "toggle crescendo");
+    // A dynamic goes on the first beat only.
+    run(&mut a, "dynamic p");
+    assert_eq!(beat(&a, 0, 0).notes[0].velocity, 47);
+    assert_eq!(beat(&a, 0, 1).notes[0].velocity, DEFAULT_VELOCITY);
+}
+
+#[test]
+fn plus_and_minus_step_every_duration_of_the_selection() {
+    let mut a = app();
+    fill(&mut a, 0, 4);
+    {
+        let b = a.pane().buffer;
+        let beats = &mut a.buffers[b].score.tracks[0].bars[0].voices[0].beats;
+        beats[0].duration = Duration::new(DurationValue::Sixteenth);
+        beats[1].duration = Duration::new(DurationValue::Eighth);
+        beats[2].duration = Duration {
+            dots: 1,
+            ..Duration::new(DurationValue::Quarter)
+        };
+        beats[3].duration = Duration::new(DurationValue::Whole);
+    }
+    select(&mut a, 4);
+    let steps = undo_steps(&a);
+    keys(&mut a, "+");
+    assert_eq!(undo_steps(&a), steps + 1);
+    let v = |a: &App, i| beat(a, 0, i).duration;
+    assert_eq!(v(&a, 0).value, DurationValue::Eighth);
+    assert_eq!(v(&a, 1).value, DurationValue::Quarter);
+    assert_eq!(
+        (v(&a, 2).value, v(&a, 2).dots),
+        (DurationValue::Half, 1),
+        "dots are kept"
+    );
+    assert_eq!(
+        v(&a, 3).value,
+        DurationValue::Whole,
+        "a whole note is the longest"
+    );
+    assert_eq!(
+        a.mode,
+        Mode::Visual,
+        "the selection stays for another press"
+    );
+    keys(&mut a, "--");
+    assert_eq!(v(&a, 0).value, DurationValue::ThirtySecond);
+    assert_eq!(v(&a, 1).value, DurationValue::Sixteenth);
+    // A value from the note-value tools sets every beat; the bar then overflows or not.
+    run(&mut a, "duration 4");
+    assert!((0..4).all(|i| v(&a, i).value == DurationValue::Quarter));
+    run(&mut a, "dot");
+    assert!((0..4).all(|i| v(&a, i).dots == 1));
+    run(&mut a, "dot");
+    assert!((0..4).all(|i| v(&a, i).dots == 0));
+    run(&mut a, "duration 2");
+    assert!(status(&a).contains("over full"), "{:?}", status(&a));
+    // A triplet over three selected beats.
+    keys(&mut a, "<Esc>");
+    run(&mut a, "duration 8");
+    select(&mut a, 3);
+    run(&mut a, "tuplet 3");
+    assert!((0..3).all(|i| v(&a, i).tuplet.is_some()) && v(&a, 3).tuplet.is_none());
+}
+
+#[test]
+fn staccato_and_other_marks_go_on_all_or_off_all() {
+    let mut a = app();
+    fill(&mut a, 0, 4);
+    {
+        let b = a.pane().buffer;
+        a.buffers[b].score.tracks[0].bars[0].voices[0].beats[1].notes[0]
+            .effects
+            .staccato = true;
+    }
+    select(&mut a, 4);
+    let staccato = |a: &App| -> Vec<bool> {
+        (0..4)
+            .map(|i| beat(a, 0, i).notes[0].effects.staccato)
+            .collect()
+    };
+    let steps = undo_steps(&a);
+    run(&mut a, "toggle staccato");
+    assert_eq!(staccato(&a), vec![true; 4], "some had it: all get it");
+    assert_eq!(undo_steps(&a), steps + 1);
+    assert!(row(&a.palette_rows(), "toggle staccato").active);
+    run(&mut a, "toggle staccato");
+    assert_eq!(staccato(&a), vec![false; 4], "all had it: none keeps it");
+    assert!(!row(&a.palette_rows(), "toggle staccato").active);
+    // Accents, note effects and beat marks too.
+    run(&mut a, "toggle accent");
+    run(&mut a, "toggle palm-mute");
+    run(&mut a, "toggle fermata");
+    for i in 0..4 {
+        let b = beat(&a, 0, i);
+        assert!(b.notes[0].accent == Accent::Normal && b.notes[0].effects.palm_mute);
+        assert!(b.effects.fermata);
+    }
+    // Rest-out turns the selection into rests.
+    run(&mut a, "rest");
+    assert!((0..4).all(|i| beat(&a, 0, i).is_rest()));
+    run(&mut a, "undo");
+    assert!((0..4).all(|i| !beat(&a, 0, i).is_rest()));
+}
+
+#[test]
+fn legato_slide_and_tie_chains_link_each_beat_to_the_next() {
+    let mut a = app();
+    fill(&mut a, 0, 4);
+    select(&mut a, 4);
+    let steps = undo_steps(&a);
+    run(&mut a, "toggle hammer");
+    assert_eq!(undo_steps(&a), steps + 1);
+    let hammer = |a: &App| -> Vec<bool> {
+        (0..4)
+            .map(|i| beat(a, 0, i).notes[0].effects.hammer_pull)
+            .collect()
+    };
+    assert_eq!(
+        hammer(&a),
+        vec![true, true, true, false],
+        "the last is not linked on"
+    );
+    assert!(row(&a.palette_rows(), "toggle hammer").active);
+    run(&mut a, "toggle hammer");
+    assert_eq!(hammer(&a), vec![false; 4]);
+
+    run(&mut a, "toggle slide-legato");
+    for i in 0..3 {
+        assert_eq!(
+            beat(&a, 0, i).notes[0].effects.slides,
+            vec![SlideKind::Legato]
+        );
+    }
+    assert!(beat(&a, 0, 3).notes[0].effects.slides.is_empty());
+    run(&mut a, "toggle slide");
+    assert_eq!(
+        beat(&a, 0, 1).notes[0].effects.slides,
+        vec![SlideKind::Shift]
+    );
+    assert!(!row(&a.palette_rows(), "toggle slide-legato").active);
+
+    // Ties join each note to the one before it.
+    run(&mut a, "toggle tie");
+    let tied: Vec<bool> = (0..4).map(|i| beat(&a, 0, i).notes[0].tie).collect();
+    assert_eq!(tied, vec![false, true, true, true]);
+    run(&mut a, "undo");
+    assert!((0..4).all(|i| !beat(&a, 0, i).notes[0].tie));
+}
+
+#[test]
+fn pitch_tools_work_over_a_selection() {
+    let mut a = app();
+    fill(&mut a, 0, 3);
+    select(&mut a, 3);
+    run(&mut a, "pitch-up");
+    let frets = |a: &App| -> Vec<u8> { (0..3).map(|i| beat(a, 0, i).notes[0].fret).collect() };
+    assert_eq!(frets(&a), vec![2, 3, 4]);
+    run(&mut a, "pitch-down");
+    run(&mut a, "pitch-down");
+    assert_eq!(frets(&a), vec![0, 1, 2]);
+    // A note that would fall off the neck stays and is reported.
+    run(&mut a, "pitch-down");
+    assert_eq!(frets(&a), vec![0, 0, 1]);
+    assert!(status(&a).contains("could not move"));
+    // Accidentals on a standard staff.
+    keys(&mut a, "<Esc>");
+    a.pane_mut().cursor.staff = 0;
+    a.pane_mut().cursor.beat = 0;
+    keys(&mut a, "vll");
+    let before: Vec<u8> = frets(&a);
+    run(&mut a, "accidental double-sharp");
+    for i in 0..3 {
+        assert_eq!(beat(&a, 0, i).notes[0].alter, Some(2));
+    }
+    assert!((0..3).all(|i| beat(&a, 0, i).notes[0].fret >= before[i]));
+}
+
+#[test]
+fn bar_selections_offer_the_bar_tools_for_their_bars() {
+    let mut a = app();
+    for b in 0..4 {
+        fill(&mut a, b, 2);
+    }
+    a.pane_mut().cursor.bar = 1;
+    keys(&mut a, "V");
+    run(&mut a, "bar-next");
+    run(&mut a, "bar-next");
+    assert_eq!(a.selection().map(|s| s.2), Some(true));
+    let rows = a.palette_rows();
+    for c in [
+        "repeat-start",
+        "repeat-end",
+        "section ",
+        "ending ",
+        "double-bar",
+        "key ",
+    ] {
+        assert!(rows.iter().any(|r| r.command == c), "{c}");
+    }
+    assert!(
+        !rows
+            .iter()
+            .any(|r| r.command == "clef " || r.command == "bar-repeat 1")
+    );
+    let steps = undo_steps(&a);
+    run(&mut a, "repeat-start");
+    run(&mut a, "repeat-end");
+    assert!(score(&a).master_bars[1].repeat_start && score(&a).master_bars[3].repeat_end.is_some());
+    assert!(
+        !score(&a).master_bars[3].repeat_start && !score(&a).master_bars[1].repeat_end.is_some()
+    );
+    run(&mut a, "ending 1");
+    assert!((1..=3).all(|b| score(&a).master_bars[b].alternate_endings == 1));
+    assert!(row(&a.palette_rows(), "ending ").active);
+    assert_eq!(undo_steps(&a), steps + 3);
+    assert_eq!(a.mode, Mode::Visual);
+    // A beat selection has none of them.
+    keys(&mut a, "<Esc>v");
+    assert!(!a.palette_rows().iter().any(|r| r.command == "repeat-start"));
+}
+
+/// Selects a palette row and applies it, as `<CR>` in the palette does.
+fn apply(a: &mut App, command: &str) {
+    let at = a
+        .palette_rows()
+        .iter()
+        .position(|r| r.command == command)
+        .unwrap_or_else(|| panic!("no palette item {command}"));
+    a.palette.selected = at;
+    a.activate_palette();
+}
+
+#[test]
+fn dot_repeats_a_palette_toggle_on_another_beat() {
+    let mut a = app();
+    fill(&mut a, 0, 4);
+    a.pane_mut().cursor.string = 0;
+    a.pane_mut().cursor.beat = 0;
+    apply(&mut a, "toggle staccato");
+    assert!(beat(&a, 0, 0).notes[0].effects.staccato);
+    keys(&mut a, "l");
+    let steps = undo_steps(&a);
+    keys(&mut a, ".");
+    assert!(beat(&a, 0, 1).notes[0].effects.staccato);
+    assert_eq!(undo_steps(&a), steps + 1, "one undo step");
+    // A toggle repeats as a toggle: on a beat that has it, it takes it off.
+    keys(&mut a, "h.");
+    assert!(!beat(&a, 0, 0).notes[0].effects.staccato);
+    // Navigating the palette does not replace it.
+    keys(&mut a, "<leader>Ejj/dead<Esc><Esc>");
+    keys(&mut a, "ll.");
+    assert!(beat(&a, 0, 2).notes[0].effects.staccato);
+    // An editing key replaces it again: `.` repeats that.
+    keys(&mut a, "ta");
+    keys(&mut a, "l.");
+    assert_eq!(beat(&a, 0, 3).notes[0].accent, Accent::Normal);
+    assert!(!beat(&a, 0, 3).notes[0].effects.staccato);
+}
+
+#[test]
+fn dot_repeats_a_duration_bump_and_a_value() {
+    let mut a = app();
+    fill(&mut a, 0, 4);
+    a.pane_mut().cursor.beat = 0;
+    apply(&mut a, "duration-longer");
+    assert_eq!(beat(&a, 0, 0).duration.value, DurationValue::Quarter);
+    keys(&mut a, "l.");
+    assert_eq!(beat(&a, 0, 1).duration.value, DurationValue::Quarter);
+    apply(&mut a, "duration 16");
+    keys(&mut a, "l.");
+    assert_eq!(beat(&a, 0, 2).duration.value, DurationValue::Sixteenth);
+}
+
+#[test]
+fn dot_repeats_a_range_tool_over_as_many_beats() {
+    let mut a = app();
+    fill(&mut a, 0, 8);
+    select(&mut a, 3);
+    apply(&mut a, "toggle staccato");
+    assert!((0..3).all(|i| beat(&a, 0, i).notes[0].effects.staccato));
+    keys(&mut a, "<Esc>");
+    a.pane_mut().cursor.beat = 4;
+    let steps = undo_steps(&a);
+    keys(&mut a, ".");
+    let staccato: Vec<bool> = (0..8)
+        .map(|i| beat(&a, 0, i).notes[0].effects.staccato)
+        .collect();
+    assert_eq!(
+        staccato,
+        vec![true, true, true, false, true, true, true, false]
+    );
+    assert_eq!(a.mode, Mode::Normal);
+    assert_eq!(undo_steps(&a), steps + 1);
+    // Keys in Visual mode count too (`+`).
+    select(&mut a, 2);
+    keys(&mut a, "+<Esc>");
+    a.pane_mut().cursor.beat = 5;
+    keys(&mut a, ".");
+    assert_eq!(beat(&a, 0, 5).duration.value, DurationValue::Quarter);
+    assert_eq!(beat(&a, 0, 6).duration.value, DurationValue::Quarter);
+    assert_eq!(beat(&a, 0, 7).duration.value, DurationValue::Eighth);
+}
+
+#[test]
+fn dot_repeats_an_argument_tool_with_its_last_argument() {
+    let mut a = app();
+    for b in 0..3 {
+        fill(&mut a, b, 2);
+    }
+    apply(&mut a, "direction ");
+    keys(&mut a, "fine<CR>");
+    assert_eq!(score(&a).master_bars[0].directions, vec![Direction::Fine]);
+    a.pane_mut().cursor.bar = 2;
+    keys(&mut a, ".");
+    assert_eq!(score(&a).master_bars[2].directions, vec![Direction::Fine]);
+}
+
+#[test]
+fn a_tool_that_changed_nothing_does_not_replace_the_last_change() {
+    let mut a = app();
+    fill(&mut a, 0, 3);
+    a.pane_mut().cursor.beat = 0;
+    apply(&mut a, "toggle ghost");
+    assert!(beat(&a, 0, 0).notes[0].ghost);
+    // Unavailable (a header folds; nothing changes): the last tool stays.
+    a.palette.selected = 0;
+    a.activate_palette();
+    keys(&mut a, "l.");
+    assert!(beat(&a, 0, 1).notes[0].ghost);
 }

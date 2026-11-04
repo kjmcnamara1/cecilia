@@ -753,6 +753,8 @@ const DEFAULT_VISUAL: &[(&str, &str)] = &[
     ("c", "change"),
     ("v", "visual"),
     ("V", "visual-bar"),
+    ("+", "duration-longer"),
+    ("-", "duration-shorter"),
     ("i", "visual-insert"),
     ("a", "visual-append"),
 ];

@@ -36,6 +36,8 @@ pub const SECTIONS: &[(&str, &[Item])] = &[
             ("64th note", "duration 64", "64"),
             ("Dotted", "dot", "."),
             ("Double dotted", "double-dot", ".."),
+            ("Longer", "duration-longer", "+"),
+            ("Shorter", "duration-shorter", "-"),
             ("Triplet", "tuplet 3", "3"),
             ("Rest", "rest", "rst"),
         ],
@@ -48,6 +50,8 @@ pub const SECTIONS: &[(&str, &[Item])] = &[
             ("Natural", "accidental natural", "♮"),
             ("Double sharp", "accidental double-sharp", "♯♯"),
             ("Double flat", "accidental double-flat", "♭♭"),
+            ("Semitone up", "pitch-up", "+1"),
+            ("Semitone down", "pitch-down", "-1"),
             ("Octave up", "octave-up", "8↑"),
             ("Octave down", "octave-down", "8↓"),
             ("Tie", "toggle tie", "⌒"),
@@ -341,21 +345,22 @@ fn probe_edit(
 /// accidentals, clefs and stems. Standard staff: accidentals and the marks it can show (no
 /// bends, palm mutes, let ring, tap / slap / pop, fades or left-hand taps). Slash: note
 /// values, rests, ties, accents, hairpins, fermatas and beams. Chant: note values and the clef.
-/// Visual mode (a selection, no note under the cursor): note values, the length of the beat
-/// `i` / `a` add, and beams and stems for the selection.
-fn applies(command: &str, kind: InsertKind, visual: bool) -> bool {
+/// Visual mode (a selection of beats, applying to every beat of it) offers the tools of the
+/// staff's notation that make sense on a range; with a selection of bars it also offers the
+/// bar tools, for the first, the last or all of the selected bars (not the clef).
+fn applies(command: &str, kind: InsertKind, visual: Option<bool>) -> bool {
     let (name, arg) = command
         .trim_end()
         .split_once(' ')
         .unwrap_or((command.trim_end(), ""));
-    let value = matches!(name, "duration" | "dot" | "double-dot" | "tuplet");
-    if visual {
-        return value || matches!(name, "beams" | "stems");
-    }
+    let value = matches!(
+        name,
+        "duration" | "dot" | "double-dot" | "tuplet" | "duration-longer" | "duration-shorter"
+    );
     if kind == InsertKind::Chant {
-        return value || name == "clef";
+        return value || (name == "clef" && visual.is_none());
     }
-    if matches!(
+    let bar_tool = matches!(
         name,
         "key"
             | "time"
@@ -367,7 +372,15 @@ fn applies(command: &str, kind: InsertKind, visual: bool) -> bool {
             | "repeat-end"
             | "ending"
             | "direction"
-    ) {
+    );
+    match visual {
+        // A beat selection: no bar tools, nor the clef.
+        Some(false) if bar_tool || name == "clef" => return false,
+        // A bar selection: the bar tools that mean something for several bars.
+        Some(true) if name == "clef" || name == "bar-repeat" => return false,
+        _ => {}
+    }
+    if bar_tool {
         return true;
     }
     match kind {
@@ -414,7 +427,23 @@ impl App {
     /// left out.
     pub fn palette_rows(&self) -> Vec<PaletteRow> {
         let kind = self.insert_kind();
-        let visual = self.mode == crate::config::Mode::Visual;
+        // In Visual mode: whether the selection is of bars.
+        let visual = self
+            .selection()
+            .map(|(_, _, bars)| bars)
+            .or((self.mode == crate::config::Mode::Visual).then_some(false));
+        // The selected beats, from and to.
+        let range = self.selection().map(|(a, b, bars)| {
+            let (lo, hi) = (
+                (a.bar, a.beat).min((b.bar, b.beat)),
+                (a.bar, a.beat).max((b.bar, b.beat)),
+            );
+            if bars {
+                ((lo.0, 0), (hi.0, usize::MAX))
+            } else {
+                (lo, hi)
+            }
+        });
         let note = self.palette_note();
         let beat = self.palette_beat();
         // The beat under the cursor; the duration new notes get where there is none.
@@ -469,7 +498,19 @@ impl App {
                             .is_some_and(|s| s.direction == d && s.arpeggio == arpeggio)
                     })
                 };
+                // A technique is in force over a selection when every beat (or note) has it.
+                let over_range = range.filter(|_| name == "toggle").map(|(from, to)| {
+                    edit::range_has(
+                        &self.buffer().score,
+                        cursor.track,
+                        cursor.voice,
+                        from,
+                        to,
+                        arg,
+                    )
+                });
                 let active = match (name, arg) {
+                    _ if over_range.is_some() => over_range == Some(true),
                     ("duration", n) => n.parse() == Ok(duration.value.denominator()),
                     ("rest", _) => rest,
                     ("accidental", "double-sharp") => alter(2),
@@ -594,7 +635,12 @@ impl App {
                     short,
                     command,
                     active,
-                    unavailable: self.palette_unavailable(command),
+                    // Over a selection tools skip the beats they can't act on.
+                    unavailable: if range.is_some() {
+                        None
+                    } else {
+                        self.palette_unavailable(command)
+                    },
                     keys: self.palette_keys(command),
                 });
             }
@@ -854,10 +900,12 @@ impl App {
         // A tool that needs an argument opens the command line with its command typed.
         if row.command.ends_with(' ') {
             self.pending.clear();
-            return self.open_command_line(row.command);
+            self.open_command_line(row.command);
+            self.cmd_from_palette = true;
+            return;
         }
         match Command::parse(row.command) {
-            Ok(cmd) => self.run(cmd),
+            Ok(cmd) => self.run_tool(cmd),
             Err(e) => self.error(e),
         }
     }

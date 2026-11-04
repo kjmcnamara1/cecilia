@@ -471,6 +471,11 @@ pub struct App {
     pub pending: Vec<Key>,
     pub count: Option<usize>,
     pub cmdline: String,
+    /// The command line was opened from Visual mode: a line run with Enter finds the
+    /// selection again, so commands apply to it.
+    cmd_from_visual: bool,
+    /// The line was begun by a palette tool that asks for an argument: `.` repeats the tool.
+    pub(crate) cmd_from_palette: bool,
     history: Vec<String>,
     history_pos: Option<usize>,
     /// Bookmarks (`m{a-z}`, `m{A-Z}`).
@@ -628,6 +633,8 @@ impl App {
             pending: Vec::new(),
             count: None,
             cmdline: String::new(),
+            cmd_from_visual: false,
+            cmd_from_palette: false,
             history: Vec::new(),
             history_pos: None,
             completion: None,
@@ -1931,11 +1938,17 @@ impl App {
             KeyCode::Char('u') if key.ctrl => self.cmdline.clear(),
             KeyCode::Enter => {
                 let line = std::mem::take(&mut self.cmdline);
+                let from_visual = std::mem::take(&mut self.cmd_from_visual);
+                let from_palette = std::mem::take(&mut self.cmd_from_palette);
                 self.leave_command_mode();
+                if from_visual && self.ed.visual_anchor.is_some() {
+                    self.mode = Mode::Visual;
+                }
                 if !line.trim().is_empty() {
                     self.history.push(line.clone());
                 }
                 match Command::parse(&line) {
+                    Ok(cmd) if from_palette => self.run_tool(cmd),
                     Ok(cmd) => self.run(cmd),
                     Err(e) => self.error(e),
                 }
@@ -1967,6 +1980,8 @@ impl App {
 
     /// Opens the command line with some text already typed.
     pub(crate) fn open_command_line(&mut self, text: &str) {
+        self.cmd_from_visual = self.mode == Mode::Visual && self.ed.visual_anchor.is_some();
+        self.cmd_from_palette = false;
         self.mode = Mode::Command;
         self.cmdline = text.to_string();
         self.completion = None;

@@ -1131,6 +1131,30 @@ impl Command {
         )
     }
 
+    /// Whether the command also works on a Visual selection (every beat of it).
+    pub fn is_range(&self) -> bool {
+        use Command::*;
+        matches!(
+            self,
+            Toggle(_)
+                | Dynamic(_)
+                | Duration(_)
+                | DurationLonger
+                | DurationShorter
+                | Dot
+                | DoubleDot
+                | Tuplet(_)
+                | Rest
+                | Accidental(_)
+                | PitchUp
+                | PitchDown
+                | OctaveUp
+                | OctaveDown
+                | Beams(_)
+                | Stems(_)
+        )
+    }
+
     /// Whether the command changes the score (and can be repeated with `.`).
     pub fn is_change(&self) -> bool {
         use Command::*;

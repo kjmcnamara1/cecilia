@@ -778,13 +778,18 @@ fn the_palette_lists_the_tools_of_the_notation_and_mode() {
         || matches!(*c, "dot" | "double-dot" | "clef ")
         || c.starts_with("tuplet")));
     assert_eq!(titles(&a), vec!["Duration", "Bar"]);
-    // Visual mode: note values, beams and stems, on any staff.
+    // Visual mode: the range tools, on any staff.
     a.pane_mut().cursor.staff = Cursor0::HOME;
     assert!(commands(&a).contains(&"toggle bend"));
     keys(&mut a, "v");
     assert_eq!(a.mode, Mode::Visual);
-    assert_eq!(titles(&a), vec!["Duration", "Beams & stems"]);
-    assert!(!commands(&a).contains(&"rest"));
+    // Every tool that works over a range; none of the bar tools.
+    let titles = titles(&a);
+    assert!(titles.contains(&"Dynamics") && titles.contains(&"Slides"));
+    assert!(!titles.contains(&"Bar") && !titles.contains(&"Repeats"));
+    assert!(commands(&a).contains(&"rest"));
+    assert!(commands(&a).contains(&"duration-longer"));
+    assert!(!commands(&a).contains(&"key "));
     keys(&mut a, "<Esc>");
     assert!(commands(&a).contains(&"toggle bend"));
 }
