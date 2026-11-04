@@ -3054,13 +3054,18 @@ impl Ctx<'_> {
                         self.flush_rhythm(page, &mut rhythm, tab_top);
                     }
                     if !beat.notes.is_empty() && value == DurationValue::Whole {
-                        // A whole note: an open circle where a stem would be.
+                        // A whole note: an open circle where a stem would be, its bottom
+                        // edge level with the foot of the other stems.
                         let tab_bottom = tab_top + (strings - 1) as f64 * 1.5 * sp;
-                        let centre = (bx + self.nh_width / 2.0, tab_bottom + 2.9 * sp);
+                        let (radius, stroke) = (0.55 * sp, 0.14 * sp);
+                        let centre = (
+                            bx + self.nh_width / 2.0,
+                            tab_bottom + 5.0 * sp - radius - stroke / 2.0,
+                        );
                         page.items.push(Item::Path {
-                            path: kurbo::Circle::new(centre, 0.55 * sp).to_path(0.01),
+                            path: kurbo::Circle::new(centre, radius).to_path(0.01),
                             color: Color::BLACK,
-                            stroke: Some(0.14 * sp),
+                            stroke: Some(stroke),
                         });
                     } else if !beat.notes.is_empty() {
                         let x = bx + self.nh_width / 2.0;
@@ -5368,6 +5373,21 @@ mod tests {
             })
             .count();
         assert_eq!(circles, 1);
+        // Its bottom edge is level with the foot of the stems.
+        let foot = stems.iter().map(|s| s.1).fold(f64::MIN, f64::max);
+        let bottom = page
+            .items
+            .iter()
+            .find_map(|i| match i {
+                Item::Path {
+                    path,
+                    stroke: Some(w),
+                    ..
+                } => Some(kurbo::Shape::bounding_box(path).y1 + w / 2.0),
+                _ => None,
+            })
+            .unwrap();
+        assert!((bottom - foot).abs() < 1e-6, "{bottom} vs {foot}");
     }
 
     #[test]
