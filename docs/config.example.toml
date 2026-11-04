@@ -27,6 +27,7 @@ global_tools = ["tracks", "waveform", "fretboard", "piano", "tuner"]   # tool pa
                          # bottom of the window at full width (showing the last active score);
                          # others open under their score pane and always show it
 auto_resize = true       # tracks panes fit their contents' height, until you resize them by hand
+equalize_on_close = true # closing a pane re-equalizes the split it was in (off: the neighbour takes its space)
 tracks_peek = 1.0        # seconds the tracks show when the track changes, while no tracks pane is
                          # shown (0: never)
 

@@ -859,6 +859,7 @@ impl App {
             return self.error("global-tool: the palette always docks at the left");
         }
         let was_open = self.tool_pane(kind).is_some();
+        let equalize = self.config.file.ui.equalize_on_close;
         let tools = &mut self.config.file.ui.global_tools;
         let going_global = !tools.iter().any(|t| PaneKind::parse(t) == Some(kind));
         if going_global {
@@ -871,7 +872,7 @@ impl App {
                 .collect();
             for id in &locals {
                 for v in &mut self.views {
-                    v.root.remove(*id);
+                    v.root.remove_with(*id, equalize);
                     if v.focus == *id {
                         v.focus = v.score;
                     }
@@ -893,7 +894,7 @@ impl App {
                 .collect();
             for id in &globals {
                 for v in &mut self.views {
-                    v.root.remove(*id);
+                    v.root.remove_with(*id, equalize);
                     if v.focus == *id {
                         v.focus = v.score;
                     }
@@ -2820,9 +2821,10 @@ impl App {
             .filter(|(_, p)| p.owner == Some(id))
             .map(|(t, _)| *t)
             .collect();
+        let equalize = self.config.file.ui.equalize_on_close;
         let view = &mut self.views[self.active_view];
         for t in &tools {
-            view.root.remove(*t);
+            view.root.remove_with(*t, equalize);
             if view.focus == *t {
                 view.focus = id;
             }
@@ -2831,7 +2833,7 @@ impl App {
             self.panes.remove(t);
         }
         let view = &mut self.views[self.active_view];
-        view.root.remove(id);
+        view.root.remove_with(id, equalize);
         let (focused, score) = (view.focus == id, view.score == id);
         let remaining = view.root.panes();
         self.panes.remove(&id);
@@ -4161,6 +4163,63 @@ pub(crate) mod tests {
         app.run(Command::Layout(None));
         assert_eq!(app.panes[&second].layout, "horizontal");
         assert_eq!(app.panes[&first].layout, "page");
+    }
+
+    /// Three score panes stacked in the left column, one in the right; returns the left three
+    /// and the right one.
+    fn three_left_one_right(app: &mut App) -> ([PaneId; 3], PaneId) {
+        let first = app.focused();
+        app.run(Command::VSplit);
+        let right = app.focused();
+        app.set_focus(first);
+        app.run(Command::Split);
+        let second = app.focused();
+        app.run(Command::Split);
+        let third = app.focused();
+        app.set_viewport(Rect {
+            x: 0,
+            y: 0,
+            w: 200,
+            h: 90,
+        });
+        ([first, second, third], right)
+    }
+
+    fn rect_of(app: &App, id: PaneId) -> Rect {
+        app.pane_rects().iter().find(|(p, _)| *p == id).unwrap().1
+    }
+
+    #[test]
+    fn closing_a_pane_equalizes_its_split() {
+        let mut app = App::new(Config::default(), None);
+        let ([a, b, c], right) = three_left_one_right(&mut app);
+        let right_before = rect_of(&app, right);
+        app.close_pane_id(b);
+        app.set_viewport(Rect {
+            x: 0,
+            y: 0,
+            w: 200,
+            h: 90,
+        });
+        assert_eq!(rect_of(&app, a).h, rect_of(&app, c).h);
+        assert_eq!(rect_of(&app, right), right_before);
+    }
+
+    #[test]
+    fn closing_a_pane_hands_its_space_over_without_equalize_on_close() {
+        let (config, _) = Config::parse("[ui]\nequalize_on_close = false\n").unwrap();
+        let mut app = App::new(config, None);
+        let ([a, b, c], right) = three_left_one_right(&mut app);
+        let right_before = rect_of(&app, right);
+        app.close_pane_id(b);
+        app.set_viewport(Rect {
+            x: 0,
+            y: 0,
+            w: 200,
+            h: 90,
+        });
+        assert_ne!(rect_of(&app, a).h, rect_of(&app, c).h);
+        assert_eq!(rect_of(&app, right), right_before);
     }
 
     #[test]
