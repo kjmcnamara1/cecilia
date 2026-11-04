@@ -1,5 +1,6 @@
 //! Terminal frontend for muse.
 
+mod barline;
 mod chantview;
 mod tabview;
 
@@ -3006,6 +3007,116 @@ mod render_tests {
             .unwrap();
         assert_eq!(close.width, 1);
         std::fs::remove_dir_all(dir).ok();
+    }
+
+    /// A 6-string tab of `bars` one-beat bars, with `edit` applied to the master bars.
+    fn barline_score(bars: usize, edit: impl Fn(&mut [muse_core::MasterBar])) -> muse_core::Score {
+        use muse_core::*;
+        let beat = Beat {
+            notes: vec![Note::new(0, 5)],
+            ..Beat::default()
+        };
+        let bar = Bar {
+            voices: vec![Voice { beats: vec![beat] }],
+            ..Default::default()
+        };
+        let mut master_bars = vec![MasterBar::default(); bars];
+        edit(&mut master_bars);
+        Score {
+            master_bars,
+            tracks: vec![Track {
+                strings: vec![64, 59, 55, 50, 45, 40],
+                bars: vec![bar; bars],
+                ..Track::default()
+            }],
+            ..Score::default()
+        }
+    }
+
+    /// The six string rows of the tab drawn for `score`, from the first bar line on.
+    fn tab_rows(score: muse_core::Score) -> Vec<String> {
+        let mut app = App::new(muse_app::Config::default(), None);
+        app.set_tool(PaneKind::Properties, Some(false));
+        app.buffers[0].score = score;
+        let screen = render(&mut app, 60, 24);
+        let rows: Vec<&str> = screen.lines().collect();
+        let top = rows
+            .iter()
+            .position(|r| r.contains('┬') || r.contains('┰') || r.contains('╥') || r.contains('┆'))
+            .expect(&screen);
+        rows[top..top + 6].iter().map(|r| r.to_string()).collect()
+    }
+
+    /// Column `x` of the rows, top to bottom.
+    fn column(rows: &[String], x: usize) -> String {
+        rows.iter().map(|r| r.chars().nth(x).unwrap()).collect()
+    }
+
+    /// Index of the first char of `rows[0]` that is a bar-line glyph.
+    fn first_bar(rows: &[String]) -> usize {
+        rows[0]
+            .chars()
+            .position(|c| "┬┰╥┆".contains(c))
+            .unwrap_or(0)
+    }
+
+    #[test]
+    fn barlines_are_continuous_columns() {
+        let rows = tab_rows(barline_score(3, |_| {}));
+        for r in &rows {
+            println!("{r}");
+        }
+        let x = first_bar(&rows);
+        // Start line, a middle line and the final line (thin + heavy).
+        assert_eq!(column(&rows, x), "┬┼┼┼┼┴");
+        let mid = rows[0].chars().skip(x + 1).position(|c| c == '┬').unwrap() + x + 1;
+        assert_eq!(column(&rows, mid), "┬┼┼┼┼┴");
+        let end = rows[0].chars().position(|c| c == '┰').unwrap();
+        assert_eq!(column(&rows, end - 1), "┬┼┼┼┼┴");
+        assert_eq!(column(&rows, end), "┰╂╂╂╂┸");
+    }
+
+    #[test]
+    fn double_free_time_and_repeat_lines() {
+        let rows = tab_rows(barline_score(5, |m| {
+            m[0].double_bar = true;
+            m[1].free_time = true;
+            m[2].repeat_end = Some(2);
+            m[3].repeat_start = true;
+        }));
+        for r in &rows {
+            println!("{r}");
+        }
+        let cols: Vec<String> = (0..rows[0].chars().count())
+            .map(|x| column(&rows, x))
+            .collect();
+        let at = |pat: &str| {
+            cols.iter()
+                .position(|c| c == pat)
+                .unwrap_or_else(|| panic!("{pat}"))
+        };
+        // Double bar after bar 1, dashed after the free-time bar 2.
+        at("╥╫╫╫╫╨");
+        at("┆┆┆┆┆┆");
+        // Repeat end: dots on rows 1 and 4, thin, heavy.
+        let dots = at("─•──•─");
+        assert_eq!(cols[dots + 1], "┬┼┼┼┼┴");
+        assert_eq!(cols[dots + 2], "┰╂╂╂╂┸");
+        // Repeat end shared with repeat start: dots, thin, heavy, thin, dots.
+        assert_eq!(cols[dots + 3], "┬┼┼┼┼┴");
+        assert_eq!(cols[dots + 4], "─•──•─");
+    }
+
+    #[test]
+    fn repeat_start_opens_with_heavy_then_dots() {
+        let rows = tab_rows(barline_score(2, |m| m[0].repeat_start = true));
+        for r in &rows {
+            println!("{r}");
+        }
+        let x = first_bar(&rows);
+        assert_eq!(column(&rows, x), "┰╂╂╂╂┸");
+        assert_eq!(column(&rows, x + 1), "┬┼┼┼┼┴");
+        assert_eq!(column(&rows, x + 2), "─•──•─");
     }
 
     #[test]
