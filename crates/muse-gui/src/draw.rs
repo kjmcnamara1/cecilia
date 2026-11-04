@@ -3463,7 +3463,7 @@ fn draw_edit_palette(scene: &mut Scene, app: &App, views: &mut Views, r: Rect) {
                     } else {
                         chrome_text()
                     };
-                    draw_palette_icon(scene, row.command, b.center(), color);
+                    draw_palette_icon(scene, row.command, row.short, b.center(), color);
                     if over {
                         hovered = Some((i, b, row.name()));
                     }
@@ -3514,7 +3514,13 @@ fn draw_edit_palette(scene: &mut Scene, app: &App, views: &mut Views, r: Rect) {
 }
 
 /// An icon of the editing palette for its command, in a 16 px square around `c`.
-fn draw_palette_icon(scene: &mut Scene, command: &str, c: vello::kurbo::Point, color: Color) {
+fn draw_palette_icon(
+    scene: &mut Scene,
+    command: &str,
+    short: &str,
+    c: vello::kurbo::Point,
+    color: Color,
+) {
     use vello::kurbo::{Cap, Ellipse, Join};
     let (x, y) = (c.x - 8.0, c.y - 8.0);
     let stroke = |w: f64| Stroke::new(w).with_caps(Cap::Round).with_join(Join::Round);
@@ -3600,9 +3606,52 @@ fn draw_palette_icon(scene: &mut Scene, command: &str, c: vello::kurbo::Point, c
             .collect();
         line(scene, &path(&pts, false), 1.3);
     };
-    let (name, arg) = command.split_once(' ').unwrap_or((command, ""));
+    let (name, arg) = command
+        .trim_end()
+        .split_once(' ')
+        .unwrap_or((command.trim_end(), ""));
     match (name, arg) {
         ("duration", "1") => note(scene, false, false, 0, 0.0),
+        ("double-dot", _) => {
+            note(scene, true, true, 0, -3.0);
+            for dx in [11.0, 14.0] {
+                let d = Circle::new((x + dx, y + 12.0), 1.2);
+                scene.fill(Fill::NonZero, Affine::IDENTITY, color, None, &d);
+            }
+        }
+        ("toggle", "crescendo") => {
+            line(scene, &path(&[(2.0, 8.0), (14.0, 3.0)], false), 1.5);
+            line(scene, &path(&[(2.0, 8.0), (14.0, 13.0)], false), 1.5);
+        }
+        ("toggle", "decrescendo") => {
+            line(scene, &path(&[(2.0, 3.0), (14.0, 8.0)], false), 1.5);
+            line(scene, &path(&[(2.0, 13.0), (14.0, 8.0)], false), 1.5);
+        }
+        // The fades are filled shapes (the hairpins are only outlined).
+        ("toggle", "fade-in") => {
+            let p = path(&[(2.0, 8.0), (14.0, 3.5), (14.0, 12.5)], true);
+            scene.fill(Fill::NonZero, Affine::IDENTITY, color, None, &p);
+        }
+        ("toggle", "fade-out") => {
+            let p = path(&[(2.0, 3.5), (2.0, 12.5), (14.0, 8.0)], true);
+            scene.fill(Fill::NonZero, Affine::IDENTITY, color, None, &p);
+        }
+        ("toggle", "volume-swell") => {
+            let p = path(&[(1.0, 8.0), (8.0, 3.5), (15.0, 8.0), (8.0, 12.5)], true);
+            scene.fill(Fill::NonZero, Affine::IDENTITY, color, None, &p);
+        }
+        ("toggle", "fermata") => {
+            let mut p = BezPath::new();
+            p.move_to((x + 2.0, y + 11.0));
+            p.curve_to(
+                (x + 2.0, y + 1.0),
+                (x + 14.0, y + 1.0),
+                (x + 14.0, y + 11.0),
+            );
+            line(scene, &p, 1.5);
+            let d = Circle::new((x + 8.0, y + 10.0), 1.4);
+            scene.fill(Fill::NonZero, Affine::IDENTITY, color, None, &d);
+        }
         ("duration", "2") => note(scene, false, true, 0, 0.0),
         ("duration", "4") => note(scene, true, true, 0, 0.0),
         ("duration", "8") => note(scene, true, true, 1, 0.0),
@@ -3791,14 +3840,14 @@ fn draw_palette_icon(scene: &mut Scene, command: &str, c: vello::kurbo::Point, c
         ("toggle", "tap") => label(scene, "tap", 9.0),
         ("toggle", "slap") => label(scene, "slap", 9.0),
         ("toggle", "pop") => label(scene, "pop", 9.0),
-        ("toggle", "fade-in") => line(
-            scene,
-            &path(&[(14.0, 3.5), (2.0, 8.0), (14.0, 12.5)], false),
-            1.5,
-        ),
         ("toggle", "stroke-down") => arrow(scene, (8.0, 2.0), (8.0, 14.0)),
         ("toggle", "stroke-up") => arrow(scene, (8.0, 14.0), (8.0, 2.0)),
-        _ => label(scene, command, 8.0),
+        // The short label the terminal uses.
+        _ => label(
+            scene,
+            short,
+            if short.chars().count() > 2 { 8.0 } else { 10.0 },
+        ),
     }
 }
 
