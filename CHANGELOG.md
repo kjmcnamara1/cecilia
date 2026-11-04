@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.20.0] - 2026-11-04
+
 ### Added
 
 - `gg` / `G` in the focused palette select its first / last row (`:palette-first`, `:palette-last`), in every mode including Visual; the view scrolls to it.
