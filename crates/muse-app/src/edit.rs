@@ -1020,6 +1020,19 @@ pub fn set_dynamic(cx: &mut EditCx, dynamic: &str) -> Result<(), String> {
 /// Changes the pitch of the cursor note by semitones, keeping its string when possible and
 /// re-fingering the chord otherwise.
 pub fn shift_pitch(cx: &mut EditCx, semitones: i32) -> Result<(), String> {
+    let string = shift_pitch_notes(cx, semitones)?;
+    // On a staff of lines the cursor follows the note to its new position.
+    if cx.on_lines() && !matches!(cx.staff(), Some(s) if s == Staff::Slash || s.is_chant()) {
+        let note = cx.beat().notes.iter().find(|n| n.string == string).cloned();
+        if let Some(n) = note {
+            cx.cursor.line = cx.staff_position(&n);
+        }
+    }
+    Ok(())
+}
+
+/// Shifts the note(s); returns the string the cursor note ends up on.
+fn shift_pitch_notes(cx: &mut EditCx, semitones: i32) -> Result<u8, String> {
     let track = cx.track().clone();
     let string = cx.string();
     if track.kind != TrackKind::Fretted {
@@ -1031,7 +1044,7 @@ pub fn shift_pitch(cx: &mut EditCx, semitones: i32) -> Result<(), String> {
             n.fret = (n.fret as i32 + semitones).clamp(0, 127) as u8;
             n.alter = None;
         }
-        return Ok(());
+        return Ok(string);
     }
     let beat = cx.beat();
     let Some(i) = beat.notes.iter().position(|n| n.string == string) else {
@@ -1041,10 +1054,11 @@ pub fn shift_pitch(cx: &mut EditCx, semitones: i32) -> Result<(), String> {
     if (0..=track.fret_count.max(24) as i32).contains(&fret) {
         beat.notes[i].fret = fret as u8;
         beat.notes[i].alter = None;
-        return Ok(());
+        return Ok(string);
     }
     let target = track.pitch_of(&beat.notes[i]) as i32 + semitones;
-    set_pitch(cx, target.clamp(0, 127) as u8)
+    set_pitch(cx, target.clamp(0, 127) as u8)?;
+    Ok(cx.cursor.string as u8)
 }
 
 /// Sets the pitch of the cursor note (or adds a note) on a fretted track, choosing the string.

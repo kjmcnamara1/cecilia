@@ -11,6 +11,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - Each staff row of the track properties pane has two boxes: the notation (standard, tab, tab+, slash, chant) and the clef (treble, bass, grand, neutral; do, fa for chant; empty and dimmed for tab and slash), each with its own picker and icon. `h` / `l` (`properties-box`) or a click select the box. The Add Staff row picks a notation.
 
+### Fixed
+- The cursor follows the note to its new staff position after `:pitch-up`/`:pitch-down`/`<C-a>`/`<C-x>` on standard notation.
+
 ## [0.21.0] - 2026-11-04
 
 ### Changed

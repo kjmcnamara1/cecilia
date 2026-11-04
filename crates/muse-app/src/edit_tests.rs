@@ -837,3 +837,19 @@ fn dot_repeats_the_new_insert_and_change_commands() {
     keys(&mut a, "3o");
     assert_eq!(a.buffer().score.master_bars.len(), 11);
 }
+
+#[test]
+fn pitch_change_moves_the_cursor_with_the_note_on_a_standard_staff() {
+    let mut a = app();
+    set_bar(&mut a, 0, &[&[(2, 5, false)]]);
+    to_standard(&mut a);
+    let line = a.pane().cursor.line;
+    keys(&mut a, "<C-a><C-a>");
+    let up = a.pane().cursor.line;
+    assert!(up > line, "a tone up moves to the next line or space");
+    // The cursor is still on the note: a further shift acts on it.
+    let before = track(&a).bars[0].voices[0].beats[0].notes.len();
+    keys(&mut a, "<C-x><C-x>");
+    assert_eq!(a.pane().cursor.line, line);
+    assert_eq!(track(&a).bars[0].voices[0].beats[0].notes.len(), before);
+}
