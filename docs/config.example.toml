@@ -146,6 +146,8 @@ clef = "treble"          # clef of a standard staff added without one: treble, b
 [keymap.properties]
 # Keys while the properties pane has the focus (<leader>P).
 # "d" = "properties-clear"
+# "l" = "properties-box +1"   # staff rows: select the clef box (-1: the notation box)
+# "<A-l>" = "properties-step +1"   # cycle a choice, switch on, number up (-1: the reverse)
 
 [keymap.palette]
 # Keys while the editing palette has the focus (<leader>E). Its buttons run commands, which

@@ -990,11 +990,17 @@ pub fn describe(command: &str) -> Option<&'static str> {
         "properties-tab-prev" => "Show the previous tab of the properties pane",
         "properties-down" => "Properties pane: select the next property",
         "properties-up" => "Properties pane: select the previous property",
+        "properties-center" => "Properties pane: scroll so the selected property is in the middle",
+        "properties-first" => "Properties pane: select the first property (top)",
+        "properties-last" => "Properties pane: select the last property (bottom)",
         "properties-edit" => "Properties pane: edit the selected property",
         "properties-fold" => {
             "Properties pane: fold (close), unfold (open) or toggle the selected section"
         }
         "properties-staff-move" => "Properties pane: move the selected staff down (+1) or up (-1)",
+        "properties-box" => {
+            "Properties pane: on a staff, select the notation box (-1) or the clef box (+1)"
+        }
         "properties-change" => "Properties pane: clear the selected property and edit it",
         "properties-step" => {
             "Properties pane: switch off (-1) / on (+1), or the previous / next choice"

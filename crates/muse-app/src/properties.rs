@@ -138,6 +138,9 @@ pub struct PropRow {
     pub swatch: Option<crate::theme::Rgba>,
     /// An icon before the value.
     pub icon: Option<crate::icons::Icon>,
+    /// A staff's clef: the text of its second box, and the icon.
+    pub value2: String,
+    pub icon2: Option<crate::icons::Icon>,
     /// Dim text shown when the value is empty.
     pub placeholder: &'static str,
 }
@@ -408,6 +411,8 @@ pub struct PropSearch {
 
 #[derive(Debug, Default)]
 pub struct PropsState {
+    /// The box of a staff row selected: 0 the notation, 1 the clef.
+    pub staff_box: u8,
     pub search: Option<PropSearch>,
     /// The `/` register: what `n` and `N` look for.
     pub last_search: String,
@@ -427,6 +432,8 @@ pub struct PropsState {
     seen: Cell<usize>,
     /// First row shown; kept by [`App::property_window`].
     scroll: Cell<usize>,
+    /// Centre the selected row at the next draw (`zz`), when the room is known.
+    center: Cell<bool>,
 }
 
 /// Small capitals for terminals: each word's first letter stays, the rest turn to small caps.
@@ -547,6 +554,8 @@ impl App {
                 aside: String::new(),
                 swatch: None,
                 icon: None,
+                value2: String::new(),
+                icon2: None,
                 placeholder: "",
             });
             !f
@@ -559,6 +568,8 @@ impl App {
                 aside: String::new(),
                 swatch: None,
                 icon: None,
+                value2: String::new(),
+                icon2: None,
                 placeholder: "",
             })
         };
@@ -647,10 +658,13 @@ impl App {
                             &mut rows,
                             Field::StaffAt(i),
                             label,
-                            crate::picker::staff_label(*s),
+                            crate::picker::notation_label(*s).into(),
                             true,
                         );
-                        rows.last_mut().unwrap().icon = Some(crate::icons::Icon::of_staff(*s));
+                        let row = rows.last_mut().unwrap();
+                        row.icon = Some(crate::icons::Icon::of_notation(*s));
+                        row.value2 = crate::picker::clef_label(*s);
+                        row.icon2 = crate::icons::Icon::of_clef(*s);
                     }
                     field(
                         &mut rows,
@@ -732,7 +746,14 @@ impl App {
         let sel = self.property_selected();
         let height = |r: &PropRow| r.height();
         let mut first = self.props.scroll.get().min(rows.len().saturating_sub(1));
-        if sel != self.props.seen.get() {
+        if self.props.center.take() && !rows.is_empty() {
+            self.props.seen.set(sel);
+            let budget = visible.saturating_sub(height(&rows[sel])) / 2;
+            first = sel;
+            while first > 0 && rows[first - 1..sel].iter().map(height).sum::<usize>() <= budget {
+                first -= 1;
+            }
+        } else if sel != self.props.seen.get() {
             self.props.seen.set(sel);
             first = first.min(sel);
             // Scroll down until the selected row fits.
@@ -1064,7 +1085,11 @@ impl App {
             Field::StaffAt(i) => {
                 // The staff chosen is the cursor's, which the picker's commands work on.
                 self.pane_mut().cursor.staff = i;
-                self.open_picker(PickerKind::Staff(t, i));
+                if self.staff_box_at(i) == 1 {
+                    self.open_picker(PickerKind::Clef(t, i));
+                } else {
+                    self.open_picker(PickerKind::Staff(t, i));
+                }
             }
             Field::Tuning => self.open_picker(PickerKind::Tuning(t)),
             _ => {
@@ -1430,7 +1455,7 @@ impl App {
         }
     }
 
-    /// `h` / `l`: a switch goes off / on; a choice moves to the previous / next one; a number
+    /// `<A-h>` / `<A-l>`: a switch goes off / on; a choice moves to the previous / next one; a number
     /// goes down / up by one.
     fn step_property(&mut self, by: isize) {
         let t = self.pane().cursor.track;
@@ -1453,7 +1478,11 @@ impl App {
                 let n = track.map_or(0, |k| k.staves().len());
                 if i < n {
                     self.pane_mut().cursor.staff = i;
-                    self.step_choice(PickerKind::Staff(t, i), by);
+                    if self.staff_box_at(i) == 1 {
+                        self.step_choice(PickerKind::Clef(t, i), by);
+                    } else {
+                        self.step_choice(PickerKind::Staff(t, i), by);
+                    }
                 } else {
                     // The empty field adds a staff: `l` the first kind, `h` the last.
                     self.pick_choice(PickerKind::Staff(t, n), by > 0);
@@ -1666,6 +1695,30 @@ impl App {
         let _ = a;
     }
 
+    /// The box of staff `i` of the cursor's track the selection is in: 1 (the clef) only while
+    /// the staff has a clef, else 0 (the notation).
+    fn staff_box_at(&self, i: usize) -> u8 {
+        let has_clef = self
+            .buffer()
+            .score
+            .tracks
+            .get(self.pane().cursor.track)
+            .and_then(|t| t.staves().get(i).copied())
+            .is_some_and(|s| crate::icons::Icon::of_clef(s).is_some());
+        if has_clef { self.props.staff_box } else { 0 }
+    }
+
+    /// Whether box `b` (0 notation, 1 clef) of a staff row is the selection.
+    pub fn property_box_selected(&self, row: usize, b: u8) -> bool {
+        row == self.property_selected()
+            && matches!(self.selected_field(), Some((Field::StaffAt(i), _)) if self.staff_box_at(i) == b)
+    }
+
+    /// Selects a box of a staff row (a click on it).
+    pub fn set_staff_box(&mut self, b: u8) {
+        self.props.staff_box = b.min(1);
+    }
+
     /// Whether a row is a staff that can be dragged.
     pub fn property_is_staff(&self, row: usize) -> bool {
         let n = self
@@ -1826,6 +1879,23 @@ impl App {
                     i
                 };
             }
+            PropertiesFirst | PropertiesLast => {
+                // The first / last row that is a property (notes are skipped).
+                let rows = self.property_rows();
+                let mut it = rows
+                    .iter()
+                    .enumerate()
+                    .filter(|(_, r)| r.kind != RowKind::Note);
+                let pick = if matches!(cmd, PropertiesFirst) {
+                    it.next()
+                } else {
+                    it.next_back()
+                };
+                if let Some((i, _)) = pick {
+                    self.props.selected = i;
+                }
+            }
+            PropertiesCenter => self.props.center.set(true),
             PropertiesTab(Some(tab)) => self.set_property_tab(*tab),
             PropertiesTab(None) => self.set_property_tab(self.props.tab.step(1)),
             PropertiesTabPrev => self.set_property_tab(self.props.tab.step(-1)),
@@ -1844,6 +1914,7 @@ impl App {
                     self.apply_live();
                 }
             }
+            PropertiesBox(by) => self.props.staff_box = if *by > 0 { 1 } else { 0 },
             PropertiesStaffMove(by) => {
                 if let Some((Field::StaffAt(i), _)) = self.selected_field() {
                     let n = self
@@ -1872,6 +1943,8 @@ fn note(text: &str) -> PropRow {
         aside: String::new(),
         swatch: None,
         icon: None,
+        value2: String::new(),
+        icon2: None,
         placeholder: "",
     }
 }
@@ -1882,6 +1955,7 @@ mod tests {
     use crate::app::tests::{keys, test_app};
     use crate::icons::Icon;
     use crate::layout::{Axis, Node};
+    use muse_core::{Notation, Staff};
 
     fn with_props() -> App {
         let mut app = test_app();
@@ -2225,7 +2299,7 @@ mod tests {
             app.buffer().score.tracks[0]
                 .staves()
                 .iter()
-                .map(|s| crate::picker::staff_label(*s))
+                .map(|s| s.name())
                 .collect::<Vec<_>>()
         };
         assert_eq!(names(&app), ["treble", "tab"]);
@@ -2237,7 +2311,7 @@ mod tests {
         assert_eq!(first.label, "Staves");
         assert!(first.icon.is_some());
         app.run(Command::PropertiesEdit);
-        assert_eq!(app.palette().unwrap().title, "Staves");
+        assert_eq!(app.palette().unwrap().title, "Notation");
         keys(&mut app, "slash<CR>");
         assert_eq!(names(&app), ["treble", "tab", "slash"]);
         // A filled row picks another kind.
@@ -2248,10 +2322,10 @@ mod tests {
         // Alt-j / alt-k swap with the staff below / above; the selection follows.
         keys(&mut app, "<leader>P");
         app.props.selected = field_row(&app, Field::StaffAt(0));
-        keys(&mut app, "<A-j>");
+        keys(&mut app, "<C-j>");
         assert_eq!(names(&app), ["tab+", "treble", "slash"]);
         assert_eq!(app.props.selected, field_row(&app, Field::StaffAt(1)));
-        keys(&mut app, "<A-k>");
+        keys(&mut app, "<C-k>");
         assert_eq!(names(&app), ["treble", "tab+", "slash"]);
         // Dragging a row onto another moves it.
         let (a, b) = (
@@ -2263,6 +2337,72 @@ mod tests {
         );
         app.drag_property(a, b);
         assert_eq!(names(&app), ["tab+", "slash", "treble"]);
+    }
+
+    #[test]
+    fn staff_rows_have_a_notation_box_and_a_clef_box() {
+        let mut app = with_props();
+        app.set_property_tab(PropTab::Tracks);
+        let row = |app: &App, i| app.property_rows()[field_row(app, Field::StaffAt(i))].clone();
+        let (a, b) = (row(&app, 0), row(&app, 1));
+        assert_eq!(
+            (a.value.as_str(), a.value2.as_str()),
+            ("standard", "treble")
+        );
+        assert_eq!(
+            (a.icon, a.icon2),
+            (Some(Icon::Standard), Some(Icon::Treble))
+        );
+        assert_eq!((b.value.as_str(), b.value2.as_str()), ("tab", ""));
+        assert_eq!((b.icon, b.icon2), (Some(Icon::Tab), None));
+        let add = row(&app, 2);
+        assert!(add.value.is_empty() && add.value2.is_empty());
+        keys(&mut app, "<leader>P");
+        // The notation box is selected at first; the clef picker lists the clefs.
+        app.props.selected = field_row(&app, Field::StaffAt(0));
+        assert!(app.property_box_selected(app.props.selected, 0));
+        keys(&mut app, "l");
+        assert!(app.property_box_selected(app.props.selected, 1));
+        app.run(Command::PropertiesEdit);
+        assert_eq!(app.palette().unwrap().title, "Clefs");
+        keys(&mut app, "bass<CR>");
+        assert_eq!(app.buffer().score.tracks[0].staves()[0].name(), "bass");
+        // Stepping in the clef box changes the clef only.
+        keys(&mut app, "<A-l>");
+        assert_eq!(app.buffer().score.tracks[0].staves()[0].name(), "grand");
+        keys(&mut app, "h<A-h>");
+        assert_eq!(app.buffer().score.tracks[0].staves()[0].name(), "grand");
+        // The notation box steps through the notations, keeping what it can.
+        keys(&mut app, "h");
+        keys(&mut app, "<A-l>");
+        assert_eq!(app.buffer().score.tracks[0].staves()[0], Staff::Tab);
+        // A tab has no clef: the clef box can't be selected or opened.
+        keys(&mut app, "l");
+        assert!(app.property_box_selected(app.props.selected, 0));
+        app.run(Command::PropertiesEdit);
+        assert_eq!(app.palette().unwrap().title, "Notation");
+        keys(&mut app, "<Esc>");
+        // Back to standard gives the default clef; chant has do and fa.
+        app.run(Command::Notation("chant".into()));
+        keys(&mut app, "l");
+        app.run(Command::PropertiesEdit);
+        let titles = app.palette().unwrap().title;
+        assert_eq!(titles, "Clefs");
+        keys(&mut app, "fa<CR>");
+        assert_eq!(app.buffer().score.tracks[0].staves()[0], Staff::ChantFa);
+        app.run(Command::Notation("standard".into()));
+        assert_eq!(
+            app.buffer().score.tracks[0].staves()[0].notation(),
+            Notation::Standard
+        );
+        // The add row picks a notation first.
+        app.props.selected = field_row(&app, Field::StaffAt(2));
+        keys(&mut app, "l");
+        assert!(app.property_box_selected(app.props.selected, 0));
+        app.run(Command::PropertiesEdit);
+        assert_eq!(app.palette().unwrap().title, "Notation");
+        keys(&mut app, "slash<CR>");
+        assert_eq!(app.buffer().score.tracks[0].staves()[2], Staff::Slash);
     }
 
     #[test]
@@ -2292,9 +2432,9 @@ mod tests {
         app.click_property(mute, false);
         assert!(app.buffer().score.tracks[0].mute);
         // h / l set a switch off / on, and keep it so.
-        keys(&mut app, "hh");
+        keys(&mut app, "<A-h><A-h>");
         assert!(!app.buffer().score.tracks[0].mute);
-        keys(&mut app, "ll");
+        keys(&mut app, "<A-l><A-l>");
         assert!(app.buffer().score.tracks[0].mute);
         // Only a double click edits; one click selects.
         let name = field_row(&app, Field::TrackName);
@@ -2314,17 +2454,17 @@ mod tests {
         app.props.selected = field_row(&app, Field::Tuning);
         let strings = |app: &App| app.buffer().score.tracks[0].strings.clone();
         assert_eq!(strings(&app), [64, 59, 55, 50, 45, 40]);
-        keys(&mut app, "h");
+        keys(&mut app, "<A-h>");
         assert_eq!(
             strings(&app),
             [64, 59, 55, 50, 45, 40],
             "no wrapping before the first"
         );
-        keys(&mut app, "l");
+        keys(&mut app, "<A-l>");
         assert_eq!(strings(&app), [63, 58, 54, 49, 44, 39], "the next tuning");
         app.props.selected = field_row(&app, Field::Program);
         let before = app.buffer().score.tracks[0].midi.program;
-        keys(&mut app, "l");
+        keys(&mut app, "<A-l>");
         assert_eq!(app.buffer().score.tracks[0].midi.program, before + 1);
         // Every staff row is lit with the selected one.
         app.props.selected = field_row(&app, Field::StaffAt(1));
@@ -2332,12 +2472,45 @@ mod tests {
         assert!(app.property_row_selected(field_row(&app, Field::StaffAt(2))));
         assert!(!app.property_row_selected(field_row(&app, Field::Capo)));
         // The staff kind steps too.
-        keys(&mut app, "l");
-        assert_eq!(
-            crate::picker::staff_label(app.buffer().score.tracks[0].staves()[1]),
-            "tab+"
-        );
+        keys(&mut app, "<A-l>");
+        assert_eq!(app.buffer().score.tracks[0].staves()[1].name(), "tab+");
         assert_eq!(Icon::of_program(25), Icon::Guitar);
+    }
+
+    #[test]
+    fn gg_and_capital_g_select_the_first_and_last_property() {
+        let mut app = with_props();
+        app.set_property_tab(PropTab::Tracks);
+        keys(&mut app, "<leader>P");
+        let rows = app.property_rows();
+        let last = rows.iter().rposition(|r| r.kind != RowKind::Note).unwrap();
+        let first = rows.iter().position(|r| r.kind != RowKind::Note).unwrap();
+        keys(&mut app, "G");
+        assert_eq!(app.property_selected(), last);
+        keys(&mut app, "gg");
+        assert_eq!(app.property_selected(), first);
+    }
+
+    #[test]
+    fn zz_centres_the_selected_property() {
+        let mut app = with_props();
+        app.set_property_tab(PropTab::Tracks);
+        keys(&mut app, "<leader>P");
+        let rows = app.property_rows();
+        let sel = rows.len() / 2;
+        app.props.selected = sel;
+        let visible = 12;
+        app.property_window(visible);
+        keys(&mut app, "zz");
+        let first = app.property_window(visible);
+        let h = |r: &PropRow| r.height();
+        let above: usize = rows[first..sel].iter().map(h).sum();
+        let after = visible.saturating_sub(above + h(&rows[sel]));
+        // As near the middle as whole rows allow.
+        assert!(above.abs_diff(after) <= 4, "{above} above, {after} below");
+        assert!(first > 0);
+        // Drawing again keeps it.
+        assert_eq!(app.property_window(visible), first);
     }
 
     #[test]
@@ -2361,14 +2534,14 @@ mod tests {
         app.set_property_tab(PropTab::Tracks);
         keys(&mut app, "<leader>P");
         app.props.selected = field_row(&app, Field::Capo);
-        keys(&mut app, "l");
-        keys(&mut app, "l");
+        keys(&mut app, "<A-l>");
+        keys(&mut app, "<A-l>");
         assert_eq!(app.buffer().score.tracks[0].capo, 2);
-        keys(&mut app, "h");
+        keys(&mut app, "<A-h>");
         assert_eq!(app.buffer().score.tracks[0].capo, 1);
-        keys(&mut app, "<Right>");
+        keys(&mut app, "<A-l>");
         assert_eq!(app.buffer().score.tracks[0].capo, 2);
-        keys(&mut app, "<Left>");
+        keys(&mut app, "<A-h>");
         assert_eq!(app.buffer().score.tracks[0].capo, 1);
         // Tab is j, shift-tab is k, the arrows likewise.
         let at = app.property_selected();
@@ -2464,13 +2637,13 @@ mod tests {
         // h on the empty staff field adds the last kind, l the first.
         app.set_property_tab(PropTab::Tracks);
         app.props.selected = field_row(&app, Field::StaffAt(2));
-        keys(&mut app, "h");
+        keys(&mut app, "<A-h>");
         let staves = app.buffer().score.tracks[0].staves();
-        assert_eq!(crate::picker::staff_label(staves[2]), "chant fa");
+        assert_eq!(staves[2], Staff::Chant);
         app.props.selected = field_row(&app, Field::StaffAt(3));
-        keys(&mut app, "l");
+        keys(&mut app, "<A-l>");
         let staves = app.buffer().score.tracks[0].staves();
-        assert_eq!(crate::picker::staff_label(staves[3]), "treble");
+        assert_eq!(staves[3].name(), "treble");
     }
 
     #[test]

@@ -7,6 +7,10 @@ pub enum Icon {
     Treble,
     Bass,
     Grand,
+    Standard,
+    Neutral,
+    ChantDo,
+    ChantFa,
     Tab,
     TabRhythm,
     Slash,
@@ -24,17 +28,29 @@ pub enum Icon {
 }
 
 impl Icon {
-    pub fn of_staff(staff: Staff) -> Icon {
-        use muse_core::Clef;
+    /// The icon of a staff's notation: standard, tab, tab+, slash or chant.
+    pub fn of_notation(staff: Staff) -> Icon {
         match staff {
-            Staff::Standard(Clef::Treble | Clef::Neutral) => Icon::Treble,
-            Staff::Standard(Clef::Bass) => Icon::Bass,
-            Staff::Standard(Clef::Grand { .. }) => Icon::Grand,
+            Staff::Standard(_) => Icon::Standard,
             Staff::Tab => Icon::Tab,
             Staff::TabRhythm => Icon::TabRhythm,
             Staff::Slash => Icon::Slash,
             Staff::Chant | Staff::ChantFa => Icon::Chant,
         }
+    }
+
+    /// The icon of a staff's clef; none for tab and slash.
+    pub fn of_clef(staff: Staff) -> Option<Icon> {
+        use muse_core::Clef;
+        Some(match staff {
+            Staff::Standard(Clef::Treble) => Icon::Treble,
+            Staff::Standard(Clef::Bass) => Icon::Bass,
+            Staff::Standard(Clef::Neutral) => Icon::Neutral,
+            Staff::Standard(Clef::Grand { .. }) => Icon::Grand,
+            Staff::Chant => Icon::ChantDo,
+            Staff::ChantFa => Icon::ChantFa,
+            Staff::Tab | Staff::TabRhythm | Staff::Slash => return None,
+        })
     }
 
     /// The family of a General MIDI program (0-based): generic, a guitar for every guitar.
@@ -69,6 +85,10 @@ impl Icon {
             Icon::Treble => "𝄞",
             Icon::Bass => "𝄢",
             Icon::Grand => "𝄞",
+            Icon::Standard => "𝄚",
+            Icon::Neutral => "𝄥",
+            Icon::ChantDo => "𝄡",
+            Icon::ChantFa => "F",
             Icon::Tab => "▦",
             Icon::TabRhythm => "▤",
             Icon::Slash => "/",

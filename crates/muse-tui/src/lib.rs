@@ -235,7 +235,11 @@ fn event_loop(terminal: &mut DefaultTerminal, app: &mut App) -> Result<()> {
                         if matches!(ui.drag, Some(Drag::Prop(..))) =>
                     {
                         let over = ui.props.iter().find_map(|(r, h)| match h {
-                            PropHit::Row(i) if contains(*r, m.column, m.row) => Some(*i),
+                            PropHit::Row(i) | PropHit::StaffBox(i, _)
+                                if contains(*r, m.column, m.row) =>
+                            {
+                                Some(*i)
+                            }
                             _ => None,
                         });
                         if let (Some(i), Some(Drag::Prop(from, _, double))) =
@@ -298,12 +302,17 @@ fn event_loop(terminal: &mut DefaultTerminal, app: &mut App) -> Result<()> {
                     MouseEventKind::Down(MouseButton::Left)
                         if ui.props.iter().any(|(r, _)| contains(*r, m.column, m.row)) =>
                     {
-                        let hit = ui
+                        let mut hit = ui
                             .props
                             .iter()
                             .find(|(r, _)| contains(*r, m.column, m.row))
                             .map(|(_, h)| *h)
                             .unwrap();
+                        // A click in a box of a staff selects that box, then acts as on the row.
+                        if let PropHit::StaffBox(i, b) = hit {
+                            app.set_staff_box(b);
+                            hit = PropHit::Row(i);
+                        }
                         match hit {
                             // In the text area being edited: a click places the caret, a drag
                             // selects.
@@ -1605,6 +1614,8 @@ fn draw_audio(f: &mut Frame, app: &App, area: Rect, ui: &Ui) {
 enum PropHit {
     Tab(muse_app::properties::PropTab),
     Row(usize),
+    /// A box of a staff row: 0 the notation, 1 the clef.
+    StaffBox(usize, u8),
 }
 
 /// Whether a point is in the lyrics text area as drawn.
@@ -1657,7 +1668,7 @@ fn click_properties(app: &mut App, hit: PropHit, double: bool) {
     match hit {
         PropHit::Tab(t) => app.set_property_tab(t),
         // A click selects a property; another on the selected one edits it.
-        PropHit::Row(i) => app.click_property(i, double),
+        PropHit::Row(i) | PropHit::StaffBox(i, _) => app.click_property(i, double),
     }
 }
 
@@ -1841,7 +1852,11 @@ fn draw_properties(f: &mut Frame, app: &App, area: Rect, ui: &mut Ui) {
             break;
         }
         let sel = app.property_row_selected(k);
-        let box_sel = k == app.property_selected();
+        let box_sel = if app.property_is_staff(k) {
+            app.property_box_selected(k, 0)
+        } else {
+            k == app.property_selected()
+        };
         let mut hit = Rect {
             x: area.x,
             y,
@@ -1918,6 +1933,9 @@ fn draw_properties(f: &mut Frame, app: &App, area: Rect, ui: &mut Ui) {
                 let aside = row.aside.chars().count();
                 let box_w = if toggle {
                     6
+                } else if staff {
+                    // Two boxes: the notation, and the clef.
+                    (width - (bx - x0) as usize).saturating_sub(1) / 2
                 } else if aside == 0 {
                     width - (bx - x0) as usize
                 } else {
@@ -2031,6 +2049,49 @@ fn draw_properties(f: &mut Frame, app: &App, area: Rect, ui: &mut Ui) {
                     };
                     if !toggle {
                         buf.set_string(text_x, by, shown, text_style);
+                    }
+                }
+                if staff {
+                    // The clef box beside the notation box (dim and empty for tab and slash).
+                    let mut boxes = vec![(bx, box_w, 0u8)];
+                    if !row.value.is_empty() {
+                        let cx = bx + box_w as u16 + 1;
+                        let cw = width.saturating_sub((cx - x0) as usize);
+                        let has = row.icon2.is_some();
+                        let bg = if app.property_box_selected(k, 1) {
+                            t.tab.mix(t.mode_normal, 0.25)
+                        } else {
+                            t.tab
+                        };
+                        let fg = if has { t.chrome_text } else { t.dim };
+                        let style = Style::default().bg(rc(bg)).fg(rc(fg));
+                        buf.set_string(cx, by, " ".repeat(cw), style);
+                        let mut tx = cx + 1;
+                        if let Some(icon) = row.icon2 {
+                            let g = icon.glyph();
+                            buf.set_string(tx, by, g, Style::default().bg(rc(bg)));
+                            tx += if g.chars().any(|c| c as u32 >= 0x1F000) {
+                                3
+                            } else {
+                                2
+                            };
+                        }
+                        buf.set_string(
+                            tx,
+                            by,
+                            clip(&row.value2, cw.saturating_sub((tx - cx) as usize + 1)),
+                            style,
+                        );
+                        boxes.push((cx, cw, 1));
+                    }
+                    for (bx, w, n) in boxes {
+                        let r = Rect {
+                            x: bx,
+                            y: by,
+                            width: w as u16,
+                            height: 1,
+                        };
+                        ui.props.push((r, PropHit::StaffBox(k, n)));
                     }
                 }
             }
