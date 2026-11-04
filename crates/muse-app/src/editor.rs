@@ -40,6 +40,10 @@ pub(crate) struct EditorState {
     operator: Option<(Operator, Option<usize>)>,
     pub visual_anchor: Option<Cursor>,
     pub visual_bars: bool,
+    /// Per buffer: the last Visual selection (anchor, cursor, whole bars), for `gv` and `` `< ``.
+    last_visual: HashMap<usize, (Cursor, Cursor, bool)>,
+    /// Per buffer: where Insert mode was last left, for `gi` and `` `^ ``.
+    last_insert: HashMap<usize, Cursor>,
     registers: HashMap<char, Clip>,
     register: Option<char>,
     pub(crate) awaiting: Option<Awaiting>,
@@ -113,6 +117,73 @@ impl App {
             .flatten()
     }
 
+    /// Records where Visual mode (`visual`, the selection before the key) or Insert mode
+    /// (`insert`, the cursor before the key) was left by the key just handled, in `buffer`.
+    fn remember_leaves(
+        &mut self,
+        buffer: usize,
+        visual: Option<(Cursor, Cursor, bool)>,
+        insert: Option<Cursor>,
+    ) {
+        if let Some(v) = visual.filter(|_| self.mode != Mode::Visual) {
+            self.ed.last_visual.insert(buffer, v);
+        }
+        if let Some(c) = insert.filter(|_| self.mode != Mode::Insert) {
+            self.ed.last_insert.insert(buffer, c);
+        }
+    }
+
+    /// The buffer's last selection / insert position, clamped to the score as it is now.
+    fn clamped_mark(&self, mut c: Cursor) -> Cursor {
+        crate::app::clamp_cursor(&self.buffer().score, &mut c);
+        c
+    }
+
+    /// `gv`: reselect the last Visual selection (in Visual mode: swap with the current one).
+    fn visual_reselect(&mut self) {
+        let buffer = self.pane().buffer;
+        let Some((a, c, bars)) = self.ed.last_visual.get(&buffer).copied() else {
+            return self.error("no previous visual selection");
+        };
+        if let Some(now) = self.selection() {
+            self.ed.last_visual.insert(buffer, now);
+        }
+        self.ed.visual_anchor = Some(self.clamped_mark(a));
+        self.ed.visual_bars = bars;
+        let c = self.clamped_mark(c);
+        self.pane_mut().cursor = c;
+        self.mode = Mode::Visual;
+    }
+
+    /// `gi`: Insert mode where it was last left (on the cursor if it never was).
+    fn insert_last(&mut self) {
+        let buffer = self.pane().buffer;
+        if let Some(c) = self.ed.last_insert.get(&buffer).copied() {
+            let c = self.clamped_mark(c);
+            self.pane_mut().cursor = c;
+        }
+        self.enter_insert();
+    }
+
+    /// The `<` `>` `^` marks (selection start / end, last insert position) as jump targets.
+    pub(crate) fn special_mark(&self, name: char) -> Option<(usize, Cursor)> {
+        let b = self.pane().buffer;
+        let c = match name {
+            '^' => *self.ed.last_insert.get(&b)?,
+            '<' | '>' => {
+                let (a, c, _) = *self.ed.last_visual.get(&b)?;
+                let (lo, hi) = if (a.bar, a.beat) <= (c.bar, c.beat) {
+                    (a, c)
+                } else {
+                    (c, a)
+                };
+                if name == '<' { lo } else { hi }
+            }
+            _ => return None,
+        };
+        Some((b, self.clamped_mark(c)))
+    }
+
     /// Register being recorded into, for display.
     pub fn recording_macro(&self) -> Option<char> {
         self.ed.recording.as_ref().map(|r| r.0)
@@ -140,6 +211,7 @@ impl App {
             }
         }
         let before = (self.focused(), self.pane().buffer, self.pane().cursor);
+        let visual = self.selection();
         match self.mode {
             Mode::Command => self.handle_command_key(key),
             Mode::Picker => self.handle_picker_key(key),
@@ -193,6 +265,7 @@ impl App {
             Mode::Insert => self.insert_key(key),
             Mode::Visual => self.visual_key(key),
         }
+        self.remember_leaves(before.1, visual, in_insert.then_some(before.2));
         self.seek_to_cursor(before);
         self.peek_tracks(before);
         if in_insert && self.mode != Mode::Insert {
@@ -805,6 +878,8 @@ impl App {
         let duration = self.insert_duration();
         match cmd {
             Insert => self.enter_insert(),
+            InsertLast => self.insert_last(),
+            VisualReselect => self.visual_reselect(),
             InsertBeat(at) => {
                 let at = *at;
                 self.ed.group = Some(false);
@@ -2540,6 +2615,103 @@ mod tests {
         // Repeat the deletion on the next beat.
         keys(&mut a, "l.");
         assert_eq!(frets(&a, 0)[1], None);
+    }
+
+    #[test]
+    fn gv_reselects_the_last_selection() {
+        let mut a = app();
+        keys(&mut a, "a1<Space>2<Space>3<Space>4<Esc>gg");
+        // Nothing selected yet: a no-op with a message.
+        keys(&mut a, "gv");
+        assert_eq!(a.mode, Mode::Normal);
+        assert!(a.message.as_ref().unwrap().error);
+        keys(&mut a, "vll<Esc>gg");
+        assert_eq!(a.mode, Mode::Normal);
+        assert!(a.selection().is_none());
+        keys(&mut a, "gv");
+        let (anchor, cursor, bars) = a.selection().unwrap();
+        assert_eq!((anchor.beat, cursor.beat, bars), (0, 2, false));
+        // A bar selection, left by an operator; the kind is kept and the other pane/mode
+        // state does not matter.
+        keys(&mut a, "<Esc>}V}<Esc>gg");
+        keys(&mut a, "gv");
+        let (anchor, cursor, bars) = a.selection().unwrap();
+        assert_eq!((anchor.bar, cursor.bar, bars), (1, 2, true));
+        // After an operator.
+        keys(&mut a, "<Esc>ggvlld");
+        assert_eq!(a.mode, Mode::Normal);
+        keys(&mut a, "gv");
+        // (The beats are gone, so the end is clamped to the bar's remaining beat.)
+        let (anchor, cursor, _) = a.selection().unwrap();
+        assert_eq!((anchor.bar, anchor.beat, cursor.bar), (0, 0, 0));
+        assert!(cursor.beat < beats(&a.buffer().score, &cursor).len());
+        // gv in Visual mode swaps with the current selection.
+        keys(&mut a, "<Esc>}vgv");
+        let (anchor, cursor, _) = a.selection().unwrap();
+        assert_eq!((anchor.bar, cursor.bar), (0, 0));
+        keys(&mut a, "gv");
+        let (anchor, _, _) = a.selection().unwrap();
+        assert_eq!(anchor.bar, 1);
+    }
+
+    #[test]
+    fn gv_clamps_to_a_shrunk_score() {
+        let mut a = app();
+        keys(&mut a, "7}Vk<Esc>gg");
+        keys(&mut a, "5dd");
+        let bars = a.buffer().score.master_bars.len();
+        keys(&mut a, "gv");
+        let (anchor, cursor, _) = a.selection().unwrap();
+        assert!(anchor.bar < bars && cursor.bar < bars);
+        // The marks jump to the ends too.
+        keys(&mut a, "<Esc>gg`>");
+        assert_eq!(a.pane().cursor.bar, anchor.bar.max(cursor.bar));
+    }
+
+    #[test]
+    fn gi_goes_back_to_where_insert_mode_was_left() {
+        let mut a = app();
+        // Never inserted: Insert mode on the cursor.
+        keys(&mut a, "}gi");
+        assert_eq!(a.mode, Mode::Insert);
+        assert_eq!(a.pane().cursor.bar, 1);
+        keys(&mut a, "<Esc>");
+        keys(&mut a, "a3<Space>4<Esc>");
+        let left = a.pane().cursor;
+        keys(&mut a, "gg}}");
+        assert_ne!(a.pane().cursor, left);
+        keys(&mut a, "gi");
+        assert_eq!(a.mode, Mode::Insert);
+        assert_eq!(a.pane().cursor, left);
+        keys(&mut a, "<Esc>gg`^");
+        assert_eq!(a.pane().cursor, left);
+        // The old behaviour is on <leader>i, and adds nothing.
+        keys(&mut a, "gg");
+        let beats = a.buffer().score.tracks[0].bars[0].voices[0].beats.len();
+        keys(&mut a, "<Space>i");
+        assert_eq!(a.mode, Mode::Insert);
+        assert_eq!(a.pane().cursor.bar, 0);
+        assert_eq!(
+            a.buffer().score.tracks[0].bars[0].voices[0].beats.len(),
+            beats
+        );
+        keys(&mut a, "<Esc>");
+        // Edits that shrink the score clamp the position.
+        keys(&mut a, "7}i5<Esc>gg7dd");
+        keys(&mut a, "gi");
+        assert!(a.pane().cursor.bar < a.buffer().score.master_bars.len());
+    }
+
+    #[test]
+    fn gv_and_gi_are_listed_in_the_keymap_picker() {
+        let mut a = app();
+        keys(&mut a, "<Space>?");
+        keys(&mut a, "visual-reselect");
+        assert_eq!(a.palette().unwrap().items[0].text, "gv");
+        keys(&mut a, "<C-u>insert-last");
+        assert_eq!(a.palette().unwrap().items[0].text, "gi");
+        keys(&mut a, "<C-u>insert-here");
+        assert_eq!(a.palette().unwrap().items[0].text, "<Space>i");
     }
 
     #[test]

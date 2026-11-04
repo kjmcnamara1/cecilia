@@ -190,6 +190,10 @@ pub struct Views {
     edges: Vec<(Rect, Edge)>,
     /// What the mouse is dragging.
     drag: Option<Drag>,
+    /// Shift and Ctrl/Alt held, as the next press sees them.
+    pub select_mods: (bool, bool),
+    /// When a selection drag last scrolled the view at an edge.
+    select_tick: Option<std::time::Instant>,
 }
 
 /// A waveform's view: where it starts when scrolled by hand (else it follows the playhead or
@@ -241,6 +245,9 @@ enum Drag {
     Scrollbar(PaneId, bool, f64),
     /// A design-mode handle of a pane's page layout.
     Design(PaneId, Box<crate::design::Grab>),
+    /// A press on a beat of a score pane, which may become a Visual selection (the app holds
+    /// the state; see `App::mouse_press`).
+    Select(PaneId),
 }
 
 /// The pointer shape over something draggable.
@@ -2829,6 +2836,41 @@ fn cursor_extent(
 /// The scroll (points) that brings the `x` and `y` ranges into a `view` (width, height), moving
 /// it only when they are not already in view; the range is placed a quarter (a third across)
 /// into the view, but always so that it is wholly visible when it fits, else its start is.
+/// How close to a pane's edge (points) a selection drag starts to scroll it.
+const EDGE_MARGIN: f64 = 28.0;
+
+/// Scroll speed (points per second, negative towards `lo`) of a selection drag with the pointer
+/// at `pos` in a pane spanning `lo..hi`: zero in the middle, growing the nearer the edge and the
+/// further beyond it.
+fn edge_velocity(pos: f64, lo: f64, hi: f64) -> f64 {
+    let margin = EDGE_MARGIN.min((hi - lo) / 4.0);
+    let depth = if pos < lo + margin {
+        -(lo + margin - pos)
+    } else if pos > hi - margin {
+        pos - (hi - margin)
+    } else {
+        return 0.0;
+    };
+    (120.0 + 14.0 * depth.abs()).min(1600.0) * depth.signum()
+}
+
+/// The beat column or string of voice 1 on `track` nearest a point of a page (the point itself,
+/// when it is over one).
+fn nearest_hit(
+    hits: &[muse_engrave::display::Hit],
+    track: usize,
+    p: (f64, f64),
+) -> Option<&muse_engrave::display::Hit> {
+    let dist = |r: &Rect| {
+        let dx = (r.x0 - p.0).max(0.0).max(p.0 - r.x1);
+        let dy = (r.y0 - p.1).max(0.0).max(p.1 - r.y1);
+        dx * dx + dy * dy
+    };
+    hits.iter()
+        .filter(|h| h.beat.track == track && h.beat.voice == 0)
+        .min_by(|a, b| dist(&a.rect).total_cmp(&dist(&b.rect)))
+}
+
 fn follow_scroll(scroll: (f64, f64), view: (f64, f64), x: (f64, f64), y: (f64, f64)) -> (f64, f64) {
     let axis = |s: f64, view: f64, (lo, hi): (f64, f64), frac: f64| {
         if lo >= s && hi <= s + view {
@@ -5311,9 +5353,80 @@ impl Views {
                 let unit = Options::default().sp / 10.0;
                 app.design_preview(grab.apply(px - grab.start, unit));
             }
+            Some(Drag::Select(pane)) => self.select_to(app, pane, x, y),
             None => return false,
         }
         true
+    }
+
+    /// A beat-selection drag is in progress (it scrolls the view at the pane's edges).
+    pub fn selecting(&self) -> bool {
+        matches!(self.drag, Some(Drag::Select(..)))
+    }
+
+    /// Called every frame while the button is down on a selection: near or past the pane's edge
+    /// the view scrolls, faster the further out the pointer is, and the selection follows.
+    /// Returns whether the view moved.
+    pub fn autoscroll(&mut self, app: &mut App) -> bool {
+        let Some(Drag::Select(pane)) = self.drag else {
+            self.select_tick = None;
+            return false;
+        };
+        let now = std::time::Instant::now();
+        let dt = self
+            .select_tick
+            .replace(now)
+            .map_or(0.0, |t| now.duration_since(t).as_secs_f64().min(0.05));
+        let Some(g) = self.geometry.iter().find(|g| g.pane == pane).copied() else {
+            return false;
+        };
+        let (x, y) = self.hover;
+        let vx = edge_velocity(x, g.content.x0, g.content.x1);
+        let vy = edge_velocity(y, g.content.y0, g.content.y1);
+        if vx == 0.0 && vy == 0.0 {
+            return false;
+        }
+        let entry = self.scroll.entry(pane).or_insert((0.0, 0.0));
+        entry.0 = (entry.0 + vx * dt / g.scale).max(0.0);
+        entry.1 = (entry.1 + vy * dt / g.scale).max(0.0);
+        self.select_to(app, pane, x, y);
+        true
+    }
+
+    /// Extends a mouse selection to the beat of the pressed track nearest the pointer (which may
+    /// be outside the pane: it is held to the pane's edge).
+    fn select_to(&mut self, app: &mut App, pane: PaneId, x: f64, y: f64) {
+        let (Some(g), Some(track), Some(cached)) = (
+            self.geometry.iter().find(|g| g.pane == pane),
+            app.mouse_track(),
+            self.cache.get(&pane),
+        ) else {
+            return;
+        };
+        let x = x.clamp(g.content.x0, (g.content.x1 - 1.0).max(g.content.x0));
+        let y = y.clamp(g.content.y0, (g.content.y1 - 1.0).max(g.content.y0));
+        let center = if cached.key.2 == "page" {
+            ((g.content.width() / g.scale - 595.0) / 2.0).max(0.0)
+        } else {
+            0.0
+        };
+        let px = (x - g.content.x0) / g.scale + g.scroll.0 - center;
+        let py = (y - g.content.y0) / g.scale + g.scroll.1;
+        let page = cached.offsets.iter().rposition(|&o| o <= py).unwrap_or(0);
+        let Some(h) = cached
+            .layout
+            .pages
+            .get(page)
+            .and_then(|p| nearest_hit(&p.hits, track, (px, py - cached.offsets[page])))
+        else {
+            return;
+        };
+        let at = muse_app::Cursor {
+            bar: h.beat.bar,
+            beat: h.beat.beat,
+            ..app.pane().cursor
+        };
+        app.mouse_drag(at);
     }
 
     /// Scrolls a pane to where a scrollbar drag has its thumb, held `grab` pixels from the
@@ -5347,6 +5460,7 @@ impl Views {
             Some(Drag::Volume(..)) => app.group_edits(false),
             Some(Drag::Text) => app.text_release(),
             Some(Drag::Design(..)) => app.design_end(),
+            Some(Drag::Select(..)) => app.mouse_release(),
             // Released on another staff: it moves there; on the same one: a click.
             Some(Drag::Prop(from, to, double)) if from == to => app.click_property(from, double),
             Some(Drag::Prop(from, to, _)) => app.drag_property(from, to),
@@ -5616,25 +5730,36 @@ impl Views {
             .iter()
             .find(|h| h.string.is_some() && h.rect.contains(local))
             .or_else(|| hits.iter().find(|h| h.rect.contains(local)));
-        if let (Some(h), Some(p)) = (hit, app.panes.get_mut(&g.pane)) {
-            p.cursor.track = h.beat.track;
-            p.cursor.bar = h.beat.bar;
+        let at = hit.zip(app.panes.get(&g.pane)).map(|(h, p)| {
+            let mut c = p.cursor;
+            c.track = h.beat.track;
+            c.bar = h.beat.bar;
             if h.beat.voice == 0 {
-                p.cursor.beat = h.beat.beat;
+                c.beat = h.beat.beat;
             }
-            p.cursor.staff = h.staff;
+            c.staff = h.staff;
             if let Some(s) = h.string {
-                p.cursor.string = s as usize;
+                c.string = s as usize;
             } else if let Some(line) = cached
                 .layout
                 .beats
                 .get(&h.beat)
                 .and_then(|pos| pos.position_at(h.staff, local.1))
             {
-                p.cursor.line = line;
+                c.line = line;
             }
-            // A slash staff is one line: a click above or below it still lands on the line.
-            app.normalize_cursor(g.pane);
+            c
+        });
+        if let Some(at) = at {
+            // Places the cursor (a slash staff is one line: a click above or below it still
+            // lands on it); a drag from here selects.
+            let mods = muse_app::mouse::MouseMods {
+                extend: self.select_mods.0,
+                bars: self.select_mods.1,
+                double,
+            };
+            app.mouse_press(g.pane, at, mods);
+            self.drag = Some(Drag::Select(g.pane));
         }
     }
 
@@ -5779,5 +5904,56 @@ mod follow_tests {
             follow_scroll((10.0, 20.0), (100.0, 100.0), (30.0, 40.0), (50.0, 60.0)),
             (10.0, 20.0)
         );
+    }
+}
+
+#[cfg(test)]
+mod select_tests {
+    use super::*;
+    use muse_engrave::display::{BeatRef, Hit};
+
+    fn hit(track: usize, beat: usize, x: f64, y: f64) -> Hit {
+        Hit {
+            rect: Rect::new(x, y, x + 10.0, y + 10.0),
+            beat: BeatRef {
+                track,
+                bar: 0,
+                voice: 0,
+                beat,
+            },
+            string: None,
+            staff: 0,
+        }
+    }
+
+    #[test]
+    fn the_nearest_beat_of_the_pressed_track_wins() {
+        let hits = [
+            hit(0, 0, 0.0, 0.0),
+            hit(0, 1, 20.0, 0.0),
+            hit(1, 0, 40.0, 0.0),
+            hit(0, 2, 0.0, 100.0),
+        ];
+        let at = |p| nearest_hit(&hits, 0, p).unwrap().beat.beat;
+        assert_eq!(at((5.0, 5.0)), 0);
+        assert_eq!(at((22.0, 5.0)), 1);
+        // Over another track's beat: the pressed track's nearest one.
+        assert_eq!(at((41.0, 5.0)), 1);
+        // Between lines, and far beyond the page.
+        assert_eq!(at((5.0, 80.0)), 2);
+        assert_eq!(at((-500.0, -500.0)), 0);
+        assert!(nearest_hit(&hits, 3, (0.0, 0.0)).is_none());
+    }
+
+    #[test]
+    fn edge_velocity_is_zero_inside_and_grows_towards_the_edge() {
+        assert_eq!(edge_velocity(500.0, 0.0, 1000.0), 0.0);
+        let near = edge_velocity(990.0, 0.0, 1000.0);
+        let beyond = edge_velocity(1100.0, 0.0, 1000.0);
+        assert!(near > 0.0 && beyond > near);
+        assert!(edge_velocity(5.0, 0.0, 1000.0) < 0.0);
+        assert!(edge_velocity(-5000.0, 0.0, 1000.0) >= -1600.0);
+        // A tiny pane still has a calm middle.
+        assert_eq!(edge_velocity(50.0, 0.0, 100.0), 0.0);
     }
 }

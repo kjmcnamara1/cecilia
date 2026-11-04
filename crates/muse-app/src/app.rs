@@ -500,6 +500,8 @@ pub struct App {
     /// When the cursor last moved the play position: playhead updates from just before the
     /// player caught up are ignored, so the cursor doesn't bounce back.
     seeked: Option<std::time::Instant>,
+    /// A mouse press on a score, which a drag turns into a Visual selection.
+    pub(crate) mouse_sel: Option<crate::mouse::MouseSel>,
     /// Command-line completion ignores case (`ui.completion_ignore_case`).
     pub completion_ignore_case: bool,
     /// Command-line completion is fuzzy (`ui.completion_fuzzy`).
@@ -651,6 +653,7 @@ impl App {
             paused_at: None,
             follow,
             seeked: None,
+            mouse_sel: None,
             completion_ignore_case,
             completion_fuzzy,
             every_bar_number,

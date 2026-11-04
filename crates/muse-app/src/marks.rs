@@ -73,6 +73,7 @@ impl App {
     pub fn jump_to_mark(&mut self, name: char, exact: bool) {
         let target = match name {
             '\'' | '`' => self.pane().jump_back,
+            '<' | '>' | '^' => self.special_mark(name),
             'a'..='z' => {
                 let b = self.pane().buffer;
                 self.marks

@@ -289,6 +289,11 @@ impl ApplicationHandler for Gui {
                 button: MouseButton::Left,
                 ..
             } => {
+                // Shift extends a selection; Ctrl or Alt selects whole bars.
+                self.views.select_mods = (
+                    self.mods.shift_key(),
+                    self.mods.control_key() || self.mods.alt_key(),
+                );
                 self.views.click(&mut self.app, self.mouse.0, self.mouse.1);
                 self.after_input();
             }
@@ -357,7 +362,15 @@ impl ApplicationHandler for Gui {
 
     fn about_to_wait(&mut self, event_loop: &ActiveEventLoop) {
         self.playback.sync(&mut self.app);
-        if self.app.playing {
+        if self.views.selecting() {
+            // Dragging a selection near the pane's edge scrolls it, also while the pointer rests.
+            if self.views.autoscroll(&mut self.app) {
+                self.after_input();
+            }
+            event_loop.set_control_flow(ControlFlow::WaitUntil(
+                Instant::now() + Duration::from_millis(16),
+            ));
+        } else if self.app.playing {
             if let Some((buffer, loc, _, _)) = self.playback.location(&self.app) {
                 self.app.follow_playback(buffer, loc.bar, loc.tick);
             }

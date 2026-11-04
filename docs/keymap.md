@@ -55,7 +55,7 @@ only be used in the GUI there, and `<D-…>` bindings never fire.
 | `]s` / `[s`         | next / previous section (`[count]` sections away; `''` goes back) |        |
 | `<leader>S`         | sections picker: every section of the file with its bars; Enter jumps there (`:sections`) | |
 | `m{a-z}` / `m{A-Z}`       | set a mark in this file / a global mark (any file)                                                                                                       |        |
-| `'{mark}` / `` `{mark} `` | jump to the mark's bar / exact position (a popup lists the marks and where they are); a global mark reopens its file if it was closed. `''` jumps back to before the last jump (also after `gg`, `G`) |        |
+| `'{mark}` / `` `{mark} `` | jump to the mark's bar / exact position (a popup lists the marks and where they are); a global mark reopens its file if it was closed. `''` jumps back to before the last jump (also after `gg`, `G`). `` `< `` / `` `> `` (or `'<` `'>`) are the start / end of the last Visual selection, `` `^ `` where Insert mode was last left |        |
 | `<C-d>` / `<C-u>`         | half a screen down / up: half the displayed bars in the horizontal layout, else half the displayed rows of bars (rounded up, at least one; in the page layout half the rows on a page, whatever the zoom) keeping the place in the bar and on the staff | _(M1)_ |
 
 ### Playback
@@ -207,7 +207,8 @@ is typed after it, is one undo step.
 | `i` / `a`                                              | new rest beat before / after the cursor beat (in the insert duration), then Insert mode on it (`:insert`, `:append`) |
 | `I` / `A`                                              | same at the start / end of the bar (`:insert-bar-start`, `:append-bar-end`)                       |
 | `o` / `O`                                              | new bar after / before the cursor bar (`[count]` bars), then Insert mode on it (`:bar-open-after`, `:bar-open-before`) |
-| `gi`                                                   | Insert mode on the cursor beat, adding nothing (`:insert-here`; the old `i`)                      |
+| `gi`                                                   | Insert mode where Insert mode was last left in this file (on the cursor if never), adding nothing (`:insert-last`) |
+| `<leader>i`                                            | Insert mode on the cursor beat, adding nothing (`:insert-here`; the old `i` and, until 0.17, `gi`) |
 | `x`                                                    | delete the one note under the cursor: on the cursor string, or at the cursor line / space (`[count]x`); on a slash staff the beat's slash, i.e. all its notes |
 | `d{motion}` / `dd`                                     | delete beats / bars (`[count]dd`). `dl` the beat under the cursor, `dh` the one before it, `dw` `de` `db` `d$` `d^` …  |
 | `y{motion}` / `yy`, `p` / `P`                          | yank beats or bars (`yl`, `yh` …, `yy` the bar) / put after / before the cursor                   |
@@ -217,6 +218,7 @@ is typed after it, is one undo step.
 | `u` / `U` / `g-` / `g+`                                | undo / redo / older / newer state across undo branches                                            |
 | `q{reg}` … `q` / `[count]@{reg}` / `@@`                | record / play / replay a macro; `q{A-Z}` appends to the lowercase register                        |
 | `v` / `V`                                              | visual beats / visual bars (then `d`, `y`, `c`, `x`; `i` / `a` below)                            |
+| `gv`                                                   | reselect the last Visual selection of this file (same kind; in Visual mode: swap with the current one) (`:visual-reselect`) |
 | `+` / `-`                                              | longer / shorter note value                                                                       |
 | `<C-a>` / `<C-x>`                                      | pitch up / down a semitone (moves string when the fret runs out)                                  |
 | `r`                                                    | make the beat a rest                                                                              |
@@ -241,6 +243,24 @@ current ones):
 | `+` / `-` | step the duration of every selected beat one note value longer / shorter (dots and tuplets stay; a whole note is the longest; the status line says when a bar runs over) (`:duration-longer`, `:duration-shorter`) |
 | `t…` `H` `L` … (the Normal-mode technique keys of the staff), the palette | the range tools below, on every beat of the selection (the selection stays, so several can be applied; `<Esc>` leaves) |
 | `i` / `a` | leave the selection and insert a new beat before its first / after its last beat (a bar selection: at the start of its first bar / the end of its last bar), then Insert mode (`:visual-insert`, `:visual-append`) |
+
+**Selecting with the mouse** (GUI and terminal): press on a beat of a score pane and drag across
+other beats to select them. A press places the cursor as a click does, and nothing else happens
+while the pointer stays on that beat; once it moves to another beat, Visual mode starts with the
+anchor at the pressed beat and the cursor end follows the pointer live. Releasing keeps the
+selection in Visual mode, so `d` `y` `c`, the palette's buttons and the other keys act on it. The
+drag runs through bars and, down the page, over the systems; in the GUI, holding the pointer
+near (or beyond) the pane's top, bottom, left or right edge scrolls the view, faster the further
+out, and the selection follows. A Visual selection covers the beats of the cursor's own track and
+voice, so a drag selects on the track pressed: pointing at another track's staff selects those
+bar and beat positions of the pressed one (the cursor keeps its string or line). `Shift`+click
+extends the selection from the anchor (from the cursor, entering Visual mode, when not in it) to
+the clicked beat, and goes on as a drag. `Ctrl` or `Alt` with the press (or drag, or `Shift`+click)
+selects whole bars, as `V`; a double click selects the bar. A plain click in Visual mode moves
+the selection's cursor end, as before (a drag from it starts a new selection at the pressed
+beat). A drag from Insert mode leaves it for Visual mode; `<Esc>` during a drag ends the
+selection. Design-mode handles, scrollbars, borders and the tool panes take their presses first,
+and a drag started on them never selects.
 
 Choices where the wish was open: `e` is vim's end-of-word, so on a note that does not start a
 tie it goes to the end of the *next* note's tie (a lone note is its own tie); `b` likewise to

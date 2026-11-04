@@ -21,12 +21,28 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - Engraving: tremolo picking (one to three slashes through the stem, or above the fret on tab), tap / slap / pop (`T` `S` `P` above the staff), grace notes (small head, slashed before the beat; the fret in small digits on tab), slides into and out of a note (a short diagonal at the note instead of "sl."), fade in / fade out / volume swell (labelled swell wedges), left-hand tapping (a `+` above the note), and harmonics (a diamond head on standard staves, `<fret>` on tab with "A.H." for artificial ones, also "P.H." "T.H." "S.H.").
 - With the palette focused in Visual mode, `h` `j` `k` `l` and the arrows move in the palette's grid instead of the score selection; the selection stays for the tools, and `<Esc>` back to the score keeps it.
-- Accents (`>`), heavy accents (marcato `^`) and staccato dots are engraved. They were stored and played back but never drawn. On standard and slash staves they stand on the side of the heads away from the stem (the dot nearest, the accent outside it); on tab and tab+ staves, when the track shows no standard staff, above the strings. Tied notes and rests show none, and lyrics above the staff clear them.
 
 ### Changed
 
 - A dynamic belongs to the beat, not to its notes: `Beat.dynamic` drives the velocity of all the beat's notes in playback, the palette, the range tools, `:dynamic-step` and the engraver (one mark per beat where it changes). Older `.muse` files and formats with a velocity per note are read by giving each beat its first note's velocity, and every note of a beat is written with the beat's dynamic.
+
+
+## [0.18.0] - 2026-11-04
+
+### Added
+
+- `gv` (`:visual-reselect`) reselects the last Visual selection of the file (same anchor, cursor and beat / bar kind; clamped if the score shrank); in Visual mode it swaps with the current selection. `gi` (`:insert-last`) starts Insert mode where Insert mode was last left. The marks `` `< `` `` `> `` `` `^ `` jump to the selection's ends and that insert position.
+
+### Changed
+
 - Let ring and palm mute are drawn as one span over consecutive beats, as in Guitar Pro: the label (`let ring`, `P.M.`) at the first beat, a dashed line across the beats that have the effect and a hook down at the end of the last. A rest (or a beat without the effect) ends a span; spans run on across bars and, without the label, over line breaks. Both together stack as two lines. They are shown on tab staves, and on the standard staff when the track has no tab.
+- `gi` is now vim's `gi` (`:insert-last`); the old `gi`, Insert mode on the cursor beat adding nothing (`:insert-here`), is on `<leader>i`.
+
+### Fixed
+
+- Accents (`>`), heavy accents (marcato `^`) and staccato dots are engraved. They were stored and played back but never drawn. On standard and slash staves they stand on the side of the heads away from the stem (the dot nearest, the accent outside it); on tab and tab+ staves, when the track shows no standard staff, above the strings. Tied notes and rests show none, and lyrics above the staff clear them.
+- Select with the mouse: press on a beat and drag across others to highlight them as a Visual selection (anchor at the pressed beat, the cursor end follows the pointer, bars and systems included; in the GUI the view scrolls when the pointer is held near or beyond the pane's edge). The selection stays after the release for `d` `y` `c`, the palette and the other keys. `Shift`+click extends the selection, `Ctrl`/`Alt` selects whole bars (as `V`), a double click selects the bar. A plain click is unchanged. Works in the terminal too. The logic lives in `muse-app` (`App::mouse_press`, `mouse_drag`, `mouse_release`).
+
 
 ## [0.17.0] - 2026-11-04
 

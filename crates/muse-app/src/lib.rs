@@ -20,6 +20,7 @@ pub mod instrument;
 pub mod keys;
 pub mod layout;
 pub mod marks;
+pub mod mouse;
 pub mod palette;
 #[cfg(test)]
 mod palette_tools_tests;
