@@ -20,6 +20,7 @@ pub mod instrument;
 pub mod keys;
 pub mod layout;
 pub mod marks;
+pub mod mouse;
 pub mod palette;
 pub mod picker;
 pub mod playalong;
