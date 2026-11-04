@@ -403,6 +403,7 @@ score pane). It stays Normal mode; while the pane has the focus its keys are
 | keys | command |
 | --- | --- |
 | `j` `<Down>` `<Tab>` / `k` `<Up>` `<S-Tab>` | select the next / previous property |
+| `gg` / `G` | select the first / last property |
 | `L` `<C-Tab>` / `H` `<C-S-Tab>`, `1` `2` `3` | next / previous tab, the score / track / lyrics tab |
 | `<CR>` `i` `a` | edit the property (insert mode). The score updates as you type, and the edit is one undo step. `<CR>` keeps a single line, `<Esc>` and `<C-c>` cancel it; `<Left>` `<Right>` `<Home>` `<End>` move, `<C-u>` clears. The lyrics text area is edited like vim: `<Esc>` goes to normal mode (`h` `j` `k` `l` `w` `b` `e` `0` `^` `$` `gg` `G` move; `x` `D` `dd` delete; `i` `a` `I` `A` `o` `O` `<CR>` insert; `u` `<C-r>` undo and redo), each change and each insert session an undo step; `<Esc>` in normal mode leaves it. The status line shows the current mode. Color opens a picker of named colors, each with a swatch and its hex code; type `#rrggbb` or `rgb(r,g,b)` for your own. Tuning opens a picker of common tunings of the track's instrument (Drop D, DADGAD, Open C …), searchable by name or description; type the notes (`D2 A2 D3 G3 B3 E4`) for your own. Instrument opens its picker; mute and solo are switches (a click flips them, with on/off beside them); a section header folds |
 | `<A-h>` `<A-j>` / `<A-l>` `<A-k>` | step the selected property down / up: a switch off / on; a choice (color, tuning, instrument, a staff's notation or clef) the previous / next one, without wrapping; a number down / up by one |
@@ -422,6 +423,7 @@ Clicking a tab shows it, a row selects it and a double click edits it; a click o
 | --- | --- |
 | `:properties [on\|off]` / `:properties-focus` | show or hide the pane / focus it |
 | `:properties-tab [score\|track\|lyrics]` | show a tab (none: the next) |
+| `:properties-first` / `:properties-last` | select the first / last property |
 | `:properties-fold [open\|close]` | open, close or (no argument) toggle the selected section |
 
 ## Editing palette

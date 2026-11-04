@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- `gg` / `G` in the focused properties pane select its first / last property (`:properties-first`, `:properties-last`).
+
 ### Changed
 
 - Each staff row of the track properties pane has two boxes: the notation (standard, tab, tab+, slash, chant) and the clef (treble, bass, grand, neutral; do, fa for chant; empty and dimmed for tab and slash), each with its own picker and icon. `h` / `l` (`properties-box`) or a click select the box. The Add Staff row picks a notation.

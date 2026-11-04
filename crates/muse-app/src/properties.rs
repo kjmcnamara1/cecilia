@@ -1870,6 +1870,22 @@ impl App {
                     i
                 };
             }
+            PropertiesFirst | PropertiesLast => {
+                // The first / last row that is a property (notes are skipped).
+                let rows = self.property_rows();
+                let mut it = rows
+                    .iter()
+                    .enumerate()
+                    .filter(|(_, r)| r.kind != RowKind::Note);
+                let pick = if matches!(cmd, PropertiesFirst) {
+                    it.next()
+                } else {
+                    it.next_back()
+                };
+                if let Some((i, _)) = pick {
+                    self.props.selected = i;
+                }
+            }
             PropertiesTab(Some(tab)) => self.set_property_tab(*tab),
             PropertiesTab(None) => self.set_property_tab(self.props.tab.step(1)),
             PropertiesTabPrev => self.set_property_tab(self.props.tab.step(-1)),
@@ -2449,6 +2465,20 @@ mod tests {
         keys(&mut app, "<A-l>");
         assert_eq!(app.buffer().score.tracks[0].staves()[1].name(), "tab+");
         assert_eq!(Icon::of_program(25), Icon::Guitar);
+    }
+
+    #[test]
+    fn gg_and_capital_g_select_the_first_and_last_property() {
+        let mut app = with_props();
+        app.set_property_tab(PropTab::Tracks);
+        keys(&mut app, "<leader>P");
+        let rows = app.property_rows();
+        let last = rows.iter().rposition(|r| r.kind != RowKind::Note).unwrap();
+        let first = rows.iter().position(|r| r.kind != RowKind::Note).unwrap();
+        keys(&mut app, "G");
+        assert_eq!(app.property_selected(), last);
+        keys(&mut app, "gg");
+        assert_eq!(app.property_selected(), first);
     }
 
     #[test]
