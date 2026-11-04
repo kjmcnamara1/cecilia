@@ -2856,7 +2856,8 @@ mod render_tests {
                     Bar {
                         voices: vec![Voice {
                             beats: vec![beat(5), beat(7), beat(9), beat(0)]
-                        }]
+                        }],
+                        ..Default::default()
                     };
                     2
                 ],
@@ -2965,6 +2966,7 @@ mod render_tests {
             voices: vec![Voice {
                 beats: vec![beat(5), beat(7), beat(12), beat(0)],
             }],
+            ..Default::default()
         };
         let track = Track {
             name: "Lead".into(),

@@ -225,6 +225,10 @@ pub fn read_gpif(xml: &str) -> Result<Score> {
         return Err(err("score has no bars"));
     }
 
+    // A repeat sign without notes of its own plays the bar(s) it repeats.
+    for t in &mut score.tracks {
+        fill_similes(t);
+    }
     // Keep a track's clef only where it differs from the one muse would choose anyway.
     for t in &mut score.tracks {
         if let Some(c) = t.clef.take() {
@@ -237,6 +241,26 @@ pub fn read_gpif(xml: &str) -> Result<Score> {
     read_automations(root, &mut score);
     score.merge_staves();
     Ok(score)
+}
+
+/// Gives bars that carry a repeat sign but no notes the notes of the bar(s) they repeat.
+fn fill_similes(track: &mut Track) {
+    for i in 0..track.bars.len() {
+        let n = match track.bars[i].simile {
+            Some(Simile::OneBar) => 1,
+            Some(Simile::TwoBarsFirst | Simile::TwoBarsSecond) => 2,
+            None => continue,
+        };
+        let blank = track.bars[i]
+            .voices
+            .iter()
+            .all(|v| v.beats.iter().all(|b| b.empty));
+        let from = i.checked_sub(n);
+        if let (true, Some(from)) = (blank, from) {
+            let voices = track.bars[from].voices.clone();
+            track.bars[i].voices = voices;
+        }
+    }
 }
 
 /// Number of staves of a track: GP7 lists them; GP6 marks grand-staff instruments "-gs".
@@ -516,6 +540,7 @@ fn empty_bar() -> Bar {
                 ..Beat::rest(Duration::new(DurationValue::Whole))
             }],
         }],
+        ..Default::default()
     }
 }
 
@@ -530,6 +555,12 @@ fn read_bar(
 ) -> Bar {
     let voice_ids = ids(text(bar, "Voices"));
     let last_used = voice_ids.iter().rposition(|v| *v != "-1");
+    let simile = match text(bar, "SimileMark") {
+        Some("Simple") => Some(Simile::OneBar),
+        Some("FirstOfDouble") => Some(Simile::TwoBarsFirst),
+        Some("SecondOfDouble") => Some(Simile::TwoBarsSecond),
+        _ => None,
+    };
     let Some(last_used) = last_used else {
         return Bar {
             voices: vec![Voice {
@@ -538,9 +569,13 @@ fn read_bar(
                     ..Beat::default()
                 }],
             }],
+            simile,
         };
     };
-    let mut out = Bar::default();
+    let mut out = Bar {
+        simile,
+        ..Bar::default()
+    };
     for vid in &voice_ids[..=last_used] {
         let mut voice = Voice::default();
         if let Some(v) = voices.get(vid) {
@@ -679,6 +714,8 @@ fn read_beat(
     }
     beat.effects.vibrato = p.contains_key("VibratoWTremBar");
     beat.effects.fade_in = text(b, "Fadding") == Some("FadeIn");
+    beat.effects.fade_out = text(b, "Fadding") == Some("FadeOut");
+    beat.effects.volume_swell = text(b, "Fadding") == Some("VolumeSwell");
     beat.effects.hairpin = match text(b, "Hairpin") {
         Some("Crescendo") => Some(Hairpin::Crescendo),
         Some("Decrescendo") => Some(Hairpin::Decrescendo),
@@ -854,6 +891,7 @@ fn read_note(
     fx.staccato = accent & 0x01 != 0;
     fx.palm_mute = p.contains_key("PalmMuted");
     fx.let_ring = child(n, "LetRing").is_some();
+    fx.left_hand_tap = child(n, "LeftHandTapped").is_some();
     fx.vibrato = child(n, "Vibrato").is_some();
     fx.hammer_pull = p.contains_key("HopoOrigin");
     if let Some(flags) = pnum("Slide", "Flags") {

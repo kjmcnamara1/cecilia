@@ -275,6 +275,7 @@ mod tests {
                             beat(62, true),
                         ],
                     }],
+                    ..Default::default()
                 })
                 .collect(),
             ..Track::default()

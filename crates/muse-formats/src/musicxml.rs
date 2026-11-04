@@ -50,6 +50,18 @@ fn spell(midi: u8, key: i8) -> (&'static str, i32, i32) {
     (step, alter, octave)
 }
 
+/// As [`spell`], but with the alteration the note was written with (a double sharp or flat).
+fn spell_with(midi: u8, key: i8, alter: Option<i8>) -> (&'static str, i32, i32) {
+    if let Some(a) = alter {
+        let natural = midi as i32 - a as i32;
+        let pc = natural.rem_euclid(12) as usize;
+        if STEPS[pc].1 == 0 {
+            return (STEPS[pc].0, a as i32, natural.div_euclid(12) - 1);
+        }
+    }
+    spell(midi, key)
+}
+
 fn esc(s: &str) -> String {
     s.replace('&', "&amp;")
         .replace('<', "&lt;")
@@ -691,7 +703,10 @@ fn write_beat(
         );
         rhythm(x);
         x.push_str(&staff_xml);
-        let tx = tuplet_xml();
+        let mut tx = tuplet_xml();
+        if beat.effects.fermata {
+            tx.push_str("<fermata type=\"upright\"/>");
+        }
         if !tx.is_empty() {
             let _ = write!(x, "<notations>{tx}</notations>");
         }
@@ -755,6 +770,11 @@ fn write_beat(
         }
         let _ = write!(x, "<voice>{voice}</voice>");
         rhythm(x);
+        match beat.stem {
+            StemDir::Up => x.push_str("<stem>up</stem>"),
+            StemDir::Down => x.push_str("<stem>down</stem>"),
+            StemDir::Auto => {}
+        }
         if n.dead {
             x.push_str("<notehead>x</notehead>");
         } else if n.ghost {
@@ -767,6 +787,9 @@ fn write_beat(
         }
         if tie_start {
             notations.push_str("<tied type=\"start\"/>");
+        }
+        if k == 0 && beat.effects.fermata {
+            notations.push_str("<fermata type=\"upright\"/>");
         }
         let fx = &n.effects;
         let mut articulations = String::new();
@@ -856,7 +879,7 @@ fn write_beat(
 }
 
 fn write_pitch(x: &mut String, t: &Track, n: &Note, key: i8) {
-    let (step, alter, octave) = spell(t.pitch_of(n), key);
+    let (step, alter, octave) = spell_with(t.pitch_of(n), key, n.alter);
     let _ = write!(x, "<pitch><step>{step}</step>");
     if alter != 0 {
         let _ = write!(x, "<alter>{alter}</alter>");
@@ -938,6 +961,8 @@ struct XmlNote {
     note: Note,
     lyrics: Vec<(usize, String)>,
     text: Option<String>,
+    stem: StemDir,
+    fermata: bool,
 }
 
 #[derive(Default)]
@@ -1241,6 +1266,10 @@ fn read_part(score: &mut Score, part: Node, index: usize, info: PartInfo) {
                         let pc = STEPS.iter().position(|(s, a)| *s == step && *a == 0)? as i32;
                         u8::try_from((octave + 1) * 12 + pc + alter.round() as i32).ok()
                     });
+                    let written_alter: Option<i8> = child(el, "pitch")
+                        .and_then(|p| num::<f32>(text(p, "alter")))
+                        .map(|a| a.round() as i8)
+                        .filter(|a| a.abs() == 2);
                     let pitch = pitch
                         .or_else(|| {
                             child(el, "instrument")
@@ -1268,6 +1297,7 @@ fn read_part(score: &mut Score, part: Node, index: usize, info: PartInfo) {
                             .any(|n| n.descendants().any(|d| d.has_tag_name(name)))
                     };
                     let mut note = Note::new(0, 0);
+                    note.alter = written_alter;
                     note.dead = text(el, "notehead") == Some("x");
                     note.ghost = child(el, "notehead")
                         .is_some_and(|h| h.attribute("parentheses") == Some("yes"));
@@ -1357,6 +1387,12 @@ fn read_part(score: &mut Score, part: Node, index: usize, info: PartInfo) {
                         grace,
                         note,
                         lyrics,
+                        stem: match text(el, "stem") {
+                            Some("up") => StemDir::Up,
+                            Some("down") => StemDir::Down,
+                            _ => StemDir::Auto,
+                        },
+                        fermata: has("fermata"),
                         text: if chord || grace.is_some() {
                             None
                         } else {
@@ -1494,8 +1530,10 @@ fn build_beats(track: &Track, notes: &[XmlNote], position: &mut i32) -> Vec<Beat
         let mut beat = Beat {
             duration,
             text: first.text.clone(),
+            stem: first.stem,
             ..Beat::default()
         };
+        beat.effects.fermata = first.fermata;
         let mut lyrics: Vec<String> = Vec::new();
         for (line, s) in &first.lyrics {
             if lyrics.len() <= *line {

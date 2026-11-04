@@ -298,6 +298,7 @@ mod tests {
                             ..Beat::default()
                         }],
                     }],
+                    ..Default::default()
                 })
                 .collect(),
             ..Track::default()

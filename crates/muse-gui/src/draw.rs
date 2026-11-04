@@ -5281,6 +5281,7 @@ mod tests {
                         voices: vec![Voice {
                             beats: vec![beat(0), beat(1), beat(2), beat(3)],
                         }],
+                        ..Default::default()
                     };
                     2
                 ],

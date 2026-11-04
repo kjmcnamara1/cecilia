@@ -603,6 +603,7 @@ fn build_bars(
         }
         bars.push(Bar {
             voices: vec![Voice { beats }],
+            ..Default::default()
         });
     }
     bars
@@ -682,7 +683,8 @@ mod tests {
                 Bar {
                     voices: vec![Voice {
                         beats: vec![beat(0), beat(1), beat(3), beat(5)]
-                    }]
+                    }],
+                    ..Default::default()
                 };
                 2
             ],

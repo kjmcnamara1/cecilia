@@ -193,6 +193,86 @@ pub enum Direction {
     DaDoubleCoda,
 }
 
+impl Direction {
+    /// Every direction, in the order the palette lists them.
+    pub const ALL: [Direction; 19] = [
+        Direction::Fine,
+        Direction::Segno,
+        Direction::SegnoSegno,
+        Direction::Coda,
+        Direction::DoubleCoda,
+        Direction::DaCapo,
+        Direction::DaCapoAlCoda,
+        Direction::DaCapoAlDoubleCoda,
+        Direction::DaCapoAlFine,
+        Direction::DaSegno,
+        Direction::DaSegnoAlCoda,
+        Direction::DaSegnoAlDoubleCoda,
+        Direction::DaSegnoAlFine,
+        Direction::DaSegnoSegno,
+        Direction::DaSegnoSegnoAlCoda,
+        Direction::DaSegnoSegnoAlDoubleCoda,
+        Direction::DaSegnoSegnoAlFine,
+        Direction::DaCoda,
+        Direction::DaDoubleCoda,
+    ];
+
+    /// The name as typed in `:direction`, e.g. `da-capo-al-coda`.
+    pub fn name(self) -> &'static str {
+        match self {
+            Direction::Coda => "coda",
+            Direction::DoubleCoda => "double-coda",
+            Direction::Segno => "segno",
+            Direction::SegnoSegno => "double-segno",
+            Direction::Fine => "fine",
+            Direction::DaCapo => "da-capo",
+            Direction::DaCapoAlCoda => "da-capo-al-coda",
+            Direction::DaCapoAlDoubleCoda => "da-capo-al-double-coda",
+            Direction::DaCapoAlFine => "da-capo-al-fine",
+            Direction::DaSegno => "dal-segno",
+            Direction::DaSegnoAlCoda => "dal-segno-al-coda",
+            Direction::DaSegnoAlDoubleCoda => "dal-segno-al-double-coda",
+            Direction::DaSegnoAlFine => "dal-segno-al-fine",
+            Direction::DaSegnoSegno => "dal-double-segno",
+            Direction::DaSegnoSegnoAlCoda => "dal-double-segno-al-coda",
+            Direction::DaSegnoSegnoAlDoubleCoda => "dal-double-segno-al-double-coda",
+            Direction::DaSegnoSegnoAlFine => "dal-double-segno-al-fine",
+            Direction::DaCoda => "da-coda",
+            Direction::DaDoubleCoda => "da-double-coda",
+        }
+    }
+
+    pub fn parse(s: &str) -> Option<Direction> {
+        let s = s.trim().to_lowercase().replace([' ', '_'], "-");
+        Direction::ALL.into_iter().find(|d| d.name() == s)
+    }
+
+    /// The text printed over the bar, e.g. "D.C. al Coda".
+    pub fn label(self) -> &'static str {
+        match self {
+            Direction::Coda => "Coda",
+            Direction::DoubleCoda => "Coda Coda",
+            Direction::Segno => "Segno",
+            Direction::SegnoSegno => "Segno Segno",
+            Direction::Fine => "Fine",
+            Direction::DaCapo => "D.C.",
+            Direction::DaCapoAlCoda => "D.C. al Coda",
+            Direction::DaCapoAlDoubleCoda => "D.C. al Double Coda",
+            Direction::DaCapoAlFine => "D.C. al Fine",
+            Direction::DaSegno => "D.S.",
+            Direction::DaSegnoAlCoda => "D.S. al Coda",
+            Direction::DaSegnoAlDoubleCoda => "D.S. al Double Coda",
+            Direction::DaSegnoAlFine => "D.S. al Fine",
+            Direction::DaSegnoSegno => "D.S.S.",
+            Direction::DaSegnoSegnoAlCoda => "D.S.S. al Coda",
+            Direction::DaSegnoSegnoAlDoubleCoda => "D.S.S. al Double Coda",
+            Direction::DaSegnoSegnoAlFine => "D.S.S. al Fine",
+            Direction::DaCoda => "To Coda",
+            Direction::DaDoubleCoda => "To Double Coda",
+        }
+    }
+}
+
 /// Bar properties shared by all tracks.
 #[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
 pub struct MasterBar {
@@ -721,6 +801,22 @@ impl Track {
 #[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
 pub struct Bar {
     pub voices: Vec<Voice>,
+    /// The bar repeats the one or two bars before it and is shown as a repeat sign (its
+    /// notes are kept, so playback and other formats still have them). Editing the bar's
+    /// notes clears it.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub simile: Option<Simile>,
+}
+
+/// A bar repeat sign (simile mark).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+pub enum Simile {
+    /// Repeat the previous bar (`%`).
+    OneBar,
+    /// First of two bars repeating the two before them (the sign is drawn over it).
+    TwoBarsFirst,
+    /// Second of two bars repeating the two before them.
+    TwoBarsSecond,
 }
 
 #[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
@@ -748,6 +844,38 @@ pub struct Beat {
     /// A chant division after this beat (`,` `;` `:` `::`), for chant staves.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub chant_division: Option<String>,
+    /// How the beat is beamed to its neighbours (automatic by default).
+    #[serde(default, skip_serializing_if = "is_default")]
+    pub beam: BeamMode,
+    /// Stem direction (automatic by default).
+    #[serde(default, skip_serializing_if = "is_default")]
+    pub stem: StemDir,
+}
+
+fn is_default<T: Default + PartialEq>(v: &T) -> bool {
+    *v == T::default()
+}
+
+/// A beat's beaming override.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub enum BeamMode {
+    #[default]
+    Auto,
+    /// Beamed to the previous beat even across a beat or beam-group boundary.
+    Force,
+    /// Starts a new beam group.
+    Break,
+    /// Keeps the primary beam to the previous beat but starts new secondary beams.
+    BreakSecondary,
+}
+
+/// A beat's stem direction.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub enum StemDir {
+    #[default]
+    Auto,
+    Up,
+    Down,
 }
 
 impl Beat {
@@ -822,6 +950,15 @@ pub struct BeatEffects {
     /// Crescendo or decrescendo through this beat; consecutive beats form one hairpin.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub hairpin: Option<Hairpin>,
+    /// Fermata (a hold) over the beat.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub fermata: bool,
+    /// The beat fades out (its volume falls away).
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub fade_out: bool,
+    /// Volume swell: the beat fades in then out.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub volume_swell: bool,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
@@ -864,6 +1001,10 @@ pub struct Note {
     /// Chant signs, when the track has a chant staff.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub chant: Option<Box<ChantMarks>>,
+    /// Written alteration (-2 double flat … 2 double sharp) the staff spells the note with,
+    /// where the key would spell it otherwise.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub alter: Option<i8>,
 }
 
 impl Note {
@@ -984,6 +1125,9 @@ pub struct NoteEffects {
     pub trill: Option<Trill>,
     pub left_finger: Option<u8>,
     pub right_finger: Option<u8>,
+    /// Left-hand tapping (a note sounded by the fretting hand alone).
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub left_hand_tap: bool,
 }
 
 #[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]

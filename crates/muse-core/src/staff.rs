@@ -47,6 +47,25 @@ pub fn spell(midi: i32, key: i8) -> (i32, i32, i32) {
     (step, alter, octave)
 }
 
+/// As [`spell`], but with the alteration a note was written with (a double sharp or flat)
+/// when it has one.
+pub fn spell_with(midi: i32, key: i8, alter: Option<i8>) -> (i32, i32, i32) {
+    if let Some(a) = alter.map(i32::from) {
+        let natural = midi - a;
+        let pc = natural.rem_euclid(12);
+        if let Some(step) = STEP_SEMITONES.iter().position(|s| *s == pc) {
+            return (step as i32, a, natural.div_euclid(12) - 1);
+        }
+    }
+    spell(midi, key)
+}
+
+/// Diatonic number of a pitch written with an alteration (see [`spell_with`]).
+pub fn diatonic_with(midi: i32, key: i8, alter: Option<i8>) -> i32 {
+    let (step, _, octave) = spell_with(midi, key, alter);
+    octave * 7 + step
+}
+
 /// Alteration each step letter gets from a key signature.
 pub fn key_alters(key: i8) -> [i32; 7] {
     let mut out = [0; 7];
@@ -103,6 +122,17 @@ impl StaffClef {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn written_alterations() {
+        // C double sharp sounds as D; it is still on C's line.
+        assert_eq!(spell_with(62, 0, Some(2)), (0, 2, 4));
+        assert_eq!(spell_with(60, 0, Some(-2)), (1, -2, 4));
+        assert_eq!(spell_with(61, 0, None), spell(61, 0));
+        // An alteration no letter can carry falls back to the key's spelling.
+        assert_eq!(spell_with(61, 0, Some(2)), spell(61, 0));
+        assert_eq!(diatonic_with(62, 0, Some(2)), 4 * 7);
+    }
 
     #[test]
     fn letters_and_keys() {

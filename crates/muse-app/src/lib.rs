@@ -20,6 +20,8 @@ pub mod keys;
 pub mod layout;
 pub mod marks;
 pub mod palette;
+#[cfg(test)]
+mod palette_tools_tests;
 pub mod picker;
 pub mod playalong;
 pub mod playback;

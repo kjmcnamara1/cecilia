@@ -41,6 +41,7 @@ fn set_bar(a: &mut App, bar: usize, beats: &[Spec]) {
     let b = a.pane().buffer;
     a.buffers[b].score.tracks[0].bars[bar] = Bar {
         voices: vec![Voice { beats }],
+        ..Default::default()
     };
 }
 
@@ -770,21 +771,19 @@ fn the_palette_lists_the_tools_of_the_notation_and_mode() {
     assert!(!slash.contains(&"toggle bend"));
     assert!(!slash.contains(&"accidental sharp"));
     assert!(!slash.contains(&"octave-up"));
-    // Chant: note values only; sections with nothing left are gone.
+    // Chant: note values and the clef; sections with nothing left are gone.
     a.run(Command::StaffAdd(Some("chant".into())));
     let chant = commands(&a);
-    assert!(
-        chant
-            .iter()
-            .all(|c| c.starts_with("duration") || *c == "dot" || c.starts_with("tuplet"))
-    );
-    assert_eq!(titles(&a), vec!["Duration"]);
-    // Visual mode: note values only, on any staff.
+    assert!(chant.iter().all(|c| c.starts_with("duration")
+        || matches!(*c, "dot" | "double-dot" | "clef ")
+        || c.starts_with("tuplet")));
+    assert_eq!(titles(&a), vec!["Duration", "Bar"]);
+    // Visual mode: note values, beams and stems, on any staff.
     a.pane_mut().cursor.staff = Cursor0::HOME;
     assert!(commands(&a).contains(&"toggle bend"));
     keys(&mut a, "v");
     assert_eq!(a.mode, Mode::Visual);
-    assert_eq!(titles(&a), vec!["Duration"]);
+    assert_eq!(titles(&a), vec!["Duration", "Beams & stems"]);
     assert!(!commands(&a).contains(&"rest"));
     keys(&mut a, "<Esc>");
     assert!(commands(&a).contains(&"toggle bend"));
@@ -797,9 +796,9 @@ fn folding_survives_a_notation_that_hides_sections() {
     a.run(Command::parse("palette-fold close").unwrap());
     a.pane_mut().cursor.staff = 0;
     a.run(Command::StaffAdd(Some("chant".into())));
-    // Only the Duration section is left, and it is still folded.
+    // Only the Duration and Bar sections are left, and Duration is still folded.
     let rows = a.palette_rows();
-    assert_eq!(rows.len(), 1);
+    assert_eq!(rows.len(), 3);
     a.run(Command::parse("palette-fold open").unwrap());
     assert!(a.palette_rows().len() > 1);
 }

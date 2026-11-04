@@ -148,6 +148,13 @@ const HEAD_X: char = '\u{E0A9}';
 const FLAT: char = '\u{E260}';
 const NATURAL: char = '\u{E261}';
 const SHARP: char = '\u{E262}';
+const DOUBLE_SHARP: char = '\u{E263}';
+const DOUBLE_FLAT: char = '\u{E264}';
+const FERMATA: char = '\u{E4C0}';
+const SIMILE_ONE: char = '\u{E500}';
+const SIMILE_TWO: char = '\u{E501}';
+const DOWN_BOW: char = '\u{E610}';
+const UP_BOW: char = '\u{E612}';
 const DOT: char = '\u{E1E7}';
 const METRONOME_QUARTER: char = '\u{E1D5}';
 const BRACE: char = '\u{E000}';
@@ -252,7 +259,7 @@ impl Clef {
 use crate::neume::{self, Kind, N, Typeset, digit};
 use muse_core::chant::{ChantClef, ClefKind};
 use muse_core::melody::ChantView;
-use muse_core::staff::{key_alters, spell};
+use muse_core::staff::{key_alters, spell_with};
 
 fn drum_position(key: u8) -> (i32, bool) {
     // (staff position on the percussion staff, x notehead)
@@ -2230,12 +2237,12 @@ impl Ctx<'_> {
                     Align::Left,
                 );
             }
-            for d in &mb.directions {
-                let label = format!("{d:?}");
+            for (k, d) in mb.directions.iter().enumerate() {
+                let label = d.label().to_string();
                 page.text(
                     FontKind::Italic,
                     label,
-                    (end, top - 2.0 * sp),
+                    (end, top - 2.0 * sp - k as f64 * 2.0 * sp),
                     1.8 * sp,
                     Align::Right,
                 );
@@ -2457,7 +2464,7 @@ impl Ctx<'_> {
                     });
                 }
 
-                if placeholder {
+                if placeholder || bar.simile.is_some() {
                     continue;
                 }
 
@@ -2509,17 +2516,22 @@ impl Ctx<'_> {
                         // Beams group the notes of each beat; a note across a beat stands alone.
                         let unit = self.beam_unit(mb);
                         let (first, last) = (start / unit, (t - 1) / unit);
-                        if level > 0 && (first != beam_beat || first != last) {
+                        // A forced beam joins the previous beat across the beat boundary; a
+                        // break starts a new group here.
+                        let forced = beat.beam == BeamMode::Force && !beamable.is_empty();
+                        let broken = beat.beam == BeamMode::Break;
+                        if level > 0
+                            && (broken || (!forced && (first != beam_beat || first != last)))
+                        {
                             self.flush_beams(page, &mut beamable, std_bottom);
                         }
                         if level > 0 {
-                            beamable.push((
-                                start as usize,
-                                stem_x,
-                                ys,
-                                beat.duration.value,
-                                u32::from(up),
-                            ));
+                            // Bit 0: stem up; 1: secondary beams break before the beat; 2:
+                            // the stem direction was chosen.
+                            let flags = u32::from(up)
+                                | u32::from(beat.beam == BeamMode::BreakSecondary) << 1
+                                | u32::from(beat.stem != StemDir::Auto) << 2;
+                            beamable.push((start as usize, stem_x, ys, beat.duration.value, flags));
                             beam_beat = first;
                             if first != last {
                                 self.flush_beams(page, &mut beamable, std_bottom);
@@ -2599,19 +2611,57 @@ impl Ctx<'_> {
                             Align::Left,
                         );
                     }
-                    if beat.effects.rasgueado {
-                        // Above the staff and clear of an up stem.
-                        let rasg_y = chord.as_ref().map_or(top, |(ys, up)| {
-                            let high = ys.iter().cloned().fold(top, f64::min);
-                            high - if *up { 3.6 * sp } else { 1.0 * sp }
-                        }) - 0.6 * sp;
+                    // Marks above the staff, clear of an up stem, stacked upwards.
+                    let marks_y = chord.as_ref().map_or(top, |(ys, up)| {
+                        let high = ys.iter().cloned().fold(top, f64::min);
+                        high - if *up { 3.6 * sp } else { 1.0 * sp }
+                    }) - 0.6 * sp;
+                    let mut slot = 0.0;
+                    let fx = &beat.effects;
+                    if fx.rasgueado {
                         page.text(
                             FontKind::Italic,
                             "rasg.",
-                            (bx, rasg_y),
+                            (bx, marks_y),
                             1.6 * sp,
                             Align::Left,
                         );
+                        slot += 1.8 * sp;
+                    }
+                    for label in [
+                        (fx.fade_out, "fade out"),
+                        (fx.volume_swell, "vol. swell"),
+                        (fx.fade_in, "fade in"),
+                    ]
+                    .iter()
+                    .filter_map(|(on, l)| on.then_some(*l))
+                    {
+                        page.text(
+                            FontKind::Italic,
+                            label,
+                            (bx, marks_y - slot),
+                            1.6 * sp,
+                            Align::Left,
+                        );
+                        slot += 1.8 * sp;
+                    }
+                    // Picking: the down bow and up bow signs.
+                    if fx.pick_stroke != StrokeDirection::None {
+                        let glyph = if fx.pick_stroke == StrokeDirection::Down {
+                            DOWN_BOW
+                        } else {
+                            UP_BOW
+                        };
+                        let r = fonts().bbox(FontKind::Music, glyph, 3.2 * sp);
+                        let gx = bx + self.nh_width / 2.0 - (r.x0 + r.x1) / 2.0;
+                        page.glyph(glyph, (gx, marks_y - slot + 0.3 * sp - r.y0), 3.2 * sp);
+                        slot += 2.0 * sp;
+                    }
+                    // A fermata over the beat.
+                    if fx.fermata {
+                        let r = fonts().bbox(FontKind::Music, FERMATA, 4.0 * sp);
+                        let gx = bx + self.nh_width / 2.0 - (r.x0 + r.x1) / 2.0;
+                        page.glyph(FERMATA, (gx, marks_y - slot - r.y1 + 0.2 * sp), 4.0 * sp);
                     }
                     if let Some(c) = &beat.chord {
                         if !c.name.is_empty() {
@@ -2668,7 +2718,11 @@ impl Ctx<'_> {
                     let unit = self.beam_unit(mb);
                     let (first, last) = (start / unit, (t - 1) / unit);
                     let level = beam_count(value);
-                    if beat.notes.is_empty() || level == 0 || first != rhythm_beat || first != last
+                    let forced = beat.beam == BeamMode::Force && !rhythm.is_empty();
+                    if beat.notes.is_empty()
+                        || level == 0
+                        || beat.beam == BeamMode::Break
+                        || (!forced && (first != rhythm_beat || first != last))
                     {
                         self.flush_rhythm(page, &mut rhythm, tab_top);
                     }
@@ -2698,6 +2752,29 @@ impl Ctx<'_> {
             tuplets.push((std::mem::take(&mut tuplet_group), tuplet_ratio));
             for (group, ratio) in tuplets {
                 self.draw_tuplet(page, &group, ratio, std_top);
+            }
+        }
+        // A bar repeat sign takes the place of the notes.
+        if let Some(simile) = bar.simile {
+            let (glyph, at) = match simile {
+                Simile::OneBar => (
+                    SIMILE_ONE,
+                    Some(x + plan.lead * stretch + (width - plan.lead * stretch) / 2.0),
+                ),
+                // The two-bar sign sits on the barline between the two bars.
+                Simile::TwoBarsFirst => (SIMILE_TWO, Some(x + width)),
+                Simile::TwoBarsSecond => (SIMILE_TWO, None),
+            };
+            if let Some(at) = at {
+                for &(a, b) in &staves {
+                    let r = fonts().bbox(FontKind::Music, glyph, 4.0 * sp);
+                    let mid = (a + b) / 2.0;
+                    page.glyph(
+                        glyph,
+                        (at - (r.x0 + r.x1) / 2.0, mid - (r.y0 + r.y1) / 2.0),
+                        4.0 * sp,
+                    );
+                }
             }
         }
         // A grand staff's half with nothing in the bar shows a whole-bar rest.
@@ -2782,7 +2859,7 @@ impl Ctx<'_> {
                 continue;
             }
             let written = self.track.pitch_of(n) as i32 + self.clef.transpose();
-            let (step, alter, octave) = spell(written, key);
+            let (step, alter, octave) = spell_with(written, key, n.alter);
             let d = octave * 7 + step;
             let p = d - self.clef.bottom();
             let current = alters.get(&d).copied().unwrap_or(key_alter[step as usize]);
@@ -2791,8 +2868,10 @@ impl Ctx<'_> {
             } else if current != alter {
                 alters.insert(d, alter);
                 Some(match alter {
+                    2 => DOUBLE_SHARP,
                     1 => SHARP,
                     -1 => FLAT,
+                    -2 => DOUBLE_FLAT,
                     _ => NATURAL,
                 })
             } else {
@@ -2803,7 +2882,12 @@ impl Ctx<'_> {
         heads.sort_by_key(|h| h.0);
         let avg = heads.iter().map(|h| h.0).sum::<i32>() as f64 / heads.len().max(1) as f64;
         // Slashes always have their stems up.
-        let up = self.slash || up_voice.unwrap_or(avg < 4.0);
+        let up = self.slash
+            || match beat.stem {
+                StemDir::Up => true,
+                StemDir::Down => false,
+                StemDir::Auto => up_voice.unwrap_or(avg < 4.0),
+            };
         let head = match (self.slash, beat.duration.value) {
             (false, DurationValue::Whole) => HEAD_WHOLE,
             (false, DurationValue::Half) => HEAD_HALF,
@@ -3054,7 +3138,7 @@ impl Ctx<'_> {
         let sp = self.sp;
         if group.len() == 1 {
             let (_, x, ys, v, up) = &group[0];
-            let up = *up == 1;
+            let up = *up & 1 == 1;
             self.draw_stem(page, *x, ys, up, None);
             let lo = ys.iter().cloned().fold(f64::MAX, f64::min);
             let hi = ys.iter().cloned().fold(f64::MIN, f64::max);
@@ -3065,12 +3149,13 @@ impl Ctx<'_> {
             }
         } else if group.len() > 1 {
             // The group's stem direction follows the majority.
-            let ups = group.iter().filter(|g| g.4 == 1).count();
-            let up = ups * 2 >= group.len();
+            let ups = group.iter().filter(|g| g.4 & 1 == 1).count();
+            let chosen = group.iter().find(|g| g.4 & 4 != 0);
+            let up = chosen.map_or(ups * 2 >= group.len(), |g| g.4 & 1 == 1);
             // Stems outvoted by the group move to the other side of the notehead.
             let shift = self.nh_width - 0.12 * sp;
             for g in group.iter_mut() {
-                match (g.4 == 1, up) {
+                match (g.4 & 1 == 1, up) {
                     (true, false) => g.1 -= shift,
                     (false, true) => g.1 += shift,
                     _ => {}
@@ -3116,7 +3201,10 @@ impl Ctx<'_> {
                         continue;
                     }
                     let mut j = i;
-                    while j + 1 < group.len() && beam_count(group[j + 1].3) > level {
+                    while j + 1 < group.len()
+                        && beam_count(group[j + 1].3) > level
+                        && !(level >= 1 && group[j + 1].4 & 2 != 0)
+                    {
                         j += 1;
                     }
                     let (xa, mut xb) = (group[i].1, group[j].1);
@@ -3362,6 +3450,9 @@ impl Ctx<'_> {
                     1.5 * sp,
                     Align::Center,
                 );
+            }
+            if n.effects.left_hand_tap {
+                above_marks.push("LH tap".into());
             }
             if n.effects.palm_mute {
                 above_marks.push("P.M.".into());
@@ -3761,6 +3852,7 @@ mod tests {
             voices: vec![Voice {
                 beats: vec![empty()],
             }],
+            ..Default::default()
         };
         let track = Track {
             kind: TrackKind::Fretted,
@@ -3810,8 +3902,8 @@ mod tests {
 
     #[test]
     fn spelling_and_keys() {
-        assert_eq!(spell(61, 0), (0, 1, 4)); // C#4
-        assert_eq!(spell(61, -2), (1, -1, 4)); // Db4
+        assert_eq!(muse_core::staff::spell(61, 0), (0, 1, 4)); // C#4
+        assert_eq!(muse_core::staff::spell(61, -2), (1, -1, 4)); // Db4
         assert_eq!(key_alters(2), [1, 0, 0, 1, 0, 0, 0]); // F#, C#
         assert_eq!(key_alters(-1), [0, 0, 0, 0, 0, 0, -1]); // Bb
     }
@@ -3828,6 +3920,7 @@ mod tests {
             strings: vec![64, 59, 55, 50, 45, 40],
             bars: vec![Bar {
                 voices: vec![Voice { beats: vec![chord] }],
+                ..Default::default()
             }],
             staves: vec![
                 Staff::Standard(muse_core::Clef::Treble),
@@ -3895,6 +3988,7 @@ mod tests {
                     voices: vec![Voice {
                         beats: vec![chord; 4],
                     }],
+                    ..Default::default()
                 }],
                 ..Track::default()
             }],
@@ -3972,6 +4066,7 @@ mod tests {
                             ..Beat::default()
                         }],
                     }],
+                    ..Default::default()
                 }],
                 ..Track::default()
             }],
@@ -4030,6 +4125,7 @@ mod tests {
                         voices: vec![Voice {
                             beats: vec![note.clone(), rest(1)],
                         }],
+                        ..Default::default()
                     }],
                     ..Track::default()
                 }],
@@ -4122,6 +4218,7 @@ mod tests {
                             beat(DurationValue::Half),
                         ],
                     }],
+                    ..Default::default()
                 }],
                 ..Track::default()
             }],
@@ -4193,6 +4290,7 @@ mod tests {
                             Beat::rest(Duration::new(DurationValue::Quarter)),
                         ],
                     }],
+                    ..Default::default()
                 }],
                 ..Track::default()
             }],
@@ -4244,6 +4342,7 @@ mod tests {
         };
         let bar = |beats: Vec<Beat>| Bar {
             voices: vec![Voice { beats }],
+            ..Default::default()
         };
         let q = DurationValue::Quarter;
         let right = Track {
@@ -4334,6 +4433,7 @@ mod tests {
             voices: vec![Voice {
                 beats: (0..8).map(|i| beat(i % 5)).collect(),
             }],
+            ..Default::default()
         };
         let track = Track {
             name: "Gtr".into(),
@@ -4375,6 +4475,7 @@ mod tests {
                 voices: vec![Voice {
                     beats: vec![beat(&[2]), beat(&[5, 7]), beat(&[3]), beat(&[])],
                 }],
+                ..Default::default()
             }],
             ..Track::default()
         };
@@ -4430,6 +4531,7 @@ mod tests {
                 voices: vec![Voice {
                     beats: vec![beat(syl), beat(syl)],
                 }],
+                ..Default::default()
             }],
             ..Track::default()
         };
@@ -4493,6 +4595,7 @@ mod tests {
                     voices: vec![Voice {
                         beats: vec![beat(0), beat(2), beat(4), beat(5)],
                     }],
+                    ..Default::default()
                 }],
                 ..Track::default()
             };
@@ -4610,6 +4713,7 @@ mod tests {
                         voices: vec![Voice {
                             beats: vec![note(DurationValue::Whole, "")],
                         }],
+                        ..Default::default()
                     }],
                     ..Track::default()
                 },
@@ -4623,6 +4727,7 @@ mod tests {
                                 .map(|w| note(DurationValue::Eighth, w))
                                 .collect(),
                         }],
+                        ..Default::default()
                     }],
                     ..Track::default()
                 },
@@ -4693,6 +4798,7 @@ mod tests {
                 voices: vec![Voice {
                     beats: vec![beat("Bm7"), beat("D5")],
                 }],
+                ..Default::default()
             }],
             ..Track::default()
         };
@@ -4765,6 +4871,7 @@ mod tests {
                         voices: vec![Voice {
                             beats: vec![beat(80), beat(80), beat(100)],
                         }],
+                        ..Default::default()
                     }],
                     ..Track::default()
                 };
@@ -4837,6 +4944,7 @@ mod tests {
                         voices: vec![Voice {
                             beats: vec![note.clone()],
                         }],
+                        ..Default::default()
                     };
                     bars
                 ],

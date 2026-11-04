@@ -1954,6 +1954,14 @@ impl App {
         }
     }
 
+    /// Opens the command line with some text already typed.
+    pub(crate) fn open_command_line(&mut self, text: &str) {
+        self.mode = Mode::Command;
+        self.cmdline = text.to_string();
+        self.completion = None;
+        self.history_pos = None;
+    }
+
     fn leave_command_mode(&mut self) {
         self.mode = Mode::Normal;
         self.cmdline.clear();
@@ -2483,10 +2491,7 @@ impl App {
             }
             Write(path) => self.write(path),
             Source => self.reload_config(),
-            CommandMode => {
-                self.mode = Mode::Command;
-                self.cmdline.clear();
-            }
+            CommandMode => self.open_command_line(""),
             Normal => {
                 self.leave_command_mode();
                 self.ed.visual_anchor = None;
@@ -3286,6 +3291,7 @@ pub(crate) mod tests {
             voices: vec![Voice {
                 beats: vec![beat(1), rest.clone(), rest, beat(3)],
             }],
+            ..Default::default()
         };
         let track = Track {
             strings: vec![64, 59, 55, 50, 45, 40],

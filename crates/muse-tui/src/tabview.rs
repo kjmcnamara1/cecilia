@@ -497,6 +497,7 @@ mod tests {
             voices: vec![Voice {
                 beats: vec![beat; 4],
             }],
+            ..Default::default()
         };
         let track = Track {
             strings: vec![64; 6],
