@@ -20,6 +20,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Fixed
 
 - With the palette focused in Visual mode, `h` `j` `k` `l` and the arrows move in the palette's grid instead of the score selection; the selection stays for the tools, and `<Esc>` back to the score keeps it.
+- Accents (`>`), heavy accents (marcato `^`) and staccato dots are engraved. They were stored and played back but never drawn. On standard and slash staves they stand on the side of the heads away from the stem (the dot nearest, the accent outside it); on tab and tab+ staves, when the track shows no standard staff, above the strings. Tied notes and rests show none, and lyrics above the staff clear them.
+
+### Changed
+
+- Let ring and palm mute are drawn as one span over consecutive beats, as in Guitar Pro: the label (`let ring`, `P.M.`) at the first beat, a dashed line across the beats that have the effect and a hook down at the end of the last. A rest (or a beat without the effect) ends a span; spans run on across bars and, without the label, over line breaks. Both together stack as two lines. They are shown on tab staves, and on the standard staff when the track has no tab.
 
 ## [0.17.0] - 2026-11-04
 
