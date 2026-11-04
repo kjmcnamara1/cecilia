@@ -4,13 +4,19 @@
 //! Unicode box drawing only (no Nerd Font needed); a column's glyph depends on the row so the
 //! line reads as one stroke crossing the staff lines:
 //!
-//! | column | single row | top | middle | bottom | used for                       |
-//! |--------|------------|-----|--------|--------|--------------------------------|
-//! | thin   | `│`        | `┬` | `┼`    | `┴`    | normal bar line                |
-//! | heavy  | `┃`        | `┰` | `╂`    | `┸`    | thick half of final / repeats  |
-//! | double | `║`        | `╥` | `╫`    | `╨`    | double bar line                |
-//! | dashed | `┆`        | `┆` | `┆`    | `┆`    | line closing a free-time bar   |
-//! | dots   | `•` on the two dot rows, `─` elsewhere                           | repeat sign |
+//! | column | single row | top (both / left / right arm) | middle | bottom |
+//! |--------|------------|-------------------------------|--------|--------|
+//! | thin   | `│`        | `┬` `┐` `┌`                   | `┼` `┤` `├` | `┴` `┘` `└` |
+//! | heavy  | `┃`        | `┰` `┒` `┎`                   | `╂` `┨` `┠` | `┸` `┚` `┖` |
+//! | double | `║`        | `╥` `╖` `╓`                   | `╫` `╢` `╟` | `╨` `╜` `╙` |
+//! | dashed | `┆` on every row                                              ||
+//! | dots   | `•` on the two dot rows, `─` elsewhere                        ||
+//!
+//! An arm is a staff line meeting the column from that side. The strings stop flush at the
+//! edges of a system: the first column of a line at the start of a system has no left arm, the
+//! last column of the line closing a system no right arm. Between two bar columns there is no
+//! string, so those sides have no arm either (a plain `│` / `┃` / `║` where neither side has
+//! one); next to a dots column there is one (`arms`).
 //!
 //! Sequences of columns:
 //!
@@ -104,23 +110,70 @@ pub fn dot_rows(n: usize) -> (usize, usize) {
     }
 }
 
-/// The glyph of column `col` on string row `row` of `n`.
-pub fn glyph(col: Col, row: usize, n: usize) -> char {
-    let pos = if n <= 1 {
-        1
-    } else if row == 0 {
-        0
-    } else if row + 1 == n {
-        2
+/// Whether staff lines meet column `i` of `cols` from the left and from the right. Between two
+/// bar columns there is no string; next to a dots column and beyond the line there is, except
+/// at the edge of a system (`left_edge` / `right_edge`), where the strings stop flush.
+pub fn arms(cols: &[Col], i: usize, left_edge: bool, right_edge: bool) -> (bool, bool) {
+    let left = if i == 0 {
+        !left_edge
     } else {
-        3
+        cols[i - 1] == Dots
     };
-    // [top, single row, bottom, middle]
-    let set = |g: [char; 4]| g[pos];
+    let right = if i + 1 == cols.len() {
+        !right_edge
+    } else {
+        cols[i + 1] == Dots
+    };
+    (left, right)
+}
+
+/// The glyph of column `col` on string row `row` of `n`, with staff lines arriving from the
+/// `left` / `right` (see [`arms`]).
+pub fn glyph(col: Col, row: usize, n: usize, left: bool, right: bool) -> char {
+    // [top, middle, bottom] by arms: both, left only, right only, none.
+    let pick = |g: [[char; 4]; 3], single: char| {
+        if n <= 1 {
+            return single;
+        }
+        let r = if row == 0 {
+            0
+        } else if row + 1 == n {
+            2
+        } else {
+            1
+        };
+        g[r][match (left, right) {
+            (true, true) => 0,
+            (true, false) => 1,
+            (false, true) => 2,
+            (false, false) => 3,
+        }]
+    };
     match col {
-        Thin => set(['┬', '│', '┴', '┼']),
-        Heavy => set(['┰', '┃', '┸', '╂']),
-        Double => set(['╥', '║', '╨', '╫']),
+        Thin => pick(
+            [
+                ['┬', '┐', '┌', '│'],
+                ['┼', '┤', '├', '│'],
+                ['┴', '┘', '└', '│'],
+            ],
+            '│',
+        ),
+        Heavy => pick(
+            [
+                ['┰', '┒', '┎', '┃'],
+                ['╂', '┨', '┠', '┃'],
+                ['┸', '┚', '┖', '┃'],
+            ],
+            '┃',
+        ),
+        Double => pick(
+            [
+                ['╥', '╖', '╓', '║'],
+                ['╫', '╢', '╟', '║'],
+                ['╨', '╜', '╙', '║'],
+            ],
+            '║',
+        ),
         Dashed => '┆',
         Dots => {
             let (a, b) = dot_rows(n);
@@ -135,13 +188,42 @@ mod tests {
 
     #[test]
     fn glyphs_join_into_one_stroke() {
-        let col = |c| (0..6).map(|r| glyph(c, r, 6)).collect::<String>();
-        assert_eq!(col(Thin), "┬┼┼┼┼┴");
-        assert_eq!(col(Heavy), "┰╂╂╂╂┸");
-        assert_eq!(col(Double), "╥╫╫╫╫╨");
-        assert_eq!(col(Dashed), "┆┆┆┆┆┆");
-        assert_eq!(col(Dots), "─•──•─");
-        assert_eq!(glyph(Thin, 0, 1), '│');
+        let col = |c, l, r| (0..6).map(|i| glyph(c, i, 6, l, r)).collect::<String>();
+        assert_eq!(col(Thin, true, true), "┬┼┼┼┼┴");
+        assert_eq!(col(Thin, false, true), "┌├├├├└");
+        assert_eq!(col(Thin, true, false), "┐┤┤┤┤┘");
+        assert_eq!(col(Thin, false, false), "││││││");
+        assert_eq!(col(Heavy, true, true), "┰╂╂╂╂┸");
+        assert_eq!(col(Heavy, false, true), "┎┠┠┠┠┖");
+        assert_eq!(col(Heavy, true, false), "┒┨┨┨┨┚");
+        assert_eq!(col(Double, true, true), "╥╫╫╫╫╨");
+        assert_eq!(col(Double, false, true), "╓╟╟╟╟╙");
+        assert_eq!(col(Double, true, false), "╖╢╢╢╢╜");
+        assert_eq!(col(Dashed, true, true), "┆┆┆┆┆┆");
+        assert_eq!(col(Dots, true, true), "─•──•─");
+        assert_eq!(glyph(Thin, 0, 1, true, true), '│');
+    }
+
+    #[test]
+    fn strings_stop_flush_at_system_edges() {
+        // Left edge: only a right arm; right edge: only a left arm.
+        assert_eq!(arms(&[Thin], 0, true, false), (false, true));
+        assert_eq!(arms(&[Thin], 0, false, true), (true, false));
+        assert_eq!(arms(&[Thin], 0, false, false), (true, true));
+        // Final line at the right edge: no string between thin and heavy, none past heavy.
+        assert_eq!(arms(&[Thin, Heavy], 0, false, true), (true, false));
+        assert_eq!(arms(&[Thin, Heavy], 1, false, true), (false, false));
+        // Repeat end at the right edge: strings reach the thin line from the dots.
+        let end = [Dots, Thin, Heavy];
+        assert_eq!(arms(&end, 1, false, true), (true, false));
+        assert_eq!(arms(&end, 2, false, true), (false, false));
+        // Repeat start at the left edge: the strings continue after the dots.
+        let start = [Heavy, Thin, Dots];
+        assert_eq!(arms(&start, 0, true, false), (false, false));
+        assert_eq!(arms(&start, 1, true, false), (false, true));
+        assert_eq!(arms(&start, 2, true, false), (false, true));
+        // Mid-system repeat start: heavy line has strings on its left.
+        assert_eq!(arms(&start, 0, false, false), (true, false));
     }
 
     #[test]

@@ -351,7 +351,8 @@ impl Widget for TabView<'_> {
                         buf.set_string(bx + dx, y, "─", staff_style);
                     }
                     for (i, &c) in cols.iter().enumerate() {
-                        let g = barline::glyph(c, s, rows).to_string();
+                        let (l, r) = barline::arms(cols, i, first, false);
+                        let g = barline::glyph(c, s, rows, l, r).to_string();
                         buf.set_string(bx + i as u16, y, g, line_style);
                     }
                 }
@@ -507,13 +508,15 @@ impl Widget for TabView<'_> {
             // Bar line closing the system.
             if let Some(last) = system.bars.last() {
                 let x = x0 + last.x + last.width;
-                for (i, &c) in barline::tail(score, last.bar).iter().enumerate() {
+                let cols = barline::tail(score, last.bar);
+                for (i, &c) in cols.iter().enumerate() {
                     let cx = x + i as u16;
                     if cx >= area.x + area.width {
                         break;
                     }
                     for s in 0..rows {
-                        let g = barline::glyph(c, s, rows).to_string();
+                        let (l, r) = barline::arms(cols, i, false, true);
+                        let g = barline::glyph(c, s, rows, l, r).to_string();
                         buf.set_string(cx, y0 + 1 + s as u16, g, line_style);
                     }
                 }

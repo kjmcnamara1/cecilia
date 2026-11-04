@@ -266,8 +266,11 @@ select, drag pane borders, click tabs, scroll/zoom, context menus that invoke th
   SIL OFL 1.1, bundled unmodified; see `assets/fonts/OFL-Caeciliae.txt`).
 - **TUI tab bar lines** (`muse-tui`, `barline.rs`): every bar line is one or more columns that
   run through all string rows, with joints where the line crosses a staff line (`─`); plain
-  Unicode box drawing, no Nerd Font. Columns: thin `┬┼┴` (`│` on a one-string staff), heavy
-  `┰╂┸`, double `╥╫╨`, dashed `┆`, repeat dots `•` on rows 1 and n-2 (n = strings).
+  Unicode box drawing, no Nerd Font. Columns (top / middle / bottom row): thin `┬┼┴`, heavy
+  `┰╂┸`, double `╥╫╨` (`│ ┃ ║` on a one-string staff), dashed `┆`, repeat dots `•` on rows 1 and
+  n-2 (n = strings). The strings stop flush at the edges of a system: the outermost column
+  there has the half joints `┌├└` / `┎┠┖` / `╓╟╙` at the left edge and `┐┤┘` / `┒┨┚` / `╖╢╜` at
+  the right edge, and columns of a line with no string between them are plain verticals.
 
   | line | glyph columns | width |
   |------|---------------|-------|

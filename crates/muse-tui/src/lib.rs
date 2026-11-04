@@ -3042,7 +3042,7 @@ mod render_tests {
         let rows: Vec<&str> = screen.lines().collect();
         let top = rows
             .iter()
-            .position(|r| r.contains('┬') || r.contains('┰') || r.contains('╥') || r.contains('┆'))
+            .position(|r| r.contains(['┌', '┎', '╓', '┬', '┆', '┃']))
             .expect(&screen);
         rows[top..top + 6].iter().map(|r| r.to_string()).collect()
     }
@@ -3056,7 +3056,7 @@ mod render_tests {
     fn first_bar(rows: &[String]) -> usize {
         rows[0]
             .chars()
-            .position(|c| "┬┰╥┆".contains(c))
+            .position(|c| "┌┎╓┬┆┃".contains(c))
             .unwrap_or(0)
     }
 
@@ -3067,13 +3067,15 @@ mod render_tests {
             println!("{r}");
         }
         let x = first_bar(&rows);
-        // Start line, a middle line and the final line (thin + heavy).
-        assert_eq!(column(&rows, x), "┬┼┼┼┼┴");
+        // The system starts flush (right arm only), middle lines cross the strings.
+        assert_eq!(column(&rows, x), "┌├├├├└");
         let mid = rows[0].chars().skip(x + 1).position(|c| c == '┬').unwrap() + x + 1;
         assert_eq!(column(&rows, mid), "┬┼┼┼┼┴");
-        let end = rows[0].chars().position(|c| c == '┰').unwrap();
-        assert_eq!(column(&rows, end - 1), "┬┼┼┼┼┴");
-        assert_eq!(column(&rows, end), "┰╂╂╂╂┸");
+        // The final line ends the system: thin (left arm), heavy (no arms).
+        let end = rows[0].chars().position(|c| c == '┃').unwrap();
+        assert_eq!(column(&rows, end - 1), "┐┤┤┤┤┘");
+        assert_eq!(column(&rows, end), "┃┃┃┃┃┃");
+        assert_eq!(rows[0].chars().nth(end + 1), Some(' '));
     }
 
     #[test]
@@ -3098,12 +3100,12 @@ mod render_tests {
         // Double bar after bar 1, dashed after the free-time bar 2.
         at("╥╫╫╫╫╨");
         at("┆┆┆┆┆┆");
-        // Repeat end: dots on rows 1 and 4, thin, heavy.
+        // Repeat end: dots, thin (strings on its left), heavy (strings on its right).
         let dots = at("─•──•─");
-        assert_eq!(cols[dots + 1], "┬┼┼┼┼┴");
-        assert_eq!(cols[dots + 2], "┰╂╂╂╂┸");
+        assert_eq!(cols[dots + 1], "┐┤┤┤┤┘");
+        assert_eq!(cols[dots + 2], "┃┃┃┃┃┃");
         // Repeat end shared with repeat start: dots, thin, heavy, thin, dots.
-        assert_eq!(cols[dots + 3], "┬┼┼┼┼┴");
+        assert_eq!(cols[dots + 3], "┌├├├├└");
         assert_eq!(cols[dots + 4], "─•──•─");
     }
 
@@ -3114,9 +3116,33 @@ mod render_tests {
             println!("{r}");
         }
         let x = first_bar(&rows);
-        assert_eq!(column(&rows, x), "┰╂╂╂╂┸");
-        assert_eq!(column(&rows, x + 1), "┬┼┼┼┼┴");
+        // Heavy line flush at the left edge, then thin, then the dots.
+        assert_eq!(column(&rows, x), "┃┃┃┃┃┃");
+        assert_eq!(column(&rows, x + 1), "┌├├├├└");
         assert_eq!(column(&rows, x + 2), "─•──•─");
+    }
+
+    #[test]
+    fn systems_end_with_flush_repeat_and_double_lines() {
+        // Narrow enough that the bars break into several systems.
+        let mut app = App::new(muse_app::Config::default(), None);
+        app.set_tool(PaneKind::Properties, Some(false));
+        app.buffers[0].score = barline_score(8, |m| {
+            m[0].repeat_start = true;
+            m[1].double_bar = true;
+            m[2].repeat_end = Some(2);
+            m[6].double_bar = true;
+        });
+        let screen = render(&mut app, 29, 40);
+        println!("{screen}");
+        // No string pokes out left of a system start or right of a system end.
+        for line in screen.lines() {
+            let inner: Vec<char> = line.chars().collect();
+            for w in inner.windows(2) {
+                assert!(!(w[0] == ' ' && "┬┼┴┰╂┸╥╫╨".contains(w[1])), "{line}");
+                assert!(!(w[1] == ' ' && "┬┼┴┰╂┸╥╫╨".contains(w[0])), "{line}");
+            }
+        }
     }
 
     #[test]
