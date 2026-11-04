@@ -1739,7 +1739,13 @@ fn draw_edit_palette(f: &mut Frame, app: &App, area: Rect, ui: &mut Ui) {
                     } else {
                         style
                     };
-                    let label = format!("{:^w$}", clip(row.short, 3), w = CELL as usize - 1);
+                    // The symbol's glyph by `tabline.icons` (nerd, unicode), else the short label.
+                    let glyph = match app.config.file.tabline.icons.as_str() {
+                        "none" => None,
+                        style => muse_app::palette::palette_glyph(row.command, style == "nerd"),
+                    };
+                    let text = glyph.unwrap_or(row.short);
+                    let label = format!("{:^w$}", clip(text, 3), w = CELL as usize - 1);
                     buf.set_string(x, y, label, style);
                     ui.palette.push((
                         Rect {
@@ -1754,8 +1760,15 @@ fn draw_edit_palette(f: &mut Frame, app: &App, area: Rect, ui: &mut Ui) {
             }
         }
     }
-    // The selected button's name.
-    if let Some(row) = rows.get(sel) {
+    // The search field along the bottom of the pane, as the properties pane's.
+    if let Some(search) = &app.palette.search {
+        let y = area.y + area.height - 1;
+        let style = Style::default().bg(rc(t.tab)).fg(rc(t.chrome_text));
+        let w = area.width as usize;
+        buf.set_string(area.x, y, " ".repeat(w), style);
+        let line = clip(&format!("/{}▏", search.query), w.saturating_sub(1));
+        buf.set_string(area.x + 1, y, line, style);
+    } else if let Some(row) = rows.get(sel) {
         let name = if row.kind == PaletteKind::Item {
             row.name()
         } else {
@@ -2748,10 +2761,22 @@ mod render_tests {
         app.run(muse_app::Command::New);
         app.run(muse_app::Command::Palette(Some(true)));
         let screen = render(&mut app, 100, 40);
+        // Nerd Font icons by default: the music notes; plain Unicode and short labels follow
+        // `tabline.icons`.
         assert!(
-            screen.contains("Duration") && screen.contains("1/8"),
+            screen.contains("Duration") && screen.contains('\u{f0388}'),
             "{screen}"
         );
+        assert!(!screen.contains("1/8"), "{screen}");
+        app.config.file.tabline.icons = "unicode".into();
+        let screen = render(&mut app, 100, 40);
+        assert!(
+            screen.contains('\u{266A}') && !screen.contains('\u{f0388}'),
+            "{screen}"
+        );
+        app.config.file.tabline.icons = "none".into();
+        let screen = render(&mut app, 100, 40);
+        assert!(screen.contains("1/8") && screen.contains("PM"), "{screen}");
         let mut terminal = Terminal::new(TestBackend::new(100, 40)).unwrap();
         let mut ui = Ui::default();
         terminal.draw(|f| draw(f, &mut app, None, &mut ui)).unwrap();
@@ -2901,7 +2926,8 @@ mod render_tests {
                     Bar {
                         voices: vec![Voice {
                             beats: vec![beat(5), beat(7), beat(9), beat(0)]
-                        }]
+                        }],
+                        ..Default::default()
                     };
                     2
                 ],
@@ -3010,6 +3036,7 @@ mod render_tests {
             voices: vec![Voice {
                 beats: vec![beat(5), beat(7), beat(12), beat(0)],
             }],
+            ..Default::default()
         };
         let track = Track {
             name: "Lead".into(),

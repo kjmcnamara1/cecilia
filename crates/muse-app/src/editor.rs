@@ -52,6 +52,11 @@ pub(crate) struct EditorState {
     last_macro: Option<char>,
     /// Keys of the last change, for `.`.
     last_change: Vec<Key>,
+    /// The last palette tool applied (or a visual range command), for `.`: the command and the
+    /// size of the selection it was applied to (beats or bars).
+    last_tool: Option<(Command, Option<(bool, usize)>)>,
+    /// The tool, not `last_change`, is what `.` repeats.
+    tool_last: bool,
     /// Keys of a change still being typed (an insert session).
     change_keys: Option<Vec<Key>>,
     /// Keys of the normal-mode command being typed.
@@ -217,6 +222,13 @@ impl App {
             {
                 self.props_search_key(key)
             }
+            // The palette's search field takes every key.
+            Mode::Normal | Mode::Tracks | Mode::Properties | Mode::Palette | Mode::Visual
+                if self.palette.search.is_some()
+                    && self.focused_kind() == crate::app::PaneKind::Palette =>
+            {
+                self.palette_search_key(key)
+            }
             // A property being typed takes every key.
             Mode::Normal | Mode::Tracks | Mode::Properties
                 if self.props.edit.is_some()
@@ -224,8 +236,9 @@ impl App {
             {
                 self.props_edit_key(key)
             }
-            // Escape in a tool pane goes back to the score pane worked on last.
-            Mode::Normal | Mode::Tracks
+            // Escape in a tool pane goes back to the score pane worked on last (the Visual
+            // selection stays).
+            Mode::Normal | Mode::Tracks | Mode::Visual
                 if key.code == KeyCode::Esc
                     && self.pending.is_empty()
                     && self.focused_kind() != crate::app::PaneKind::Score =>
@@ -238,7 +251,8 @@ impl App {
             {
                 self.properties_key(key)
             }
-            Mode::Normal | Mode::Tracks | Mode::Properties
+            // The palette's keys, in Visual mode too: the selection stays for its tools.
+            Mode::Normal | Mode::Tracks | Mode::Properties | Mode::Visual
                 if self.focused_kind() == crate::app::PaneKind::Palette =>
             {
                 self.palette_key(key)
@@ -258,6 +272,7 @@ impl App {
             self.ed.group = None;
             if let Some(k) = self.ed.change_keys.take() {
                 self.ed.last_change = k;
+                self.ed.tool_last = false;
             }
         }
     }
@@ -473,6 +488,7 @@ impl App {
                 self.ed.change_keys = Some(keys);
             } else {
                 self.ed.last_change = keys;
+                self.ed.tool_last = false;
             }
         }
     }
@@ -616,7 +632,7 @@ impl App {
         }
     }
 
-    fn visual_key(&mut self, key: Key) {
+    pub(crate) fn visual_key(&mut self, key: Key) {
         if self.ed.awaiting.is_some() {
             return self.normal_key(key);
         }
@@ -646,6 +662,7 @@ impl App {
                     self.run(Command::Normal)
                 }
                 Command::Visual { bars } => self.ed.visual_bars = bars,
+                c if c.is_range() => self.run_tool(c),
                 c if is_motion(&c) || !c.is_change() => self.run_counted(c, count),
                 _ => self.error("not available in visual mode"),
             }
@@ -840,6 +857,24 @@ impl App {
     /// Runs editing commands; returns false for commands it does not handle.
     pub(crate) fn run_edit(&mut self, cmd: &Command) -> bool {
         use Command::*;
+        // A bar selection: bar commands go to its first or last bar, or to every bar of it.
+        if matches!(self.selection(), Some((_, _, true)))
+            && matches!(
+                cmd,
+                RepeatStart
+                    | RepeatEnd(_)
+                    | DoubleBar
+                    | Section(_)
+                    | DirectionMark(_)
+                    | Key(..)
+                    | Time(..)
+                    | FreeTime
+                    | Ending(_)
+            )
+        {
+            self.run_over_bars(cmd);
+            return true;
+        }
         let duration = self.insert_duration();
         match cmd {
             Insert => self.enter_insert(),
@@ -893,6 +928,10 @@ impl App {
                 self.put(*before, n);
             }
             Undo | Redo | UndoOlder | UndoNewer => self.undo(cmd),
+            Repeat if self.ed.tool_last && self.ed.last_tool.is_some() => {
+                let (cmd, span) = self.ed.last_tool.clone().unwrap();
+                self.repeat_tool(cmd, span);
+            }
             Repeat => {
                 let keys = self.ed.last_change.clone();
                 if keys.is_empty() {
@@ -949,7 +988,44 @@ impl App {
                 self.enter_insert();
             }
             BarDelete => self.operate_bars(self::Operator::Delete, 1),
-            DurationLonger | DurationShorter | Duration(_) | Dot | Tuplet(_) => {
+            DurationLonger | DurationShorter | Duration(_) | Dot | DoubleDot | Tuplet(_)
+                if self.selection().is_some() =>
+            {
+                let (from, to) = self.beat_range();
+                let cmd = cmd.clone();
+                let n = self.edit(|cx| {
+                    Ok(match &cmd {
+                        Dot => {
+                            edit::dot_range(cx, from, to, 1);
+                            0
+                        }
+                        DoubleDot => {
+                            edit::dot_range(cx, from, to, 2);
+                            0
+                        }
+                        Tuplet(n) => {
+                            edit::tuplet_range(cx, from, to, *n);
+                            0
+                        }
+                        _ => edit::change_durations(cx, from, to, |mut d| {
+                            match &cmd {
+                                DurationLonger => d.value = d.value.longer(),
+                                DurationShorter => d.value = d.value.shorter(),
+                                Duration(n) => {
+                                    d.value = DurationValue::from_denominator(*n).unwrap_or(d.value)
+                                }
+                                _ => {}
+                            }
+                            d
+                        }),
+                    })
+                });
+                if n == Some(0) && !matches!(cmd, Dot | DoubleDot | Tuplet(_)) {
+                    self.error("no beats in the selection");
+                }
+                self.report_overflow(from, to);
+            }
+            DurationLonger | DurationShorter | Duration(_) | Dot | DoubleDot | Tuplet(_) => {
                 let cmd = cmd.clone();
                 let new = self.edit(move |cx| {
                     Ok(edit::set_duration(cx, |mut d| {
@@ -960,6 +1036,7 @@ impl App {
                                 d.value = DurationValue::from_denominator(*n).unwrap_or(d.value)
                             }
                             Dot => d.dots = if d.dots == 0 { 1 } else { 0 },
+                            DoubleDot => d.dots = if d.dots == 2 { 0 } else { 2 },
                             Tuplet(n) => {
                                 let times = match n {
                                     3 => 2,
@@ -981,6 +1058,20 @@ impl App {
                     self.ed.insert_duration = Some(d);
                 }
             }
+            PitchUp | PitchDown | OctaveUp | OctaveDown if self.selection().is_some() => {
+                let n = match cmd {
+                    PitchUp => 1,
+                    PitchDown => -1,
+                    OctaveUp => 12,
+                    _ => -12,
+                };
+                let (from, to) = self.beat_range();
+                if let Some(stuck) = self.edit(|cx| Ok(edit::shift_range(cx, from, to, n)))
+                    && stuck > 0
+                {
+                    self.info(format!("{stuck} notes could not move"));
+                }
+            }
             PitchUp | PitchDown | OctaveUp | OctaveDown => {
                 let n = match cmd {
                     PitchUp => 1,
@@ -990,11 +1081,42 @@ impl App {
                 };
                 self.edit(|cx| edit::shift_pitch(cx, n));
             }
+            Rest if self.selection().is_some() => {
+                let (from, to) = self.beat_range();
+                self.edit(|cx| {
+                    edit::clear_range(cx, from, to);
+                    Ok(())
+                });
+            }
             Rest => {
                 self.edit(|cx| {
                     edit::make_rest(cx, duration);
                     Ok(())
                 });
+            }
+            Toggle(t) if self.selection().is_some() => {
+                let (from, to) = self.beat_range();
+                let t = t.clone();
+                self.edit(|cx| edit::toggle_range(cx, from, to, &t));
+            }
+            DynamicStep(by) => {
+                let (from, to) = self.beat_range();
+                let by = *by;
+                self.edit(|cx| edit::step_dynamic_range(cx, from, to, by));
+            }
+            Dynamic(d) if self.selection().is_some() => {
+                let (from, to) = self.beat_range();
+                let d = d.clone();
+                self.edit(|cx| edit::set_dynamic_range(cx, from, to, &d));
+            }
+            Accidental(alter) if self.selection().is_some() => {
+                let (from, to) = self.beat_range();
+                let alter = *alter;
+                if let Some(stuck) = self.edit(|cx| edit::accidental_range(cx, from, to, alter))
+                    && stuck > 0
+                {
+                    self.info(format!("{stuck} notes could not move"));
+                }
             }
             Toggle(t) => {
                 let t = t.clone();
@@ -1038,13 +1160,57 @@ impl App {
                     }
                 });
             }
-            Key(k) => {
-                let k = *k;
+            Key(k, minor) => {
+                let (k, minor) = (*k, *minor);
                 self.edit_master(move |bars, i| {
                     let old = bars[i].key_signature;
                     for mb in bars[i..].iter_mut().take_while(|m| m.key_signature == old) {
                         mb.key_signature.accidentals = k;
+                        if let Some(minor) = minor {
+                            mb.key_signature.minor = minor;
+                        }
                     }
+                });
+            }
+            FreeTime => self.edit_master(|bars, i| bars[i].free_time = !bars[i].free_time),
+            DoubleBar => self.edit_master(|bars, i| bars[i].double_bar = !bars[i].double_bar),
+            Ending(mask) => {
+                let mask = *mask;
+                self.edit_master(move |bars, i| {
+                    bars[i].alternate_endings = if bars[i].alternate_endings == mask {
+                        0
+                    } else {
+                        mask
+                    }
+                });
+            }
+            DirectionMark(d) => {
+                let d = *d;
+                self.edit_master(move |bars, i| {
+                    let list = &mut bars[i].directions;
+                    match list.iter().position(|x| *x == d) {
+                        Some(k) => {
+                            list.remove(k);
+                        }
+                        None => list.push(d),
+                    }
+                });
+            }
+            BarRepeat(n) => self.bar_repeat(*n),
+            Beams(mode) => {
+                let mode = *mode;
+                let (from, to) = self.beat_range();
+                self.edit(|cx| {
+                    edit::set_beams(cx, from, to, mode);
+                    Ok(())
+                });
+            }
+            Stems(dir) => {
+                let dir = *dir;
+                let (from, to) = self.beat_range();
+                self.edit(|cx| {
+                    edit::set_stems(cx, from, to, dir);
+                    Ok(())
                 });
             }
             Tempo(bpm) => {
@@ -1291,6 +1457,177 @@ impl App {
         self.ed.group.get_or_insert(false);
     }
 
+    /// The beats a beam or stem command covers: the visual selection, else the cursor beat.
+    fn beat_range(&self) -> (Pos, Pos) {
+        let c = self.pane().cursor;
+        let here = (c.bar, c.beat);
+        let Some((anchor, cursor, bars)) = self.selection() else {
+            return (here, here);
+        };
+        if bars {
+            let (a, b) = (anchor.bar.min(cursor.bar), anchor.bar.max(cursor.bar));
+            return ((a, 0), (b, usize::MAX));
+        }
+        let (a, b) = ((anchor.bar, anchor.beat), (cursor.bar, cursor.beat));
+        if a <= b { (a, b) } else { (b, a) }
+    }
+
+    /// Runs a tool (a palette button, a command applied to a Visual selection) and, if it
+    /// changed the score, keeps it with the size of its selection for `.`.
+    pub(crate) fn run_tool(&mut self, cmd: Command) {
+        let span = self.selection().map(|(a, b, bars)| {
+            if bars {
+                (true, a.bar.abs_diff(b.bar) + 1)
+            } else {
+                let c = self.pane().cursor;
+                let (lo, hi) = (
+                    (a.bar, a.beat).min((b.bar, b.beat)),
+                    (a.bar, a.beat).max((b.bar, b.beat)),
+                );
+                let n = edit::collect(&self.buffer().score, c.track, c.voice, lo, hi).len();
+                (false, n.max(1))
+            }
+        });
+        let before = self.buffer().version;
+        self.run(cmd.clone());
+        if self.buffer().version != before {
+            self.ed.last_tool = Some((cmd, span));
+            self.ed.tool_last = true;
+        }
+    }
+
+    /// `.` after a tool: applies it again at the cursor, over a selection of the same size
+    /// if it was applied to one.
+    fn repeat_tool(&mut self, cmd: Command, span: Option<(bool, usize)>) {
+        self.ed.replaying += 1;
+        match span {
+            None => self.run(cmd),
+            Some((bars, n)) => {
+                self.run(Command::Visual { bars });
+                for _ in 1..n {
+                    self.run(if bars {
+                        Command::BarNext
+                    } else {
+                        Command::BeatNext
+                    });
+                }
+                self.run(cmd);
+                if self.mode == Mode::Visual {
+                    self.run(Command::Normal);
+                }
+            }
+        }
+        self.ed.replaying -= 1;
+    }
+
+    /// Says so when the beats of the bars `from` and `to` (positions) now run over their bars.
+    fn report_overflow(&mut self, from: Pos, to: Pos) {
+        let c = self.pane().cursor;
+        let over = edit::overflowing_bars(&self.buffer().score, c.track, c.voice, from.0, to.0);
+        if let Some(b) = over.first() {
+            let more = if over.len() > 1 {
+                format!(" (and {} more)", over.len() - 1)
+            } else {
+                String::new()
+            };
+            self.info(format!("bar {} is over full{more}", b + 1));
+        }
+    }
+
+    /// Runs a bar command on the bars of the Visual bar selection it is meant for: repeat
+    /// start, section, key and time signature at the first, repeat end, double bar and
+    /// direction at the last, free time and endings on all (taken off when all have them).
+    fn run_over_bars(&mut self, cmd: &Command) {
+        use Command::*;
+        let (a, b) = self.bar_range();
+        let marks = &self.buffer().score.master_bars;
+        let bars: Vec<usize> = match cmd {
+            RepeatStart | Section(_) | Key(..) | Time(..) => vec![a],
+            RepeatEnd(_) | DoubleBar | DirectionMark(_) => vec![b],
+            FreeTime => {
+                let all = (a..=b).all(|i| marks[i].free_time);
+                (a..=b).filter(|&i| marks[i].free_time == all).collect()
+            }
+            Ending(mask) => {
+                let all = (a..=b).all(|i| marks[i].alternate_endings == *mask);
+                (a..=b)
+                    .filter(|&i| (marks[i].alternate_endings == *mask) == all)
+                    .collect()
+            }
+            _ => vec![],
+        };
+        let (anchor, cursor) = (self.ed.visual_anchor.take(), self.pane().cursor);
+        // One undo step for all the bars.
+        self.ed.group = Some(false);
+        for bar in bars {
+            self.pane_mut().cursor.bar = bar;
+            self.run(cmd.clone());
+        }
+        self.ed.group = None;
+        self.pane_mut().cursor.bar = cursor.bar;
+        self.ed.visual_anchor = anchor;
+    }
+
+    /// The bars a bar command applies to: the Visual bar selection, else the cursor bar.
+    fn bar_range(&self) -> (usize, usize) {
+        let here = self.pane().cursor.bar;
+        match self.selection() {
+            Some((a, b, true)) => (a.bar.min(b.bar), a.bar.max(b.bar)),
+            _ => (here, here),
+        }
+    }
+
+    /// Makes the cursor bar (or the two from it) repeat the bar(s) before, shown as a repeat
+    /// sign; the notes are copied so playback and files without the sign still have them.
+    fn bar_repeat(&mut self, n: Option<u8>) {
+        let at = self.pane().cursor.bar;
+        let track = self.pane().cursor.track;
+        let Some(n) = n else {
+            self.edit(|cx| {
+                let bars = &mut cx.whole().tracks[track].bars;
+                let partner = match bars.get(at).and_then(|b| b.simile) {
+                    Some(Simile::TwoBarsFirst) => Some(at + 1),
+                    Some(Simile::TwoBarsSecond) => at.checked_sub(1),
+                    _ => None,
+                };
+                for b in std::iter::once(at).chain(partner) {
+                    if let Some(bar) = bars.get_mut(b) {
+                        bar.simile = None;
+                    }
+                }
+                Ok(())
+            });
+            return;
+        };
+        let n = n as usize;
+        if at < n {
+            return self.error(format!(
+                "bar-repeat: there are not {n} bars before this one"
+            ));
+        }
+        if at + n > self.buffer().score.master_bars.len() {
+            return self.error(format!("bar-repeat: {n} bars do not fit from here"));
+        }
+        // Pressing it again on a repeat takes the repeat away.
+        let already = self.buffer().score.tracks[track].bars[at].simile.is_some();
+        if already {
+            return self.run(Command::BarRepeat(None));
+        }
+        self.edit(|cx| {
+            let bars = &mut cx.whole().tracks[track].bars;
+            for k in 0..n {
+                let mut copy = bars[at - n + k].clone();
+                copy.simile = Some(match (n, k) {
+                    (1, _) => Simile::OneBar,
+                    (_, 0) => Simile::TwoBarsFirst,
+                    _ => Simile::TwoBarsSecond,
+                });
+                bars[at + k] = copy;
+            }
+            Ok(())
+        });
+    }
+
     fn edit_master(&mut self, f: impl FnOnce(&mut Vec<MasterBar>, usize)) {
         let bar = self.pane().cursor.bar;
         self.edit(|cx| {
@@ -1403,7 +1740,8 @@ impl App {
                                 empty: true,
                                 ..Beat::default()
                             }]
-                        }]
+                        }],
+                        ..Default::default()
                     };
                     bars
                 ],
@@ -1706,6 +2044,7 @@ impl App {
                     ..Beat::default()
                 }],
             }],
+            ..Default::default()
         };
         let score = Score {
             tempo: 120,

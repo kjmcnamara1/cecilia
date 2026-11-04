@@ -72,11 +72,13 @@ Score
 │  │  volume/pan, color, mute/solo
 │  ├─ fretted: strings (tuning, MIDI pitch per string), fret count, capo
 │  ├─ staves: which views are shown (tab, standard, slash, chant)
-│  └─ bars[] (one per master bar) → voices[] (≥4) → beats[]
+│  └─ bars[] (one per master bar; repeat sign `simile`) → voices[] (≥4) → beats[]
 │        beat: duration (value, dots, tuplet), rest/empty, text, chord diagram ref,
-│              lyrics, stroke/brush, pick stroke, tremolo/whammy bar, slap/pop/tap, fade, octave sign
+│              lyrics, stroke/brush, pick stroke, tremolo/whammy bar, slap/pop/tap, fade in/out,
+│              volume swell, fermata, hairpin, octave sign, beam and stem overrides,
+│              dynamic (one per beat: a MIDI velocity all its notes play at)
 │        notes[]: string+fret (fretted) or pitch (staff/chant), velocity, tie, dead, ghost, accent,
-│                 effects (see 4.1)
+│                 written alteration (double sharp / flat), effects (see 4.1)
 │  └─ chant (chant tracks; see 4.2)
 ├─ lyrics, chord library, page setup
 └─ extras: opaque key/value store preserving unsupported source-format fields for round-trip
@@ -96,6 +98,12 @@ arpeggio strokes, pick strokes, fingering (left/right hand), dynamics, fade in/o
 let-ring/palm-mute ranges, chord diagrams (barres, fingerings), free time, multiple voices,
 tuplets (incl. nested), lyrics, repeats, alternate endings, directions.
 Anything not yet editable must still round-trip through `extras`.
+
+The editing palette (`muse-app`, `palette.rs`) exposes these as tools: durations, accidentals
+(down to double sharp / flat), dynamics and hairpins, articulations, effects, the six slides,
+strokes (brush, arpeggio, rasgueado, pick strokes), beam and stem overrides, and the bar tools
+(clef, key and time signature, free time, double bar, bar repeat signs, repeats, alternate
+endings, directions, sections). Each runs an ordinary command and is one undo step.
 
 ### 4.2 Chant model
 

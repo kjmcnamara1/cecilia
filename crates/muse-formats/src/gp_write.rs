@@ -880,6 +880,7 @@ mod tests {
                 voices: vec![Voice {
                     beats: vec![beat; 4],
                 }],
+                ..Default::default()
             }],
             ..Track::default()
         };

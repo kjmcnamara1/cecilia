@@ -21,6 +21,8 @@ pub const WIDTH: u16 = 26;
 /// An item: its name, command line and short label.
 type Item = (&'static str, &'static str, &'static str);
 
+/// An item whose command ends in a space takes an argument: choosing it opens the command line
+/// with that text typed (and completion for the argument).
 pub const SECTIONS: &[(&str, &[Item])] = &[
     (
         "Duration",
@@ -33,6 +35,9 @@ pub const SECTIONS: &[(&str, &[Item])] = &[
             ("32nd note", "duration 32", "32"),
             ("64th note", "duration 64", "64"),
             ("Dotted", "dot", "."),
+            ("Double dotted", "double-dot", ".."),
+            ("Longer", "duration-longer", "+"),
+            ("Shorter", "duration-shorter", "-"),
             ("Triplet", "tuplet 3", "3"),
             ("Rest", "rest", "rst"),
         ],
@@ -43,6 +48,10 @@ pub const SECTIONS: &[(&str, &[Item])] = &[
             ("Sharp", "accidental sharp", "♯"),
             ("Flat", "accidental flat", "♭"),
             ("Natural", "accidental natural", "♮"),
+            ("Double sharp", "accidental double-sharp", "♯♯"),
+            ("Double flat", "accidental double-flat", "♭♭"),
+            ("Semitone up", "pitch-up", "+1"),
+            ("Semitone down", "pitch-down", "-1"),
             ("Octave up", "octave-up", "8↑"),
             ("Octave down", "octave-down", "8↓"),
             ("Tie", "toggle tie", "⌒"),
@@ -61,6 +70,13 @@ pub const SECTIONS: &[(&str, &[Item])] = &[
             ("Forte (f)", "dynamic f", "f"),
             ("Fortissimo (ff)", "dynamic ff", "ff"),
             ("Fortississimo (fff)", "dynamic fff", "fff"),
+            ("Louder", "dynamic-step +1", "d+"),
+            ("Softer", "dynamic-step -1", "d-"),
+            ("Crescendo", "toggle crescendo", "<"),
+            ("Decrescendo", "toggle decrescendo", ">"),
+            ("Fade in", "toggle fade-in", "fi"),
+            ("Fade out", "toggle fade-out", "fo"),
+            ("Volume swell", "toggle volume-swell", "<>"),
         ],
     ),
     (
@@ -69,6 +85,7 @@ pub const SECTIONS: &[(&str, &[Item])] = &[
             ("Accent", "toggle accent", ">"),
             ("Heavy accent", "toggle heavy-accent", "^"),
             ("Staccato", "toggle staccato", "·"),
+            ("Fermata", "toggle fermata", "frm"),
             ("Let ring", "toggle let-ring", "LR"),
             ("Palm mute", "toggle palm-mute", "PM"),
         ],
@@ -76,23 +93,127 @@ pub const SECTIONS: &[(&str, &[Item])] = &[
     (
         "Effects",
         &[
-            ("Hammer-on / pull-off", "toggle hammer", "H"),
-            ("Slide", "toggle slide", "/"),
+            ("Legato (hammer-on / pull-off)", "toggle hammer", "leg"),
             ("Bend", "toggle bend", "↗"),
             ("Half bend", "toggle half-bend", "½"),
             ("Vibrato", "toggle vibrato", "~"),
             ("Wide vibrato", "toggle vibrato-wide", "≈"),
             ("Harmonic", "toggle harmonic", "◇"),
+            ("Artificial harmonic", "toggle artificial-harmonic", "AH"),
             ("Tremolo picking", "toggle tremolo", "≡"),
             ("Tap", "toggle tap", "tap"),
+            ("Left hand tapping", "toggle left-hand-tap", "LHT"),
             ("Slap", "toggle slap", "slp"),
             ("Pop", "toggle pop", "pop"),
-            ("Fade in", "toggle fade-in", "<"),
+            ("Grace note before beat", "toggle grace-before", "grb"),
+            ("Grace note on beat", "toggle grace-on", "gro"),
+        ],
+    ),
+    (
+        "Slides",
+        &[
+            ("Shift slide", "toggle slide", "/"),
+            ("Legato slide", "toggle slide-legato", "~/"),
+            ("Slide in from above", "toggle slide-in-above", "in↘"),
+            ("Slide in from below", "toggle slide-in-below", "in↗"),
+            ("Slide out downwards", "toggle slide-out-down", "ou↘"),
+            ("Slide out upwards", "toggle slide-out-up", "ou↗"),
+        ],
+    ),
+    (
+        "Strokes",
+        &[
             ("Down stroke", "toggle stroke-down", "↓"),
             ("Up stroke", "toggle stroke-up", "↑"),
+            ("Arpeggio down", "toggle arpeggio-down", "a↓"),
+            ("Arpeggio up", "toggle arpeggio-up", "a↑"),
+            ("Rasgueado", "toggle rasgueado", "ras"),
+            ("Pickstroke down", "toggle pick-down", "pk↓"),
+            ("Pickstroke up", "toggle pick-up", "pk↑"),
+        ],
+    ),
+    (
+        "Beams & stems",
+        &[
+            ("Automatic beams", "beams auto", "bA"),
+            ("Force beams", "beams force", "bF"),
+            ("Break beams", "beams break", "bB"),
+            ("Break secondary beams", "beams break-secondary", "b2"),
+            ("Automatic stems", "stems auto", "sA"),
+            ("Stems up", "stems up", "s↑"),
+            ("Stems down", "stems down", "s↓"),
+        ],
+    ),
+    (
+        "Bar",
+        &[
+            ("Clef", "clef ", "clf"),
+            ("Key signature", "key ", "key"),
+            ("Time signature", "time ", "4/4"),
+            ("Free time", "free-time", "ft"),
+            ("Double bar line", "double-bar", "||"),
+            ("Section", "section ", "sec"),
+        ],
+    ),
+    (
+        "Repeats",
+        &[
+            ("Repeat one bar", "bar-repeat 1", "%"),
+            ("Repeat two bars", "bar-repeat 2", "%%"),
+            ("Repeat open", "repeat-start", "|:"),
+            ("Repeat close", "repeat-end", ":|"),
+            ("Alternate endings", "ending ", "1."),
+            ("Directions", "direction ", "D.C"),
         ],
     ),
 ];
+
+/// The terminal's icon of a palette command: the closest Unicode / Nerd Font glyph to the
+/// symbol the engraver draws for it, or `None` where there is none and the item's short label
+/// stands in. `nerd` picks the Nerd Font glyphs (Material Design music notes) over the plain
+/// Unicode ones. This one table is the place to adjust the terminal's icons.
+pub fn palette_glyph(command: &str, nerd: bool) -> Option<&'static str> {
+    let (name, arg) = command
+        .trim_end()
+        .split_once(' ')
+        .unwrap_or((command.trim_end(), ""));
+    // (Nerd Font, Unicode); the Nerd Font column is empty where Unicode does as well.
+    let (n, u): (&str, &str) = match (name, arg) {
+        ("duration", "1") => ("\u{f038d}", "\u{1D15D}"),
+        ("duration", "2") => ("\u{f0389}", "\u{1D15E}"),
+        ("duration", "4") => ("\u{f038b}", "\u{2669}"),
+        ("duration", "8") => ("\u{f0388}", "\u{266A}"),
+        ("duration", "16") => ("\u{f038c}", "\u{266C}"),
+        ("duration", "32") => ("", "\u{1D162}"),
+        ("duration", "64") => ("", "\u{1D163}"),
+        ("dot", _) => ("", "\u{2669}."),
+        ("double-dot", _) => ("", "\u{2669}.."),
+        ("tuplet", _) => ("", "\u{00B3}"),
+        ("rest", _) => ("", "\u{1D13D}"),
+        ("accidental", "sharp") => ("", "\u{266F}"),
+        ("accidental", "flat") => ("", "\u{266D}"),
+        ("accidental", "natural") => ("", "\u{266E}"),
+        ("accidental", "double-sharp") => ("", "\u{1D12A}"),
+        ("accidental", "double-flat") => ("", "\u{1D12B}"),
+        ("toggle", "tie") => ("", "\u{2040}"),
+        ("toggle", "fermata") => ("", "\u{1D110}"),
+        ("toggle", "pick-down") => ("", "\u{2293}"),
+        ("toggle", "pick-up") => ("", "\u{2228}"),
+        ("clef", _) => ("", "\u{1D11E}"),
+        ("key", _) => ("", "\u{266D}\u{266F}"),
+        ("time", _) => ("", "\u{1D134}"),
+        ("double-bar", _) => ("", "\u{1D101}"),
+        ("repeat-start", _) => ("", "\u{1D106}"),
+        ("repeat-end", _) => ("", "\u{1D107}"),
+        ("direction", _) => ("", "\u{1D10B}"),
+        _ => return None,
+    };
+    if nerd && !n.is_empty() {
+        Some(n)
+    } else {
+        Some(u)
+    }
+}
 
 /// The palette's selection and fold state.
 #[derive(Debug, Default)]
@@ -108,9 +229,21 @@ pub struct PaletteState {
     pub cols: Cell<usize>,
     /// The column up/down moves keep to (the one last chosen with left/right or a click).
     pub want_col: Cell<usize>,
+    /// A search being typed (`/`): the field at the bottom of the pane.
+    pub search: Option<PalSearch>,
+    /// The `/` register: what `n` and `N` look for.
+    pub last_search: String,
     /// Which commands can't take effect at the cursor, and why; kept for the cursor and score
     /// version it was worked out for.
     avail: RefCell<Option<Availability>>,
+}
+
+/// A search being typed in the palette, as in the properties pane.
+#[derive(Debug, Clone, PartialEq)]
+pub struct PalSearch {
+    pub query: String,
+    /// The selected row when it began: Escape goes back there.
+    origin: usize,
 }
 
 /// The commands that can't take effect at a cursor (with the reason), for a buffer and version.
@@ -157,6 +290,9 @@ impl PaletteRow {
     /// can't be applied now, "(unavailable)", e.g. "Palm mute (m) (unavailable)".
     pub fn name(&self) -> String {
         let mut name = self.label.to_string();
+        if self.command.ends_with(' ') {
+            name.push('…');
+        }
         if !self.keys.is_empty() {
             name = format!("{name} ({})", self.keys.join(", "));
         }
@@ -206,18 +342,51 @@ fn probe_edit(
 
 /// Whether a palette item's command is for a notation (the staff under the cursor) in a mode.
 ///
-/// Tab: everything but accidentals. Standard staff: accidentals and the marks it can show (no
-/// bends, palm mutes, let ring, tap / slap / pop or fade-ins). Slash: note values, rests, ties
-/// and accents. Chant: note values only. Visual mode (a selection, no note under the cursor):
-/// note values only, the length of the beat `i` / `a` add.
-fn applies(command: &str, kind: InsertKind, visual: bool) -> bool {
-    let (name, arg) = command.split_once(' ').unwrap_or((command, ""));
-    let value = matches!(name, "duration" | "dot" | "tuplet");
-    if visual || kind == InsertKind::Chant {
-        return value;
+/// Bar tools (key and time signatures, repeats, endings, directions, sections) apply on every
+/// staff but a chant's; the clef only on standard and chant staves. Tab: everything but
+/// accidentals, clefs and stems. Standard staff: accidentals and the marks it can show (no
+/// bends, palm mutes, let ring, tap / slap / pop, fades or left-hand taps). Slash: note
+/// values, rests, ties, accents, hairpins, fermatas and beams. Chant: note values and the clef.
+/// Visual mode (a selection of beats, applying to every beat of it) offers the tools of the
+/// staff's notation that make sense on a range; with a selection of bars it also offers the
+/// bar tools, for the first, the last or all of the selected bars (not the clef).
+fn applies(command: &str, kind: InsertKind, visual: Option<bool>) -> bool {
+    let (name, arg) = command
+        .trim_end()
+        .split_once(' ')
+        .unwrap_or((command.trim_end(), ""));
+    let value = matches!(
+        name,
+        "duration" | "dot" | "double-dot" | "tuplet" | "duration-longer" | "duration-shorter"
+    );
+    if kind == InsertKind::Chant {
+        return value || (name == "clef" && visual.is_none());
+    }
+    let bar_tool = matches!(
+        name,
+        "key"
+            | "time"
+            | "free-time"
+            | "double-bar"
+            | "section"
+            | "bar-repeat"
+            | "repeat-start"
+            | "repeat-end"
+            | "ending"
+            | "direction"
+    );
+    match visual {
+        // A beat selection: no bar tools, nor the clef.
+        Some(false) if bar_tool || name == "clef" => return false,
+        // A bar selection: the bar tools that mean something for several bars.
+        Some(true) if name == "clef" || name == "bar-repeat" => return false,
+        _ => {}
+    }
+    if bar_tool {
+        return true;
     }
     match kind {
-        InsertKind::Tab => name != "accidental",
+        InsertKind::Tab => !matches!(name, "accidental" | "clef" | "stems"),
         InsertKind::Standard => match name {
             "toggle" => !matches!(
                 arg,
@@ -229,14 +398,27 @@ fn applies(command: &str, kind: InsertKind, visual: bool) -> bool {
                     | "slap"
                     | "pop"
                     | "fade-in"
+                    | "fade-out"
+                    | "volume-swell"
+                    | "left-hand-tap"
             ),
             _ => true,
         },
         _ => {
             value
                 || name == "rest"
-                || matches!(arg, "tie" | "accent" | "heavy-accent" | "staccato")
-                || name == "dynamic"
+                || name == "beams"
+                || matches!(
+                    arg,
+                    "tie"
+                        | "accent"
+                        | "heavy-accent"
+                        | "staccato"
+                        | "crescendo"
+                        | "decrescendo"
+                        | "fermata"
+                )
+                || matches!(name, "dynamic" | "dynamic-step")
         }
     }
 }
@@ -247,7 +429,23 @@ impl App {
     /// left out.
     pub fn palette_rows(&self) -> Vec<PaletteRow> {
         let kind = self.insert_kind();
-        let visual = self.mode == crate::config::Mode::Visual;
+        // In Visual mode: whether the selection is of bars.
+        let visual = self
+            .selection()
+            .map(|(_, _, bars)| bars)
+            .or((self.mode == crate::config::Mode::Visual).then_some(false));
+        // The selected beats, from and to.
+        let range = self.selection().map(|(a, b, bars)| {
+            let (lo, hi) = (
+                (a.bar, a.beat).min((b.bar, b.beat)),
+                (a.bar, a.beat).max((b.bar, b.beat)),
+            );
+            if bars {
+                ((lo.0, 0), (hi.0, usize::MAX))
+            } else {
+                (lo, hi)
+            }
+        });
         let note = self.palette_note();
         let beat = self.palette_beat();
         // The beat under the cursor; the duration new notes get where there is none.
@@ -257,6 +455,15 @@ impl App {
             .map_or_else(|| self.insert_duration(), |b| b.duration);
         let rest = beat.as_ref().is_some_and(|b| !b.empty && b.is_rest());
         let fx = beat.as_ref().map(|b| b.effects.clone());
+        let cursor = self.pane().cursor;
+        let master = self.buffer().score.master_bars.get(cursor.bar).cloned();
+        let simile = self
+            .buffer()
+            .score
+            .tracks
+            .get(cursor.track)
+            .and_then(|t| t.bars.get(cursor.bar))
+            .and_then(|b| b.simile);
         let mut rows = Vec::new();
         for (s, (title, items)) in SECTIONS.iter().enumerate() {
             if !items.iter().any(|(_, c, _)| applies(c, kind, visual)) {
@@ -279,10 +486,117 @@ impl App {
                 if !applies(command, kind, visual) {
                     continue;
                 }
-                let (name, arg) = command.split_once(' ').unwrap_or((command, ""));
+                let (name, arg) = command
+                    .trim_end()
+                    .split_once(' ')
+                    .unwrap_or((command.trim_end(), ""));
+                let alter = |a: i8| note.as_ref().is_some_and(|n| n.alter == Some(a));
+                let slide = |k: muse_core::SlideKind| {
+                    note.as_ref().is_some_and(|n| n.effects.slides.contains(&k))
+                };
+                let stroke = |d: muse_core::StrokeDirection, arpeggio: bool| {
+                    fx.as_ref().is_some_and(|e| {
+                        e.stroke
+                            .is_some_and(|s| s.direction == d && s.arpeggio == arpeggio)
+                    })
+                };
+                // A technique is in force over a selection when every beat (or note) has it.
+                let over_range = range.filter(|_| name == "toggle").map(|(from, to)| {
+                    edit::range_has(
+                        &self.buffer().score,
+                        cursor.track,
+                        cursor.voice,
+                        from,
+                        to,
+                        arg,
+                    )
+                });
                 let active = match (name, arg) {
+                    _ if over_range.is_some() => over_range == Some(true),
+                    ("dynamic", d) if range.is_some() => {
+                        let (from, to) = range.unwrap();
+                        edit::range_has_dynamic(
+                            &self.buffer().score,
+                            cursor.track,
+                            cursor.voice,
+                            from,
+                            to,
+                            d,
+                        )
+                    }
                     ("duration", n) => n.parse() == Ok(duration.value.denominator()),
                     ("rest", _) => rest,
+                    ("accidental", "double-sharp") => alter(2),
+                    ("accidental", "double-flat") => alter(-2),
+                    ("double-dot", _) => duration.dots == 2,
+                    ("free-time", _) => master.as_ref().is_some_and(|m| m.free_time),
+                    ("double-bar", _) => master.as_ref().is_some_and(|m| m.double_bar),
+                    ("repeat-start", _) => master.as_ref().is_some_and(|m| m.repeat_start),
+                    ("repeat-end", _) => master.as_ref().is_some_and(|m| m.repeat_end.is_some()),
+                    ("ending", _) => master.as_ref().is_some_and(|m| m.alternate_endings != 0),
+                    ("direction", _) => master.as_ref().is_some_and(|m| !m.directions.is_empty()),
+                    ("section", _) => master.as_ref().is_some_and(|m| m.marker.is_some()),
+                    ("bar-repeat", "1") => simile == Some(muse_core::Simile::OneBar),
+                    ("bar-repeat", _) => matches!(
+                        simile,
+                        Some(muse_core::Simile::TwoBarsFirst | muse_core::Simile::TwoBarsSecond)
+                    ),
+                    ("beams", m) => beat.as_ref().is_some_and(|b| {
+                        b.beam
+                            == match m {
+                                "force" => muse_core::BeamMode::Force,
+                                "break" => muse_core::BeamMode::Break,
+                                "break-secondary" => muse_core::BeamMode::BreakSecondary,
+                                _ => muse_core::BeamMode::Auto,
+                            }
+                    }),
+                    ("stems", d) => beat.as_ref().is_some_and(|b| {
+                        b.stem
+                            == match d {
+                                "up" => muse_core::StemDir::Up,
+                                "down" => muse_core::StemDir::Down,
+                                _ => muse_core::StemDir::Auto,
+                            }
+                    }),
+                    ("toggle", "fade-out") => fx.as_ref().is_some_and(|e| e.fade_out),
+                    ("toggle", "volume-swell") => fx.as_ref().is_some_and(|e| e.volume_swell),
+                    ("toggle", "fermata") => fx.as_ref().is_some_and(|e| e.fermata),
+                    ("toggle", "rasgueado") => fx.as_ref().is_some_and(|e| e.rasgueado),
+                    ("toggle", "crescendo") => fx
+                        .as_ref()
+                        .is_some_and(|e| e.hairpin == Some(muse_core::Hairpin::Crescendo)),
+                    ("toggle", "decrescendo") => fx
+                        .as_ref()
+                        .is_some_and(|e| e.hairpin == Some(muse_core::Hairpin::Decrescendo)),
+                    ("toggle", "pick-down") => fx
+                        .as_ref()
+                        .is_some_and(|e| e.pick_stroke == muse_core::StrokeDirection::Down),
+                    ("toggle", "pick-up") => fx
+                        .as_ref()
+                        .is_some_and(|e| e.pick_stroke == muse_core::StrokeDirection::Up),
+                    ("toggle", "arpeggio-down") => stroke(muse_core::StrokeDirection::Down, true),
+                    ("toggle", "arpeggio-up") => stroke(muse_core::StrokeDirection::Up, true),
+                    ("toggle", "slide") => slide(muse_core::SlideKind::Shift),
+                    ("toggle", "slide-legato") => slide(muse_core::SlideKind::Legato),
+                    ("toggle", "slide-in-above") => slide(muse_core::SlideKind::IntoFromAbove),
+                    ("toggle", "slide-in-below") => slide(muse_core::SlideKind::IntoFromBelow),
+                    ("toggle", "slide-out-down") => slide(muse_core::SlideKind::OutDown),
+                    ("toggle", "slide-out-up") => slide(muse_core::SlideKind::OutUp),
+                    ("toggle", "left-hand-tap") => {
+                        note.as_ref().is_some_and(|n| n.effects.left_hand_tap)
+                    }
+                    ("toggle", "artificial-harmonic") => note.as_ref().is_some_and(|n| {
+                        matches!(
+                            n.effects.harmonic,
+                            Some(muse_core::Harmonic::Artificial { .. })
+                        )
+                    }),
+                    ("toggle", "grace-before") => note
+                        .as_ref()
+                        .is_some_and(|n| n.effects.grace.is_some_and(|g| !g.on_beat)),
+                    ("toggle", "grace-on") => note
+                        .as_ref()
+                        .is_some_and(|n| n.effects.grace.is_some_and(|g| g.on_beat)),
                     ("toggle", "vibrato-wide") => fx.as_ref().is_some_and(|e| e.vibrato),
                     ("toggle", "fade-in") => fx.as_ref().is_some_and(|e| e.fade_in),
                     ("toggle", "tap") => {
@@ -300,12 +614,14 @@ impl App {
                                 == (arg == "stroke-down")
                         })
                     }),
-                    ("dot", _) => duration.dots > 0,
+                    ("dot", _) => duration.dots == 1,
                     ("tuplet", _) => duration.tuplet.is_some(),
-                    ("dynamic", d) => note.as_ref().is_some_and(|n| {
-                        dynamic_velocity(d).is_some_and(|v| {
-                            muse_core::dynamic_name(n.velocity) == muse_core::dynamic_name(v)
-                        })
+                    ("dynamic", d) => beat.as_ref().is_some_and(|b| {
+                        !b.notes.is_empty()
+                            && dynamic_velocity(d).is_some_and(|v| {
+                                muse_core::dynamic_name(b.dynamic_velocity())
+                                    == muse_core::dynamic_name(v)
+                            })
                     }),
                     ("toggle", t) => note.as_ref().is_some_and(|n| match t {
                         "tie" => n.tie,
@@ -317,10 +633,12 @@ impl App {
                         "let-ring" => n.effects.let_ring,
                         "palm-mute" => n.effects.palm_mute,
                         "hammer" => n.effects.hammer_pull,
-                        "slide" => !n.effects.slides.is_empty(),
                         "bend" | "half-bend" => n.effects.bend.is_some(),
                         "vibrato" => n.effects.vibrato,
-                        "harmonic" | "pinch-harmonic" => n.effects.harmonic.is_some(),
+                        "harmonic" | "pinch-harmonic" => matches!(
+                            n.effects.harmonic,
+                            Some(h) if !matches!(h, muse_core::Harmonic::Artificial { .. })
+                        ),
                         "tremolo" => n.effects.tremolo_picking.is_some(),
                         _ => false,
                     }),
@@ -332,7 +650,12 @@ impl App {
                     short,
                     command,
                     active,
-                    unavailable: self.palette_unavailable(command),
+                    // Over a selection tools skip the beats they can't act on.
+                    unavailable: if range.is_some() {
+                        None
+                    } else {
+                        self.palette_unavailable(command)
+                    },
                     keys: self.palette_keys(command),
                 });
             }
@@ -375,6 +698,10 @@ impl App {
             });
             for (_, items) in SECTIONS {
                 for (_, command, _) in items.iter() {
+                    // An item that asks for an argument is always there to choose.
+                    if command.ends_with(' ') {
+                        continue;
+                    }
                     let result = match (&probe, Command::parse(command)) {
                         (None, _) => Err("no score".to_string()),
                         (Some(p), Ok(cmd)) => probe_edit(p.clone(), c, &cmd, duration),
@@ -585,9 +912,123 @@ impl App {
         if let Some(why) = &row.unavailable {
             return self.info(format!("{}: {why}", row.label));
         }
+        // A tool that needs an argument opens the command line with its command typed.
+        if row.command.ends_with(' ') {
+            self.pending.clear();
+            self.open_command_line(row.command);
+            self.cmd_from_palette = true;
+            return;
+        }
         match Command::parse(row.command) {
-            Ok(cmd) => self.run(cmd),
+            Ok(cmd) => self.run_tool(cmd),
             Err(e) => self.error(e),
+        }
+    }
+
+    /// Opens the search field (`/`).
+    pub(crate) fn palette_start_search(&mut self) {
+        self.palette.search = Some(PalSearch {
+            query: String::new(),
+            origin: self.palette_selected(),
+        });
+    }
+
+    /// Jumps to the match of `query` that is `dir` (1, -1) from row `from`, wrapping around:
+    /// a section by its title, a tool by its name, tooltip, command, label or section. Only
+    /// the rows shown now are searched (the tools of the notation and mode, unfolded).
+    fn palette_jump(&mut self, query: &str, from: usize, dir: isize) -> bool {
+        if query.is_empty() {
+            return false;
+        }
+        let rows = self.palette_rows();
+        let n = rows.len();
+        let mut section = "";
+        let hays: Vec<String> = rows
+            .iter()
+            .map(|r| match r.kind {
+                PaletteKind::Header { .. } => {
+                    section = r.label;
+                    r.label.to_string()
+                }
+                PaletteKind::Item => format!(
+                    "{}  {}  {}  {}  {}",
+                    r.name(),
+                    r.command,
+                    r.short,
+                    r.label,
+                    section
+                ),
+            })
+            .collect();
+        for step in 0..n {
+            let i = match dir {
+                -1 => (from + n - step) % n,
+                _ => (from + step) % n,
+            };
+            if Self::has_text(&hays[i], query) {
+                self.palette.selected = i;
+                let lines = self.palette_lines();
+                self.palette.want_col.set(self.palette_at(&lines).1);
+                return true;
+            }
+        }
+        false
+    }
+
+    /// Keys while the search field is open: they type the query, which jumps as it is typed;
+    /// Enter keeps the jump and sets the `/` register, Escape goes back.
+    pub(crate) fn palette_search_key(&mut self, key: crate::keys::Key) {
+        use crate::keys::KeyCode;
+        let Some(mut search) = self.palette.search.take() else {
+            return;
+        };
+        match key.code {
+            KeyCode::Esc => {
+                self.palette.selected = search.origin;
+                return;
+            }
+            KeyCode::Enter => {
+                if !search.query.is_empty() {
+                    self.palette.last_search = search.query.clone();
+                }
+                return;
+            }
+            KeyCode::Backspace if search.query.is_empty() => {
+                self.palette.selected = search.origin;
+                return;
+            }
+            KeyCode::Backspace => {
+                search.query.pop();
+            }
+            KeyCode::Char('u') if key.ctrl => search.query.clear(),
+            _ => {
+                if let Some(c) = key.as_char() {
+                    search.query.push(c);
+                }
+            }
+        }
+        // Each change looks again from where the search began.
+        if !self.palette_jump(&search.query, search.origin, 1) {
+            self.palette.selected = search.origin;
+        }
+        self.palette.search = Some(search);
+    }
+
+    /// `n` / `N`: the next / previous match of the `/` register.
+    fn palette_search_step(&mut self, dir: isize) {
+        let query = self.palette.last_search.clone();
+        if query.is_empty() {
+            return self.info("no previous search");
+        }
+        let n = self.palette_rows().len().max(1);
+        let sel = self.palette_selected();
+        let from = if dir > 0 {
+            (sel + 1) % n
+        } else {
+            (sel + n - 1) % n
+        };
+        if !self.palette_jump(&query, from, dir) {
+            self.error(format!("pattern not found: {query}"));
         }
     }
 
@@ -626,8 +1067,13 @@ impl App {
             crate::config::Lookup::Prefix => return,
             // Not a palette key: the keys go on as in any pane (`<C-w>` moves, `:` …).
             crate::config::Lookup::None => {
+                let visual = self.mode == crate::config::Mode::Visual;
                 for k in std::mem::take(&mut self.pending) {
-                    self.normal_key(k);
+                    if visual {
+                        self.visual_key(k);
+                    } else {
+                        self.normal_key(k);
+                    }
                 }
                 return;
             }
@@ -659,6 +1105,8 @@ impl App {
             PaletteLeft => self.palette_horizontal(-1),
             PaletteRight => self.palette_horizontal(1),
             PaletteActivate => self.activate_palette(),
+            PaletteSearch(0) => self.palette_start_search(),
+            PaletteSearch(dir) => self.palette_search_step(*dir),
             PaletteFold(fold) => self.fold_palette(*fold),
             _ => return false,
         }
@@ -683,10 +1131,37 @@ mod tests {
     }
 
     #[test]
+    fn every_item_has_a_terminal_icon_or_a_short_label() {
+        for (_, items) in SECTIONS {
+            for (label, command, short) in items.iter() {
+                assert!(
+                    palette_glyph(command, true).is_some() || !short.is_empty(),
+                    "{label}"
+                );
+                assert!(
+                    palette_glyph(command, false).is_some() || !short.is_empty(),
+                    "{label}"
+                );
+                assert!(short.chars().count() <= 3, "{label}: label too wide");
+            }
+        }
+        assert_eq!(palette_glyph("duration 4", true), Some("\u{f038b}"));
+        assert_eq!(palette_glyph("duration 4", false), Some("\u{2669}"));
+        assert_eq!(palette_glyph("toggle bend", true), None);
+    }
+
+    #[test]
     fn every_item_is_a_command() {
         for (_, items) in SECTIONS {
             for (label, command, _) in items.iter() {
-                assert!(Command::parse(command).is_ok(), "{label}: {command}");
+                match command.strip_suffix(' ') {
+                    // A prompt: a command the command line completes.
+                    Some(name) => assert!(
+                        crate::complete::COMMANDS.contains(&name),
+                        "{label}: {command}"
+                    ),
+                    None => assert!(Command::parse(command).is_ok(), "{label}: {command}"),
+                }
             }
         }
     }

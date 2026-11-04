@@ -112,6 +112,10 @@ pub fn read_file(path: &Path) -> Result<Score> {
 /// Output formats, chosen by file extension. Guitar Pro and MusicXML writers store a grand
 /// staff as two staves of one instrument ([`Score::split_grand`]).
 pub fn write_bytes(score: &Score, extension: &str) -> Result<Vec<u8>> {
+    // Formats keep a velocity per note: they get the beats' dynamics.
+    let mut applied = score.clone();
+    applied.apply_dynamics();
+    let score = &applied;
     match extension.to_ascii_lowercase().as_str() {
         "gp5" => gp_write::write_gp5(score),
         "gp" => gpif_write::write_gp7(score),

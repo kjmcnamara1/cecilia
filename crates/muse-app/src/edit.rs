@@ -121,6 +121,7 @@ impl<'a> EditCx<'a> {
     pub fn voice(&mut self) -> &mut Vec<Beat> {
         let (t, b, v) = (self.cursor.track, self.cursor.bar, self.cursor.voice);
         let bar = self.bar(t, b);
+        bar.simile = None;
         while bar.voices.len() <= v {
             bar.voices.push(Voice {
                 beats: vec![Beat {
@@ -184,7 +185,7 @@ impl<'a> EditCx<'a> {
     fn staff_position(&self, n: &Note) -> i32 {
         let track = &self.score.tracks[self.cursor.track];
         let written = track.pitch_of(n) as i32 + track.staff_clef().transpose();
-        staff::diatonic(written, self.key())
+        staff::diatonic_with(written, self.key(), n.alter)
     }
 
     /// Whether the cursor beat has a note at the cursor (its line or space; on a tab, string).
@@ -242,6 +243,8 @@ fn renumber_pitched(beat: &mut Beat) {
 /// replacing the note the cursor is on, or added to the chord. The cursor moves onto it.
 fn put_staff_note(cx: &mut EditCx, d: i32, alter: i32, duration: Duration) -> Result<(), String> {
     let track = cx.track().clone();
+    // A double sharp / flat is spelled by the note itself; it is set once the note is placed.
+    let written_alter = (alter.abs() == 2).then_some(alter as i8);
     let written = staff::letter_midi(d, 0) + alter;
     let pitch = written - track.staff_clef().transpose();
     let pitch = u8::try_from(pitch)
@@ -273,10 +276,23 @@ fn put_staff_note(cx: &mut EditCx, d: i32, alter: i32, duration: Duration) -> Re
             Some(n) => {
                 n.fret = pitch;
                 n.tie = false;
+                n.alter = None;
             }
             None => beat.notes.push(Note::new(u8::MAX, pitch)),
         }
         renumber_pitched(beat);
+    }
+    // The note now at the cursor takes the alteration it was written with.
+    let (fretted, string) = (track.kind == TrackKind::Fretted, cx.cursor.string as u8);
+    for n in &mut cx.beat().notes {
+        let placed = if fretted {
+            n.string == string
+        } else {
+            n.fret as i32 == pitch as i32
+        };
+        if placed {
+            n.alter = written_alter;
+        }
     }
     cx.cursor.line = d;
     Ok(())
@@ -678,19 +694,19 @@ pub fn advance(cx: &mut EditCx, duration: Duration) {
     cx.cursor.beat = 0;
 }
 
-pub fn toggle(cx: &mut EditCx, technique: &str, duration: Duration) -> Result<(), String> {
-    let string = cx.string();
-    let fretted = cx.track().kind == TrackKind::Fretted;
-    let beat = cx.beat();
-    ensure_real(beat, duration);
+/// Toggles a technique that belongs to the beat; false when it is not one of those.
+fn toggle_beat(beat: &mut Beat, technique: &str) -> bool {
     match technique {
         "vibrato-wide" => {
             beat.effects.vibrato = !beat.effects.vibrato;
-            return Ok(());
+            return true;
         }
         "fade-in" => {
-            beat.effects.fade_in = !beat.effects.fade_in;
-            return Ok(());
+            let on = !beat.effects.fade_in;
+            beat.effects.fade_in = on;
+            beat.effects.fade_out = false;
+            beat.effects.volume_swell = false;
+            return true;
         }
         "tap" | "slap" | "pop" => {
             let s = match technique {
@@ -703,7 +719,66 @@ pub fn toggle(cx: &mut EditCx, technique: &str, duration: Duration) -> Result<()
             } else {
                 s
             };
-            return Ok(());
+            return true;
+        }
+        "fade-out" | "volume-swell" => {
+            let fx = &mut beat.effects;
+            let on = if technique == "fade-out" {
+                !fx.fade_out
+            } else {
+                !fx.volume_swell
+            };
+            // The three fades are alternatives.
+            fx.fade_in = false;
+            fx.fade_out = on && technique == "fade-out";
+            fx.volume_swell = on && technique == "volume-swell";
+            return true;
+        }
+        "fermata" => {
+            beat.effects.fermata = !beat.effects.fermata;
+            return true;
+        }
+        "crescendo" | "decrescendo" => {
+            let h = if technique == "crescendo" {
+                Hairpin::Crescendo
+            } else {
+                Hairpin::Decrescendo
+            };
+            beat.effects.hairpin = (beat.effects.hairpin != Some(h)).then_some(h);
+            return true;
+        }
+        "rasgueado" => {
+            beat.effects.rasgueado = !beat.effects.rasgueado;
+            return true;
+        }
+        "pick-down" | "pick-up" => {
+            let d = if technique == "pick-up" {
+                StrokeDirection::Up
+            } else {
+                StrokeDirection::Down
+            };
+            beat.effects.pick_stroke = if beat.effects.pick_stroke == d {
+                StrokeDirection::None
+            } else {
+                d
+            };
+            return true;
+        }
+        "arpeggio-up" | "arpeggio-down" => {
+            let d = if technique == "arpeggio-up" {
+                StrokeDirection::Up
+            } else {
+                StrokeDirection::Down
+            };
+            beat.effects.stroke = match beat.effects.stroke {
+                Some(s) if s.arpeggio && s.direction == d => None,
+                _ => Some(Stroke {
+                    direction: d,
+                    duration: DurationValue::Sixteenth,
+                    arpeggio: true,
+                }),
+            };
+            return true;
         }
         "stroke-up" | "stroke-down" => {
             let d = if technique == "stroke-up" {
@@ -712,16 +787,156 @@ pub fn toggle(cx: &mut EditCx, technique: &str, duration: Duration) -> Result<()
                 StrokeDirection::Down
             };
             beat.effects.stroke = match beat.effects.stroke {
-                Some(s) if s.direction == d => None,
+                Some(s) if s.direction == d && !s.arpeggio => None,
                 _ => Some(Stroke {
                     direction: d,
                     duration: DurationValue::Sixteenth,
                     arpeggio: false,
                 }),
             };
-            return Ok(());
+            return true;
         }
         _ => {}
+    }
+    false
+}
+
+/// Toggles a technique on one note.
+fn toggle_note(n: &mut Note, technique: &str) -> Result<(), String> {
+    let (fret, velocity) = (n.fret, n.velocity);
+    let fx = &mut n.effects;
+    match technique {
+        "hammer" => fx.hammer_pull = !fx.hammer_pull,
+        "bend" => {
+            fx.bend = match fx.bend {
+                Some(_) => None,
+                None => Some(Bend {
+                    points: vec![
+                        BendPoint {
+                            position: 0,
+                            value: 0,
+                            vibrato: false,
+                        },
+                        BendPoint {
+                            position: 15,
+                            value: 4,
+                            vibrato: false,
+                        },
+                        BendPoint {
+                            position: Bend::MAX_POSITION,
+                            value: 4,
+                            vibrato: false,
+                        },
+                    ],
+                }),
+            }
+        }
+        "half-bend" => {
+            fx.bend = match fx.bend {
+                Some(_) => None,
+                None => Some(Bend {
+                    points: vec![
+                        BendPoint {
+                            position: 0,
+                            value: 0,
+                            vibrato: false,
+                        },
+                        BendPoint {
+                            position: 15,
+                            value: 2,
+                            vibrato: false,
+                        },
+                        BendPoint {
+                            position: Bend::MAX_POSITION,
+                            value: 2,
+                            vibrato: false,
+                        },
+                    ],
+                }),
+            }
+        }
+        "slide" => toggle_slide(fx, SlideKind::Shift),
+        "slide-legato" => toggle_slide(fx, SlideKind::Legato),
+        "slide-in-above" => toggle_slide(fx, SlideKind::IntoFromAbove),
+        "slide-in-below" => toggle_slide(fx, SlideKind::IntoFromBelow),
+        "slide-out-down" => toggle_slide(fx, SlideKind::OutDown),
+        "slide-out-up" => toggle_slide(fx, SlideKind::OutUp),
+        "left-hand-tap" => fx.left_hand_tap = !fx.left_hand_tap,
+        "artificial-harmonic" => {
+            fx.harmonic = match fx.harmonic {
+                Some(Harmonic::Artificial { .. }) => None,
+                _ => Some(Harmonic::Artificial { semitones: 12 }),
+            }
+        }
+        "grace-before" | "grace-on" => {
+            let on_beat = technique == "grace-on";
+            let fret = if fret >= 2 { fret - 2 } else { fret + 2 };
+            fx.grace = match fx.grace {
+                Some(g) if g.on_beat == on_beat => None,
+                _ => Some(Grace {
+                    fret,
+                    velocity,
+                    duration: DurationValue::Sixteenth,
+                    dead: false,
+                    on_beat,
+                    transition: GraceTransition::None,
+                }),
+            }
+        }
+        "vibrato" => fx.vibrato = !fx.vibrato,
+        "palm-mute" => fx.palm_mute = !fx.palm_mute,
+        "let-ring" => fx.let_ring = !fx.let_ring,
+        "staccato" => fx.staccato = !fx.staccato,
+        "harmonic" => {
+            fx.harmonic = if fx.harmonic.is_some() {
+                None
+            } else {
+                Some(Harmonic::Natural)
+            }
+        }
+        "pinch-harmonic" => {
+            fx.harmonic = if fx.harmonic.is_some() {
+                None
+            } else {
+                Some(Harmonic::Pinch)
+            }
+        }
+        "tremolo" => {
+            fx.tremolo_picking = if fx.tremolo_picking.is_some() {
+                None
+            } else {
+                Some(DurationValue::Sixteenth)
+            }
+        }
+        "dead" => n.dead = !n.dead,
+        "ghost" => n.ghost = !n.ghost,
+        "tie" => n.tie = !n.tie,
+        "accent" => {
+            n.accent = if n.accent == Accent::Normal {
+                Accent::None
+            } else {
+                Accent::Normal
+            }
+        }
+        "heavy-accent" => {
+            n.accent = if n.accent == Accent::Heavy {
+                Accent::None
+            } else {
+                Accent::Heavy
+            }
+        }
+        other => return Err(format!("unknown technique '{other}'")),
+    }
+    Ok(())
+}
+
+pub fn toggle(cx: &mut EditCx, technique: &str, duration: Duration) -> Result<(), String> {
+    let string = cx.string();
+    let fretted = cx.track().kind == TrackKind::Fretted;
+    let beat = cx.beat();
+    ensure_real(beat, duration);
+    if toggle_beat(beat, technique) {
+        return Ok(());
     }
     let notes: Vec<&mut Note> = if fretted {
         beat.notes
@@ -735,130 +950,70 @@ pub fn toggle(cx: &mut EditCx, technique: &str, duration: Duration) -> Result<()
         return Err("no note under the cursor".into());
     }
     for n in notes {
-        let fx = &mut n.effects;
-        match technique {
-            "hammer" => fx.hammer_pull = !fx.hammer_pull,
-            "bend" => {
-                fx.bend = match fx.bend {
-                    Some(_) => None,
-                    None => Some(Bend {
-                        points: vec![
-                            BendPoint {
-                                position: 0,
-                                value: 0,
-                                vibrato: false,
-                            },
-                            BendPoint {
-                                position: 15,
-                                value: 4,
-                                vibrato: false,
-                            },
-                            BendPoint {
-                                position: Bend::MAX_POSITION,
-                                value: 4,
-                                vibrato: false,
-                            },
-                        ],
-                    }),
-                }
-            }
-            "half-bend" => {
-                fx.bend = match fx.bend {
-                    Some(_) => None,
-                    None => Some(Bend {
-                        points: vec![
-                            BendPoint {
-                                position: 0,
-                                value: 0,
-                                vibrato: false,
-                            },
-                            BendPoint {
-                                position: 15,
-                                value: 2,
-                                vibrato: false,
-                            },
-                            BendPoint {
-                                position: Bend::MAX_POSITION,
-                                value: 2,
-                                vibrato: false,
-                            },
-                        ],
-                    }),
-                }
-            }
-            "slide" => {
-                fx.slides = if fx.slides.is_empty() {
-                    vec![SlideKind::Shift]
-                } else {
-                    vec![]
-                }
-            }
-            "vibrato" => fx.vibrato = !fx.vibrato,
-            "palm-mute" => fx.palm_mute = !fx.palm_mute,
-            "let-ring" => fx.let_ring = !fx.let_ring,
-            "staccato" => fx.staccato = !fx.staccato,
-            "harmonic" => {
-                fx.harmonic = if fx.harmonic.is_some() {
-                    None
-                } else {
-                    Some(Harmonic::Natural)
-                }
-            }
-            "pinch-harmonic" => {
-                fx.harmonic = if fx.harmonic.is_some() {
-                    None
-                } else {
-                    Some(Harmonic::Pinch)
-                }
-            }
-            "tremolo" => {
-                fx.tremolo_picking = if fx.tremolo_picking.is_some() {
-                    None
-                } else {
-                    Some(DurationValue::Sixteenth)
-                }
-            }
-            "dead" => n.dead = !n.dead,
-            "ghost" => n.ghost = !n.ghost,
-            "tie" => n.tie = !n.tie,
-            "accent" => {
-                n.accent = if n.accent == Accent::Normal {
-                    Accent::None
-                } else {
-                    Accent::Normal
-                }
-            }
-            "heavy-accent" => {
-                n.accent = if n.accent == Accent::Heavy {
-                    Accent::None
-                } else {
-                    Accent::Heavy
-                }
-            }
-            other => return Err(format!("unknown technique '{other}'")),
-        }
+        toggle_note(n, technique)?;
     }
     Ok(())
 }
 
-/// Sets the velocity of the cursor note (on a fretted track the one on its string) to a dynamic
-/// marking (`ppp` … `fff`).
+/// Toggles a slide kind on a note: slides in, out and between notes are three groups, each
+/// holding at most one kind.
+fn toggle_slide(fx: &mut NoteEffects, kind: SlideKind) {
+    use SlideKind::*;
+    if let Some(i) = fx.slides.iter().position(|k| *k == kind) {
+        fx.slides.remove(i);
+        return;
+    }
+    let group = |k: SlideKind| match k {
+        Shift | Legato => 0,
+        IntoFromBelow | IntoFromAbove => 1,
+        OutDown | OutUp => 2,
+    };
+    fx.slides.retain(|k| group(*k) != group(kind));
+    fx.slides.push(kind);
+}
+
+/// Sets how the beats between two positions (inclusive) are beamed, or all but the first for
+/// `Force` when the range has several (the first stays as it is).
+pub fn set_beams(cx: &mut EditCx, from: Pos, to: Pos, mode: BeamMode) {
+    let mut index = 0;
+    for_beats(cx, from, to, |beat| {
+        if !(mode == BeamMode::Force && index == 0 && from != to) {
+            beat.beam = mode;
+        }
+        index += 1;
+    });
+}
+
+/// Sets the stem direction of the beats between two positions (inclusive).
+pub fn set_stems(cx: &mut EditCx, from: Pos, to: Pos, dir: StemDir) {
+    for_beats(cx, from, to, |beat| beat.stem = dir);
+}
+
+/// Runs `f` on every real beat of the cursor's track and voice between two positions.
+fn for_beats(cx: &mut EditCx, from: Pos, to: Pos, mut f: impl FnMut(&mut Beat)) {
+    let (t, v) = (cx.cursor.track, cx.cursor.voice);
+    for b in from.0..=to.0.min(cx.score.master_bars.len().saturating_sub(1)) {
+        if cx.score.tracks[t].bars[b].voices.get(v).is_none() {
+            continue;
+        }
+        let bar = cx.bar(t, b);
+        for (i, beat) in bar.voices[v].beats.iter_mut().enumerate() {
+            let inside = (b > from.0 || i >= from.1) && (b < to.0 || i <= to.1);
+            if inside && !beat.empty {
+                f(beat);
+            }
+        }
+    }
+}
+
+/// Sets the dynamic (`ppp` … `fff`) of the cursor beat.
 pub fn set_dynamic(cx: &mut EditCx, dynamic: &str) -> Result<(), String> {
     let velocity = crate::palette::dynamic_velocity(dynamic).ok_or("unknown dynamic")?;
-    let string = cx.string();
-    let fretted = cx.track().kind == TrackKind::Fretted;
-    let notes: Vec<&mut Note> = cx
-        .beat()
-        .notes
-        .iter_mut()
-        .filter(|n| !fretted || n.string == string)
-        .collect();
-    if notes.is_empty() {
-        return Err("no note under the cursor".into());
+    let beat = cx.beat();
+    if beat.notes.is_empty() {
+        return Err("no note in the beat".into());
     }
-    for n in notes {
-        n.velocity = velocity;
-    }
+    beat.set_dynamic(velocity);
     Ok(())
 }
 
@@ -874,6 +1029,7 @@ pub fn shift_pitch(cx: &mut EditCx, semitones: i32) -> Result<(), String> {
         }
         for n in &mut beat.notes {
             n.fret = (n.fret as i32 + semitones).clamp(0, 127) as u8;
+            n.alter = None;
         }
         return Ok(());
     }
@@ -884,6 +1040,7 @@ pub fn shift_pitch(cx: &mut EditCx, semitones: i32) -> Result<(), String> {
     let fret = beat.notes[i].fret as i32 + semitones;
     if (0..=track.fret_count.max(24) as i32).contains(&fret) {
         beat.notes[i].fret = fret as u8;
+        beat.notes[i].alter = None;
         return Ok(());
     }
     let target = track.pitch_of(&beat.notes[i]) as i32 + semitones;
@@ -1051,6 +1208,7 @@ pub fn insert_bars(cx: &mut EditCx, at: usize, count: usize) {
                             ..Beat::default()
                         }],
                     }],
+                    ..Default::default()
                 },
             );
         }
@@ -1114,6 +1272,7 @@ pub fn put_bars(cx: &mut EditCx, clip: &BarClip, at: usize) {
                             ..Beat::default()
                         }],
                     }],
+                    ..Default::default()
                 });
             t.bars.insert(at + k, bar);
         }
@@ -1163,7 +1322,8 @@ mod tests {
                             empty: true,
                             ..Beat::default()
                         }]
-                    }]
+                    }],
+                    ..Default::default()
                 };
                 2
             ],
@@ -1241,4 +1401,416 @@ mod tests {
         assert_eq!(parse_pitch("C#4"), Some(61));
         assert_eq!(parse_pitch("Bb2"), Some(46));
     }
+}
+
+// ---------------------------------------------------------------- ranges
+
+/// Techniques that belong to the beat rather than its notes.
+fn is_beat_technique(t: &str) -> bool {
+    matches!(
+        t,
+        "fermata"
+            | "crescendo"
+            | "decrescendo"
+            | "fade-in"
+            | "fade-out"
+            | "volume-swell"
+            | "rasgueado"
+            | "pick-down"
+            | "pick-up"
+            | "arpeggio-down"
+            | "arpeggio-up"
+            | "stroke-down"
+            | "stroke-up"
+            | "tap"
+            | "slap"
+            | "pop"
+            | "vibrato-wide"
+    )
+}
+
+fn beat_has(b: &Beat, t: &str) -> bool {
+    let e = &b.effects;
+    let stroke = |d: StrokeDirection, arpeggio: bool| {
+        e.stroke
+            .is_some_and(|s| s.direction == d && s.arpeggio == arpeggio)
+    };
+    match t {
+        "fermata" => e.fermata,
+        "crescendo" => e.hairpin == Some(Hairpin::Crescendo),
+        "decrescendo" => e.hairpin == Some(Hairpin::Decrescendo),
+        "fade-in" => e.fade_in,
+        "fade-out" => e.fade_out,
+        "volume-swell" => e.volume_swell,
+        "rasgueado" => e.rasgueado,
+        "pick-down" => e.pick_stroke == StrokeDirection::Down,
+        "pick-up" => e.pick_stroke == StrokeDirection::Up,
+        "arpeggio-down" => stroke(StrokeDirection::Down, true),
+        "arpeggio-up" => stroke(StrokeDirection::Up, true),
+        "stroke-down" => stroke(StrokeDirection::Down, false),
+        "stroke-up" => stroke(StrokeDirection::Up, false),
+        "tap" => e.slap == Slap::Tap,
+        "slap" => e.slap == Slap::Slap,
+        "pop" => e.slap == Slap::Pop,
+        "vibrato-wide" => e.vibrato,
+        _ => false,
+    }
+}
+
+fn note_has(n: &Note, t: &str) -> bool {
+    let fx = &n.effects;
+    match t {
+        "tie" => n.tie,
+        "dead" => n.dead,
+        "ghost" => n.ghost,
+        "accent" => n.accent == Accent::Normal,
+        "heavy-accent" => n.accent == Accent::Heavy,
+        "staccato" => fx.staccato,
+        "let-ring" => fx.let_ring,
+        "palm-mute" => fx.palm_mute,
+        "hammer" => fx.hammer_pull,
+        "vibrato" => fx.vibrato,
+        "bend" | "half-bend" => fx.bend.is_some(),
+        "slide" => fx.slides.contains(&SlideKind::Shift),
+        "slide-legato" => fx.slides.contains(&SlideKind::Legato),
+        "slide-in-above" => fx.slides.contains(&SlideKind::IntoFromAbove),
+        "slide-in-below" => fx.slides.contains(&SlideKind::IntoFromBelow),
+        "slide-out-down" => fx.slides.contains(&SlideKind::OutDown),
+        "slide-out-up" => fx.slides.contains(&SlideKind::OutUp),
+        "harmonic" | "pinch-harmonic" => {
+            matches!(fx.harmonic, Some(h) if !matches!(h, Harmonic::Artificial { .. }))
+        }
+        "artificial-harmonic" => matches!(fx.harmonic, Some(Harmonic::Artificial { .. })),
+        "tremolo" => fx.tremolo_picking.is_some(),
+        "left-hand-tap" => fx.left_hand_tap,
+        "grace-before" => fx.grace.is_some_and(|g| !g.on_beat),
+        "grace-on" => fx.grace.is_some_and(|g| g.on_beat),
+        _ => false,
+    }
+}
+
+/// One thing a range technique acts on: a beat, or a note of a beat.
+#[derive(Debug, Clone, Copy)]
+struct Unit {
+    bar: usize,
+    beat: usize,
+    note: Option<usize>,
+    has: bool,
+}
+
+/// Positions of the real beats of a track's voice between two positions (inclusive).
+fn beat_positions(score: &Score, track: usize, voice: usize, from: Pos, to: Pos) -> Vec<Pos> {
+    let mut out = Vec::new();
+    let last = to.0.min(score.master_bars.len().saturating_sub(1));
+    for b in from.0..=last {
+        let Some(v) = score.tracks[track]
+            .bars
+            .get(b)
+            .and_then(|bar| bar.voices.get(voice))
+        else {
+            continue;
+        };
+        for (i, beat) in v.beats.iter().enumerate() {
+            if (b > from.0 || i >= from.1) && (b < to.0 || i <= to.1) && !beat.empty {
+                out.push((b, i));
+            }
+        }
+    }
+    out
+}
+
+/// The units a technique acts on over a range. Legato, hammer-ons and slides link a beat to
+/// the next, so they act on every beat but the last (the only one of a single beat); a tie
+/// links a note to the one before it, so it acts on the notes that have one.
+fn range_units(
+    score: &Score,
+    track: usize,
+    voice: usize,
+    from: Pos,
+    to: Pos,
+    technique: &str,
+) -> Vec<Unit> {
+    let positions = beat_positions(score, track, voice, from, to);
+    let t = &score.tracks[track];
+    let beat_at = |p: Pos| &t.bars[p.0].voices[voice].beats[p.1];
+    let mut units = Vec::new();
+    if is_beat_technique(technique) {
+        for &(bar, beat) in &positions {
+            units.push(Unit {
+                bar,
+                beat,
+                note: None,
+                has: beat_has(beat_at((bar, beat)), technique),
+            });
+        }
+        return units;
+    }
+    let links_forward = matches!(technique, "hammer" | "slide" | "slide-legato");
+    let (skip_first, skip_last) = (technique == "tie", links_forward);
+    let n = positions.len();
+    for (k, &(bar, beat)) in positions.iter().enumerate() {
+        if (skip_first && k == 0 && n > 1) || (skip_last && k + 1 == n && n > 1) {
+            continue;
+        }
+        let b = beat_at((bar, beat));
+        for (ni, note) in b.notes.iter().enumerate() {
+            if technique == "tie" && n > 1 {
+                // Only a note the one before it in the selection can be tied from.
+                let prev = beat_at(positions[k - 1]);
+                let fretted = t.kind == TrackKind::Fretted;
+                if !prev.notes.iter().any(|p| {
+                    if fretted {
+                        p.string == note.string
+                    } else {
+                        p.fret == note.fret
+                    }
+                }) {
+                    continue;
+                }
+            }
+            units.push(Unit {
+                bar,
+                beat,
+                note: Some(ni),
+                has: note_has(note, technique),
+            });
+        }
+    }
+    units
+}
+
+/// Whether every unit of a range has the technique (what the palette shows as in force).
+pub fn range_has(
+    score: &Score,
+    track: usize,
+    voice: usize,
+    from: Pos,
+    to: Pos,
+    technique: &str,
+) -> bool {
+    let units = range_units(score, track, voice, from, to, technique);
+    !units.is_empty() && units.iter().all(|u| u.has)
+}
+
+/// Toggles a technique over a range: when every beat (or note) has it, it is taken off all;
+/// otherwise it is put on those that lack it.
+pub fn toggle_range(cx: &mut EditCx, from: Pos, to: Pos, technique: &str) -> Result<(), String> {
+    let (t, v) = (cx.cursor.track, cx.cursor.voice);
+    let units = range_units(cx.score, t, v, from, to, technique);
+    if units.is_empty() {
+        return Err("no notes in the selection".into());
+    }
+    let all = units.iter().all(|u| u.has);
+    for u in units.into_iter().filter(|u| u.has == all) {
+        let beat = &mut cx.bar(t, u.bar).voices[v].beats[u.beat];
+        match u.note {
+            None => {
+                toggle_beat(beat, technique);
+            }
+            Some(ni) => toggle_note(&mut beat.notes[ni], technique)?,
+        }
+    }
+    Ok(())
+}
+
+/// Sets the dynamic of every beat with notes in a range (rests are left alone).
+pub fn set_dynamic_range(cx: &mut EditCx, from: Pos, to: Pos, dynamic: &str) -> Result<(), String> {
+    let velocity = crate::palette::dynamic_velocity(dynamic).ok_or("unknown dynamic")?;
+    let (t, v) = (cx.cursor.track, cx.cursor.voice);
+    let mut any = false;
+    for (b, i) in beat_positions(cx.score, t, v, from, to) {
+        let beat = &mut cx.bar(t, b).voices[v].beats[i];
+        if !beat.notes.is_empty() {
+            beat.set_dynamic(velocity);
+            any = true;
+        }
+    }
+    if any {
+        Ok(())
+    } else {
+        Err("no notes in the selection".into())
+    }
+}
+
+/// The dynamics, softest first, as velocities.
+const DYNAMIC_STEPS: [u8; 8] = [15, 31, 47, 63, 79, 95, 111, 127];
+
+/// Moves the dynamic of every beat of a range `by` steps louder (positive) or softer, each
+/// beat keeping its distance from the others until it reaches ppp or fff.
+pub fn step_dynamic_range(cx: &mut EditCx, from: Pos, to: Pos, by: i32) -> Result<(), String> {
+    let (t, v) = (cx.cursor.track, cx.cursor.voice);
+    let mut any = false;
+    for (b, i) in beat_positions(cx.score, t, v, from, to) {
+        let beat = &mut cx.bar(t, b).voices[v].beats[i];
+        if beat.notes.is_empty() {
+            continue;
+        }
+        let level = DYNAMIC_STEPS
+            .iter()
+            .position(|s| dynamic_name(*s) == dynamic_name(beat.dynamic_velocity()))
+            .unwrap_or(5) as i32;
+        beat.set_dynamic(DYNAMIC_STEPS[(level + by).clamp(0, 7) as usize]);
+        any = true;
+    }
+    if any {
+        Ok(())
+    } else {
+        Err("no notes to change".into())
+    }
+}
+
+/// Whether every beat with notes in a range has the dynamic.
+pub fn range_has_dynamic(
+    score: &Score,
+    track: usize,
+    voice: usize,
+    from: Pos,
+    to: Pos,
+    dynamic: &str,
+) -> bool {
+    let Some(velocity) = crate::palette::dynamic_velocity(dynamic) else {
+        return false;
+    };
+    let t = &score.tracks[track];
+    let beats: Vec<&Beat> = beat_positions(score, track, voice, from, to)
+        .iter()
+        .map(|&(b, i)| &t.bars[b].voices[voice].beats[i])
+        .filter(|b| !b.notes.is_empty())
+        .collect();
+    !beats.is_empty()
+        && beats
+            .iter()
+            .all(|b| dynamic_name(b.dynamic_velocity()) == dynamic_name(velocity))
+}
+
+/// Changes the duration of every beat of a range; returns how many beats there are.
+pub fn change_durations(
+    cx: &mut EditCx,
+    from: Pos,
+    to: Pos,
+    f: impl Fn(Duration) -> Duration,
+) -> usize {
+    let mut n = 0;
+    for_beats(cx, from, to, |beat| {
+        beat.duration = f(beat.duration);
+        n += 1;
+    });
+    n
+}
+
+/// Dots every beat of a range `dots` times, or takes the dots off when all have them.
+pub fn dot_range(cx: &mut EditCx, from: Pos, to: Pos, dots: u8) {
+    let (t, v) = (cx.cursor.track, cx.cursor.voice);
+    let all = beat_positions(cx.score, t, v, from, to)
+        .iter()
+        .all(|&(b, i)| cx.score.tracks[t].bars[b].voices[v].beats[i].duration.dots == dots);
+    change_durations(cx, from, to, |mut d| {
+        d.dots = if all { 0 } else { dots };
+        d
+    });
+}
+
+/// Makes the beats of a range a tuplet of `enters` notes (or plain again when all are).
+pub fn tuplet_range(cx: &mut EditCx, from: Pos, to: Pos, enters: u8) {
+    let (t, v) = (cx.cursor.track, cx.cursor.voice);
+    let times = match enters {
+        3 => 2,
+        5..=7 => 4,
+        _ => 8,
+    };
+    let want = Some(Tuplet { enters, times });
+    let all = beat_positions(cx.score, t, v, from, to)
+        .iter()
+        .all(|&(b, i)| {
+            cx.score.tracks[t].bars[b].voices[v].beats[i]
+                .duration
+                .tuplet
+                == want
+        });
+    change_durations(cx, from, to, |mut d| {
+        d.tuplet = if all { None } else { want };
+        d
+    });
+}
+
+/// Ticks by which the beats of the bars in `from..=to` run over their bar, per bar.
+pub fn overflowing_bars(
+    score: &Score,
+    track: usize,
+    voice: usize,
+    from: usize,
+    to: usize,
+) -> Vec<usize> {
+    let mut out = Vec::new();
+    for b in from..=to.min(score.master_bars.len().saturating_sub(1)) {
+        let Some(v) = score.tracks[track]
+            .bars
+            .get(b)
+            .and_then(|x| x.voices.get(voice))
+        else {
+            continue;
+        };
+        let filled: u32 = v.beats.iter().map(Beat::ticks).sum();
+        if filled > score.played_ticks(b) {
+            out.push(b);
+        }
+    }
+    out
+}
+
+/// Moves a note by semitones: on its string for a fretted track (false if the fret would
+/// fall off the neck), by pitch otherwise.
+fn shift_note(track: &Track, n: &mut Note, semitones: i32) -> bool {
+    if track.kind == TrackKind::Fretted {
+        let fret = n.fret as i32 + semitones;
+        if !(0..=track.fret_count.max(24) as i32).contains(&fret) {
+            return false;
+        }
+        n.fret = fret as u8;
+    } else {
+        n.fret = (n.fret as i32 + semitones).clamp(0, 127) as u8;
+    }
+    n.alter = None;
+    true
+}
+
+/// Moves every note of a range by semitones; returns how many could not move.
+pub fn shift_range(cx: &mut EditCx, from: Pos, to: Pos, semitones: i32) -> usize {
+    let (t, v) = (cx.cursor.track, cx.cursor.voice);
+    let track = cx.score.tracks[t].clone();
+    let mut stuck = 0;
+    for (b, i) in beat_positions(cx.score, t, v, from, to) {
+        for n in &mut cx.bar(t, b).voices[v].beats[i].notes {
+            if !shift_note(&track, n, semitones) {
+                stuck += 1;
+            }
+        }
+    }
+    stuck
+}
+
+/// Makes every note of a range sharp (1), flat (-1), natural (0), double sharp or flat on its
+/// staff position; returns how many could not move.
+pub fn accidental_range(cx: &mut EditCx, from: Pos, to: Pos, alter: i32) -> Result<usize, String> {
+    if !cx.on_lines() {
+        return Err("accidental: the cursor is not on a staff".into());
+    }
+    let (t, v) = (cx.cursor.track, cx.cursor.voice);
+    let track = cx.score.tracks[t].clone();
+    let transpose = track.staff_clef().transpose();
+    let mut stuck = 0;
+    for (b, i) in beat_positions(cx.score, t, v, from, to) {
+        let key = cx.score.master_bars[b].key_signature.accidentals;
+        for n in &mut cx.bar(t, b).voices[v].beats[i].notes {
+            let written = track.pitch_of(n) as i32 + transpose;
+            let (_, now, _) = staff::spell_with(written, key, n.alter);
+            let delta = alter - now;
+            if delta != 0 && !shift_note(&track, n, delta) {
+                stuck += 1;
+                continue;
+            }
+            n.alter = (alter.abs() == 2).then_some(alter as i8);
+        }
+    }
+    Ok(stuck)
 }

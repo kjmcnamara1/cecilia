@@ -817,9 +817,15 @@ fn write_bar(ids: &mut Ids, t: &Track, bar: Option<&Bar>) {
         }
     }
     let list: Vec<String> = voice_ids.iter().map(|v| v.to_string()).collect();
+    let simile = match bar.and_then(|b| b.simile) {
+        Some(Simile::OneBar) => "<SimileMark>Simple</SimileMark>",
+        Some(Simile::TwoBarsFirst) => "<SimileMark>FirstOfDouble</SimileMark>",
+        Some(Simile::TwoBarsSecond) => "<SimileMark>SecondOfDouble</SimileMark>",
+        None => "",
+    };
     let _ = writeln!(
         ids.bars,
-        "<Bar id=\"{id}\"><Clef>{}</Clef><Voices>{}</Voices></Bar>",
+        "<Bar id=\"{id}\"><Clef>{}</Clef><Voices>{}</Voices>{simile}</Bar>",
         clef(t),
         list.join(" ")
     );
@@ -948,6 +954,10 @@ fn write_beat(
     let fx = &beat.effects;
     if fx.fade_in {
         b.push_str("<Fadding>FadeIn</Fadding>");
+    } else if fx.fade_out {
+        b.push_str("<Fadding>FadeOut</Fadding>");
+    } else if fx.volume_swell {
+        b.push_str("<Fadding>VolumeSwell</Fadding>");
     }
     match fx.hairpin {
         Some(Hairpin::Crescendo) => b.push_str("<Hairpin>Crescendo</Hairpin>"),
@@ -1039,6 +1049,9 @@ fn write_note(
     let fx = &n.effects;
     if fx.vibrato {
         x.push_str("<Vibrato>Slight</Vibrato>");
+    }
+    if fx.left_hand_tap {
+        x.push_str("<LeftHandTapped />");
     }
     if fx.let_ring {
         x.push_str("<LetRing />");

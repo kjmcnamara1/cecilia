@@ -1486,7 +1486,7 @@ impl App {
     }
 
     /// Whether `hay` has `query`: in any case, unless the query has a capital.
-    fn has_text(hay: &str, query: &str) -> bool {
+    pub(crate) fn has_text(hay: &str, query: &str) -> bool {
         if query.chars().any(char::is_uppercase) {
             hay.contains(query)
         } else {

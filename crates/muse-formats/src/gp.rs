@@ -159,6 +159,7 @@ impl<'a> GpReader<'a> {
         }
         // Guitar Pro sings the lyric lines one syllable per note; put them on the beats.
         muse_core::lyrics::attach(&mut score);
+        score.normalize_dynamics();
         Ok(score)
     }
 

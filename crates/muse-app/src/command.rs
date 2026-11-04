@@ -119,7 +119,29 @@ pub enum Command {
     /// Set the cursor note's pitch ("C#4" or a MIDI number).
     Note(String),
     Time(u8, u8),
-    Key(i8),
+    /// Key signature from the cursor bar: sharps (positive) or flats (negative), and whether
+    /// it is minor (`None` keeps the bar's mode).
+    Key(i8, Option<bool>),
+    /// Toggle free time on the cursor bar.
+    FreeTime,
+    /// Toggle a double bar line at the end of the cursor bar.
+    DoubleBar,
+    /// Repeat the previous bar (`Some(1)`) or two bars (`Some(2)`) with a repeat sign, or
+    /// (`None`) turn the sign off.
+    BarRepeat(Option<u8>),
+    /// The alternate endings (bit mask, bit 0 = 1st ending) the cursor bar belongs to; 0 clears.
+    Ending(u8),
+    /// Toggle a direction (D.C., D.S., Fine, Coda …) over the cursor bar.
+    DirectionMark(muse_core::Direction),
+    /// Louder (`+N`) or softer (`-N`) by dynamic steps: the cursor note, or every note of the
+    /// Visual selection.
+    DynamicStep(i32),
+    /// A double dot on the cursor beat (toggles).
+    DoubleDot,
+    /// Beaming override of the cursor beat or the selection.
+    Beams(muse_core::BeamMode),
+    /// Stem direction of the cursor beat or the selection.
+    Stems(muse_core::StemDir),
     Tempo(u32),
     RepeatStart,
     RepeatEnd(Option<u8>),
@@ -250,6 +272,9 @@ pub enum Command {
     /// The properties pane's search: 0 opens the field, 1 / -1 jump to the next / previous match
     /// of the `/` register.
     PropertiesSearch(isize),
+    /// The palette's search, as the properties pane's: 0 opens the field, 1 / -1 jump to the
+    /// next / previous match of the `/` register.
+    PaletteSearch(isize),
     /// Sets a switch off (-1) or on (+1), or moves a choice to the previous or next one.
     PropertiesStep(isize),
     /// Clears the selected property's text and edits it.
@@ -664,10 +689,49 @@ impl Command {
                 }
                 Time(n, d)
             }
-            "key" => Key(arg
-                .and_then(|a| a.parse().ok())
-                .filter(|k: &i8| (-7..=7).contains(k))
-                .ok_or("key: expected sharps (1..7) or flats (-1..-7)")?),
+            "key" => {
+                let a =
+                    arg.ok_or("key: expected sharps (1..7), flats (-1..-7) or a name (G, Bb, Am)")?;
+                let (acc, minor) = parse_key(a)?;
+                Key(acc, minor)
+            }
+            "free-time" => FreeTime,
+            "double-bar" => DoubleBar,
+            "bar-repeat" => BarRepeat(match arg {
+                Some("1") | Some("one") => Some(1),
+                Some("2") | Some("two") => Some(2),
+                Some("off") | Some("none") => None,
+                _ => return Err("bar-repeat: expected 1, 2 or off".into()),
+            }),
+            "ending" => Ending(parse_endings(
+                arg.ok_or("ending: expected ending numbers (1 2), or none")?,
+            )?),
+            "direction" => {
+                DirectionMark(arg.and_then(muse_core::Direction::parse).ok_or_else(|| {
+                    let all: Vec<&str> =
+                        muse_core::Direction::ALL.iter().map(|d| d.name()).collect();
+                    format!("direction: expected {}", all.join(", "))
+                })?)
+            }
+            "double-dot" => DoubleDot,
+            "dynamic-step" => DynamicStep(
+                arg.and_then(|a| a.trim().parse::<i32>().ok())
+                    .filter(|n| *n != 0)
+                    .ok_or("dynamic-step: expected +1 (louder) or -1 (softer)")?,
+            ),
+            "beams" => Beams(match arg {
+                Some("auto") | Some("automatic") => muse_core::BeamMode::Auto,
+                Some("force") => muse_core::BeamMode::Force,
+                Some("break") => muse_core::BeamMode::Break,
+                Some("break-secondary") => muse_core::BeamMode::BreakSecondary,
+                _ => return Err("beams: expected auto, force, break or break-secondary".into()),
+            }),
+            "stems" => Stems(match arg {
+                Some("auto") | Some("automatic") => muse_core::StemDir::Auto,
+                Some("up") => muse_core::StemDir::Up,
+                Some("down") => muse_core::StemDir::Down,
+                _ => return Err("stems: expected auto, up or down".into()),
+            }),
             "tempo" => Tempo(number("tempo")? as u32),
             "repeat-start" => RepeatStart,
             "repeat-end" => RepeatEnd(arg.and_then(|a| a.parse().ok())),
@@ -715,7 +779,14 @@ impl Command {
                 Some("sharp") | Some("#") => 1,
                 Some("flat") | Some("b") => -1,
                 Some("natural") | Some("=") => 0,
-                _ => return Err("accidental: expected sharp, flat or natural".into()),
+                Some("double-sharp") | Some("##") => 2,
+                Some("double-flat") | Some("bb") => -2,
+                _ => {
+                    return Err(
+                        "accidental: expected sharp, flat, natural, double-sharp or double-flat"
+                            .into(),
+                    );
+                }
             }),
             "slash" => Slash,
             "chant-note" => ChantNote(
@@ -975,6 +1046,9 @@ impl Command {
                 Some(a) => return Err(format!("properties-fold: '{a}' is not open or close")),
             }),
             "properties-clear" => PropertiesClear,
+            "palette-search" => PaletteSearch(0),
+            "palette-search-next" => PaletteSearch(1),
+            "palette-search-prev" => PaletteSearch(-1),
             "properties-search" => PropertiesSearch(0),
             "properties-search-next" => PropertiesSearch(1),
             "properties-search-prev" => PropertiesSearch(-1),
@@ -1071,6 +1145,31 @@ impl Command {
         )
     }
 
+    /// Whether the command also works on a Visual selection (every beat of it).
+    pub fn is_range(&self) -> bool {
+        use Command::*;
+        matches!(
+            self,
+            Toggle(_)
+                | Dynamic(_)
+                | DynamicStep(_)
+                | Duration(_)
+                | DurationLonger
+                | DurationShorter
+                | Dot
+                | DoubleDot
+                | Tuplet(_)
+                | Rest
+                | Accidental(_)
+                | PitchUp
+                | PitchDown
+                | OctaveUp
+                | OctaveDown
+                | Beams(_)
+                | Stems(_)
+        )
+    }
+
     /// Whether the command changes the score (and can be repeated with `.`).
     pub fn is_change(&self) -> bool {
         use Command::*;
@@ -1097,6 +1196,9 @@ impl Command {
                 | OctaveDown
                 | Rest
                 | Toggle(_)
+                | DoubleDot
+                | Beams(_)
+                | Stems(_)
                 | Note(_)
                 | NoteLetter(_)
                 | Accidental(_)
@@ -1109,6 +1211,85 @@ impl Command {
                 | ChantSyllable
         )
     }
+}
+
+/// Sharps / flats and mode of a key given as a number (`2`, `-3`) or a name (`D`, `Bb`, `F#m`,
+/// `C minor`). Numbers leave the mode alone.
+fn parse_key(s: &str) -> Result<(i8, Option<bool>), String> {
+    let s = s.trim();
+    if let Ok(n) = s.parse::<i8>() {
+        return if (-7..=7).contains(&n) {
+            Ok((n, None))
+        } else {
+            Err("key: expected sharps (1..7) or flats (-1..-7)".into())
+        };
+    }
+    let lower = s.to_lowercase();
+    let (name, minor) = if let Some(n) = lower.strip_suffix(" minor") {
+        (n.to_string(), true)
+    } else if let Some(n) = lower.strip_suffix(" major") {
+        (n.to_string(), false)
+    } else if let Some(n) = s.strip_suffix('m').filter(|n| !n.is_empty()) {
+        (n.to_lowercase(), true)
+    } else {
+        (lower.clone(), false)
+    };
+    let mut chars = name.chars();
+    let letter = chars.next().ok_or("key: empty name")?;
+    let accidental: String = chars.collect();
+    // Fifths of the major key on this tonic: C 0, G 1, D 2, A 3, E 4, B 5, F 6 (F is -1).
+    let base = match letter {
+        'c' => 0,
+        'g' => 1,
+        'd' => 2,
+        'a' => 3,
+        'e' => 4,
+        'b' => 5,
+        'f' => -1,
+        _ => return Err(format!("key: '{s}' is not a key")),
+    };
+    let shift = match accidental.as_str() {
+        "" => 0,
+        "#" | "♯" | "is" => 7,
+        "b" | "♭" | "es" => -7,
+        _ => return Err(format!("key: '{s}' is not a key")),
+    };
+    // A minor key has three fewer sharps than its major on the same tonic.
+    let fifths = base + shift - if minor { 3 } else { 0 };
+    if (-7..=7).contains(&fifths) {
+        Ok((fifths as i8, Some(minor)))
+    } else {
+        Err(format!("key: {s} needs more than 7 sharps or flats"))
+    }
+}
+
+/// The bit mask of alternate endings named by numbers (`1`, `1 2`, `1,2`, `1-3`), or 0 for
+/// `none`.
+fn parse_endings(s: &str) -> Result<u8, String> {
+    let s = s.trim();
+    if matches!(s, "none" | "off" | "0") {
+        return Ok(0);
+    }
+    let mut mask = 0u8;
+    for part in s.split([' ', ',']).filter(|p| !p.is_empty()) {
+        let (a, b) = match part.split_once('-') {
+            Some((a, b)) => (a.parse::<u8>(), b.parse::<u8>()),
+            None => (part.parse::<u8>(), part.parse::<u8>()),
+        };
+        let (Ok(a), Ok(b)) = (a, b) else {
+            return Err(format!("ending: '{part}' is not an ending number (1-8)"));
+        };
+        if a == 0 || b > 8 || a > b {
+            return Err(format!("ending: '{part}' is not an ending number (1-8)"));
+        }
+        for n in a..=b {
+            mask |= 1 << (n - 1);
+        }
+    }
+    if mask == 0 {
+        return Err("ending: expected ending numbers (1 2), or none".into());
+    }
+    Ok(mask)
 }
 
 fn expand_tilde(p: &str) -> PathBuf {

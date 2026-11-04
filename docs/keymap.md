@@ -214,7 +214,7 @@ is typed after it, is one undo step.
 | `y{motion}` / `yy`, `p` / `P`                          | yank beats or bars (`yl`, `yh` …, `yy` the bar) / put after / before the cursor                   |
 | `c{motion}` / `cc`                                     | change: the beats become rests of the same lengths (the cursor beat for `cl`, the one before it for `ch`, which the cursor moves to) and Insert mode starts on them; `cc` clears the bar of the cursor's track, leaving an empty bar |
 | `"{reg}`                                               | use register for the next yank/delete/put                                                         |
-| `.`                                                    | repeat the last change (including an insert session)                                              |
+| `.`                                                    | repeat the last change (including an insert session), or the last palette tool: applied again at the cursor (a toggle toggles there; a tool used over a Visual selection repeats over as many beats or bars from the cursor; a tool that asked for an argument, like `:direction`, with the same one) |
 | `u` / `U` / `g-` / `g+`                                | undo / redo / older / newer state across undo branches                                            |
 | `q{reg}` … `q` / `[count]@{reg}` / `@@`                | record / play / replay a macro; `q{A-Z}` appends to the lowercase register                        |
 | `v` / `V`                                              | visual beats / visual bars (then `d`, `y`, `c`, `x`; `i` / `a` below)                            |
@@ -240,6 +240,8 @@ current ones):
 
 | keys | command |
 | --- | --- |
+| `+` / `-` | step the duration of every selected beat one note value longer / shorter (dots and tuplets stay; a whole note is the longest; the status line says when a bar runs over) (`:duration-longer`, `:duration-shorter`) |
+| `t…` `H` `L` … (the Normal-mode technique keys of the staff), the palette | the range tools below, on every beat of the selection (the selection stays, so several can be applied; `<Esc>` leaves) |
 | `i` / `a` | leave the selection and insert a new beat before its first / after its last beat (a bar selection: at the start of its first bar / the end of its last bar), then Insert mode (`:visual-insert`, `:visual-append`) |
 
 **Selecting with the mouse** (GUI and terminal): press on a beat of a score pane and drag across
@@ -424,10 +426,19 @@ Clicking a tab shows it, a row selects it and a double click edits it; a click o
 
 `<leader>e` shows or hides the editing palette, docked along the left of the window above the bottom tool panes (which run under it at the full width; the properties pane stays outermost along the right)
 (`ui.palette = true` shows it from the start). Like Guitar Pro's editing panel it is a grid of
-small icon buttons, wrapped to the pane's width, in collapsible sections: durations (whole to
-64th, dotted, triplet, rest), pitch (sharp, flat, natural, octave, tie, dead and ghost notes),
-dynamics (`ppp` to `fff`), articulations (accent, staccato, let ring, palm mute) and effects
-(hammer-on/pull-off, slide, bend, vibrato, harmonic, tremolo picking, tap/slap/pop, strokes). The
+small icon buttons, wrapped to the pane's width, in collapsible sections: **Duration** (whole to
+64th, dotted, double dotted, triplet, rest), **Pitch** (sharp, flat, natural, double sharp, double
+flat, octave, tie, dead and ghost notes), **Dynamics** (`ppp` to `fff`, crescendo, decrescendo,
+fade in, fade out, volume swell), **Articulation** (accent, staccato, fermata, let ring, palm
+mute), **Effects** (legato = hammer-on/pull-off, bend, vibrato, harmonic, artificial harmonic,
+tremolo picking, tap, left-hand tapping, slap/pop, grace note before / on the beat), **Slides**
+(shift, legato, in from above / below, out downwards / upwards), **Strokes** (down / up stroke,
+arpeggio down / up, rasgueado, pickstroke down / up), **Beams & stems** (automatic, force, break,
+break secondary; automatic, up, down), **Bar** (clef, key signature, time signature, free time,
+double bar line, section) and **Repeats** (repeat one / two bars, open, close, alternate endings,
+directions). Buttons marked "…" in their name (clef, key and time signature, section, alternate
+endings, directions) need an argument: they open the command line with the command typed
+(`:clef `, `:direction `) and its completion, so they work from the keyboard. The
 GUI shows the highlighted button's name along the bottom of the pane (and as a tooltip when the
 mouse rests on it); the terminal draws short labels and shows the name on the pane's bottom row. Each button runs an ordinary command
 (`:duration 8`, `:toggle palm-mute`, `:dynamic mf` …) on the score pane worked on. The buttons in
@@ -442,18 +453,57 @@ are `[keymap.palette]`, then the usual ones:
 | `j` `<Down>` `<Tab>` / `k` `<Up>` `<S-Tab>` | select the button below / above (keeping the column), through the section titles |
 | `<CR>` `<Space>` | apply the selected button (on a section title: fold or unfold it) |
 | `za` `zc` `zo` | toggle / close / open the section |
+| `/` | search the tools (`:palette-search`): a field opens along the bottom of the pane and the selection jumps to the first tool (or section) whose name, tooltip (with its keys), command or section title has the typed text, as you type; lower case matches any case, a capital is exact. `<Esc>` goes back to where the search began, `<CR>` keeps the jump (and sets the `/` register; it does not apply the tool), `<Backspace>` on an empty field cancels, `<C-u>` clears it |
+| `n` `N` | the next / previous match of the `/` register (`:palette-search-next`, `:palette-search-prev`), wrapping around |
 | `<Esc>` `q` | back to the score pane |
 
 The palette lists only the tools that apply to the mode and to the staff under the cursor (a
 section with none left is hidden; folds are kept): on a **tab** everything but the accidentals;
 on a **standard** staff the accidentals and the marks it can show (no bends, palm mute, let
-ring, tap / slap / pop or fade-in); on a **slash** staff the note values, rest, tie, accents,
-staccato and dynamics; on **chant** the note values only; in **Visual** mode the note values
-only (the length of the beats `i` / `a` add). It follows the cursor from one staff to another.
+ring, tap / slap / pop, fades or left-hand tapping); on a **slash** staff the note values, rest,
+tie, accents, staccato, dynamics, hairpins, fermata and beams; on **chant** the note values and
+the clef; in **Visual** mode (see below) every tool that makes sense over a range, for the
+staff's notation. The bar and repeat tools (everything but the clef) apply on every notation but
+chant; the clef on standard and chant staves, stems on standard staves only. It follows the
+cursor from one staff to another.
+
+**Over a Visual selection** (`v` beats, `V` bars) the palette's tools, `+` / `-`, and the same
+commands typed (`:toggle staccato`, `:dynamic p` …) apply to every beat of the selection in one
+undo step, and a button is tinted when the whole selection has it:
+
+- Moving between the score and the palette keeps the selection: `<leader>E` focuses the palette (the mode stays Visual); while it has the focus `h` `j` `k` `l` and the arrows move in its grid, not the selection, `<CR>` applies the selected tool to the selection, `/` searches, and `<Esc>` (or `<leader>E` again) gives the focus back to the score, where `hjkl` extend the selection again.
+- Moving between the score and the palette keeps the selection: `<leader>E` focuses the palette (the mode stays Visual); while it has the focus `h` `j` `k` `l` and the arrows move in its grid, not the selection, `<CR>` applies the selected tool to the selection, `/` searches, and `<Esc>` (or `<leader>E` again) gives the focus back to the score, where `hjkl` extend the selection again.
+- Techniques (`:toggle`: staccato, accent, marcato, let ring, palm mute, vibrato, harmonics,
+  tremolo, tap / slap / pop, strokes, arpeggio, rasgueado, pick strokes, fermata, fades, grace
+  notes, left-hand tapping …): if every beat or note has it, it is taken off all; otherwise it
+  is put on those that lack it.
+- Crescendo / decrescendo: one hairpin from the first selected beat to the last (consecutive
+  beats with the same hairpin are drawn as one wedge); again takes it off.
+- Dynamics: `ppp` … `fff` set every note of the selection to that dynamic (rests are left
+  alone); one mark is engraved at the start of the section and another where the dynamic differs
+  again, so the beat after the selection keeps and shows its own. "Louder" / "softer" in the
+  palette, `<A-+>` / `<A-->` in Visual mode (`:dynamic-step +1`, `:dynamic-step -1`; also on the
+  cursor note outside Visual mode) move every note one dynamic up or down, keeping the
+  differences between them until they reach `ppp` or `fff`.
+- Legato (hammer-on / pull-off), legato slide and shift slide link each beat to the next, so the
+  last beat of the selection is left out (a single beat is just toggled); ties join each note to
+  the note before it on the same string (or of the same pitch).
+- Note values: a value sets every beat, dot / double dot / triplet toggle on all (a triplet over
+  three selected beats), `+` / `-` step longer / shorter, rest turns the selection into rests.
+- Pitch: semitone up / down, octave up / down, and the accidentals (also double) over the
+  selection; notes that would leave the neck stay and are reported.
+- Beams (auto, force, break, break secondary: `force` leaves the first beat alone) and stems.
+- With **bar** selections (`V`) the bar tools too: repeat open, section, key and time signature
+  at the first bar; repeat close, double bar and direction at the last; free time and alternate
+  endings on every selected bar. The clef and bar repeat signs stay out.
 The duration selected in it (the tinted button) is the length of the beats `i`, `a`, `I`, `A`
 and Enter in Insert mode make.
 
 A button's name (tooltip and label) ends with the insert-mode keys bound to its command, from the live keymaps so your overrides show ("Palm mute (m)", at most three, "Quarter note (<A-3>)"; none: no parentheses). Buttons that can't take effect at the cursor are dimmed and named "(unavailable)" after that: note-level ones (pitch, tie, dead and ghost notes, dynamics, articulations, most effects) off a note, accidentals on a tab. They are worked out by trying the command's own edit, so they follow what the command refuses. They stay selectable, but applying one does nothing and the status line says why.
+
+`.` repeats the last tool applied from the palette (or by a key over a Visual selection) as long as no editing key changed something after it: it runs again at the cursor, as one undo step. Moving about or searching in the palette, or a tool that changed nothing, leave what `.` repeats alone. Tools typed on the command line (`:toggle staccato`) are not repeated, except those begun from a palette button that asks for an argument.
+
+Search is the properties pane's (`/`, `n`, `N`), and only looks through the tools shown at the moment: those of the staff and mode, in sections not folded. The buttons' icons are the engraver's own symbols in the GUI; the terminal draws the closest Unicode or Nerd Font glyph (`tabline.icons`: `nerd`, `unicode`, or `none` for short text labels).
 
 A click applies a button (and returns to the score pane) or folds a section; the wheel scrolls.
 
@@ -573,8 +623,16 @@ e.g. `"<C-g>" = "completion-ignore-case"`, `"<C-f>" = "completion-fuzzy"`.
 | `:bar {n}` / `:{n}`                                                  | _(M1)_                                                                                                                                                                                      |
 | `:set {option}[=value]`                                              |                                                                                                                                                                                             |
 | `:source`                                                            | reload config _(M1)_                                                                                                                                                                        |
-| `:time 3/4` / `:key -2` / `:tempo 96`                                | time / key signature from the cursor bar, tempo at the cursor bar                                                                                                                           |
+| `:time 3/4` / `:key -2` / `:key Bb` / `:key F#m` / `:tempo 96`       | time / key signature from the cursor bar (the key by sharps or flats, or a name; `Am`, `C minor` are minor), tempo at the cursor bar                                                         |
 | `:repeat-start` / `:repeat-end [n]` / `:section NAME` / `:text TEXT` | bar marks and beat text                                                                                                                                                                     |
+| `:free-time` / `:double-bar`                                         | toggle free time / a double bar line on the cursor bar                                                                                                                                      |
+| `:bar-repeat 1\|2\|off`                                              | the cursor bar (or it and the next) repeats the bar (two bars) before it, shown as a repeat sign `%`; the notes are copied so playback is unchanged; editing the bar's notes makes it an ordinary bar again |
+| `:ending 1 2` / `:ending none`                                       | the alternate endings the cursor bar belongs to (the same again clears them); `1-3` is a range                                                                                              |
+| `:direction da-capo-al-coda`                                         | toggle a direction over the cursor bar: `fine`, `segno`, `double-segno`, `coda`, `double-coda`, `da-capo`, `da-capo-al-coda`, `dal-segno-al-fine`, `da-coda` … (Tab completes the list)   |
+| `:double-dot`                                                        | toggle a double dot on the cursor beat                                                                                                                                                      |
+| `:beams auto\|force\|break\|break-secondary` / `:stems auto\|up\|down` | beaming and stem direction of the cursor beat, or of every beat of the Visual selection (`force` joins a beat to the one before it, `break` starts a new group, `break-secondary` keeps the primary beam but breaks the shorter ones; `auto` clears the override) |
+| `:accidental double-sharp\|double-flat`                              | the cursor note on a standard staff, spelled with a double sharp / flat (also `sharp`, `flat`, `natural`)                                                                                   |
+| `:toggle {technique}`                                                | on the cursor note or beat: `accent` `heavy-accent` `staccato` `fermata` `let-ring` `palm-mute` `hammer` (legato) `bend` `half-bend` `vibrato` `vibrato-wide` `harmonic` `artificial-harmonic` `pinch-harmonic` `tremolo` `tap` `left-hand-tap` `slap` `pop` `slide` (shift) `slide-legato` `slide-in-above` `slide-in-below` `slide-out-down` `slide-out-up` `grace-before` `grace-on` `stroke-down` `stroke-up` `arpeggio-down` `arpeggio-up` `rasgueado` `pick-down` `pick-up` `crescendo` `decrescendo` `fade-in` `fade-out` `volume-swell` `tie` `dead` `ghost` |
 | `:note C#4` / `:voice 2`                                             | set the cursor note's pitch / edit another voice                                                                                                                                            |
 | `:tuning drop-d` or `:tuning D2 A2 D3 G3 B3 E4` / `:capo 2`          | retune keeping pitches                                                                                                                                                                      |
 | `:refinger` / `:transpose 2`                                         | re-finger the track to minimise hand movement / transpose                                                                                                                                   |

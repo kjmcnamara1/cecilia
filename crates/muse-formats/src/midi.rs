@@ -505,6 +505,7 @@ pub fn read_midi(bytes: &[u8]) -> Result<Score> {
         track.bars = build_bars(&score, &bar_starts, &quantized, &track);
         score.tracks.push(track);
     }
+    score.normalize_dynamics();
     Ok(score)
 }
 
@@ -603,6 +604,7 @@ fn build_bars(
         }
         bars.push(Bar {
             voices: vec![Voice { beats }],
+            ..Default::default()
         });
     }
     bars
@@ -682,7 +684,8 @@ mod tests {
                 Bar {
                     voices: vec![Voice {
                         beats: vec![beat(0), beat(1), beat(3), beat(5)]
-                    }]
+                    }],
+                    ..Default::default()
                 };
                 2
             ],

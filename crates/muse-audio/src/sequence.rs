@@ -272,7 +272,8 @@ mod tests {
             strings: vec![64],
             bars: vec![
                 Bar {
-                    voices: vec![Voice { beats: vec![beat] }]
+                    voices: vec![Voice { beats: vec![beat] }],
+                    ..Default::default()
                 };
                 3
             ],
@@ -330,7 +331,8 @@ mod tests {
             strings: vec![64, 59, 55, 50, 45, 40],
             bars: vec![
                 Bar {
-                    voices: vec![Voice { beats: vec![beat] }]
+                    voices: vec![Voice { beats: vec![beat] }],
+                    ..Default::default()
                 };
                 2
             ],
@@ -383,7 +385,8 @@ mod tests {
                     Bar {
                         voices: vec![Voice {
                             beats: beats.clone(),
-                        }]
+                        }],
+                        ..Default::default()
                     };
                     2
                 ],

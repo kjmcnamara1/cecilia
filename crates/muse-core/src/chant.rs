@@ -681,6 +681,7 @@ pub fn transcribe(chant: &Chant) -> Transcription {
             voices: vec![Voice {
                 beats: std::mem::take(beats),
             }],
+            ..Default::default()
         });
     };
     let mut k = 0;

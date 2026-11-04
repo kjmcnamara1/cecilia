@@ -7,6 +7,26 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- Palette tools: double dot, fermata, double sharp / flat, crescendo / decrescendo, fade in / out and volume swell, artificial harmonic, left-hand tapping, grace notes before / on the beat, the six slides (shift, legato, in from above / below, out downwards / upwards), arpeggio down / up, rasgueado, pickstroke down / up, beams (automatic, force, break, break secondary) and stems (automatic, up, down), and the bar tools: clef, key and time signature, free time, double bar line, repeat one / two bars, repeat open / close, alternate endings, directions and section. Tools that need an argument open the command line with the command typed. Commands: `:double-dot`, `:free-time`, `:double-bar`, `:bar-repeat 1|2|off`, `:ending`, `:direction`, `:beams`, `:stems`, `:accidental double-sharp|double-flat`, more `:toggle` techniques; `:key` also takes names (`Bb`, `F#m`).
+- The palette searches like the properties pane: `/` opens a field, the selection jumps to the first matching tool or section as you type (name, tooltip, command or section title), `<Esc>` goes back, `<CR>` keeps the jump, `n` / `N` repeat (`:palette-search`, `:palette-search-next`, `:palette-search-prev`); only the tools shown for the staff and mode are searched.
+- Palette icons: the GUI draws the engraver's own music-font glyphs (notes and rests, accidentals, dynamics, fermata, repeat signs, clefs, bow signs …) and pictograms for beams and stems; the terminal uses the closest Unicode / Nerd Font music glyphs, following `tabline.icons` (`none`: short text labels).
+- Visual mode has the palette's range tools: techniques (staccato, accents, effects, strokes, fermata …) toggle on every beat or note of the selection, crescendo / decrescendo make one hairpin across it, dynamics go on its first beat, legato / slides / ties chain each beat to the next, `+` / `-` and the note-value tools change every beat's duration (a triplet over three beats; the status line reports a bar that runs over), rest-out, semitone and octave shifts, accidentals, beams and stems. Bar selections add the bar tools (repeat open / close, section, key and time signatures, double bar, direction, free time, alternate endings) for their first, last or all bars. New palette items: longer, shorter, semitone up, semitone down. Every operation is one undo step and a button is tinted when the whole selection has it. In Visual mode `+` / `-` step the durations.
+- `.` repeats the last palette tool at the cursor (a toggle such as staccato, ghost note or let ring toggles there; a duration bump or note value, an accidental or a dynamic applies again), over a selection of the same number of beats or bars if the tool was used over a Visual selection, and with the same argument for tools that ask for one (clef, key, time signature, direction, section, endings). Navigating or searching the palette does not replace it; editing keys still do.
+- Dynamics over a Visual selection change the whole section (every note, not only the first beat), and `:dynamic-step +1|-1` (palette "Louder" / "Softer", `<A-+>` / `<A-->` in Visual mode) moves the section one dynamic up or down keeping the differences, clamped at ppp and fff. The engraver prints one mark per change, so a uniform section has one at its start and the beat after shows its own.
+- New score data, kept in `.muse` files (older files still open): bar repeat signs, per-beat beam and stem overrides, fermatas, fade out and volume swell, left-hand taps, and the written double sharp / flat of a note. The engraving honours the beam and stem overrides and shows fermatas, pick strokes, fades, repeat signs and double accidentals; directions print as "D.C. al Coda" and the like. Guitar Pro 7 files keep fades, left-hand taps and repeat signs; MusicXML keeps stems, fermatas and double accidentals.
+
+### Fixed
+
+- Engraving: tremolo picking (one to three slashes through the stem, or above the fret on tab), tap / slap / pop (`T` `S` `P` above the staff), grace notes (small head, slashed before the beat; the fret in small digits on tab), slides into and out of a note (a short diagonal at the note instead of "sl."), fade in / fade out / volume swell (labelled swell wedges), left-hand tapping (a `+` above the note), and harmonics (a diamond head on standard staves, `<fret>` on tab with "A.H." for artificial ones, also "P.H." "T.H." "S.H.").
+- With the palette focused in Visual mode, `h` `j` `k` `l` and the arrows move in the palette's grid instead of the score selection; the selection stays for the tools, and `<Esc>` back to the score keeps it.
+
+### Changed
+
+- A dynamic belongs to the beat, not to its notes: `Beat.dynamic` drives the velocity of all the beat's notes in playback, the palette, the range tools, `:dynamic-step` and the engraver (one mark per beat where it changes). Older `.muse` files and formats with a velocity per note are read by giving each beat its first note's velocity, and every note of a beat is written with the beat's dynamic.
+
+
 ## [0.18.0] - 2026-11-04
 
 ### Added

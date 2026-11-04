@@ -484,6 +484,7 @@ mod sequence_tests {
                 voices: vec![Voice {
                     beats: vec![beat(5, 0), beat(4, 2), beat(0, 3)],
                 }],
+                ..Default::default()
             }],
             ..Track::default()
         };

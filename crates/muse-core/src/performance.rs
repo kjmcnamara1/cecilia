@@ -197,11 +197,9 @@ impl Performance {
                         } else if note.effects.palm_mute || note.effects.staccato {
                             note_len /= 2;
                         }
-                        let velocity = if note.ghost {
-                            note.velocity / 2
-                        } else {
-                            note.velocity
-                        };
+                        // The beat's dynamic drives all its notes.
+                        let base = beat.dynamic.unwrap_or(note.velocity);
+                        let velocity = if note.ghost { base / 2 } else { base };
                         pending.push(Pending {
                             voice: vi,
                             string: note.string,
@@ -298,6 +296,7 @@ mod tests {
                             ..Beat::default()
                         }],
                     }],
+                    ..Default::default()
                 })
                 .collect(),
             ..Track::default()

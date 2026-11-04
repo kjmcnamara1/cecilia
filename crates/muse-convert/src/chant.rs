@@ -421,6 +421,7 @@ mod tests {
             kind: TrackKind::Pitched,
             bars: vec![Bar {
                 voices: vec![Voice { beats }],
+                ..Default::default()
             }],
             ..Track::default()
         });
@@ -487,6 +488,7 @@ mod tests {
             }
             track.bars.push(Bar {
                 voices: vec![voice],
+                ..Default::default()
             });
         }
         let score = Score {
@@ -555,6 +557,7 @@ mod tests {
         }
         track.bars.push(Bar {
             voices: vec![voice],
+            ..Default::default()
         });
         let score = Score {
             master_bars: vec![MasterBar::default()],
