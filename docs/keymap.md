@@ -429,7 +429,13 @@ Insert-mode keys depend on where the cursor is: on a **tab** (or drum lanes), on
 staff, on a **slash** staff or on **chant**. Each has its own keymap, looked up first
 (`[keymap.insert-tab]`, `[keymap.insert-standard]`, `[keymap.insert-slash]`,
 `[keymap.insert-chant]` in `config.toml`), then the keys shared by all (`[keymap.insert]`).
-The status line shows where the cursor is (`string 3`, `G4`, `slash`, `do`, `re` … `ti` on chant).
+The status line shows where the cursor is (`string 3`, `G4`, `slash`, `do`, `re` … `ti` on chant) and,
+in every mode, how full the cursor's bar is: the beats of the voice under the cursor against what the time signature asks
+for, in quarter-note beats (`3.0/4.0` needs one more quarter; 6/8 is `3.0`, 7/8 `3.5`). One
+decimal, two when that is not exact (a triplet remainder reads `3.67/4.0`). A complete bar
+reads in the normal color, a short or over-full one (`4.5/4.0`) in the error color. Free-time
+bars (chant) and a pickup first bar have no required count and show nothing. With
+`ui.highlight_incomplete_bars` (`:incomplete-bars`) such bars also get red staff lines.
 
 Shared keys:
 
@@ -521,6 +527,7 @@ e.g. `"<C-g>" = "completion-ignore-case"`, `"<C-f>" = "completion-fuzzy"`.
 | `:refinger` / `:transpose 2`                                         | re-finger the track to minimise hand movement / transpose                                                                                                                                   |
 | `:track-add bass` / `:track-delete` / `:new`                         | tracks and new scores (`:track-add piano` gets a grand staff)                                                                                                                                 |
 | `:staff-add [staff…]`                                               | add one or more staves at the bottom of the cursor's track, in the order given (`:staff-add treble tab slash`); staves only show the track's notes, so each track can have as many as you like |
+| `:incomplete-bars [on\|off\|toggle]` | draw the staff lines of bars that don't hold their full count in red (`theme.incomplete_bar`; `ui.highlight_incomplete_bars = true` sets it at start-up). A bar is flagged when any of its voices that holds notes or rests is shorter or longer than the time signature (tuplets and dots counted exactly, a few ticks of rounding allowed); bars with nothing in them, free-time bars and a pickup first bar are never flagged. All staff kinds are marked in the GUI engraving; the TUI tab view colors the bar's dashed staff lines |
 | `:bar-numbers [every\|system\|toggle]` | number every bar, or only the first bar of each line (the default; `ui.bar_numbers = "every"` in `config.toml` sets it at start-up). The GUI engraving shows the numbers; the TUI tab view always numbers every bar |
 | `:notation {notation}` | show the cursor's staff in another notation: `standard` (keeps the staff's clef), `tab`, `tab+` (tab with rhythm stems), `slash`, `chant`; a clef name (`treble`, `bass`, `grand [split]`, `neutral`, `chant fa`) is accepted too and sets it. A tab on a track without strings puts its notes on strings (refused if one would not fit). `:staff` is the old name |
 | `:clef {clef}` | the clef of the cursor's staff, by its notation. Standard: `treble`, `bass`, `grand [split]` (a grand staff splits at C3 unless a note such as `G3` is given) or `neutral` (percussion clef: drum tracks only, and the only clef they take). Chant: `do` or `fa`. Tab and slash staves have no clef. On a chant track also `c1`–`c4`, `f1`–`f4`, `cb3` (notes keep their staff positions) |

@@ -15,6 +15,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - On a chant staff the status line shows the solfège syllable of the cursor's position (`do` `re` `mi` `fa` `sol` `la` `ti`, read from the clef in force there) instead of the GABC letter.
 
+### Added
+
+- The status line shows, in every mode, how full the cursor's bar is, as quarter-note beats of the voice under the cursor over the time signature's length (`3.0/4.0`, `4.5/4.0`; 6/8 is `3.0`, 7/8 `3.5`), in the error color unless the bar is complete. Free-time bars and a pickup bar show nothing.
+- `ui.highlight_incomplete_bars = true` (and `:incomplete-bars on|off|toggle`) draws the staff lines of bars that are too short or too long in red, on every kind of staff in the GUI and on the dashed staff lines of the terminal tab view. The color is the new theme color `incomplete_bar`.
+
 ## [0.15.0] - 2026-11-03
 
 ### Added
