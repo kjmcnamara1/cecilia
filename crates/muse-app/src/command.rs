@@ -64,6 +64,10 @@ pub enum Command {
     // Editing
     /// Insert mode on the cursor beat, adding nothing.
     Insert,
+    /// Insert mode where Insert mode was last left (`gi`).
+    InsertLast,
+    /// Reselect the last Visual selection (`gv`).
+    VisualReselect,
     /// A new rest beat at the place, then insert mode.
     InsertBeat(BeatAt),
     /// Visual mode: a beat before / after the selection, then insert mode.
@@ -596,6 +600,8 @@ impl Command {
             "zoom-reset" => ZoomReset,
             "nop" => Nop,
             "insert-here" => Insert,
+            "insert-last" => InsertLast,
+            "visual-reselect" => VisualReselect,
             "insert" => InsertBeat(BeatAt::Before),
             "append" => InsertBeat(BeatAt::After),
             "insert-bar-start" => InsertBeat(BeatAt::BarStart),
@@ -1071,6 +1077,7 @@ impl Command {
         matches!(
             self,
             Insert
+                | InsertLast
                 | InsertBeat(_)
                 | InsertEnter
                 | DeleteNote

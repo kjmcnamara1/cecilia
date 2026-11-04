@@ -55,7 +55,7 @@ only be used in the GUI there, and `<D-…>` bindings never fire.
 | `]s` / `[s`         | next / previous section (`[count]` sections away; `''` goes back) |        |
 | `<leader>S`         | sections picker: every section of the file with its bars; Enter jumps there (`:sections`) | |
 | `m{a-z}` / `m{A-Z}`       | set a mark in this file / a global mark (any file)                                                                                                       |        |
-| `'{mark}` / `` `{mark} `` | jump to the mark's bar / exact position (a popup lists the marks and where they are); a global mark reopens its file if it was closed. `''` jumps back to before the last jump (also after `gg`, `G`) |        |
+| `'{mark}` / `` `{mark} `` | jump to the mark's bar / exact position (a popup lists the marks and where they are); a global mark reopens its file if it was closed. `''` jumps back to before the last jump (also after `gg`, `G`). `` `< `` / `` `> `` (or `'<` `'>`) are the start / end of the last Visual selection, `` `^ `` where Insert mode was last left |        |
 | `<C-d>` / `<C-u>`         | half a screen down / up: half the displayed bars in the horizontal layout, else half the displayed rows of bars (rounded up, at least one; in the page layout half the rows on a page, whatever the zoom) keeping the place in the bar and on the staff | _(M1)_ |
 
 ### Playback
@@ -207,7 +207,8 @@ is typed after it, is one undo step.
 | `i` / `a`                                              | new rest beat before / after the cursor beat (in the insert duration), then Insert mode on it (`:insert`, `:append`) |
 | `I` / `A`                                              | same at the start / end of the bar (`:insert-bar-start`, `:append-bar-end`)                       |
 | `o` / `O`                                              | new bar after / before the cursor bar (`[count]` bars), then Insert mode on it (`:bar-open-after`, `:bar-open-before`) |
-| `gi`                                                   | Insert mode on the cursor beat, adding nothing (`:insert-here`; the old `i`)                      |
+| `gi`                                                   | Insert mode where Insert mode was last left in this file (on the cursor if never), adding nothing (`:insert-last`) |
+| `<leader>i`                                            | Insert mode on the cursor beat, adding nothing (`:insert-here`; the old `i` and, until 0.17, `gi`) |
 | `x`                                                    | delete the one note under the cursor: on the cursor string, or at the cursor line / space (`[count]x`); on a slash staff the beat's slash, i.e. all its notes |
 | `d{motion}` / `dd`                                     | delete beats / bars (`[count]dd`). `dl` the beat under the cursor, `dh` the one before it, `dw` `de` `db` `d$` `d^` …  |
 | `y{motion}` / `yy`, `p` / `P`                          | yank beats or bars (`yl`, `yh` …, `yy` the bar) / put after / before the cursor                   |
@@ -217,6 +218,7 @@ is typed after it, is one undo step.
 | `u` / `U` / `g-` / `g+`                                | undo / redo / older / newer state across undo branches                                            |
 | `q{reg}` … `q` / `[count]@{reg}` / `@@`                | record / play / replay a macro; `q{A-Z}` appends to the lowercase register                        |
 | `v` / `V`                                              | visual beats / visual bars (then `d`, `y`, `c`, `x`; `i` / `a` below)                            |
+| `gv`                                                   | reselect the last Visual selection of this file (same kind; in Visual mode: swap with the current one) (`:visual-reselect`) |
 | `+` / `-`                                              | longer / shorter note value                                                                       |
 | `<C-a>` / `<C-x>`                                      | pitch up / down a semitone (moves string when the fret runs out)                                  |
 | `r`                                                    | make the beat a rest                                                                              |
