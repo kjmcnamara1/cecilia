@@ -1399,6 +1399,10 @@ impl Score {
                             let mut voice = voice;
                             for beat in &mut voice.beats {
                                 beat.notes.retain(keep);
+                                // A beat left without notes here is a rest: no dynamic.
+                                if beat.notes.is_empty() {
+                                    beat.dynamic = None;
+                                }
                             }
                             kept.push(voice);
                         }
