@@ -249,8 +249,8 @@ select, drag pane borders, click tabs, scroll/zoom, context menus that invoke th
 
 - **GUI** (`muse-gui`): full functionality. Score views support three layouts: page, continuous
   horizontal, continuous vertical. The page layout has a design mode (`:design`): bar widths,
-  bars per line and beat positions can be adjusted by hand (keys, commands or dragging handles
-  with the mouse) and are stored in the score (`Score.design`, native `.muse` format only). Notation uses SMuFL fonts (Bravura, SIL OFL), including the
+  bars per line and beat positions can be adjusted by hand (keys, commands, dragging handles and
+  clicking line-end "+" / "-" buttons with the mouse) and are stored in the score (`Score.design`, native `.muse` format only). Notation uses SMuFL fonts (Bravura, SIL OFL), including the
   plainchant ranges; square notation is set with the Caeciliae chant font (Oblates of St. Joseph,
   SIL OFL 1.1, bundled unmodified; see `assets/fonts/OFL-Caeciliae.txt`).
 - **TUI** (`muse-tui`): chant tracks show as a text staff with neume marks and syllables; read,

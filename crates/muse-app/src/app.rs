@@ -501,6 +501,8 @@ pub struct App {
     pub completion_fuzzy: bool,
     /// Every bar is numbered, not just the first of each line (`ui.bar_numbers`).
     pub every_bar_number: bool,
+    /// Staff lines of incomplete bars are red (`ui.highlight_incomplete_bars`).
+    pub highlight_incomplete_bars: bool,
     /// The toolbar is shown (`ui.toolbar`, `:toolbar`).
     pub toolbar: bool,
     /// Score panes show the progress bar along their bottom (`ui.progress_bar`,
@@ -574,6 +576,7 @@ impl App {
         let completion_ignore_case = config.file.ui.completion_ignore_case;
         let completion_fuzzy = config.file.ui.completion_fuzzy;
         let every_bar_number = config.file.ui.bar_numbers == "every";
+        let highlight_incomplete_bars = config.file.ui.highlight_incomplete_bars;
         let toolbar = config.file.ui.toolbar;
         let progress_bar = config.file.ui.progress_bar;
         let scrollbar = config.file.ui.scrollbar;
@@ -644,6 +647,7 @@ impl App {
             completion_ignore_case,
             completion_fuzzy,
             every_bar_number,
+            highlight_incomplete_bars,
             toolbar,
             progress_bar,
             scrollbar,
@@ -1793,6 +1797,7 @@ impl App {
                 self.completion_ignore_case = self.config.file.ui.completion_ignore_case;
                 self.completion_fuzzy = self.config.file.ui.completion_fuzzy;
                 self.every_bar_number = self.config.file.ui.bar_numbers == "every";
+                self.highlight_incomplete_bars = self.config.file.ui.highlight_incomplete_bars;
                 self.effects.push(Effect::ConfigReloaded);
                 if errors.is_empty() {
                     self.info(format!("config reloaded: {}", path.display()));
@@ -2259,6 +2264,14 @@ impl App {
                     "bar numbers: first bar of each line"
                 });
             }
+            IncompleteBars(on) => {
+                self.highlight_incomplete_bars = on.unwrap_or(!self.highlight_incomplete_bars);
+                self.info(if self.highlight_incomplete_bars {
+                    "incomplete bars highlighted"
+                } else {
+                    "incomplete bars not highlighted"
+                });
+            }
             CompletionFuzzy(on) => {
                 self.completion_fuzzy = on.unwrap_or(!self.completion_fuzzy);
                 self.completion = None;
@@ -2638,6 +2651,16 @@ impl App {
         }
     }
 
+    /// Puts a pane's cursor back in range after a frontend set its fields directly (a click).
+    /// On a slash staff this puts it on the staff's one line, wherever the click fell.
+    pub fn normalize_cursor(&mut self, pane: PaneId) {
+        if let Some(p) = self.panes.get_mut(&pane) {
+            if let Some(b) = self.buffers.get(p.buffer) {
+                clamp_cursor(&b.score, &mut p.cursor);
+            }
+        }
+    }
+
     fn move_cursor(&mut self, f: impl FnOnce(&Score, &mut Cursor)) {
         let id = self.focused();
         let pane = self.panes.get_mut(&id).unwrap();
@@ -2923,7 +2946,8 @@ pub(crate) fn clamp_cursor(score: &Score, c: &mut Cursor) {
     let staff = staves[c.staff];
     if !uses_strings(track, staff) {
         let middle = staff_middle(track, staff);
-        if (c.line - middle).abs() > 24 {
+        // A slash staff is a single line: the cursor always sits on it.
+        if staff == Staff::Slash || (c.line - middle).abs() > 24 {
             c.line = middle;
         }
     }
@@ -4330,6 +4354,29 @@ pub(crate) mod tests {
         app.pane_mut().cursor.bar = 2;
         app.run(Command::PageDown);
         assert_eq!(app.pane().cursor.bar, 4);
+    }
+
+    #[test]
+    fn incomplete_bars_setting_and_command() {
+        let mut app = App::new(Config::default(), None);
+        assert!(!app.highlight_incomplete_bars);
+        app.run(Command::parse("incomplete-bars on").unwrap());
+        assert!(app.highlight_incomplete_bars);
+        app.run(Command::parse("incomplete-bars toggle").unwrap());
+        assert!(!app.highlight_incomplete_bars);
+        app.run(Command::parse("incomplete-bars").unwrap());
+        assert!(app.highlight_incomplete_bars);
+        app.run(Command::parse("incomplete-bars off").unwrap());
+        assert!(!app.highlight_incomplete_bars);
+        assert!(Command::parse("incomplete-bars maybe").is_err());
+        let (config, errors) = Config::parse("[ui]\nhighlight_incomplete_bars = true\n").unwrap();
+        assert!(errors.is_empty());
+        assert!(App::new(config, None).highlight_incomplete_bars);
+        let (config, _) = Config::parse("[theme]\nincomplete_bar = \"#112233\"\n").unwrap();
+        assert_eq!(
+            config.theme.incomplete_bar,
+            crate::theme::Rgba::rgb(0x11, 0x22, 0x33)
+        );
     }
 
     #[test]

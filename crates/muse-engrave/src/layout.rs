@@ -35,6 +35,9 @@ pub struct Options {
     pub chords: muse_core::melody::ChordPolicy,
     /// Number every bar, not just the first of each system.
     pub every_bar_number: bool,
+    /// Draw the staff lines of bars that don't hold their full count (some voice with music is
+    /// too short or too long; see `Score::bar_incomplete`) in this color.
+    pub incomplete_bars: Option<Color>,
 }
 
 impl Default for Options {
@@ -52,6 +55,7 @@ impl Default for Options {
             chant: true,
             chords: Default::default(),
             every_bar_number: false,
+            incomplete_bars: None,
         }
     }
 }
@@ -190,33 +194,6 @@ impl SystemInfo {
             out[i] = (w.round() as u32).clamp(MIN_WIDTH, MAX_WIDTH);
         }
         Some(out)
-    }
-
-    /// How many bars to move onto this line (negative: off its end) when its end is dragged by
-    /// `dx` points; `following` are the natural widths of the bars after it. A bar moves once
-    /// the drag passes half of it; at least one bar stays.
-    pub fn drag_end(&self, widths: &[f64], following: &[f64], dx: f64) -> i32 {
-        let mut n = 0;
-        if dx > 0.0 {
-            let mut reach = 0.0;
-            for w in following {
-                if dx < reach + w / 2.0 {
-                    break;
-                }
-                reach += w;
-                n += 1;
-            }
-        } else {
-            let mut reach = 0.0;
-            for w in widths.iter().skip(1).rev() {
-                if -dx < reach + w / 2.0 {
-                    break;
-                }
-                reach += w;
-                n -= 1;
-            }
-        }
-        n
     }
 }
 
@@ -2189,6 +2166,11 @@ impl Ctx<'_> {
                 );
             }
             layout.bars[bi] = (page_index, x, x + w);
+            if let Some(color) = self.o.incomplete_bars {
+                if self.score.bar_incomplete(self.track_index, bi) {
+                    self.redraw_staff_lines(page, color, x, x + w, std_bottom, tab_top);
+                }
+            }
             self.draw_measure(
                 page,
                 page_index,
@@ -2230,6 +2212,53 @@ impl Ctx<'_> {
                 self.score.design.offset(self.track_index, bar, voice, beat) as f64 * self.sp / 10.0
             }
             _ => 0.0,
+        }
+    }
+
+    /// Draws the staff lines of one bar again in `color`, over the ones drawn for the system.
+    fn redraw_staff_lines(
+        &self,
+        page: &mut Page,
+        color: Color,
+        x0: f64,
+        x1: f64,
+        std_bottom: f64,
+        tab_top: f64,
+    ) {
+        let sp = self.sp;
+        if self.chant.as_ref().is_some_and(|c| c.error.is_some()) {
+            return;
+        }
+        if self.standard {
+            let lines = if self.chant.is_some() { 4 } else { 5 };
+            let gap = if self.chant.is_some() {
+                self.chant_gap()
+            } else {
+                sp
+            };
+            for l in 0..lines {
+                if self.slash && l != 2 {
+                    continue;
+                }
+                let y = std_bottom - l as f64 * gap;
+                page.items.push(Item::Line {
+                    from: Point::new(x0, y),
+                    to: Point::new(x1, y),
+                    width: 0.16 * sp,
+                    color,
+                });
+            }
+        }
+        if self.tab {
+            for s in 0..self.track.strings.len().max(1) {
+                let y = tab_top + s as f64 * 1.5 * sp;
+                page.items.push(Item::Line {
+                    from: Point::new(x0, y),
+                    to: Point::new(x1, y),
+                    width: 0.14 * sp,
+                    color,
+                });
+            }
         }
     }
 
@@ -5007,6 +5036,86 @@ mod tests {
 
     /// Bar numbers: the first bar of each system, or every bar when asked.
     #[test]
+    fn incomplete_bars_get_colored_staff_lines() {
+        let beat = |value| Beat {
+            duration: Duration::new(value),
+            notes: vec![Note::new(0, 0)],
+            ..Beat::default()
+        };
+        let bar = |beats| Bar {
+            voices: vec![Voice { beats }],
+        };
+        let whole = beat(DurationValue::Whole);
+        let half = beat(DurationValue::Half);
+        let score = Score {
+            tempo: 100,
+            master_bars: vec![MasterBar::default(); 3],
+            tracks: vec![Track {
+                kind: TrackKind::Fretted,
+                strings: vec![64, 59, 55, 50, 45, 40],
+                bars: vec![
+                    bar(vec![whole.clone()]),
+                    bar(vec![half.clone()]),
+                    bar(vec![whole, half]),
+                ],
+                ..Track::default()
+            }],
+            ..Score::default()
+        };
+        let red = Color::rgb(214, 40, 40);
+        // (number of red lines, the x range they cover) for a staff selection.
+        let reds = |incomplete_bars, standard, tab| -> Vec<(f64, f64)> {
+            let options = Options {
+                incomplete_bars,
+                standard,
+                tab,
+                ..Options::default()
+            };
+            let layout = engrave(&score, 0, &options);
+            layout
+                .pages
+                .iter()
+                .flat_map(|p| &p.items)
+                .filter_map(|i| match i {
+                    Item::Line {
+                        from, to, color, ..
+                    } if *color == red && from.y == to.y => Some((from.x, to.x)),
+                    _ => None,
+                })
+                .collect()
+        };
+        assert!(reds(None, true, true).is_empty());
+        // Bars 2 and 3 (short and over-full): five standard and six tab lines each.
+        let both = reds(Some(red), true, true);
+        assert_eq!(both.len(), 2 * 11);
+        assert_eq!(reds(Some(red), true, false).len(), 2 * 5);
+        assert_eq!(reds(Some(red), false, true).len(), 2 * 6);
+        // They span the bars only, not the whole system.
+        let layout = engrave(&score, 0, &Options::default());
+        let (_, a1, b1) = layout.bars[1];
+        let (_, a2, b2) = layout.bars[2];
+        assert!(
+            both.iter()
+                .all(|&(x0, x1)| (x0, x1) == (a1, b1) || (x0, x1) == (a2, b2))
+        );
+        // A pickup bar and free time are left alone.
+        let mut pickup = score.clone();
+        pickup.anacrusis = true;
+        pickup.master_bars[1].free_time = true;
+        let options = Options {
+            incomplete_bars: Some(red),
+            ..Options::default()
+        };
+        let n = engrave(&pickup, 0, &options)
+            .pages
+            .iter()
+            .flat_map(|p| &p.items)
+            .filter(|i| matches!(i, Item::Line { color, .. } if *color == red))
+            .count();
+        assert_eq!(n, 11);
+    }
+
+    #[test]
     fn every_bar_can_be_numbered() {
         let note = Beat {
             duration: Duration::new(DurationValue::Whole),
@@ -5208,15 +5317,5 @@ mod tests {
             sys.drag_barline(&widths, &natural, sys.bars - 1, 1.0)
                 .is_none()
         );
-        // The end of the line takes in bars once half of one is passed.
-        let next = [100.0, 100.0];
-        assert_eq!(sys.drag_end(&widths, &next, 20.0), 0);
-        assert_eq!(sys.drag_end(&widths, &next, 60.0), 1);
-        assert_eq!(sys.drag_end(&widths, &next, 160.0), 2);
-        assert_eq!(
-            sys.drag_end(&widths, &next, -widths[sys.bars - 1] * 0.6),
-            -1
-        );
-        assert_eq!(sys.drag_end(&widths, &next, -1e6), 1 - sys.bars as i32);
     }
 }

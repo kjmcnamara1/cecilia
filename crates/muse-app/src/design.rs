@@ -91,6 +91,18 @@ impl App {
         self.ed.group = group;
     }
 
+    /// Puts exactly `count` bars on the line that starts at bar `start`, as one undo step
+    /// (the "+" and "-" buttons at the end of a line).
+    pub fn design_line_bars(&mut self, start: usize, count: usize) {
+        let bars = self.buffer().score.master_bars.len();
+        if start >= bars {
+            return;
+        }
+        let mut design = self.design_overrides();
+        design.set_line_start(start, Some(Some(count.clamp(1, bars - start) as u32)));
+        self.set_design(design);
+    }
+
     /// A mouse drag begins: its previews are not undo steps.
     pub fn design_begin(&mut self) {
         if self.design_drag.is_none() {
@@ -430,5 +442,62 @@ mod tests {
                 .design
                 .is_empty()
         );
+    }
+
+    #[test]
+    fn design_keys_map_to_the_six_actions_only_in_design_mode() {
+        let mut app = app(8);
+        run(&mut app, "layout page");
+        let id = app.focused();
+        app.set_view_info(
+            id,
+            Some(crate::ViewInfo {
+                rows: vec![0..3, 3..6, 6..8],
+                ..Default::default()
+            }),
+        );
+        let press = |app: &mut App, keys: &str| {
+            for k in crate::keys::parse_keys(keys, &app.config.leader).unwrap() {
+                app.handle_key(k);
+            }
+        };
+        // Outside design mode they do nothing to the layout, and + / - keep their meaning.
+        press(&mut app, "<A-]>>");
+        assert!(design(&app).is_empty());
+        run(&mut app, "design on");
+        press(&mut app, "<A-]>");
+        assert_eq!(design(&app).line_start(0).unwrap().count, Some(4));
+        press(&mut app, "<A-[><A-[>");
+        assert_eq!(design(&app).line_start(0).unwrap().count, Some(2));
+        press(&mut app, "<A-=>");
+        assert!(design(&app).line_starts.is_empty());
+        press(&mut app, ">>");
+        assert_eq!(design(&app).width(0), 1200);
+        press(&mut app, "<");
+        assert_eq!(design(&app).width(0), 1100);
+        press(&mut app, "=");
+        assert!(design(&app).bar_widths.is_empty());
+        press(&mut app, "<A-l><A-l><A-h>");
+        assert_eq!(design(&app).offset(0, 0, 0, 0), 2);
+        press(&mut app, "<A-0>");
+        assert!(design(&app).beat_offsets.is_empty());
+        // + and - are still the duration keys.
+        let before = app.buffer().score.clone();
+        press(&mut app, "-");
+        assert!(design(&app).is_empty());
+        let _ = before;
+    }
+
+    #[test]
+    fn line_buttons_set_the_bars_of_a_line() {
+        let mut app = app(8);
+        app.design_line_bars(3, 4);
+        assert_eq!(design(&app).line_start(3).unwrap().count, Some(4));
+        app.design_line_bars(3, 99);
+        assert_eq!(design(&app).line_start(3).unwrap().count, Some(5));
+        app.run(Command::Undo);
+        assert_eq!(design(&app).line_start(3).unwrap().count, Some(4));
+        app.run(Command::Undo);
+        assert!(design(&app).is_empty());
     }
 }

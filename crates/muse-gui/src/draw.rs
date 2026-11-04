@@ -75,20 +75,24 @@ const BASE_SCALE: f64 = 1.6;
 /// A linked note's color-recolored pages: the note, its color, and (page, scene) pairs.
 type Lit = (muse_app::LinkedNote, [u8; 4], Vec<(usize, Scene)>);
 
+type CacheKey = (
+    usize,
+    usize,
+    String,
+    i64,
+    u64,
+    bool,
+    [u8; 8],
+    &'static str,
+    bool,
+    // The incomplete-bar color, while highlighted.
+    Option<[u8; 3]>,
+);
+
 struct Cached {
     /// (buffer, track, layout mode, width bucket, score version, chant view, page + ink colors,
     /// chord policy)
-    key: (
-        usize,
-        usize,
-        String,
-        i64,
-        u64,
-        bool,
-        [u8; 8],
-        &'static str,
-        bool,
-    ),
+    key: CacheKey,
     layout: Layout,
     scenes: Vec<Scene>,
     /// The note shown in the mode's color on the track's other staves, its color, and the pages
@@ -1995,6 +1999,10 @@ fn draw_pane(
         },
         app.chord_policy().name(),
         app.every_bar_number,
+        app.highlight_incomplete_bars.then(|| {
+            let c = app.config.theme.incomplete_bar;
+            [c.r, c.g, c.b]
+        }),
     );
     if views.cache.get(&id).is_none_or(|c| c.key != key) {
         let mode = match mode_name {
@@ -2014,6 +2022,10 @@ fn draw_pane(
             chant: app.chant_view,
             chords: app.chord_policy(),
             every_bar_number: app.every_bar_number,
+            incomplete_bars: app.highlight_incomplete_bars.then(|| {
+                let c = app.config.theme.incomplete_bar;
+                muse_engrave::display::Color::rgb(c.r, c.g, c.b)
+            }),
             ..Options::default()
         };
         let layout = muse_engrave::engrave(score, pane.cursor.track, &options);
@@ -2307,13 +2319,22 @@ fn draw_pane(
             Some(Drag::Design(_, grab)) => Some(grab.handle),
             _ => None,
         };
+        // The mouse in page points, for the buttons' hover.
+        let hover = |page: usize| {
+            (
+                (views.hover.0 - content.x0) / scale + scroll.0 - center,
+                (views.hover.1 - content.y0) / scale + scroll.1 - cached.offsets[page],
+            )
+        };
         draw_design_handles(
             scene,
             &cached.layout,
             &to_screen,
+            &hover,
             scale,
             (pane.cursor.track, pane.cursor.bar),
             dragged,
+            views.drag.is_some(),
         );
     }
     // Playhead: a red bar at the exact playback position, drawn over the cursor.
@@ -2543,17 +2564,21 @@ fn draw_waveform(
     );
 }
 
-/// Draws design mode's handles over the pages: a line at each bar line of a system, a tab past
-/// the line's end, a dot under each beat of the cursor's bar. The one being dragged is solid.
+/// Draws design mode's handles over the pages: a line with a grip at each bar line of a system,
+/// "+" and "-" buttons at the end of each line (dimmed when they cannot work, brighter under
+/// the mouse), a dot under each beat of the cursor's bar. The one being dragged is solid.
+#[allow(clippy::too_many_arguments)]
 fn draw_design_handles(
     scene: &mut Scene,
     layout: &Layout,
     to_screen: &impl Fn(usize) -> Affine,
+    hover: &impl Fn(usize) -> (f64, f64),
     scale: f64,
     cursor: (usize, usize),
     dragged: Option<crate::design::Handle>,
+    dragging: bool,
 ) {
-    use crate::design::{BEAT_R, Handle, beat_handle, end_tab};
+    use crate::design::{BEAT_R, Handle, beat_handle, line_buttons, line_enabled};
     let color = accent();
     let soft = |c: Color, held: bool| if held { c } else { c.with_alpha(0.55) };
     let px = 1.0 / scale;
@@ -2569,10 +2594,33 @@ fn draw_design_handles(
             let grip = RoundedRect::new(x - px * 4.0, mid - 6.0, x + px * 4.0, mid + 6.0, 2.0);
             scene.fill(Fill::NonZero, at, soft(color, held), None, &grip);
         }
-        let (l, r, t, b) = end_tab(sys);
-        let held = dragged == Some(Handle::LineEnd { system: i });
-        let tab = RoundedRect::new(l, t, r, b, 2.0);
-        scene.fill(Fill::NonZero, at, soft(color, held), None, &tab);
+        let (mx, my) = hover(sys.page);
+        let enabled = line_enabled(sys, layout.bars.len());
+        for (n, (l, t, r, b)) in line_buttons(sys).into_iter().enumerate() {
+            let on = [enabled.0, enabled.1][n];
+            let over = on && !dragging && mx >= l && mx <= r && my >= t && my <= b;
+            let alpha = if !on {
+                0.2
+            } else if over {
+                1.0
+            } else {
+                0.6
+            };
+            let button = RoundedRect::new(l, t, r, b, 2.0);
+            scene.fill(Fill::NonZero, at, color.with_alpha(alpha), None, &button);
+            // The sign, in the color that reads on the button.
+            let ink = text_on(color).with_alpha(if on { 1.0 } else { 0.5 });
+            let (cx, cy) = ((l + r) / 2.0, (t + b) / 2.0);
+            let arm = (r - l) * 0.28;
+            let mut sign = BezPath::new();
+            sign.move_to((cx - arm, cy));
+            sign.line_to((cx + arm, cy));
+            if n == 0 {
+                sign.move_to((cx, cy - arm));
+                sign.line_to((cx, cy + arm));
+            }
+            scene.stroke(&Stroke::new(1.4), at, ink, None, &sign);
+        }
     }
     let mut beats: Vec<&BeatRef> = layout
         .beats
@@ -3032,12 +3080,13 @@ fn draw_status(
     let bg_of = |k: SegKind| match k {
         SegKind::Mode => mode,
         SegKind::ModeText => th.status_b,
-        SegKind::Plain => th.chrome,
+        SegKind::Plain | SegKind::Warn => th.chrome,
     };
     let fg_of = |k: SegKind| match k {
         SegKind::Mode => th.text_on(mode),
         SegKind::ModeText => mode,
         SegKind::Plain => th.chrome_text,
+        SegKind::Warn => th.error,
     };
     let fonts = muse_engrave::fonts::fonts();
     // Chips have a little padding inside; plain sections a little more room around them.
@@ -3062,7 +3111,7 @@ fn draw_status(
             }
     };
     let draw = |scene: &mut Scene, x: f64, w: f64, seg: &Segment| {
-        if seg.kind != SegKind::Plain {
+        if !matches!(seg.kind, SegKind::Plain | SegKind::Warn) {
             scene.fill(
                 Fill::NonZero,
                 Affine::IDENTITY,
@@ -5327,6 +5376,29 @@ impl Views {
             let tol = 4.0 / g.scale;
             if let Some(handle) = crate::design::handle_at(&cached.layout, cursor, page, local, tol)
             {
+                // The line-end buttons are clicks: one more or fewer bar, one undo step.
+                let line = |system: usize| {
+                    cached
+                        .layout
+                        .systems
+                        .get(system)
+                        .map(|s| (s.first_bar, s.bars))
+                };
+                match handle {
+                    crate::design::Handle::LineAdd { system } => {
+                        if let Some((start, n)) = line(system) {
+                            app.design_line_bars(start, n + 1);
+                        }
+                        return;
+                    }
+                    crate::design::Handle::LineRemove { system } => {
+                        if let Some((start, n)) = line(system) {
+                            app.design_line_bars(start, n - 1);
+                        }
+                        return;
+                    }
+                    _ => {}
+                }
                 let grab = crate::design::Grab::new(
                     &cached.layout,
                     handle,
@@ -5362,6 +5434,8 @@ impl Views {
             {
                 p.cursor.line = line;
             }
+            // A slash staff is one line: a click above or below it still lands on the line.
+            app.normalize_cursor(g.pane);
         }
     }
 

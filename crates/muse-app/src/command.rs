@@ -283,6 +283,9 @@ pub enum Command {
     /// Number every bar (`Some(true)`) or only the first of each line (`Some(false)`); toggles
     /// without an argument.
     BarNumbers(Option<bool>),
+    /// Draw the staff lines of bars without their full count in red (`Some(true)`), or not;
+    /// toggles without an argument.
+    IncompleteBars(Option<bool>),
     /// Save the session as a workspace (by name or path; the active one without).
     WorkspaceSave(Option<String>),
     /// Replace the session with a saved workspace (`!` discards unsaved changes).
@@ -828,6 +831,16 @@ impl Command {
                 Some(other) => {
                     return Err(format!(
                         "bar-numbers: expected every, system or toggle, not '{other}'"
+                    ));
+                }
+            }),
+            "incomplete-bars" => IncompleteBars(match arg {
+                None | Some("toggle") => None,
+                Some("on" | "true" | "yes") => Some(true),
+                Some("off" | "false" | "no") => Some(false),
+                Some(other) => {
+                    return Err(format!(
+                        "incomplete-bars: expected on, off or toggle, not '{other}'"
                     ));
                 }
             }),

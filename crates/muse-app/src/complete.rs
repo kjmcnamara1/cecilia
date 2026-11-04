@@ -71,6 +71,7 @@ pub const COMMANDS: &[&str] = &[
     "focus-right",
     "focus-up",
     "bar-numbers",
+    "incomplete-bars",
     "completion-fuzzy",
     "completion-ignore-case",
     "follow-toggle",
@@ -313,6 +314,7 @@ fn values(command: &str) -> Option<&'static [&'static str]> {
         "bar-numbers" => &["every", "system", "toggle"],
         "completion-ignore-case"
         | "completion-fuzzy"
+        | "incomplete-bars"
         | "waveform"
         | "progress-bar"
         | "scrollbar" => &["off", "on", "toggle"],
@@ -790,6 +792,7 @@ pub fn describe(command: &str) -> Option<&'static str> {
         "command-mode" => "Open the command line",
         "completion-ignore-case" => "Toggle case-insensitive completion",
         "bar-numbers" => "Number every bar, or only the first bar of each line",
+        "incomplete-bars" => "Toggle red staff lines on bars that lack their full beat count",
         "completion-fuzzy" => "Toggle fuzzy completion (letters in order, anywhere)",
         "count-in" => "Toggle the count-in before playing",
         "delete" => "Delete operator",

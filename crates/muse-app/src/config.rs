@@ -206,6 +206,8 @@ pub struct UiConfig {
     pub chant_chords: String,
     /// Bar numbers on the score: `"system"` (the first bar of each line) or `"every"` bar.
     pub bar_numbers: String,
+    /// Draw the staff lines of bars that don't hold their full count in red.
+    pub highlight_incomplete_bars: bool,
 }
 
 impl Default for UiConfig {
@@ -234,6 +236,7 @@ impl Default for UiConfig {
             layout: "vertical".into(),
             chant_chords: "top".into(),
             bar_numbers: "system".into(),
+            highlight_incomplete_bars: false,
             zoom: 1.0,
         }
     }
@@ -667,8 +670,8 @@ const DEFAULT_DESIGN: &[(&str, &str)] = &[
     ("<A-0>", "beat-nudge reset"),
     ("|", "line-break"),
     ("_", "line-join"),
-    ("+", "bars-per-line +1"),
-    ("-", "bars-per-line -1"),
+    ("<A-]>", "bars-per-line +1"),
+    ("<A-[>", "bars-per-line -1"),
     ("<A-=>", "bars-per-line auto"),
     ("<leader>d", "design off"),
 ];

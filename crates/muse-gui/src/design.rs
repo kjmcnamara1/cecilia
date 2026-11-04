@@ -11,27 +11,45 @@ use muse_engrave::{Layout, SystemInfo};
 pub enum Handle {
     /// The bar line after bar `k` of system `system` (not the line's last).
     BarLine { system: usize, k: usize },
-    /// The tab past the end of a system: drag it to change the bars on the line.
-    LineEnd { system: usize },
+    /// The "+" button at the end of a system: one more bar on the line (a click).
+    LineAdd { system: usize },
+    /// The "-" button at the end of a system: one bar fewer on the line (a click).
+    LineRemove { system: usize },
     /// A beat of the cursor's bar.
     Beat(BeatRef),
 }
 
-/// Where a line-end tab sits right of the system's end, and its size.
-pub const END_TAB: (f64, f64, f64) = (3.0, 9.0, 18.0);
+/// Side of a line-end button, its gap to the line's end and between the two.
+pub const BUTTON: f64 = 9.0;
+pub const BUTTON_GAP: f64 = 3.0;
 /// Radius of a beat's handle and its distance under the staves.
 pub const BEAT_R: f64 = 3.0;
 pub const BEAT_GAP: f64 = 5.0;
 
-/// The line-end tab of a system: left, right, top, bottom.
-pub fn end_tab(sys: &SystemInfo) -> (f64, f64, f64, f64) {
+/// The "+" and "-" buttons at the end of a system, as (left, top, right, bottom) rectangles,
+/// stacked right of the line's end around its middle.
+pub fn line_buttons(sys: &SystemInfo) -> [(f64, f64, f64, f64); 2] {
     let mid = (sys.top + sys.bottom) / 2.0;
-    (
-        sys.x1 + END_TAB.0,
-        sys.x1 + END_TAB.1,
-        mid - END_TAB.2 / 2.0,
-        mid + END_TAB.2 / 2.0,
-    )
+    let l = sys.x1 + BUTTON_GAP;
+    [
+        (
+            l,
+            mid - BUTTON - BUTTON_GAP / 2.0,
+            l + BUTTON,
+            mid - BUTTON_GAP / 2.0,
+        ),
+        (
+            l,
+            mid + BUTTON_GAP / 2.0,
+            l + BUTTON,
+            mid + BUTTON + BUTTON_GAP / 2.0,
+        ),
+    ]
+}
+
+/// Whether the system's "+" (a bar after it to take in) and "-" (more than one bar) work.
+pub fn line_enabled(sys: &SystemInfo, bars: usize) -> (bool, bool) {
+    (sys.first_bar + sys.bars < bars, sys.bars > 1)
 }
 
 /// Where a beat's handle is drawn: x and y.
@@ -68,9 +86,15 @@ pub fn handle_at(
         .enumerate()
         .filter(|(_, s)| s.page == page)
     {
-        let (l, r, t, b) = end_tab(sys);
-        if x >= l - tol && x <= r + tol && y >= t - tol && y <= b + tol {
-            return Some(Handle::LineEnd { system: i });
+        let (add, remove) = line_enabled(sys, layout.bars.len());
+        for (k, (l, t, r, b)) in line_buttons(sys).into_iter().enumerate() {
+            if x >= l && x <= r && y >= t && y <= b {
+                return match (k, add, remove) {
+                    (0, true, _) => Some(Handle::LineAdd { system: i }),
+                    (1, _, true) => Some(Handle::LineRemove { system: i }),
+                    _ => None,
+                };
+            }
         }
     }
     for (i, sys) in layout
@@ -104,8 +128,6 @@ pub struct Grab {
     /// The system's bars' widths and natural widths at the press.
     pub widths: Vec<f64>,
     pub natural: Vec<f64>,
-    /// Natural widths of the bars after the system.
-    pub following: Vec<f64>,
     /// Bars in the score.
     pub bars: usize,
 }
@@ -119,10 +141,8 @@ impl Grab {
         bars: usize,
     ) -> Self {
         let system = match handle {
-            Handle::BarLine { system, .. } | Handle::LineEnd { system } => {
-                layout.systems.get(system).cloned()
-            }
-            Handle::Beat(_) => None,
+            Handle::BarLine { system, .. } => layout.systems.get(system).cloned(),
+            _ => None,
         };
         let range = system.as_ref().map(|s| s.range()).unwrap_or(0..0);
         let widths = range
@@ -130,7 +150,6 @@ impl Grab {
             .map(|b| layout.bars[b].2 - layout.bars[b].1)
             .collect();
         let natural = range.clone().map(|b| layout.natural[b]).collect();
-        let following = layout.natural.iter().skip(range.end).copied().collect();
         Self {
             handle,
             start,
@@ -138,7 +157,6 @@ impl Grab {
             system,
             widths,
             natural,
-            following,
             bars,
         }
     }
@@ -153,13 +171,6 @@ impl Grab {
                     for i in [k, k + 1] {
                         design.set_width(sys.first_bar + i, w[i]);
                     }
-                }
-            }
-            (Handle::LineEnd { .. }, Some(sys)) => {
-                let n = sys.drag_end(&self.widths, &self.following, dx);
-                if n != 0 {
-                    let count = (sys.bars as i32 + n).clamp(1, self.bars as i32) as u32;
-                    design.set_line_start(sys.first_bar, Some(Some(count)));
                 }
             }
             (Handle::Beat(b), _) => {
@@ -215,10 +226,36 @@ mod tests {
             handle_at(&layout, (0, 5), 0, (line + 1.0, mid), 3.0),
             Some(Handle::BarLine { system: 0, k: 0 })
         );
-        let (l, r, ..) = end_tab(sys);
+        let [(l, t, r, b), (l2, t2, r2, b2)] = line_buttons(sys);
         assert_eq!(
-            handle_at(&layout, (0, 5), 0, ((l + r) / 2.0, mid), 1.0),
-            Some(Handle::LineEnd { system: 0 })
+            handle_at(&layout, (0, 5), 0, ((l + r) / 2.0, (t + b) / 2.0), 1.0),
+            Some(Handle::LineAdd { system: 0 })
+        );
+        assert_eq!(
+            handle_at(&layout, (0, 5), 0, ((l2 + r2) / 2.0, (t2 + b2) / 2.0), 1.0),
+            Some(Handle::LineRemove { system: 0 })
+        );
+        // A button that cannot work is no handle: no "-" on a one-bar line, no "+" on the last.
+        assert_eq!(line_enabled(sys, 8), (true, true));
+        let one = SystemInfo {
+            bars: 1,
+            ..sys.clone()
+        };
+        assert_eq!(line_enabled(&one, 8), (true, false));
+        let last = SystemInfo {
+            first_bar: 6,
+            bars: 2,
+            ..sys.clone()
+        };
+        assert_eq!(line_enabled(&last, 8), (false, true));
+        let mut lone = layout.clone();
+        lone.systems = vec![SystemInfo {
+            bars: 1,
+            ..sys.clone()
+        }];
+        assert_eq!(
+            handle_at(&lone, (0, 5), 0, ((l2 + r2) / 2.0, (t2 + b2) / 2.0), 1.0),
+            None
         );
         // The cursor bar's beats have handles under the staves; other bars' do not.
         let beat = BeatRef {
@@ -243,7 +280,6 @@ mod tests {
         let layout = engrave(&score, 0, &Options::default());
         let bars = score.master_bars.len();
         let unit = Options::default().sp / 10.0;
-        let sys = &layout.systems[0];
         // A bar line: absolute from the press, so a back-and-forth lands where it began.
         let grab = Grab::new(
             &layout,
@@ -258,19 +294,6 @@ mod tests {
         score.design = wide;
         let after = engrave(&score, 0, &Options::default());
         assert!(after.bars[0].2 - after.bars[0].1 > layout.bars[0].2 - layout.bars[0].1 + 24.0);
-        // The line end: past half a bar takes it in.
-        let grab = Grab::new(
-            &layout,
-            Handle::LineEnd { system: 0 },
-            0.0,
-            DesignOverrides::default(),
-            bars,
-        );
-        assert!(grab.apply(10.0, unit).is_empty());
-        let more = grab.apply(layout.natural[sys.bars], unit);
-        assert_eq!(more.line_start(0).unwrap().count, Some(sys.bars as u32 + 1));
-        let fewer = grab.apply(-1e6, unit);
-        assert_eq!(fewer.line_start(0).unwrap().count, Some(1));
         // A beat: tenths of a staff space, on top of the offset it had.
         let beat = BeatRef {
             track: 0,
