@@ -1446,7 +1446,7 @@ impl App {
         }
     }
 
-    /// `h` / `l`: a switch goes off / on; a choice moves to the previous / next one; a number
+    /// `<A-h>` / `<A-l>`: a switch goes off / on; a choice moves to the previous / next one; a number
     /// goes down / up by one.
     fn step_property(&mut self, by: isize) {
         let t = self.pane().cursor.track;
@@ -2296,10 +2296,10 @@ mod tests {
         // Alt-j / alt-k swap with the staff below / above; the selection follows.
         keys(&mut app, "<leader>P");
         app.props.selected = field_row(&app, Field::StaffAt(0));
-        keys(&mut app, "<A-j>");
+        keys(&mut app, "<C-j>");
         assert_eq!(names(&app), ["tab+", "treble", "slash"]);
         assert_eq!(app.props.selected, field_row(&app, Field::StaffAt(1)));
-        keys(&mut app, "<A-k>");
+        keys(&mut app, "<C-k>");
         assert_eq!(names(&app), ["treble", "tab+", "slash"]);
         // Dragging a row onto another moves it.
         let (a, b) = (
@@ -2335,30 +2335,30 @@ mod tests {
         // The notation box is selected at first; the clef picker lists the clefs.
         app.props.selected = field_row(&app, Field::StaffAt(0));
         assert!(app.property_box_selected(app.props.selected, 0));
-        keys(&mut app, "<C-l>");
+        keys(&mut app, "l");
         assert!(app.property_box_selected(app.props.selected, 1));
         app.run(Command::PropertiesEdit);
         assert_eq!(app.palette().unwrap().title, "Clefs");
         keys(&mut app, "bass<CR>");
         assert_eq!(app.buffer().score.tracks[0].staves()[0].name(), "bass");
         // Stepping in the clef box changes the clef only.
-        keys(&mut app, "l");
+        keys(&mut app, "<A-l>");
         assert_eq!(app.buffer().score.tracks[0].staves()[0].name(), "grand");
-        keys(&mut app, "<C-h>h");
+        keys(&mut app, "h<A-h>");
         assert_eq!(app.buffer().score.tracks[0].staves()[0].name(), "grand");
         // The notation box steps through the notations, keeping what it can.
-        keys(&mut app, "<C-h>");
-        keys(&mut app, "l");
+        keys(&mut app, "h");
+        keys(&mut app, "<A-l>");
         assert_eq!(app.buffer().score.tracks[0].staves()[0], Staff::Tab);
         // A tab has no clef: the clef box can't be selected or opened.
-        keys(&mut app, "<C-l>");
+        keys(&mut app, "l");
         assert!(app.property_box_selected(app.props.selected, 0));
         app.run(Command::PropertiesEdit);
         assert_eq!(app.palette().unwrap().title, "Notation");
         keys(&mut app, "<Esc>");
         // Back to standard gives the default clef; chant has do and fa.
         app.run(Command::Notation("chant".into()));
-        keys(&mut app, "<C-l>");
+        keys(&mut app, "l");
         app.run(Command::PropertiesEdit);
         let titles = app.palette().unwrap().title;
         assert_eq!(titles, "Clefs");
@@ -2371,7 +2371,7 @@ mod tests {
         );
         // The add row picks a notation first.
         app.props.selected = field_row(&app, Field::StaffAt(2));
-        keys(&mut app, "<C-l>");
+        keys(&mut app, "l");
         assert!(app.property_box_selected(app.props.selected, 0));
         app.run(Command::PropertiesEdit);
         assert_eq!(app.palette().unwrap().title, "Notation");
@@ -2406,9 +2406,9 @@ mod tests {
         app.click_property(mute, false);
         assert!(app.buffer().score.tracks[0].mute);
         // h / l set a switch off / on, and keep it so.
-        keys(&mut app, "hh");
+        keys(&mut app, "<A-h><A-h>");
         assert!(!app.buffer().score.tracks[0].mute);
-        keys(&mut app, "ll");
+        keys(&mut app, "<A-l><A-l>");
         assert!(app.buffer().score.tracks[0].mute);
         // Only a double click edits; one click selects.
         let name = field_row(&app, Field::TrackName);
@@ -2428,17 +2428,17 @@ mod tests {
         app.props.selected = field_row(&app, Field::Tuning);
         let strings = |app: &App| app.buffer().score.tracks[0].strings.clone();
         assert_eq!(strings(&app), [64, 59, 55, 50, 45, 40]);
-        keys(&mut app, "h");
+        keys(&mut app, "<A-h>");
         assert_eq!(
             strings(&app),
             [64, 59, 55, 50, 45, 40],
             "no wrapping before the first"
         );
-        keys(&mut app, "l");
+        keys(&mut app, "<A-l>");
         assert_eq!(strings(&app), [63, 58, 54, 49, 44, 39], "the next tuning");
         app.props.selected = field_row(&app, Field::Program);
         let before = app.buffer().score.tracks[0].midi.program;
-        keys(&mut app, "l");
+        keys(&mut app, "<A-l>");
         assert_eq!(app.buffer().score.tracks[0].midi.program, before + 1);
         // Every staff row is lit with the selected one.
         app.props.selected = field_row(&app, Field::StaffAt(1));
@@ -2446,7 +2446,7 @@ mod tests {
         assert!(app.property_row_selected(field_row(&app, Field::StaffAt(2))));
         assert!(!app.property_row_selected(field_row(&app, Field::Capo)));
         // The staff kind steps too.
-        keys(&mut app, "l");
+        keys(&mut app, "<A-l>");
         assert_eq!(app.buffer().score.tracks[0].staves()[1].name(), "tab+");
         assert_eq!(Icon::of_program(25), Icon::Guitar);
     }
@@ -2472,14 +2472,14 @@ mod tests {
         app.set_property_tab(PropTab::Tracks);
         keys(&mut app, "<leader>P");
         app.props.selected = field_row(&app, Field::Capo);
-        keys(&mut app, "l");
-        keys(&mut app, "l");
+        keys(&mut app, "<A-l>");
+        keys(&mut app, "<A-l>");
         assert_eq!(app.buffer().score.tracks[0].capo, 2);
-        keys(&mut app, "h");
+        keys(&mut app, "<A-h>");
         assert_eq!(app.buffer().score.tracks[0].capo, 1);
-        keys(&mut app, "<Right>");
+        keys(&mut app, "<A-k>");
         assert_eq!(app.buffer().score.tracks[0].capo, 2);
-        keys(&mut app, "<Left>");
+        keys(&mut app, "<A-j>");
         assert_eq!(app.buffer().score.tracks[0].capo, 1);
         // Tab is j, shift-tab is k, the arrows likewise.
         let at = app.property_selected();
@@ -2575,11 +2575,11 @@ mod tests {
         // h on the empty staff field adds the last kind, l the first.
         app.set_property_tab(PropTab::Tracks);
         app.props.selected = field_row(&app, Field::StaffAt(2));
-        keys(&mut app, "h");
+        keys(&mut app, "<A-h>");
         let staves = app.buffer().score.tracks[0].staves();
         assert_eq!(staves[2], Staff::Chant);
         app.props.selected = field_row(&app, Field::StaffAt(3));
-        keys(&mut app, "l");
+        keys(&mut app, "<A-l>");
         let staves = app.buffer().score.tracks[0].staves();
         assert_eq!(staves[3].name(), "treble");
     }
