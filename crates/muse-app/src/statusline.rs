@@ -237,10 +237,10 @@ impl App {
             );
         }
         right.push(Segment::new(x.join("  "), SegKind::Plain));
-        // In insert mode: the cursor's bar, in quarter-note beats of the voice under the
-        // cursor against what the time signature asks for (`3.0/4.0`); error-colored unless
-        // the bar is complete. Nothing in free time and in a pickup bar.
-        if self.mode == Mode::Insert {
+        // The cursor's bar, in quarter-note beats of the voice under the cursor against what
+        // the time signature asks for (`3.0/4.0`); error-colored unless the bar is complete.
+        // Nothing in free time and in a pickup bar.
+        {
             let c = pane.cursor;
             if let Some(count) = score.bar_count(c.track, c.bar, c.voice) {
                 let kind = if count.is_complete() {
@@ -290,7 +290,7 @@ mod tests {
         assert_eq!(texts(&s.left)[..2], ["NORMAL", "vertical"]);
         assert_eq!(s.left[0].kind, SegKind::Mode);
         assert_eq!(s.left[1].kind, SegKind::ModeText);
-        assert_eq!(texts(&s.right)[2..], ["Top", "1:1"]);
+        assert_eq!(texts(&s.right)[2..], ["0.0/4.0", "Top", "1:1"]);
         assert_eq!(s.right[0].icon, Some(StatusIcon::Tempo));
         assert!(s.right[0].text.starts_with('='));
         for k in parse_keys("}}}i", &[]).unwrap() {
@@ -351,7 +351,7 @@ mod tests {
     }
 
     #[test]
-    fn insert_mode_shows_the_bar_count() {
+    fn the_status_line_shows_the_bar_count() {
         use muse_core::{Beat, Duration, DurationValue};
         let mut app = App::new(Config::default(), None);
         app.run(Command::New);
@@ -362,8 +362,8 @@ mod tests {
                 .find(|s| s.text.contains('/') && s.text.contains('.'))
                 .map(|s| (s.text.clone(), s.kind))
         };
-        // Not in normal mode.
-        assert_eq!(count(&app), None);
+        // In normal mode too.
+        assert_eq!(count(&app), Some(("0.0/4.0".into(), SegKind::Warn)));
         app.run(Command::parse("insert-here").unwrap());
         assert_eq!(app.mode, Mode::Insert);
         assert_eq!(count(&app), Some(("0.0/4.0".into(), SegKind::Warn)));
