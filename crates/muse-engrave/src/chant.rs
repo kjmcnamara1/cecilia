@@ -279,6 +279,7 @@ impl Ctx<'_> {
             pages: Vec::new(),
             beats: HashMap::new(),
             bars: vec![(0, f64::MAX, 0.0); self.score.master_bars.len()],
+            ..Layout::default()
         };
         let page_height = match self.o.mode {
             Mode::Page { height, .. } => height,

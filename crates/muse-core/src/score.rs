@@ -22,6 +22,12 @@ pub struct Score {
     /// Page size, margins and the header and footer templates (printing).
     #[serde(default)]
     pub page: PageSetup,
+    /// Manual page-layout overrides (design mode); only the native format keeps them.
+    #[serde(
+        default,
+        skip_serializing_if = "crate::design::DesignOverrides::is_empty"
+    )]
+    pub design: crate::design::DesignOverrides,
     pub extras: Extras,
 }
 
