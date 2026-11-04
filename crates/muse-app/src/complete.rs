@@ -990,6 +990,7 @@ pub fn describe(command: &str) -> Option<&'static str> {
         "properties-tab-prev" => "Show the previous tab of the properties pane",
         "properties-down" => "Properties pane: select the next property",
         "properties-up" => "Properties pane: select the previous property",
+        "properties-center" => "Properties pane: scroll so the selected property is in the middle",
         "properties-first" => "Properties pane: select the first property (top)",
         "properties-last" => "Properties pane: select the last property (bottom)",
         "properties-edit" => "Properties pane: edit the selected property",

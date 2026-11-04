@@ -9,7 +9,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
-- `gg` / `G` in the focused properties pane select its first / last property (`:properties-first`, `:properties-last`).
+- `gg` / `G` in the focused properties pane select its first / last property (`:properties-first`, `:properties-last`). `zz` scrolls the pane so the selected property is in the middle (`:properties-center`).
 
 ### Changed
 

@@ -262,6 +262,7 @@ pub enum Command {
     PropertiesDown,
     PropertiesUp,
     PropertiesFirst,
+    PropertiesCenter,
     PropertiesLast,
     /// Show a tab of the properties pane: `score`, `tracks` or `lyrics`; none for the next.
     PropertiesTab(Option<crate::properties::PropTab>),
@@ -1045,6 +1046,7 @@ impl Command {
             "properties-down" => PropertiesDown,
             "properties-up" => PropertiesUp,
             "properties-first" => PropertiesFirst,
+            "properties-center" => PropertiesCenter,
             "properties-last" => PropertiesLast,
             "properties-tab" => PropertiesTab(match arg {
                 None => None,

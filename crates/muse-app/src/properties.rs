@@ -432,6 +432,8 @@ pub struct PropsState {
     seen: Cell<usize>,
     /// First row shown; kept by [`App::property_window`].
     scroll: Cell<usize>,
+    /// Centre the selected row at the next draw (`zz`), when the room is known.
+    center: Cell<bool>,
 }
 
 /// Small capitals for terminals: each word's first letter stays, the rest turn to small caps.
@@ -744,7 +746,14 @@ impl App {
         let sel = self.property_selected();
         let height = |r: &PropRow| r.height();
         let mut first = self.props.scroll.get().min(rows.len().saturating_sub(1));
-        if sel != self.props.seen.get() {
+        if self.props.center.take() && !rows.is_empty() {
+            self.props.seen.set(sel);
+            let budget = visible.saturating_sub(height(&rows[sel])) / 2;
+            first = sel;
+            while first > 0 && rows[first - 1..sel].iter().map(height).sum::<usize>() <= budget {
+                first -= 1;
+            }
+        } else if sel != self.props.seen.get() {
             self.props.seen.set(sel);
             first = first.min(sel);
             // Scroll down until the selected row fits.
@@ -1886,6 +1895,7 @@ impl App {
                     self.props.selected = i;
                 }
             }
+            PropertiesCenter => self.props.center.set(true),
             PropertiesTab(Some(tab)) => self.set_property_tab(*tab),
             PropertiesTab(None) => self.set_property_tab(self.props.tab.step(1)),
             PropertiesTabPrev => self.set_property_tab(self.props.tab.step(-1)),
@@ -2479,6 +2489,30 @@ mod tests {
         assert_eq!(app.property_selected(), last);
         keys(&mut app, "gg");
         assert_eq!(app.property_selected(), first);
+    }
+
+    #[test]
+    fn zz_centres_the_selected_property() {
+        let mut app = with_props();
+        app.set_property_tab(PropTab::Tracks);
+        keys(&mut app, "<leader>P");
+        let rows = app.property_rows();
+        let sel = rows.len() / 2;
+        app.props.selected = sel;
+        let visible = 12;
+        app.property_window(visible);
+        keys(&mut app, "zz");
+        let first = app.property_window(visible);
+        let h = |r: &PropRow| r.height();
+        let above: usize = rows[first..sel].iter().map(h).sum();
+        let below: usize = rows[sel + 1..].iter().map(h).sum();
+        let after = visible.saturating_sub(above + h(&rows[sel]));
+        assert!(
+            above.abs_diff(after.min(below)) <= 2 || below < after,
+            "{above} {after}"
+        );
+        // Drawing again keeps it.
+        assert_eq!(app.property_window(visible), first);
     }
 
     #[test]
