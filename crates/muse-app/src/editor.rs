@@ -331,16 +331,28 @@ impl App {
         }
         self.pending.push(key);
         let kind = self.insert_kind();
-        let cmds = match self.config.normal_lookup(kind, &self.pending) {
-            Lookup::Exact(cmds) => cmds.to_vec(),
-            Lookup::Prefix => return,
-            Lookup::None => {
-                self.pending.clear();
-                self.count = None;
-                self.ed.operator = None;
-                self.ed.cmd_keys.clear();
-                return;
+        // Design mode's keys come first.
+        let design = if self.design_active() && self.mode == Mode::Normal {
+            match self.config.design_keymap.lookup(&self.pending) {
+                Lookup::Exact(cmds) => Some(cmds.to_vec()),
+                _ => None,
             }
+        } else {
+            None
+        };
+        let cmds = match design {
+            Some(cmds) => cmds,
+            None => match self.config.normal_lookup(kind, &self.pending) {
+                Lookup::Exact(cmds) => cmds.to_vec(),
+                Lookup::Prefix => return,
+                Lookup::None => {
+                    self.pending.clear();
+                    self.count = None;
+                    self.ed.operator = None;
+                    self.ed.cmd_keys.clear();
+                    return;
+                }
+            },
         };
         self.pending.clear();
         let count = self.count.take();
@@ -1131,6 +1143,7 @@ impl App {
                         return Err("cannot delete the only track".into());
                     }
                     let t = cx.cursor.track;
+                    cx.whole().design.delete_track(t);
                     let tracks = &mut cx.whole().tracks;
                     tracks.remove(t);
                     // Lyrics attached from the deleted track go; later tracks shift down.

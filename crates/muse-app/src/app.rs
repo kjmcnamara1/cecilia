@@ -508,6 +508,10 @@ pub struct App {
     pub progress_bar: bool,
     /// Score panes show a scrollbar (`ui.scrollbar`, `:scrollbar`).
     pub scrollbar: bool,
+    /// Design mode: the page layout can be adjusted by hand (`:design`).
+    pub design: bool,
+    /// The design as it was when a mouse drag began (the drag previews without undo steps).
+    pub(crate) design_drag: Option<muse_core::design::DesignOverrides>,
     /// The tuner's latest reading while a tuner pane is shown (set by the frontend).
     pub tuner_reading: Option<muse_audio::tuner::Reading>,
     /// Why the tuner can't listen, if it can't.
@@ -544,7 +548,7 @@ pub struct App {
     /// Bars moved by page-down/up when a pane's [`ViewInfo`] is not known yet.
     pub page_bars: usize,
     /// What each score pane displays, as last reported by the frontend (`set_view_info`).
-    view_info: HashMap<PaneId, ViewInfo>,
+    pub(crate) view_info: HashMap<PaneId, ViewInfo>,
     pub(crate) effects: Vec<Effect>,
     pub quit: bool,
     /// Layout for panes opened without another to copy from (`ui.layout`); each pane keeps
@@ -643,6 +647,8 @@ impl App {
             toolbar,
             progress_bar,
             scrollbar,
+            design: false,
+            design_drag: None,
             tuner_reading: None,
             tuner_error: None,
             tracks_selected: 0,
@@ -2315,6 +2321,7 @@ impl App {
             GlobalTool(name) => self.toggle_global_tool(&name),
             ProgressBar(on) => self.progress_bar = on.unwrap_or(!self.progress_bar),
             Scrollbar(on) => self.scrollbar = on.unwrap_or(!self.scrollbar),
+            Design(cmd) => self.run_design(cmd),
             Piano(on) => self.set_tool(PaneKind::Piano, on),
             Tuner(on) => self.set_tool(PaneKind::Tuner, on),
             Maximize => {
