@@ -115,6 +115,8 @@ enum Drag {
     Tab(usize),
     /// A pane's scrollbar thumb, grabbed this many rows below its top.
     Scrollbar(u32, u16),
+    /// A press on a beat of a score pane, which may become a Visual selection.
+    Select(u32),
 }
 
 /// A pane border under a cell: the divider and how far the cell is from its position.
@@ -209,6 +211,18 @@ fn event_loop(terminal: &mut DefaultTerminal, app: &mut App) -> Result<()> {
                                 app.drag_divider(&d, (along as i32 + off).max(0) as u16);
                             }
                             _ => {}
+                        }
+                    }
+                    // Dragging over beats of the pressed track selects them.
+                    MouseEventKind::Drag(MouseButton::Left)
+                        if matches!(ui.drag, Some(Drag::Select(..))) =>
+                    {
+                        if let (Some(Drag::Select(pane)), Some(track)) =
+                            (ui.drag.clone(), app.mouse_track())
+                        {
+                            if let Some(h) = nearest_hit(&ui.hits, pane, track, m.column, m.row) {
+                                app.mouse_drag(h.cursor);
+                            }
                         }
                     }
                     MouseEventKind::Drag(MouseButton::Left) if ui.drag == Some(Drag::Text) => {
@@ -341,6 +355,7 @@ fn event_loop(terminal: &mut DefaultTerminal, app: &mut App) -> Result<()> {
                         match ui.drag.take() {
                             Some(Drag::Volume) => app.group_edits(false),
                             Some(Drag::Text) => app.text_release(),
+                            Some(Drag::Select(..)) => app.mouse_release(),
                             Some(Drag::Prop(from, to, double)) if from == to => {
                                 app.click_property(from, double)
                             }
@@ -444,10 +459,18 @@ fn event_loop(terminal: &mut DefaultTerminal, app: &mut App) -> Result<()> {
                         } else if let Some(hit) =
                             ui.hits.iter().find(|h| contains(h.area, m.column, m.row))
                         {
-                            app.set_focus(hit.pane);
-                            if let Some(p) = app.panes.get_mut(&hit.pane) {
-                                p.cursor = hit.cursor;
-                            }
+                            let (pane, cursor) = (hit.pane, hit.cursor);
+                            // Shift extends a selection, Ctrl or Alt selects whole bars; a
+                            // drag selects.
+                            let mods = muse_app::mouse::MouseMods {
+                                extend: m.modifiers.contains(KeyModifiers::SHIFT),
+                                bars: m
+                                    .modifiers
+                                    .intersects(KeyModifiers::CONTROL | KeyModifiers::ALT),
+                                double: is_double(&mut ui, m.column, m.row),
+                            };
+                            app.mouse_press(pane, cursor, mods);
+                            ui.drag = Some(Drag::Select(pane));
                         } else if let Some((id, _)) = app
                             .layout()
                             .into_iter()
@@ -1595,6 +1618,24 @@ fn text_at(ui: &Ui, col: u16, row: u16) -> Option<usize> {
 }
 
 /// Whether a click at this cell follows one just before (and notes it).
+/// The cell of `track` in a pane nearest to a position (the one under it, when there is one).
+fn nearest_hit(hits: &[Hit], pane: u32, track: usize, x: u16, y: u16) -> Option<&Hit> {
+    let dist = |h: &Hit| {
+        let a = h.area;
+        let dx = (a.x as i32 - x as i32)
+            .max(0)
+            .max(x as i32 - (a.x + a.width - 1) as i32);
+        let dy = (a.y as i32 - y as i32)
+            .max(0)
+            .max(y as i32 - (a.y + a.height - 1) as i32);
+        // A row is much further than a column.
+        dx * dx + dy * dy * 16
+    };
+    hits.iter()
+        .filter(|h| h.pane == pane && h.cursor.track == track)
+        .min_by_key(|h| dist(h))
+}
+
 fn is_double(ui: &mut Ui, x: u16, y: u16) -> bool {
     let now = std::time::Instant::now();
     let double = ui.last_click.is_some_and(|(t, x0, y0)| {
@@ -3082,5 +3123,44 @@ mod key_tests {
             Key::char('Q')
         );
         assert!(key_with(KeyCode::Char('q'), KeyModifiers::SUPER).sup);
+    }
+}
+
+#[cfg(test)]
+mod select_tests {
+    use super::*;
+
+    fn hit(x: u16, y: u16, track: usize, beat: usize) -> Hit {
+        Hit {
+            area: Rect {
+                x,
+                y,
+                width: 3,
+                height: 1,
+            },
+            pane: 1,
+            cursor: muse_app::Cursor {
+                track,
+                beat,
+                ..Default::default()
+            },
+        }
+    }
+
+    #[test]
+    fn a_drag_picks_the_nearest_cell_of_the_pressed_track() {
+        let hits = [
+            hit(0, 0, 0, 0),
+            hit(4, 0, 0, 1),
+            hit(8, 0, 1, 2),
+            hit(0, 9, 0, 3),
+        ];
+        let at = |x, y| nearest_hit(&hits, 1, 0, x, y).map(|h| h.cursor.beat);
+        assert_eq!(at(5, 0), Some(1));
+        // Over another track's cell, past the right edge, and below everything.
+        assert_eq!(at(8, 0), Some(1));
+        assert_eq!(at(70, 0), Some(1));
+        assert_eq!(at(1, 30), Some(3));
+        assert_eq!(nearest_hit(&hits, 2, 0, 0, 0).map(|h| h.cursor.beat), None);
     }
 }

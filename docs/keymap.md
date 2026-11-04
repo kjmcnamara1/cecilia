@@ -242,6 +242,24 @@ current ones):
 | --- | --- |
 | `i` / `a` | leave the selection and insert a new beat before its first / after its last beat (a bar selection: at the start of its first bar / the end of its last bar), then Insert mode (`:visual-insert`, `:visual-append`) |
 
+**Selecting with the mouse** (GUI and terminal): press on a beat of a score pane and drag across
+other beats to select them. A press places the cursor as a click does, and nothing else happens
+while the pointer stays on that beat; once it moves to another beat, Visual mode starts with the
+anchor at the pressed beat and the cursor end follows the pointer live. Releasing keeps the
+selection in Visual mode, so `d` `y` `c`, the palette's buttons and the other keys act on it. The
+drag runs through bars and, down the page, over the systems; in the GUI, holding the pointer
+near (or beyond) the pane's top, bottom, left or right edge scrolls the view, faster the further
+out, and the selection follows. A Visual selection covers the beats of the cursor's own track and
+voice, so a drag selects on the track pressed: pointing at another track's staff selects those
+bar and beat positions of the pressed one (the cursor keeps its string or line). `Shift`+click
+extends the selection from the anchor (from the cursor, entering Visual mode, when not in it) to
+the clicked beat, and goes on as a drag. `Ctrl` or `Alt` with the press (or drag, or `Shift`+click)
+selects whole bars, as `V`; a double click selects the bar. A plain click in Visual mode moves
+the selection's cursor end, as before (a drag from it starts a new selection at the pressed
+beat). A drag from Insert mode leaves it for Visual mode; `<Esc>` during a drag ends the
+selection. Design-mode handles, scrollbars, borders and the tool panes take their presses first,
+and a drag started on them never selects.
+
 Choices where the wish was open: `e` is vim's end-of-word, so on a note that does not start a
 tie it goes to the end of the *next* note's tie (a lone note is its own tie); `b` likewise to
 the start of the previous one. `ch` clears the beat before the cursor and the cursor goes there.
