@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.18.0] - 2026-11-04
+
 ### Added
 
 - `gv` (`:visual-reselect`) reselects the last Visual selection of the file (same anchor, cursor and beat / bar kind; clamped if the score shrank); in Visual mode it swaps with the current selection. `gi` (`:insert-last`) starts Insert mode where Insert mode was last left. The marks `` `< `` `` `> `` `` `^ `` jump to the selection's ends and that insert position.
