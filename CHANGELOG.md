@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed
+
+- The barline closing a free-time bar (and so the one between two free-time bars) is drawn dashed, on every staff, the grand staff joins and the TUI tab view (`┆`). The line that closes the previous normal bar stays solid, and repeat ends, double bars and the final barline stay solid.
+
 ## [0.19.0] - 2026-11-04
 
 ### Added

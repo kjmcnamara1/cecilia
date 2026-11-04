@@ -1260,6 +1260,18 @@ impl Score {
         })
     }
 
+    /// Whether the barline closing master bar `bar` is drawn dashed. Free-time bars have no
+    /// meter, so the barline that closes one (and so also the one between two free-time bars)
+    /// is dashed, as in Guitar Pro; the line that closes the preceding normal bar stays solid.
+    /// Special lines (repeat end, double bar, the final barline) take priority and stay solid.
+    pub fn closing_barline_dashed(&self, bar: usize) -> bool {
+        bar + 1 < self.master_bars.len()
+            && self
+                .master_bars
+                .get(bar)
+                .is_some_and(|mb| mb.free_time && mb.repeat_end.is_none() && !mb.double_bar)
+    }
+
     /// Whether `bar` of `track` has music that doesn't fill it: some voice with notes or rests
     /// is too short or too long. A bar with nothing in it, free time and a pickup are not
     /// flagged.
