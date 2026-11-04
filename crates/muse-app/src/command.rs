@@ -212,6 +212,8 @@ pub enum Command {
     /// Show or hide the progress bar of the score panes.
     ProgressBar(Option<bool>),
     Scrollbar(Option<bool>),
+    /// Design mode and the manual page-layout commands.
+    Design(crate::design::DesignCmd),
     /// Level of "midi", "audio" or "metronome" in percent.
     Volume(String, u32),
     /// Mute / solo a track (the cursor's when not given), the audio track or the synth master
@@ -300,6 +302,9 @@ pub enum Command {
     /// Number every bar (`Some(true)`) or only the first of each line (`Some(false)`); toggles
     /// without an argument.
     BarNumbers(Option<bool>),
+    /// Draw the staff lines of bars without their full count in red (`Some(true)`), or not;
+    /// toggles without an argument.
+    IncompleteBars(Option<bool>),
     /// Save the session as a workspace (by name or path; the active one without).
     WorkspaceSave(Option<String>),
     /// Replace the session with a saved workspace (`!` discards unsaved changes).
@@ -847,6 +852,8 @@ impl Command {
                     _ => AudioPane(on),
                 }
             }
+            "design" | "bar-width" | "bars-per-line" | "line-break" | "line-join"
+            | "beat-nudge" | "design-reset" => Design(crate::design::DesignCmd::parse(name, arg)?),
             "global-tool" => GlobalTool(
                 arg.ok_or("global-tool: expected tracks, waveform, fretboard, piano or tuner")?
                     .to_string(),
@@ -884,6 +891,16 @@ impl Command {
                 Some(other) => {
                     return Err(format!(
                         "bar-numbers: expected every, system or toggle, not '{other}'"
+                    ));
+                }
+            }),
+            "incomplete-bars" => IncompleteBars(match arg {
+                None | Some("toggle") => None,
+                Some("on" | "true" | "yes") => Some(true),
+                Some("off" | "false" | "no") => Some(false),
+                Some(other) => {
+                    return Err(format!(
+                        "incomplete-bars: expected on, off or toggle, not '{other}'"
                     ));
                 }
             }),

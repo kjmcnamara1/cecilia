@@ -9,6 +9,7 @@ tab_width = 2            # horizontal spacing of the tab view (1–8)
 follow_playback = true   # the cursor and view move with the playhead (red bar) while playing
 jk_moves_between_staves = false   # true: j/k go on from a staff's last row into the next staff (default: they stay on the staff, with ledger-line rows above and below; <A-j>/<A-k> change staff)
 bar_numbers = "system"   # "system": a bar number at the start of each line; "every": every bar is numbered (GUI)
+highlight_incomplete_bars = false   # draw the staff lines of bars whose beats don't fill the time signature in red (:incomplete-bars)
 chant_chords = "top"   # chant is monophonic: which note of a chord a chant staff shows — "top", "bottom", or "error" (no chant staff; a message names the chord)
 hide_cursor_while_following = true   # …and only the red bar shows then (the edit cursor hides)
 completion_ignore_case = true   # Tab completion on the command line ignores letter case
@@ -63,6 +64,7 @@ preset = "dark"
 # capo = "#e1e1e6"            # the capo on the fretboard
 # panel = "#1e2025"           # tracks panel, waveform bar
 # empty_bar = "#373a42"       # bars without notes in the tracks panel
+# incomplete_bar = "#d62828" # staff lines of bars without a full count (highlight_incomplete_bars)
 # popover = "#24262c"         # command palette, pickers, tooltips
 # error = "#ff6e64"
 # lyrics = "#6ec882"          # terminal score view
@@ -147,6 +149,11 @@ clef = "treble"          # clef of a standard staff added without one: treble, b
 # you can bind in other modes too: e.g. "<leader>b" = "beams break", "<leader>s" = "stems up",
 # "<leader>f" = "toggle fermata", "<leader>r" = "bar-repeat 1", "<leader>k" = "key G".
 # "<CR>" = "palette-activate"
+
+[keymap.design]
+# Keys while design mode is on (<leader>d, page layout), looked up before [keymap.normal].
+# ">" = "bar-width +20"
+# Defaults: + - bars-per-line +1/-1, > < bar-width +10/-10, <A-l> <A-h> beat-nudge +2/-2.
 
 [keymap.command]
 # "<C-p>" = "normal"

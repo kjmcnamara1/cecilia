@@ -331,16 +331,28 @@ impl App {
         }
         self.pending.push(key);
         let kind = self.insert_kind();
-        let cmds = match self.config.normal_lookup(kind, &self.pending) {
-            Lookup::Exact(cmds) => cmds.to_vec(),
-            Lookup::Prefix => return,
-            Lookup::None => {
-                self.pending.clear();
-                self.count = None;
-                self.ed.operator = None;
-                self.ed.cmd_keys.clear();
-                return;
+        // Design mode's keys come first.
+        let design = if self.design_active() && self.mode == Mode::Normal {
+            match self.config.design_keymap.lookup(&self.pending) {
+                Lookup::Exact(cmds) => Some(cmds.to_vec()),
+                _ => None,
             }
+        } else {
+            None
+        };
+        let cmds = match design {
+            Some(cmds) => cmds,
+            None => match self.config.normal_lookup(kind, &self.pending) {
+                Lookup::Exact(cmds) => cmds.to_vec(),
+                Lookup::Prefix => return,
+                Lookup::None => {
+                    self.pending.clear();
+                    self.count = None;
+                    self.ed.operator = None;
+                    self.ed.cmd_keys.clear();
+                    return;
+                }
+            },
         };
         self.pending.clear();
         let count = self.count.take();
@@ -1178,6 +1190,7 @@ impl App {
                         return Err("cannot delete the only track".into());
                     }
                     let t = cx.cursor.track;
+                    cx.whole().design.delete_track(t);
                     let tracks = &mut cx.whole().tracks;
                     tracks.remove(t);
                     // Lyrics attached from the deleted track go; later tracks shift down.
@@ -2142,6 +2155,37 @@ mod tests {
             .collect();
         p.sort_unstable_by(|a, b| b.cmp(a));
         p
+    }
+
+    #[test]
+    fn the_cursor_stays_on_the_line_of_a_slash_staff() {
+        let mut a = app();
+        a.run(Command::StaffAdd(Some("slash".into())));
+        let slash = a.buffer().score.tracks[0]
+            .staves()
+            .iter()
+            .position(|s| *s == Staff::Slash)
+            .unwrap();
+        // Landing on it from another staff with a stray line, as a click does.
+        let id = a.focused();
+        a.pane_mut().cursor.staff = slash;
+        a.pane_mut().cursor.line = 41;
+        a.normalize_cursor(id);
+        assert_eq!(a.pane().cursor.line, 34);
+        // Moving between staves and within the slash staff keeps it on the line.
+        a.pane_mut().cursor.staff = 0;
+        a.pane_mut().cursor.line = 29;
+        keys(&mut a, "<A-j>");
+        keys(&mut a, "<A-j>");
+        assert_eq!(a.pane().cursor.staff, slash);
+        assert_eq!(a.pane().cursor.line, 34);
+        keys(&mut a, "jkjk");
+        assert_eq!(a.pane().cursor.line, 34);
+        // Another kind of staff keeps what a click set.
+        a.pane_mut().cursor.staff = 0;
+        a.pane_mut().cursor.line = 31;
+        a.normalize_cursor(id);
+        assert_eq!(a.pane().cursor.line, 31);
     }
 
     #[test]

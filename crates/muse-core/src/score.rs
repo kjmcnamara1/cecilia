@@ -22,6 +22,12 @@ pub struct Score {
     /// Page size, margins and the header and footer templates (printing).
     #[serde(default)]
     pub page: PageSetup,
+    /// Manual page-layout overrides (design mode); only the native format keeps them.
+    #[serde(
+        default,
+        skip_serializing_if = "crate::design::DesignOverrides::is_empty"
+    )]
+    pub design: crate::design::DesignOverrides,
     pub extras: Extras,
 }
 
@@ -825,6 +831,11 @@ pub struct Voice {
 }
 
 impl Voice {
+    /// Ticks the voice's beats add up to.
+    pub fn ticks(&self) -> u32 {
+        self.beats.iter().map(Beat::ticks).sum()
+    }
+
     pub fn is_empty(&self) -> bool {
         self.beats.iter().all(|b| b.empty)
     }
@@ -1143,7 +1154,68 @@ pub struct Lyrics {
     pub lines: Vec<LyricLine>,
 }
 
+/// How much music a voice holds in a bar, against what the time signature asks for.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct BarCount {
+    pub ticks: u32,
+    pub expected: u32,
+}
+
+impl BarCount {
+    /// Rounding of tuplet durations can leave a few ticks over or under.
+    const TOLERANCE: u32 = 4;
+
+    pub fn is_complete(&self) -> bool {
+        self.ticks.abs_diff(self.expected) <= Self::TOLERANCE
+    }
+
+    /// The count in quarter-note beats as `held/expected`, e.g. `3.0/4.0` or `3.5/3.5`: one
+    /// decimal, two when that is not exact (a triplet remainder reads `3.67/4.0`).
+    pub fn label(&self) -> String {
+        format!("{}/{}", beats_label(self.ticks), beats_label(self.expected))
+    }
+}
+
+/// Ticks as quarter-note beats: one decimal, or two when one would round.
+fn beats_label(ticks: u32) -> String {
+    let beats = ticks as f64 / TICKS_PER_QUARTER as f64;
+    if (beats * 10.0 - (beats * 10.0).round()).abs() < 0.01 {
+        format!("{beats:.1}")
+    } else {
+        format!("{beats:.2}")
+    }
+}
+
 impl Score {
+    /// The count of `voice` in `bar` of `track`; `None` for a bar of free time or a pickup
+    /// first bar, which have no required length, and for a bar or voice that doesn't exist.
+    pub fn bar_count(&self, track: usize, bar: usize, voice: usize) -> Option<BarCount> {
+        let mb = self.master_bars.get(bar)?;
+        if mb.free_time || (bar == 0 && self.anacrusis) {
+            return None;
+        }
+        let v = self.tracks.get(track)?.bars.get(bar)?.voices.get(voice)?;
+        Some(BarCount {
+            ticks: v.ticks(),
+            expected: mb.ticks(),
+        })
+    }
+
+    /// Whether `bar` of `track` has music that doesn't fill it: some voice with notes or rests
+    /// is too short or too long. A bar with nothing in it, free time and a pickup are not
+    /// flagged.
+    pub fn bar_incomplete(&self, track: usize, bar: usize) -> bool {
+        let Some(b) = self.tracks.get(track).and_then(|t| t.bars.get(bar)) else {
+            return false;
+        };
+        (0..b.voices.len()).any(|v| {
+            !b.voices[v].is_empty()
+                && self
+                    .bar_count(track, bar, v)
+                    .is_some_and(|c| !c.is_complete())
+        })
+    }
+
     /// Played length of a bar: the time signature length, or the length of the longest voice
     /// for free-time bars and a pickup first bar.
     pub fn played_ticks(&self, bar: usize) -> u32 {
@@ -1323,6 +1395,129 @@ impl Score {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::Tuplet;
+
+    fn beat(value: DurationValue, dots: u8, tuplet: Option<Tuplet>) -> Beat {
+        Beat {
+            duration: Duration {
+                value,
+                dots,
+                tuplet,
+            },
+            ..Beat::default()
+        }
+    }
+
+    fn one_bar(ts: (u8, u8), voices: Vec<Vec<Beat>>) -> Score {
+        Score {
+            master_bars: vec![MasterBar {
+                time_signature: TimeSignature {
+                    numerator: ts.0,
+                    denominator: ts.1,
+                },
+                ..MasterBar::default()
+            }],
+            tracks: vec![Track {
+                bars: vec![Bar {
+                    voices: voices.into_iter().map(|beats| Voice { beats }).collect(),
+                }],
+                ..Track::default()
+            }],
+            ..Score::default()
+        }
+    }
+
+    #[test]
+    fn bar_counts_and_incomplete_bars() {
+        use DurationValue::*;
+        let q = beat(Quarter, 0, None);
+        let label = |s: &Score| s.bar_count(0, 0, 0).unwrap().label();
+        // Complete, short, over.
+        let s = one_bar((4, 4), vec![vec![q.clone(); 4]]);
+        assert_eq!(label(&s), "4.0/4.0");
+        assert!(!s.bar_incomplete(0, 0));
+        let s = one_bar((4, 4), vec![vec![q.clone(); 3]]);
+        assert_eq!(label(&s), "3.0/4.0");
+        assert!(s.bar_incomplete(0, 0));
+        let s = one_bar(
+            (4, 4),
+            vec![vec![
+                q.clone(),
+                q.clone(),
+                q.clone(),
+                q.clone(),
+                beat(Eighth, 0, None),
+            ]],
+        );
+        assert_eq!(label(&s), "4.5/4.0");
+        assert!(s.bar_incomplete(0, 0));
+        // Dotted and rests: dotted half + quarter rest.
+        let rest = Beat {
+            notes: vec![],
+            ..beat(Quarter, 0, None)
+        };
+        let s = one_bar((4, 4), vec![vec![beat(Half, 1, None), rest]]);
+        assert_eq!(label(&s), "4.0/4.0");
+        // Triplets: three triplet eighths are one beat.
+        let t = beat(Eighth, 0, Some(Tuplet::TRIPLET));
+        let s = one_bar(
+            (4, 4),
+            vec![vec![
+                q.clone(),
+                q.clone(),
+                q.clone(),
+                t.clone(),
+                t.clone(),
+                t.clone(),
+            ]],
+        );
+        assert_eq!(label(&s), "4.0/4.0");
+        assert!(!s.bar_incomplete(0, 0));
+        let s = one_bar(
+            (4, 4),
+            vec![vec![q.clone(), q.clone(), q.clone(), t.clone(), t.clone()]],
+        );
+        assert_eq!(label(&s), "3.67/4.0");
+        // Other time signatures.
+        let e = beat(Eighth, 0, None);
+        let s = one_bar((6, 8), vec![vec![e.clone(); 6]]);
+        assert_eq!(label(&s), "3.0/3.0");
+        assert!(!s.bar_incomplete(0, 0));
+        let s = one_bar((7, 8), vec![vec![e.clone(); 6]]);
+        assert_eq!(label(&s), "3.0/3.5");
+        let s = one_bar((3, 4), vec![vec![q.clone(); 3]]);
+        assert_eq!(label(&s), "3.0/3.0");
+        // Multi-voice: an incomplete second voice flags the bar; an empty one doesn't.
+        let s = one_bar((4, 4), vec![vec![q.clone(); 4], vec![q.clone(); 2]]);
+        assert_eq!(s.bar_count(0, 0, 1).unwrap().label(), "2.0/4.0");
+        assert!(s.bar_incomplete(0, 0));
+        let s = one_bar(
+            (4, 4),
+            vec![
+                vec![q.clone(); 4],
+                vec![Beat {
+                    empty: true,
+                    ..Beat::default()
+                }],
+            ],
+        );
+        assert!(!s.bar_incomplete(0, 0));
+        // A bar with nothing in it isn't flagged; free time and a pickup have no count.
+        let s = one_bar(
+            (4, 4),
+            vec![vec![Beat {
+                empty: true,
+                ..Beat::default()
+            }]],
+        );
+        assert!(!s.bar_incomplete(0, 0));
+        let mut s = one_bar((4, 4), vec![vec![q.clone()]]);
+        s.master_bars[0].free_time = true;
+        assert!(s.bar_count(0, 0, 0).is_none() && !s.bar_incomplete(0, 0));
+        s.master_bars[0].free_time = false;
+        s.anacrusis = true;
+        assert!(s.bar_count(0, 0, 0).is_none() && !s.bar_incomplete(0, 0));
+    }
 
     #[test]
     fn tuning_text_reads_low_to_high_with_capo() {
@@ -1346,6 +1541,32 @@ mod tests {
         };
         assert_eq!(track.pitch_of(&Note::new(5, 0)), 42);
         assert_eq!(track.pitch_of(&Note::new(0, 3)), 69);
+    }
+
+    #[test]
+    fn bar_count_labels() {
+        let c = |ticks, expected| BarCount { ticks, expected }.label();
+        assert_eq!(c(3840, 3840), "4.0/4.0");
+        assert_eq!(c(2880, 3840), "3.0/4.0");
+        assert_eq!(c(1440 + 960 * 3, 3840), "4.5/4.0");
+        assert_eq!(c(2880, 2880), "3.0/3.0");
+        assert_eq!(c(1680, 1680), "1.75/1.75");
+        assert_eq!(c(2560 + 320, 3840), "3.0/4.0");
+        assert_eq!(c(3520, 3840), "3.67/4.0");
+        assert!(
+            BarCount {
+                ticks: 3839,
+                expected: 3840
+            }
+            .is_complete()
+        );
+        assert!(
+            !BarCount {
+                ticks: 2880,
+                expected: 3840
+            }
+            .is_complete()
+        );
     }
 
     #[test]

@@ -2,6 +2,7 @@
 //! notation from `muse-engrave`; all chrome (tabs, status and command lines) is drawn with the
 //! same outline fonts.
 
+mod design;
 mod draw;
 mod keys;
 

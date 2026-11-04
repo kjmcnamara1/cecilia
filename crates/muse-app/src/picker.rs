@@ -716,6 +716,7 @@ impl App {
                     (c.keymap(Mode::Tracks), "tracks ", false),
                     (c.keymap(Mode::Properties), "properties ", false),
                     (c.keymap(Mode::Palette), "palette ", false),
+                    (&c.design_keymap, "design ", false),
                     (c.keymap(Mode::Command), "command ", false),
                 ];
                 let mut out = Vec::new();

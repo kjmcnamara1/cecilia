@@ -307,13 +307,21 @@ impl Widget for TabView<'_> {
                 }
                 let header: String = header.chars().take(bl.width as usize).collect();
                 buf.set_string(bx, y0, header, Style::default().fg(rc(th.marker)));
-                // Staff lines and bar lines.
+                // Staff lines and bar lines; a bar without its full count has red staff lines
+                // when `ui.highlight_incomplete_bars` is on.
+                let staff_style = if self.app.highlight_incomplete_bars
+                    && score.bar_incomplete(pane.cursor.track, bl.bar)
+                {
+                    Style::default().fg(rc(th.incomplete_bar))
+                } else {
+                    dim
+                };
                 for s in 0..rows as u16 {
                     let y = y0 + 1 + s;
                     let bar_char = if mb.repeat_start { "‖" } else { "|" };
                     buf.set_string(bx, y, bar_char, line_style);
                     for dx in 1..bl.width {
-                        buf.set_string(bx + dx, y, "-", dim);
+                        buf.set_string(bx + dx, y, "-", staff_style);
                     }
                 }
                 let beats = track.bars[bl.bar]

@@ -3,6 +3,7 @@
 use std::collections::HashMap;
 
 use kurbo::{BezPath, Point, Rect, Shape as _};
+use muse_core::design::{AUTO_WIDTH, MAX_WIDTH, MIN_WIDTH};
 use muse_core::*;
 
 use crate::display::{Align, BeatRef, Color, FontKind, Hit, Item, MarkKind, NoteMark, Page};
@@ -34,6 +35,9 @@ pub struct Options {
     pub chords: muse_core::melody::ChordPolicy,
     /// Number every bar, not just the first of each system.
     pub every_bar_number: bool,
+    /// Draw the staff lines of bars that don't hold their full count (some voice with music is
+    /// too short or too long; see `Score::bar_incomplete`) in this color.
+    pub incomplete_bars: Option<Color>,
 }
 
 impl Default for Options {
@@ -51,6 +55,7 @@ impl Default for Options {
             chant: true,
             chords: Default::default(),
             every_bar_number: false,
+            incomplete_bars: None,
         }
     }
 }
@@ -132,6 +137,64 @@ pub struct Layout {
     pub beats: HashMap<BeatRef, BeatPos>,
     /// Page index and x range of every bar.
     pub bars: Vec<(usize, f64, f64)>,
+    /// Natural (unstretched, unweighted) width of every bar.
+    pub natural: Vec<f64>,
+    /// The systems (lines of bars) of the part, in order.
+    pub systems: Vec<SystemInfo>,
+}
+
+/// One system of a laid-out part, for design mode: where it is and what its bars weigh.
+#[derive(Debug, Clone, Default, PartialEq)]
+pub struct SystemInfo {
+    pub page: usize,
+    pub first_bar: usize,
+    pub bars: usize,
+    /// Where the first bar starts and the system ends.
+    pub x0: f64,
+    pub x1: f64,
+    /// Top of the first staff and bottom of the last.
+    pub top: f64,
+    pub bottom: f64,
+    /// The bars are stretched to fill the line (else they keep their natural widths).
+    pub stretched: bool,
+    /// The bars' width weights (permille) when laid out.
+    pub weights: Vec<u32>,
+}
+
+/// The narrowest a bar is made by a manual width, as a fraction of its natural width.
+pub const MIN_BAR_FRACTION: f64 = 0.35;
+
+impl SystemInfo {
+    pub fn range(&self) -> std::ops::Range<usize> {
+        self.first_bar..self.first_bar + self.bars
+    }
+
+    /// Weights (permille) for the bars after dragging the barline between bar `k` and `k + 1`
+    /// of the system by `dx` points: the two trade width, the line stays as long as it was.
+    /// `widths` and `natural` are the system's bars' current and natural widths. The move is
+    /// clamped so neither bar gets narrower than [`MIN_BAR_FRACTION`] of its natural width.
+    pub fn drag_barline(
+        &self,
+        widths: &[f64],
+        natural: &[f64],
+        k: usize,
+        dx: f64,
+    ) -> Option<Vec<u32>> {
+        if k + 1 >= self.bars || widths.len() != self.bars || natural.len() != self.bars {
+            return None;
+        }
+        let min = |i: usize| natural[i] * MIN_BAR_FRACTION;
+        let dx = dx.max(min(k) - widths[k]).min(widths[k + 1] - min(k + 1));
+        let weight = |i: usize| self.weights[i] as f64;
+        // Points per unit of weight, as laid out.
+        let per = |i: usize| widths[i] / weight(i);
+        let mut out = self.weights.clone();
+        for (i, d) in [(k, dx), (k + 1, -dx)] {
+            let w = (widths[i] + d) / per(i);
+            out[i] = (w.round() as u32).clamp(MIN_WIDTH, MAX_WIDTH);
+        }
+        Some(out)
+    }
 }
 
 // SMuFL code points.
@@ -869,26 +932,63 @@ fn run_part(ctxs: &[Ctx]) -> Layout {
     };
     let avail = (width - left - margin - header_width).max(20.0 * sp);
 
-    // Break into systems.
+    // Manual design overrides apply to the page layout only.
+    let design = match main.o.mode {
+        Mode::Page { .. } => Some(&main.score.design),
+        _ => None,
+    };
+    let weight = |i: usize| design.map_or(AUTO_WIDTH, |d| d.width(i));
+
+    // Break into systems: as many bars as fit on unweighted natural widths, except where the
+    // design says a line starts, or how many bars it holds.
     let mut systems: Vec<Vec<usize>> = Vec::new();
-    let mut current: Vec<usize> = Vec::new();
-    let mut used = 0.0;
-    for (i, p) in plans.iter().enumerate() {
-        if !current.is_empty() && used + p.natural > avail && main.o.mode != Mode::Horizontal {
-            systems.push(std::mem::take(&mut current));
-            used = 0.0;
+    let mut next = 0;
+    while next < plans.len() {
+        let start = next;
+        let limit = design
+            .and_then(|d| d.next_line_start(start))
+            .unwrap_or(plans.len());
+        let mut end = start + 1;
+        if let Some(count) = design
+            .and_then(|d| d.line_start(start))
+            .and_then(|l| l.count)
+        {
+            end = (start + count as usize).min(limit);
+        } else {
+            let mut used = plans[start].natural;
+            while end < limit
+                && (main.o.mode == Mode::Horizontal || used + plans[end].natural <= avail)
+            {
+                used += plans[end].natural;
+                end += 1;
+            }
         }
-        current.push(i);
-        used += p.natural;
+        systems.push((start..end.max(start + 1)).collect());
+        next = end.max(start + 1);
     }
-    if !current.is_empty() {
-        systems.push(current);
+
+    // Each bar's stretch (its width over its natural width), system by system.
+    let mut stretches = vec![1.0; plans.len()];
+    let mut stretched_systems = Vec::new();
+    for sys in &systems {
+        let natural: f64 = sys.iter().map(|&i| plans[i].natural).sum();
+        let last = std::ptr::eq(sys, systems.last().unwrap());
+        let stretched = main.o.mode != Mode::Horizontal && !(last && natural < avail * 0.75);
+        stretched_systems.push(stretched);
+        let weights: Vec<u32> = sys.iter().map(|&i| weight(i)).collect();
+        let naturals: Vec<f64> = sys.iter().map(|&i| plans[i].natural).collect();
+        let widths = allocate(&naturals, &weights, avail, stretched, sp);
+        for (k, &i) in sys.iter().enumerate() {
+            stretches[i] = widths[k] / plans[i].natural;
+        }
     }
 
     let mut layout = Layout {
         pages: Vec::new(),
         beats: HashMap::new(),
         bars: vec![(0, 0.0, 0.0); plans.len()],
+        natural: plans.iter().map(|p| p.natural).collect(),
+        systems: Vec::new(),
     };
     let page_height = match main.o.mode {
         Mode::Page { height, .. } => height,
@@ -907,16 +1007,9 @@ fn run_part(ctxs: &[Ctx]) -> Layout {
         vec![HashMap::new(); ctxs.len()];
     let mut system_ends: Vec<(usize, f64, f64)> = Vec::new();
     for (si, sys) in systems.iter().enumerate() {
-        let natural: f64 = sys.iter().map(|&i| plans[i].natural).sum();
-        let last = si + 1 == systems.len();
-        let stretch = if main.o.mode == Mode::Horizontal || (last && natural < avail * 0.75) {
-            1.0
-        } else {
-            avail / natural
-        };
         for c in ctxs {
-            c.fit_lyrics_above(si, sys, &plans, stretch, left, &layout);
-            c.fit_tab(si, sys, &plans, stretch, left, &layout);
+            c.fit_lyrics_above(si, sys, &plans, &stretches, left, &layout);
+            c.fit_tab(si, sys, &plans, &stretches, left, &layout);
         }
         let heights: Vec<f64> = ctxs.iter().map(|c| c.metrics().2).collect();
         let system_height: f64 = heights.iter().sum();
@@ -947,7 +1040,7 @@ fn run_part(ctxs: &[Ctx]) -> Layout {
                 &plans,
                 top,
                 left,
-                stretch,
+                &stretches,
                 &mut layout,
                 &mut placed[k],
             );
@@ -972,6 +1065,17 @@ fn run_part(ctxs: &[Ctx]) -> Layout {
             page.glyph(BRACE, (left - 0.4 * sp - bb.x1, b - bb.y1), size);
         }
         system_ends.push((page_index, left, x_end));
+        layout.systems.push(SystemInfo {
+            page: page_index,
+            first_bar: sys[0],
+            bars: sys.len(),
+            x0: left + header_width,
+            x1: x_end,
+            top: spans[0].0,
+            bottom: spans[spans.len() - 1].1,
+            stretched: stretched_systems[si],
+            weights: sys.iter().map(|&i| weight(i)).collect(),
+        });
         y += system_height;
     }
     if let Mode::Page { height, .. } = main.o.mode {
@@ -987,6 +1091,53 @@ fn run_part(ctxs: &[Ctx]) -> Layout {
         c.draw_wedges(&mut layout);
     }
     layout
+}
+
+/// The widths of a system's bars: shared out over `avail` in proportion to their natural
+/// widths times their weights (permille) when `stretched`, else the natural widths times the
+/// weights. A bar a manual weight made narrow stops at [`MIN_BAR_FRACTION`] of its natural
+/// width (never below two staff spaces); the others share what is left.
+fn allocate(natural: &[f64], weights: &[u32], avail: f64, stretched: bool, sp: f64) -> Vec<f64> {
+    let w = |i: usize| natural[i] * weights[i] as f64 / AUTO_WIDTH as f64;
+    let n = natural.len();
+    if !stretched {
+        return (0..n).map(w).collect();
+    }
+    if weights.iter().all(|&x| x == AUTO_WIDTH) {
+        let total: f64 = natural.iter().sum();
+        return natural.iter().map(|x| x * avail / total).collect();
+    }
+    let min = |i: usize| (natural[i] * MIN_BAR_FRACTION).max(2.0 * sp);
+    let mut fixed = vec![false; n];
+    let mut out = vec![0.0; n];
+    loop {
+        let rest = avail - (0..n).filter(|&i| fixed[i]).map(min).sum::<f64>();
+        let weight: f64 = (0..n).filter(|&i| !fixed[i]).map(w).sum();
+        let mut again = false;
+        for i in 0..n {
+            if !fixed[i] {
+                out[i] = rest * w(i) / weight;
+                if out[i] < min(i) {
+                    fixed[i] = true;
+                    again = true;
+                }
+            }
+        }
+        if !again {
+            break;
+        }
+    }
+    for i in 0..n {
+        if fixed[i] {
+            out[i] = min(i);
+        }
+    }
+    // Everything at its minimum may still overflow the line: squeeze to fit.
+    let total: f64 = out.iter().sum();
+    if total > avail {
+        out.iter_mut().for_each(|x| *x *= avail / total);
+    }
+    out
 }
 
 /// Bottom of the zone, from the top of the system, where the section marker and tempo are drawn
@@ -1115,7 +1266,7 @@ impl Ctx<'_> {
         si: usize,
         sys: &[usize],
         plans: &[MeasurePlan],
-        stretch: f64,
+        stretch: &[f64],
         left: f64,
         layout: &Layout,
     ) {
@@ -1130,6 +1281,7 @@ impl Ctx<'_> {
             pages: Vec::new(),
             beats: HashMap::new(),
             bars: layout.bars.clone(),
+            ..Layout::default()
         };
         let mut page = Page::default();
         self.measuring.set(true);
@@ -1193,7 +1345,7 @@ impl Ctx<'_> {
         si: usize,
         sys: &[usize],
         plans: &[MeasurePlan],
-        stretch: f64,
+        stretch: &[f64],
         left: f64,
         layout: &Layout,
     ) {
@@ -1206,6 +1358,7 @@ impl Ctx<'_> {
             pages: Vec::new(),
             beats: HashMap::new(),
             bars: layout.bars.clone(),
+            ..Layout::default()
         };
         self.low.set(f64::MIN);
         self.draw_system(
@@ -1915,7 +2068,7 @@ impl Ctx<'_> {
         plans: &[MeasurePlan],
         top: f64,
         x0: f64,
-        stretch: f64,
+        stretch: &[f64],
         layout: &mut Layout,
         placed: &mut HashMap<(usize, usize, usize, u8), Placed>,
     ) -> f64 {
@@ -1931,7 +2084,7 @@ impl Ctx<'_> {
         let tab_y = |s: usize| tab_top + s as f64 * 1.5 * sp;
         let tab_bottom = tab_y(strings - 1);
         let header = self.header_width();
-        let total: f64 = bars.iter().map(|&i| plans[i].natural * stretch).sum();
+        let total: f64 = bars.iter().map(|&i| plans[i].natural * stretch[i]).sum();
         let x1 = x0 + header + total;
 
         // Staff lines: four for chant, five otherwise, and just the middle one for slashes.
@@ -2008,7 +2161,7 @@ impl Ctx<'_> {
         let mut x = x0 + header;
         for &bi in bars {
             let plan = &plans[bi];
-            let w = plan.natural * stretch;
+            let w = plan.natural * stretch[bi];
             // Every bar numbered: those after the first of the system, just past the barline.
             if self.first_staff && self.o.every_bar_number && x > x0 + header {
                 page.text(
@@ -2020,6 +2173,11 @@ impl Ctx<'_> {
                 );
             }
             layout.bars[bi] = (page_index, x, x + w);
+            if let Some(color) = self.o.incomplete_bars {
+                if self.score.bar_incomplete(self.track_index, bi) {
+                    self.redraw_staff_lines(page, color, x, x + w, std_bottom, tab_top);
+                }
+            }
             self.draw_measure(
                 page,
                 page_index,
@@ -2027,7 +2185,7 @@ impl Ctx<'_> {
                 plan,
                 x,
                 w,
-                stretch,
+                stretch[bi],
                 std_bottom,
                 tab_top,
                 layout,
@@ -2052,6 +2210,63 @@ impl Ctx<'_> {
             }
         }
         x1
+    }
+
+    /// How far the design moved a beat sideways (page layout only).
+    fn nudge(&self, bar: usize, voice: usize, beat: usize) -> f64 {
+        match self.o.mode {
+            Mode::Page { .. } => {
+                self.score.design.offset(self.track_index, bar, voice, beat) as f64 * self.sp / 10.0
+            }
+            _ => 0.0,
+        }
+    }
+
+    /// Draws the staff lines of one bar again in `color`, over the ones drawn for the system.
+    fn redraw_staff_lines(
+        &self,
+        page: &mut Page,
+        color: Color,
+        x0: f64,
+        x1: f64,
+        std_bottom: f64,
+        tab_top: f64,
+    ) {
+        let sp = self.sp;
+        if self.chant.as_ref().is_some_and(|c| c.error.is_some()) {
+            return;
+        }
+        if self.standard {
+            let lines = if self.chant.is_some() { 4 } else { 5 };
+            let gap = if self.chant.is_some() {
+                self.chant_gap()
+            } else {
+                sp
+            };
+            for l in 0..lines {
+                if self.slash && l != 2 {
+                    continue;
+                }
+                let y = std_bottom - l as f64 * gap;
+                page.items.push(Item::Line {
+                    from: Point::new(x0, y),
+                    to: Point::new(x1, y),
+                    width: 0.16 * sp,
+                    color,
+                });
+            }
+        }
+        if self.tab {
+            for s in 0..self.track.strings.len().max(1) {
+                let y = tab_top + s as f64 * 1.5 * sp;
+                page.items.push(Item::Line {
+                    from: Point::new(x0, y),
+                    to: Point::new(x1, y),
+                    width: 0.14 * sp,
+                    color,
+                });
+            }
+        }
     }
 
     fn draw_key(&self, page: &mut Page, key: i8, x: f64, bottom: f64) {
@@ -2392,6 +2607,8 @@ impl Ctx<'_> {
                 let Some(&(bx, bw)) = col_x.get(&start) else {
                     continue;
                 };
+                // A beat the design moved sideways.
+                let bx = bx + self.nudge(bi, vi, i);
                 let beat_ref = BeatRef {
                     track: self.track_index,
                     bar: bi,
@@ -5073,6 +5290,86 @@ mod tests {
 
     /// Bar numbers: the first bar of each system, or every bar when asked.
     #[test]
+    fn incomplete_bars_get_colored_staff_lines() {
+        let beat = |value| Beat {
+            duration: Duration::new(value),
+            notes: vec![Note::new(0, 0)],
+            ..Beat::default()
+        };
+        let bar = |beats| Bar {
+            voices: vec![Voice { beats }],
+        };
+        let whole = beat(DurationValue::Whole);
+        let half = beat(DurationValue::Half);
+        let score = Score {
+            tempo: 100,
+            master_bars: vec![MasterBar::default(); 3],
+            tracks: vec![Track {
+                kind: TrackKind::Fretted,
+                strings: vec![64, 59, 55, 50, 45, 40],
+                bars: vec![
+                    bar(vec![whole.clone()]),
+                    bar(vec![half.clone()]),
+                    bar(vec![whole, half]),
+                ],
+                ..Track::default()
+            }],
+            ..Score::default()
+        };
+        let red = Color::rgb(214, 40, 40);
+        // (number of red lines, the x range they cover) for a staff selection.
+        let reds = |incomplete_bars, standard, tab| -> Vec<(f64, f64)> {
+            let options = Options {
+                incomplete_bars,
+                standard,
+                tab,
+                ..Options::default()
+            };
+            let layout = engrave(&score, 0, &options);
+            layout
+                .pages
+                .iter()
+                .flat_map(|p| &p.items)
+                .filter_map(|i| match i {
+                    Item::Line {
+                        from, to, color, ..
+                    } if *color == red && from.y == to.y => Some((from.x, to.x)),
+                    _ => None,
+                })
+                .collect()
+        };
+        assert!(reds(None, true, true).is_empty());
+        // Bars 2 and 3 (short and over-full): five standard and six tab lines each.
+        let both = reds(Some(red), true, true);
+        assert_eq!(both.len(), 2 * 11);
+        assert_eq!(reds(Some(red), true, false).len(), 2 * 5);
+        assert_eq!(reds(Some(red), false, true).len(), 2 * 6);
+        // They span the bars only, not the whole system.
+        let layout = engrave(&score, 0, &Options::default());
+        let (_, a1, b1) = layout.bars[1];
+        let (_, a2, b2) = layout.bars[2];
+        assert!(
+            both.iter()
+                .all(|&(x0, x1)| (x0, x1) == (a1, b1) || (x0, x1) == (a2, b2))
+        );
+        // A pickup bar and free time are left alone.
+        let mut pickup = score.clone();
+        pickup.anacrusis = true;
+        pickup.master_bars[1].free_time = true;
+        let options = Options {
+            incomplete_bars: Some(red),
+            ..Options::default()
+        };
+        let n = engrave(&pickup, 0, &options)
+            .pages
+            .iter()
+            .flat_map(|p| &p.items)
+            .filter(|i| matches!(i, Item::Line { color, .. } if *color == red))
+            .count();
+        assert_eq!(n, 11);
+    }
+
+    #[test]
     fn every_bar_can_be_numbered() {
         let note = Beat {
             duration: Duration::new(DurationValue::Whole),
@@ -5123,5 +5420,157 @@ mod tests {
         let some = numbers(false);
         assert!(some.len() < bars && some.iter().all(|&n| n > 1));
         assert_eq!(numbers(true), (1..=bars).collect::<Vec<_>>());
+    }
+
+    /// A score of `bars` eighth-note bars on a tab.
+    fn design_score(bars: usize) -> Score {
+        let beat = |fret| Beat {
+            duration: Duration::new(DurationValue::Eighth),
+            notes: vec![Note::new(1, fret)],
+            ..Beat::default()
+        };
+        let bar = Bar {
+            voices: vec![Voice {
+                beats: (0..8).map(|i| beat(i % 5)).collect(),
+            }],
+        };
+        Score {
+            tempo: 100,
+            master_bars: vec![MasterBar::default(); bars],
+            tracks: vec![Track {
+                kind: TrackKind::Fretted,
+                strings: vec![64, 59, 55, 50, 45, 40],
+                bars: vec![bar; bars],
+                ..Track::default()
+            }],
+            ..Score::default()
+        }
+    }
+
+    fn rows(layout: &Layout) -> Vec<std::ops::Range<usize>> {
+        layout.systems.iter().map(|s| s.range()).collect()
+    }
+
+    #[test]
+    fn bar_width_overrides_trade_width_within_a_line() {
+        let mut score = design_score(8);
+        let auto = engrave(&score, 0, &Options::default());
+        let width = |l: &Layout, b: usize| l.bars[b].2 - l.bars[b].1;
+        let sys = auto.systems[0].clone();
+        assert!(sys.bars >= 2);
+        score.design.set_width(0, 2000);
+        let wide = engrave(&score, 0, &Options::default());
+        assert_eq!(rows(&wide), rows(&auto));
+        assert!(width(&wide, 0) > width(&auto, 0) * 1.2);
+        assert!(width(&wide, 1) < width(&auto, 1));
+        // The line still ends where it did.
+        assert!((wide.systems[0].x1 - auto.systems[0].x1).abs() < 1e-6);
+        let last = sys.range().end - 1;
+        assert!((wide.bars[last].2 - auto.bars[last].2).abs() < 1e-6);
+        // A bar cannot be squeezed away.
+        score.design.set_width(0, 100);
+        let thin = engrave(&score, 0, &Options::default());
+        assert!(width(&thin, 0) >= auto.natural[0] * MIN_BAR_FRACTION - 1e-6);
+        // Removing the override restores the automatic layout.
+        score.design.set_width(0, AUTO_WIDTH);
+        let again = engrave(&score, 0, &Options::default());
+        assert_eq!(again.bars, auto.bars);
+        // The vertical layout ignores it.
+        score.design.set_width(0, 1500);
+        let vertical = Options {
+            mode: Mode::Vertical { width: 595.0 },
+            ..Options::default()
+        };
+        let a = engrave(&score, 0, &vertical);
+        score.design.set_width(0, AUTO_WIDTH);
+        assert_eq!(a.bars, engrave(&score, 0, &vertical).bars);
+    }
+
+    #[test]
+    fn line_starts_and_bars_per_line() {
+        let mut score = design_score(12);
+        let auto = engrave(&score, 0, &Options::default());
+        let first = auto.systems[0].bars;
+        assert!(first >= 2 && auto.systems.len() >= 2);
+        // A forced break after the second bar.
+        score.design.set_line_start(1, Some(None));
+        let broken = engrave(&score, 0, &Options::default());
+        assert_eq!(broken.systems[0].range(), 0..1);
+        assert_eq!(broken.systems[1].first_bar, 1);
+        assert!(
+            broken.systems[0].x1 > 500.0,
+            "a short line still fills the width"
+        );
+        // Exactly two bars on the first line, then the rest flows.
+        score.design.set_line_start(1, None);
+        score.design.set_line_start(0, Some(Some(1)));
+        let two = engrave(&score, 0, &Options::default());
+        assert_eq!(rows(&two)[..2], [0..1, 1..1 + first]);
+        // More bars than fit are squeezed onto the line, within the margins.
+        score.design.set_line_start(0, Some(Some(first as u32 + 1)));
+        let packed = engrave(&score, 0, &Options::default());
+        assert_eq!(packed.systems[0].bars, first + 1);
+        assert!(packed.bars[first].2 <= 595.0 - 39.0);
+        // Back to automatic.
+        score.design.set_line_start(0, None);
+        assert_eq!(rows(&engrave(&score, 0, &Options::default())), rows(&auto));
+    }
+
+    #[test]
+    fn beats_can_be_nudged() {
+        let mut score = design_score(2);
+        let at = |l: &Layout, beat| {
+            l.beats[&BeatRef {
+                track: 0,
+                bar: 0,
+                voice: 0,
+                beat,
+            }]
+                .head
+        };
+        let auto = engrave(&score, 0, &Options::default());
+        score.design.set_offset(0, 0, 0, 3, 20);
+        let moved = engrave(&score, 0, &Options::default());
+        // Two staff spaces, and only that beat.
+        assert!((at(&moved, 3) - at(&auto, 3) - 10.0).abs() < 1e-6);
+        assert_eq!(at(&moved, 2), at(&auto, 2));
+        assert_eq!(moved.bars, auto.bars);
+        // Other layouts ignore it.
+        let vertical = Options {
+            mode: Mode::Vertical { width: 595.0 },
+            ..Options::default()
+        };
+        let v = engrave(&score, 0, &vertical);
+        score.design.set_offset(0, 0, 0, 3, 0);
+        assert_eq!(at(&v, 3), at(&engrave(&score, 0, &vertical), 3));
+    }
+
+    #[test]
+    fn dragging_a_barline_trades_width() {
+        let score = design_score(8);
+        let layout = engrave(&score, 0, &Options::default());
+        let sys = &layout.systems[0];
+        let range = sys.range();
+        let widths: Vec<f64> = range
+            .clone()
+            .map(|b| layout.bars[b].2 - layout.bars[b].1)
+            .collect();
+        let natural: Vec<f64> = range.map(|b| layout.natural[b]).collect();
+        let w = sys.drag_barline(&widths, &natural, 0, 20.0).unwrap();
+        let mut dragged = score.clone();
+        for (i, &weight) in w.iter().enumerate() {
+            dragged.design.set_width(sys.first_bar + i, weight);
+        }
+        let after = engrave(&dragged, 0, &Options::default());
+        assert!((after.bars[0].2 - after.bars[0].1 - widths[0] - 20.0).abs() < 1.0);
+        assert!((after.bars[1].2 - after.bars[1].1 - widths[1] + 20.0).abs() < 1.0);
+        assert!((after.systems[0].x1 - sys.x1).abs() < 1e-6);
+        // Clamped at the neighbour's minimum.
+        let w = sys.drag_barline(&widths, &natural, 0, 1e6).unwrap();
+        assert!(w[1] >= MIN_WIDTH);
+        assert!(
+            sys.drag_barline(&widths, &natural, sys.bars - 1, 1.0)
+                .is_none()
+        );
     }
 }

@@ -7,6 +7,27 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.17.0] - 2026-11-04
+
+### Added
+
+- Design mode for the page layout (`:design`, `<leader>d`): fix clashes by hand. Bar widths (`:bar-width`), bars per line (`:bars-per-line`, `:line-break`, `:line-join`) and beat positions (`:beat-nudge`) can be set with commands and the keys of the new `[keymap.design]`, or in the GUI by dragging bar lines and the dots under the cursor bar's beats (live re-flow) and clicking the "+" / "-" buttons at the end of each line to add or remove a bar on it. Every change is an undo step (one drag is one); `:design-reset` returns to the automatic layout. The adjustments are stored in `.muse` files and follow bars through inserting, deleting and pasting.
+
+## [0.16.0] - 2026-11-04
+
+### Fixed
+
+- On a slash staff the cursor always sits on the staff's single line: clicking above or below the line selects the beat only, and the cursor's line is normalised whenever it lands on a slash staff (click, `<A-j>` / `<A-k>`, `j` / `k`, loading a score).
+
+### Changed
+
+- On a chant staff the status line shows the solfège syllable of the cursor's position (`do` `re` `mi` `fa` `sol` `la` `ti`, read from the clef in force there) instead of the GABC letter.
+
+### Added
+
+- The status line shows, in every mode, how full the cursor's bar is, as quarter-note beats of the voice under the cursor over the time signature's length (`3.0/4.0`, `4.5/4.0`; 6/8 is `3.0`, 7/8 `3.5`), in the error color unless the bar is complete. Free-time bars and a pickup bar show nothing.
+- `ui.highlight_incomplete_bars = true` (and `:incomplete-bars on|off|toggle`) draws the staff lines of bars that are too short or too long in red, on every kind of staff in the GUI and on the dashed staff lines of the terminal tab view. The color is the new theme color `incomplete_bar`.
+
 ## [0.15.0] - 2026-11-03
 
 ### Added

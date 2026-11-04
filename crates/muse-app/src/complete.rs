@@ -79,6 +79,7 @@ pub const COMMANDS: &[&str] = &[
     "focus-right",
     "focus-up",
     "bar-numbers",
+    "incomplete-bars",
     "completion-fuzzy",
     "completion-ignore-case",
     "follow-toggle",
@@ -139,6 +140,13 @@ pub const COMMANDS: &[&str] = &[
     "piano",
     "progress-bar",
     "scrollbar",
+    "design",
+    "bar-width",
+    "bars-per-line",
+    "line-break",
+    "line-join",
+    "beat-nudge",
+    "design-reset",
     "tuner",
     "buffer-move",
     "buffer-move-next",
@@ -341,9 +349,13 @@ fn values(command: &str) -> Option<&'static [&'static str]> {
         ],
         "tracks" | "toolbar" | "palette" | "fretboard" | "piano" | "tuner" => &["off", "on"],
         "track-color" => &["off"],
+        "design" => &["off", "on", "toggle"],
+        "bar-width" | "bars-per-line" => &["auto"],
+        "beat-nudge" => &["reset"],
         "bar-numbers" => &["every", "system", "toggle"],
         "completion-ignore-case"
         | "completion-fuzzy"
+        | "incomplete-bars"
         | "waveform"
         | "progress-bar"
         | "scrollbar" => &["off", "on", "toggle"],
@@ -840,6 +852,7 @@ pub fn describe(command: &str) -> Option<&'static str> {
         "command-mode" => "Open the command line",
         "completion-ignore-case" => "Toggle case-insensitive completion",
         "bar-numbers" => "Number every bar, or only the first bar of each line",
+        "incomplete-bars" => "Toggle red staff lines on bars that lack their full beat count",
         "completion-fuzzy" => "Toggle fuzzy completion (letters in order, anywhere)",
         "count-in" => "Toggle the count-in before playing",
         "delete" => "Delete operator",
@@ -1077,6 +1090,15 @@ pub fn describe(command: &str) -> Option<&'static str> {
         }
         "progress-bar" => "Show or hide the progress bar along the score panes",
         "scrollbar" => "Show or hide the scrollbar on the score panes",
+        "design" => "Design mode: adjust the page layout by hand (on, off or toggle)",
+        "bar-width" => "Width of the cursor bar in the page layout (N, +N, -N percent, or auto)",
+        "bars-per-line" => "Bars on the cursor's line in the page layout (N, +N, -N, or auto)",
+        "line-break" => "Start a new line at the cursor bar in the page layout",
+        "line-join" => "Bring the cursor bar back onto the previous line in the page layout",
+        "beat-nudge" => {
+            "Move the cursor beat sideways in the page layout (tenths of a space, or reset)"
+        }
+        "design-reset" => "Discard every manual page-layout adjustment",
         "wq" | "x" | "write-quit" => "Write every changed file and quit",
         "workspace-save" => "Save the views, panes and open files as a workspace",
         "workspace-open" => "Open a saved workspace",

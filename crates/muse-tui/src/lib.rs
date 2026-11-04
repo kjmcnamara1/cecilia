@@ -2349,7 +2349,7 @@ fn draw_status(
     let bg_of = |k: SegKind| match k {
         SegKind::Mode => mode,
         SegKind::ModeText => t.status_b,
-        SegKind::Plain => t.chrome,
+        SegKind::Plain | SegKind::Warn => t.chrome,
     };
     let style_of = |seg: &Segment| {
         let bg = bg_of(seg.kind);
@@ -2357,6 +2357,7 @@ fn draw_status(
             SegKind::Mode => t.text_on(mode),
             SegKind::ModeText => mode,
             SegKind::Plain => t.chrome_text,
+            SegKind::Warn => t.error,
         };
         let st = Style::default().fg(rc(fg)).bg(rc(bg));
         if seg.bold {
@@ -2407,7 +2408,8 @@ fn draw_status(
     let mut placed = Vec::new();
     for seg in right.iter().rev() {
         let text = text_of(seg);
-        let sep_w = u16::from(seps.is_some() && seg.kind != SegKind::Plain);
+        let sep_w =
+            u16::from(seps.is_some() && !matches!(seg.kind, SegKind::Plain | SegKind::Warn));
         let w = width(&text) + sep_w;
         if w + 20 > right_x.saturating_sub(area.x) {
             continue;
@@ -2418,7 +2420,9 @@ fn draw_status(
     for (x, seg, text) in placed.iter().rev() {
         let bg = bg_of(seg.kind);
         let mut x = *x;
-        if let (Some((_, left_sep)), true) = (seps, seg.kind != SegKind::Plain) {
+        if let (Some((_, left_sep)), true) =
+            (seps, !matches!(seg.kind, SegKind::Plain | SegKind::Warn))
+        {
             buf.set_string(
                 x,
                 area.y,

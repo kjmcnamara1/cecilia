@@ -8,6 +8,7 @@ pub mod clipboard;
 pub mod command;
 pub mod complete;
 pub mod config;
+mod design;
 pub mod dialog;
 pub mod edit;
 #[cfg(test)]

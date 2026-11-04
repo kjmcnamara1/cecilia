@@ -15,6 +15,8 @@ pub struct EditCx<'a> {
     pub cursor: Cursor,
     before: BTreeMap<(usize, usize), Bar>,
     snapshot: Option<Score>,
+    /// The page-layout design as it was, once an edit touched it.
+    design: Option<muse_core::design::DesignOverrides>,
 }
 
 impl<'a> EditCx<'a> {
@@ -24,7 +26,16 @@ impl<'a> EditCx<'a> {
             cursor,
             before: BTreeMap::new(),
             snapshot: None,
+            design: None,
         }
+    }
+
+    /// The page-layout design to modify (its original is kept for undo).
+    pub fn design(&mut self) -> &mut muse_core::design::DesignOverrides {
+        if self.design.is_none() {
+            self.design = Some(self.score.design.clone());
+        }
+        &mut self.score.design
     }
 
     /// A bar to modify (its original is kept for undo).
@@ -90,7 +101,16 @@ impl<'a> EditCx<'a> {
                 after: self.score.tracks[t].bars[b].clone(),
             })
             .collect();
-        (!changes.is_empty()).then_some(Change::Bars(changes))
+        if changes.is_empty() {
+            return self
+                .design
+                .filter(|before| *before != self.score.design)
+                .map(|before| Change::Design {
+                    before,
+                    after: self.score.design.clone(),
+                });
+        }
+        Some(Change::Bars(changes))
     }
 
     pub fn track(&self) -> &Track {
@@ -1173,6 +1193,7 @@ pub fn insert_bars(cx: &mut EditCx, at: usize, count: usize) {
             ..MasterBar::default()
         };
         score.master_bars.insert(at, mb);
+        score.design.insert_bars(at, 1);
         for t in &mut score.tracks {
             t.bars.insert(
                 at,
@@ -1217,6 +1238,7 @@ pub fn delete_bars(cx: &mut EditCx, from: usize, to: usize) -> Result<(), String
     }
     let score = cx.whole();
     score.master_bars.drain(from..=to);
+    score.design.delete_bars(from, to);
     for t in &mut score.tracks {
         t.bars.drain(from..=to);
     }
@@ -1228,6 +1250,7 @@ pub fn delete_bars(cx: &mut EditCx, from: usize, to: usize) -> Result<(), String
 pub fn put_bars(cx: &mut EditCx, clip: &BarClip, at: usize) {
     let score = cx.whole();
     let at = at.min(score.master_bars.len());
+    score.design.insert_bars(at, clip.master.len());
     for (k, mb) in clip.master.iter().enumerate() {
         score.master_bars.insert(at + k, mb.clone());
     }

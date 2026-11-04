@@ -73,7 +73,40 @@ only be used in the GUI there, and `<D-…>` bindings never fire.
 | `<leader>t`                 | sync tap: place the next bar at the current audio time                                                                                                                                                                  | _(M5)_ |
 | `<leader>w`                 | show / hide the waveform tool pane (`:waveform`) | _(M5)_ |
 | `<leader>v`                 | cycle the focused pane's score layout (vertical / page / horizontal); new splits and views copy it                                                                                                                      | _(M3)_ |
+| `<leader>d`                 | design mode on / off: adjust the page layout by hand (see _Design mode_ below)                                                                                                                                           | _(M3)_ |
 | `<C-=>` / `<C-->` / `<C-0>` | zoom the focused pane in / out / reset (GUI); Ctrl+wheel zooms the pane under the mouse                                                                                                                                                                        | _(M3)_ |
+
+### Design mode
+
+`:design on` (`<leader>d`) lets you fix the page layout by hand, for clashes the automatic layout
+cannot see. It works in the page layout only and shows `design` in the status line. Every change
+is an undo step (a mouse drag is one step) and is stored in the score: `.muse` files keep it,
+other formats ignore it, and bars with no adjustment stay automatic.
+
+Keys while design mode is on (`[keymap.design]`, looked up before the normal keys; every other
+key keeps its normal meaning, but `+` / `-` stop being the duration keys here). They act on the cursor's line, bar and beat:
+
+| keys | action | command |
+| --- | --- | --- |
+| `+` / `-` | one more / one fewer bar on the cursor's line (the "+" / "-" buttons) | `:bars-per-line +1` / `-1` |
+| `<A-=>` | the cursor's line back to automatic | `:bars-per-line auto` |
+| `>` / `<` | cursor bar wider / narrower (10%) | `:bar-width +10` / `-10` |
+| `=` | cursor bar back to its automatic width | `:bar-width auto` |
+| `<A-l>` / `<A-h>` | cursor beat right / left (0.2 space) | `:beat-nudge +2` / `-2` |
+| `<A-0>` | cursor beat back in place | `:beat-nudge reset` |
+| `\|` / `_` | new line at the cursor bar / join the cursor bar to the previous line | `:line-break` / `:line-join` |
+| `<leader>d` | design mode off | `:design off` |
+
+With the mouse (GUI), handles appear over the page: drag a **bar line** left or right to resize
+the two bars beside it (they trade width, the line stays as long as it was); click the **"+" and
+"-" buttons** right of a line's end to pull the next bar up onto the line or push its last bar
+down (each is one undo step; "-" is dimmed on a one-bar line, "+" on the last line); drag the
+**dots under the cursor bar's beats** to nudge them. The page re-flows live while dragging.
+
+Limits: only the page layout is affected (the vertical and horizontal layouts and square-notation
+chant staves ignore the adjustments); lyrics attached from another track do not follow a nudged
+beat; adjustments are keyed by bar number, so they follow bars through inserting, deleting and
+pasting bars, but a beat nudge stays on its beat number when beats are added or removed.
 
 ### Buffers, panes, views
 
@@ -441,7 +474,13 @@ Insert-mode keys depend on where the cursor is: on a **tab** (or drum lanes), on
 staff, on a **slash** staff or on **chant**. Each has its own keymap, looked up first
 (`[keymap.insert-tab]`, `[keymap.insert-standard]`, `[keymap.insert-slash]`,
 `[keymap.insert-chant]` in `config.toml`), then the keys shared by all (`[keymap.insert]`).
-The status line shows where the cursor is (`string 3`, `G4`, `slash`, `chant h`).
+The status line shows where the cursor is (`string 3`, `G4`, `slash`, `do`, `re` … `ti` on chant) and,
+in every mode, how full the cursor's bar is: the beats of the voice under the cursor against what the time signature asks
+for, in quarter-note beats (`3.0/4.0` needs one more quarter; 6/8 is `3.0`, 7/8 `3.5`). One
+decimal, two when that is not exact (a triplet remainder reads `3.67/4.0`). A complete bar
+reads in the normal color, a short or over-full one (`4.5/4.0`) in the error color. Free-time
+bars (chant) and a pickup first bar have no required count and show nothing. With
+`ui.highlight_incomplete_bars` (`:incomplete-bars`) such bars also get red staff lines.
 
 Shared keys:
 
@@ -541,6 +580,7 @@ e.g. `"<C-g>" = "completion-ignore-case"`, `"<C-f>" = "completion-fuzzy"`.
 | `:refinger` / `:transpose 2`                                         | re-finger the track to minimise hand movement / transpose                                                                                                                                   |
 | `:track-add bass` / `:track-delete` / `:new`                         | tracks and new scores (`:track-add piano` gets a grand staff)                                                                                                                                 |
 | `:staff-add [staff…]`                                               | add one or more staves at the bottom of the cursor's track, in the order given (`:staff-add treble tab slash`); staves only show the track's notes, so each track can have as many as you like |
+| `:incomplete-bars [on\|off\|toggle]` | draw the staff lines of bars that don't hold their full count in red (`theme.incomplete_bar`; `ui.highlight_incomplete_bars = true` sets it at start-up). A bar is flagged when any of its voices that holds notes or rests is shorter or longer than the time signature (tuplets and dots counted exactly, a few ticks of rounding allowed); bars with nothing in them, free-time bars and a pickup first bar are never flagged. All staff kinds are marked in the GUI engraving; the TUI tab view colors the bar's dashed staff lines |
 | `:bar-numbers [every\|system\|toggle]` | number every bar, or only the first bar of each line (the default; `ui.bar_numbers = "every"` in `config.toml` sets it at start-up). The GUI engraving shows the numbers; the TUI tab view always numbers every bar |
 | `:notation {notation}` | show the cursor's staff in another notation: `standard` (keeps the staff's clef), `tab`, `tab+` (tab with rhythm stems), `slash`, `chant`; a clef name (`treble`, `bass`, `grand [split]`, `neutral`, `chant fa`) is accepted too and sets it. A tab on a track without strings puts its notes on strings (refused if one would not fit). `:staff` is the old name |
 | `:clef {clef}` | the clef of the cursor's staff, by its notation. Standard: `treble`, `bass`, `grand [split]` (a grand staff splits at C3 unless a note such as `G3` is given) or `neutral` (percussion clef: drum tracks only, and the only clef they take). Chant: `do` or `fa`. Tab and slash staves have no clef. On a chant track also `c1`–`c4`, `f1`–`f4`, `cb3` (notes keep their staff positions) |
@@ -621,4 +661,10 @@ flat or natural when needed), `x` deletes it and `u` undoes, as on any track.
 | `:scrollbar [on\|off]`                    | the scrollbars on every score pane: down the right side and along the bottom, each shown when the score scrolls that way (a bar wider than the pane, a zoomed page, a tall horizontal layout), in their own gutter (the score never draws under it). Click or drag it to scroll (the view then stays put until the cursor moves). `ui.scrollbar` sets the default (on) |
 | `:progress-bar [on\|off]`                  | the progress bar along the bottom of every score pane: the sections (letter and title), a translucent red mark at the play position (or the cursor), and the time; clicking it moves the cursor to that bar. `ui.progress_bar` sets the default (on) |
 | `:export {file}`                           | export by extension                                                                                                                                                                                      |
+| `:design [on\|off\|toggle]`               | design mode (page layout only): the layout can be adjusted by hand, with handles in the GUI and the keys of `[keymap.design]`; the status line shows `design`. The adjustments are saved in `.muse` files |
+| `:bar-width N\|+N\|-N\|auto`              | width of the cursor bar in the page layout, in percent of its automatic share of the line (the other bars of the line give up or take the difference so the line still fills the page; a bar is never narrower than 35% of its natural width) |
+| `:bars-per-line N\|+N\|-N\|auto`          | exactly N bars on the cursor's line (squeezed if need be) from the line's first bar on; `auto` hands the line back to the layout |
+| `:line-break` / `:line-join`              | start a new line at the cursor bar / bring the cursor bar back onto the previous line |
+| `:beat-nudge N\|+N\|-N\|reset`            | move the cursor beat sideways (tenths of a staff space; notes, tab, lyrics and marks on the beat move together) |
+| `:design-reset`                           | discard every manual adjustment of the score |
 | `:layout [page\|vertical\|horizontal]`     | GUI score layout of the focused pane _(M3)_                                                                                                                                                              |
