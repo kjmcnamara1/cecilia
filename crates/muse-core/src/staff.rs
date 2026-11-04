@@ -130,7 +130,7 @@ mod tests {
         assert_eq!(spell_with(60, 0, Some(-2)), (1, -2, 4));
         assert_eq!(spell_with(61, 0, None), spell(61, 0));
         // An alteration no letter can carry falls back to the key's spelling.
-        assert_eq!(spell_with(61, 0, Some(2)), spell(61, 0));
+        assert_eq!(spell_with(63, 0, Some(2)), spell(63, 0));
         assert_eq!(diatonic_with(62, 0, Some(2)), 4 * 7);
     }
 

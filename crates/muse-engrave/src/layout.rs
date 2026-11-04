@@ -4194,6 +4194,153 @@ mod tests {
         assert_eq!(g.iter().filter(|x| x.0 == time_digit(4)).count(), 2);
     }
 
+    /// A pitched track on a treble staff with one 4/4 bar of the given beats (pitch, value).
+    fn staff_score(beats: Vec<Beat>) -> Score {
+        Score {
+            tempo: 100,
+            master_bars: vec![MasterBar::default(), MasterBar::default()],
+            tracks: vec![Track {
+                kind: TrackKind::Pitched,
+                staves: vec![Staff::Standard(muse_core::Clef::Treble)],
+                bars: vec![
+                    Bar {
+                        voices: vec![Voice { beats }],
+                        ..Default::default()
+                    },
+                    Bar::default(),
+                ],
+                ..Track::default()
+            }],
+            ..Score::default()
+        }
+    }
+
+    fn pitched(pitch: u8, value: DurationValue) -> Beat {
+        Beat {
+            duration: Duration::new(value),
+            notes: vec![Note::new(0, pitch)],
+            ..Beat::default()
+        }
+    }
+
+    fn count_glyph(page: &Page, ch: char) -> usize {
+        page.items
+            .iter()
+            .filter(|i| matches!(i, Item::Glyph { ch: c, .. } if *c == ch))
+            .count()
+    }
+
+    /// Filled beam parallelograms.
+    fn beam_count_on(page: &Page) -> usize {
+        page.items
+            .iter()
+            .filter(|i| matches!(i, Item::Path { stroke: None, path, .. } if path.elements().len() == 5))
+            .count()
+    }
+
+    #[test]
+    fn beam_overrides_force_break_and_break_secondary() {
+        let e = DurationValue::Eighth;
+        let s = DurationValue::Sixteenth;
+        let beats = |v| {
+            vec![
+                pitched(72, v),
+                pitched(72, v),
+                pitched(72, v),
+                pitched(72, v),
+            ]
+        };
+        let beams = |score: &Score| beam_count_on(&engrave(score, 0, &Options::default()).pages[0]);
+        // Four eighths: two beams, one per beat of the bar.
+        let mut score = staff_score(beats(e));
+        assert_eq!(beams(&score), 2);
+        // Forcing the third beat joins the two groups.
+        score.tracks[0].bars[0].voices[0].beats[2].beam = BeamMode::Force;
+        assert_eq!(beams(&score), 1);
+        // Breaking the second leaves every note alone, with flags.
+        let mut score = staff_score(beats(e));
+        score.tracks[0].bars[0].voices[0].beats[1].beam = BeamMode::Break;
+        assert_eq!(beams(&score), 1);
+        // Sixteenths: a primary and a secondary beam per group of four; breaking the
+        // secondary beams before the third note splits the secondary beam.
+        let mut score = staff_score(beats(s));
+        let base = beams(&score);
+        score.tracks[0].bars[0].voices[0].beats[2].beam = BeamMode::BreakSecondary;
+        assert_eq!(beams(&score), base + 1);
+    }
+
+    #[test]
+    fn stem_direction_overrides_the_automatic_one() {
+        // B5 sits above the middle line: the stem goes down.
+        let up_stems = |score: &Score| {
+            engrave(score, 0, &Options::default()).pages[0]
+                .items
+                .iter()
+                .filter(
+                    |i| matches!(i, Item::Line { from, to, .. } if from.x == to.x && from.y > to.y),
+                )
+                .count()
+        };
+        let mut score = staff_score(vec![pitched(83, DurationValue::Quarter)]);
+        assert_eq!(up_stems(&score), 0);
+        score.tracks[0].bars[0].voices[0].beats[0].stem = StemDir::Up;
+        assert_eq!(up_stems(&score), 1);
+        score.tracks[0].bars[0].voices[0].beats[0].stem = StemDir::Down;
+        assert_eq!(up_stems(&score), 0);
+    }
+
+    #[test]
+    fn double_accidentals_fermatas_and_repeat_signs() {
+        // D double sharp (written as C## above middle C is MIDI 62).
+        let mut score = staff_score(vec![pitched(62, DurationValue::Quarter)]);
+        let page = engrave(&score, 0, &Options::default()).pages[0].clone();
+        assert_eq!(count_glyph(&page, DOUBLE_SHARP), 0);
+        score.tracks[0].bars[0].voices[0].beats[0].notes[0].alter = Some(2);
+        let page = engrave(&score, 0, &Options::default()).pages[0].clone();
+        assert_eq!(count_glyph(&page, DOUBLE_SHARP), 1);
+        score.tracks[0].bars[0].voices[0].beats[0].notes[0].alter = Some(-2);
+        score.tracks[0].bars[0].voices[0].beats[0].notes[0].fret = 58;
+        let page = engrave(&score, 0, &Options::default()).pages[0].clone();
+        assert_eq!(count_glyph(&page, DOUBLE_FLAT), 1);
+
+        // Fermata and pick stroke signs.
+        let mut score = staff_score(vec![pitched(72, DurationValue::Quarter)]);
+        score.tracks[0].bars[0].voices[0].beats[0].effects.fermata = true;
+        score.tracks[0].bars[0].voices[0].beats[0]
+            .effects
+            .pick_stroke = StrokeDirection::Down;
+        let page = engrave(&score, 0, &Options::default()).pages[0].clone();
+        assert_eq!(count_glyph(&page, FERMATA), 1);
+        assert_eq!(count_glyph(&page, DOWN_BOW), 1);
+
+        // A repeat sign replaces the notes; the two-bar sign sits between its bars.
+        let mut score = staff_score(vec![pitched(72, DurationValue::Quarter)]);
+        score.tracks[0].bars[1] = score.tracks[0].bars[0].clone();
+        let notes = |score: &Score| {
+            count_glyph(&engrave(score, 0, &Options::default()).pages[0], HEAD_BLACK)
+        };
+        assert_eq!(notes(&score), 2);
+        score.tracks[0].bars[1].simile = Some(Simile::OneBar);
+        let page = engrave(&score, 0, &Options::default()).pages[0].clone();
+        assert_eq!(count_glyph(&page, HEAD_BLACK), 1);
+        assert_eq!(count_glyph(&page, SIMILE_ONE), 1);
+        score.tracks[0].bars[1].simile = Some(Simile::TwoBarsFirst);
+        let page = engrave(&score, 0, &Options::default()).pages[0].clone();
+        assert_eq!(count_glyph(&page, SIMILE_TWO), 1);
+    }
+
+    #[test]
+    fn directions_print_as_text() {
+        let mut score = staff_score(vec![pitched(72, DurationValue::Quarter)]);
+        score.master_bars[0].directions = vec![Direction::DaCapoAlCoda];
+        let page = &engrave(&score, 0, &Options::default()).pages[0];
+        assert!(
+            page.items
+                .iter()
+                .any(|i| matches!(i, Item::Text { text, .. } if text == "D.C. al Coda"))
+        );
+    }
+
     #[test]
     fn tab_rhythm_stems_and_beams() {
         let beat = |v: DurationValue| Beat {
