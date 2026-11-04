@@ -214,6 +214,10 @@ const SHARP: char = '\u{E262}';
 const DOUBLE_SHARP: char = '\u{E263}';
 const DOUBLE_FLAT: char = '\u{E264}';
 const FERMATA: char = '\u{E4C0}';
+const DIAMOND_WHOLE: char = '\u{E0D8}';
+const DIAMOND_HALF: char = '\u{E0D9}';
+const DIAMOND_BLACK: char = '\u{E0DB}';
+const TREMOLO: [char; 3] = ['\u{E220}', '\u{E221}', '\u{E222}'];
 const SIMILE_ONE: char = '\u{E500}';
 const SIMILE_TWO: char = '\u{E501}';
 const DOWN_BOW: char = '\u{E610}';
@@ -2741,6 +2745,11 @@ impl Ctx<'_> {
                             placed,
                         );
                         chord = Some((ys.clone(), up));
+                        if let Some(speed) =
+                            beat.notes.iter().find_map(|n| n.effects.tremolo_picking)
+                        {
+                            self.draw_tremolo(page, speed, stem_x, &ys, up);
+                        }
                         self.draw_articulations_std(page, beat, bx, std_bottom, &ys, up);
                         let level = beam_count(beat.duration.value);
                         // Beams group the notes of each beat; a note across a beat stands alone.
@@ -2808,6 +2817,36 @@ impl Ctx<'_> {
                             self.draw_dynamic(page, velocity, bx + self.nh_width / 2.0, dyn_y);
                         }
                     }
+                    // Fades are swells over the beat, labelled.
+                    let fx = &beat.effects;
+                    if fx.fade_in || fx.fade_out || fx.volume_swell {
+                        let (x0, x1) = (bx, bx + bw - 0.4 * sp);
+                        let open = 0.7 * sp;
+                        let mid = (x0 + x1) / 2.0;
+                        let w = 0.12 * sp;
+                        let label = if fx.fade_in {
+                            page.line((x0, dyn_y), (x1, dyn_y - open), w);
+                            page.line((x0, dyn_y), (x1, dyn_y + open), w);
+                            "fade in"
+                        } else if fx.fade_out {
+                            page.line((x0, dyn_y - open), (x1, dyn_y), w);
+                            page.line((x0, dyn_y + open), (x1, dyn_y), w);
+                            "fade out"
+                        } else {
+                            page.line((x0, dyn_y), (mid, dyn_y - open), w);
+                            page.line((x0, dyn_y), (mid, dyn_y + open), w);
+                            page.line((mid, dyn_y - open), (x1, dyn_y), w);
+                            page.line((mid, dyn_y + open), (x1, dyn_y), w);
+                            "vol. swell"
+                        };
+                        page.text(
+                            FontKind::Italic,
+                            label,
+                            (x0, dyn_y + 1.9 * sp),
+                            1.3 * sp,
+                            Align::Left,
+                        );
+                    }
                     if let Some(h) = beat.effects.hairpin {
                         self.wedges.borrow_mut().push((
                             h,
@@ -2860,19 +2899,22 @@ impl Ctx<'_> {
                         );
                         slot += 1.8 * sp;
                     }
-                    for label in [
-                        (fx.fade_out, "fade out"),
-                        (fx.volume_swell, "vol. swell"),
-                        (fx.fade_in, "fade in"),
-                    ]
-                    .iter()
-                    .filter_map(|(on, l)| on.then_some(*l))
+                    let slap = match fx.slap {
+                        Slap::Tap => Some("T"),
+                        Slap::Slap => Some("S"),
+                        Slap::Pop => Some("P"),
+                        Slap::None => None,
+                    };
+                    let left_hand = beat.notes.iter().any(|n| n.effects.left_hand_tap);
+                    for label in [(slap.is_some(), slap.unwrap_or("")), (left_hand, "+")]
+                        .iter()
+                        .filter_map(|(on, l)| on.then_some(*l))
                     {
                         page.text(
-                            FontKind::Italic,
+                            FontKind::Bold,
                             label,
                             (bx, marks_y - slot),
-                            1.6 * sp,
+                            1.8 * sp,
                             Align::Left,
                         );
                         slot += 1.8 * sp;
@@ -3187,7 +3229,30 @@ impl Ctx<'_> {
             };
             let y = self.staff_y(bottom, p);
             ys.push(y);
-            let g = if xhead { HEAD_X } else { head };
+            let note = beat.notes.iter().find(|n| n.string == string);
+            let harmonic = note.and_then(|n| n.effects.harmonic);
+            // A harmonic's head is a diamond (an artificial one also has the sounding pitch's).
+            let diamond = match beat.duration.value {
+                DurationValue::Whole => DIAMOND_WHOLE,
+                DurationValue::Half => DIAMOND_HALF,
+                _ => DIAMOND_BLACK,
+            };
+            let g = if xhead {
+                HEAD_X
+            } else if matches!(harmonic, Some(h) if !matches!(h, Harmonic::Artificial { .. })) {
+                diamond
+            } else {
+                head
+            };
+            if let Some(Harmonic::Artificial { semitones }) = harmonic.filter(|_| !self.slash) {
+                // Seven staff steps above for the usual octave.
+                let steps = (semitones as i32 * 7 + 6) / 12;
+                page.glyph(diamond, (hx, self.staff_y(bottom, p + steps)), 4.0 * sp);
+            }
+            // Slides into and out of the note: a short diagonal at the head.
+            if let Some(n) = note.filter(|_| !self.slash) {
+                self.draw_slide_ends(page, &n.effects.slides, hx, hx + self.nh_width, y);
+            }
             // A slash beat's notes share one slash.
             if !(self.slash && k > 0) {
                 page.glyph(g, (hx, y), 4.0 * sp);
@@ -3276,6 +3341,35 @@ impl Ctx<'_> {
             let lo = ys.iter().cloned().fold(f64::MAX, f64::min);
             let hi = ys.iter().cloned().fold(f64::MIN, f64::max);
             self.draw_stroke(page, st, left - 0.7 * sp, lo - 0.6 * sp, hi + 0.6 * sp);
+        }
+        // Grace notes: small heads before the beat, slashed when they come before it.
+        if !self.slash {
+            for n in &beat.notes {
+                let Some(g) = n.effects.grace else { continue };
+                let grace = Note {
+                    fret: g.fret,
+                    string: n.string,
+                    ..Note::new(n.string, g.fret)
+                };
+                let written = self.track.pitch_of(&grace) as i32 + self.clef.transpose();
+                let (step, _, octave) = spell_with(written, key, None);
+                let gy = self.staff_y(bottom, octave * 7 + step - self.clef.bottom());
+                let size = 2.8 * sp;
+                let gx = left - 2.6 * sp;
+                let head_w = fonts().advance(FontKind::Music, HEAD_BLACK, size);
+                page.glyph(HEAD_BLACK, (gx, gy), size);
+                let stem_x = gx + head_w - 0.04 * sp;
+                let top = gy - 2.4 * sp;
+                page.line((stem_x, gy), (stem_x, top), 0.1 * sp);
+                if !g.on_beat {
+                    page.line(
+                        (stem_x - 0.9 * sp, top + 1.2 * sp),
+                        (stem_x + 0.9 * sp, top + 0.3 * sp),
+                        0.1 * sp,
+                    );
+                }
+                self.reach(top);
+            }
         }
         let stem_x = if up {
             x + self.nh_width - 0.06 * sp
@@ -3527,6 +3621,59 @@ impl Ctx<'_> {
             let y = edge + dir * if on_line { 1.5 } else { 1.0 } * sp;
             self.draw_marks(page, &marks, cx, y, up);
         }
+    }
+
+    /// Slides into (before) and out of (after) a note head spanning x0..x1 at height y: a
+    /// short diagonal rising to or falling from the note.
+    fn draw_slide_ends(&self, page: &mut Page, slides: &[SlideKind], x0: f64, x1: f64, y: f64) {
+        let sp = self.sp;
+        let w = 0.1 * sp;
+        for k in slides {
+            match k {
+                SlideKind::IntoFromBelow => page.line(
+                    (x0 - 2.0 * sp, y + 0.9 * sp),
+                    (x0 - 0.4 * sp, y + 0.1 * sp),
+                    w,
+                ),
+                SlideKind::IntoFromAbove => page.line(
+                    (x0 - 2.0 * sp, y - 0.9 * sp),
+                    (x0 - 0.4 * sp, y - 0.1 * sp),
+                    w,
+                ),
+                SlideKind::OutDown => page.line(
+                    (x1 + 0.4 * sp, y - 0.1 * sp),
+                    (x1 + 2.0 * sp, y + 0.9 * sp),
+                    w,
+                ),
+                SlideKind::OutUp => page.line(
+                    (x1 + 0.4 * sp, y + 0.1 * sp),
+                    (x1 + 2.0 * sp, y - 0.9 * sp),
+                    w,
+                ),
+                _ => {}
+            }
+        }
+    }
+
+    /// Tremolo slashes (one to three, by the speed) across a stem, or over a stemless head.
+    fn draw_tremolo(&self, page: &mut Page, speed: DurationValue, x: f64, ys: &[f64], up: bool) {
+        let sp = self.sp;
+        let slashes = match speed {
+            DurationValue::Whole | DurationValue::Half | DurationValue::Quarter => 1,
+            DurationValue::Eighth => 1,
+            DurationValue::Sixteenth => 2,
+            _ => 3,
+        };
+        let glyph = TREMOLO[slashes - 1];
+        let lo = ys.iter().cloned().fold(f64::MAX, f64::min);
+        let hi = ys.iter().cloned().fold(f64::MIN, f64::max);
+        let y = if up { lo - 1.9 * sp } else { hi + 1.9 * sp };
+        let r = fonts().bbox(FontKind::Music, glyph, 4.0 * sp);
+        page.glyph(
+            glyph,
+            (x - (r.x0 + r.x1) / 2.0, y - (r.y0 + r.y1) / 2.0),
+            4.0 * sp,
+        );
     }
 
     fn draw_stem(&self, page: &mut Page, x: f64, ys: &[f64], up: bool, to: Option<f64>) {
@@ -3864,15 +4011,19 @@ impl Ctx<'_> {
             } else {
                 n.fret.to_string()
             };
-            let mut label = match n.effects.harmonic {
-                Some(Harmonic::Natural) => format!("<{fret}>"),
-                Some(_) => format!("{fret}<{}>", n.fret as u32 + 12),
+            // Harmonics show the fret in angle brackets; the artificial ones also say so above.
+            let label = match n.effects.harmonic {
+                Some(_) => format!("<{fret}>"),
                 // Tied and ghost notes are bracketed.
                 None if n.tie || n.ghost => format!("({fret})"),
                 None => fret,
             };
-            if n.effects.grace.is_some() {
-                label = format!("{}{label}", n.effects.grace.map(|g| g.fret).unwrap_or(0));
+            match n.effects.harmonic {
+                Some(Harmonic::Artificial { .. }) => above_marks.push("A.H.".into()),
+                Some(Harmonic::Pinch) => above_marks.push("P.H.".into()),
+                Some(Harmonic::Tapped { .. }) => above_marks.push("T.H.".into()),
+                Some(Harmonic::Semi) => above_marks.push("S.H.".into()),
+                _ => {}
             }
             // A tie shows its last note, grey in brackets; the notes between are only crossed
             // by the tie arcs.
@@ -3951,15 +4102,43 @@ impl Ctx<'_> {
                 );
             }
             if n.effects.left_hand_tap {
-                above_marks.push("LH tap".into());
+                above_marks.push("+".into());
             }
-            // Slides to the next note are drawn as lines with the ties; slides in and out here.
-            if n.effects
-                .slides
-                .iter()
-                .any(|k| !matches!(k, SlideKind::Shift | SlideKind::Legato))
-            {
-                above_marks.push("sl.".into());
+            // Slides to the next note are drawn as lines with the ties; slides in and out
+            // are short diagonals at the fret.
+            self.draw_slide_ends(page, &n.effects.slides, cx - w / 2.0, cx + w / 2.0, y);
+            // A grace note's fret in small digits before the main one.
+            if let Some(g) = n.effects.grace {
+                let small = 1.3 * sp;
+                let text = g.fret.to_string();
+                let gw = fonts().text_width(FontKind::Text, &text, small);
+                page.text(
+                    FontKind::Text,
+                    text,
+                    (cx - w / 2.0 - gw / 2.0 - 0.5 * sp, y + 0.4 * sp),
+                    small,
+                    Align::Center,
+                );
+            }
+            // Tremolo picking: the slashes over the fret.
+            if let Some(speed) = n.effects.tremolo_picking {
+                if n.string == beat.notes.iter().map(|b| b.string).min().unwrap_or(0) {
+                    let slashes = match speed {
+                        DurationValue::Eighth | DurationValue::Quarter => 1,
+                        DurationValue::Sixteenth => 2,
+                        _ => 3,
+                    };
+                    let glyph = TREMOLO[slashes - 1];
+                    let r = fonts().bbox(FontKind::Music, glyph, 4.0 * sp);
+                    page.glyph(
+                        glyph,
+                        (
+                            cx - (r.x0 + r.x1) / 2.0,
+                            tab_top - 2.4 * sp - (r.y0 + r.y1) / 2.0,
+                        ),
+                        4.0 * sp,
+                    );
+                }
             }
         }
         if let Some(st) = beat.effects.stroke {
@@ -4859,6 +5038,220 @@ mod tests {
             "mp at the start and after the section"
         );
         assert_eq!(count_glyph(page, '\u{E520}'), 2);
+    }
+
+    /// A fretted track on a tab staff with one bar of the given beats.
+    fn tab_score(beats: Vec<Beat>) -> Score {
+        let mut score = staff_score(beats);
+        let t = &mut score.tracks[0];
+        t.kind = TrackKind::Fretted;
+        t.strings = vec![64, 59, 55, 50, 45, 40];
+        t.staves = vec![Staff::Tab];
+        score
+    }
+
+    fn has_text(page: &Page, wanted: &str) -> bool {
+        page.items
+            .iter()
+            .any(|i| matches!(i, Item::Text { text, .. } if text == wanted))
+    }
+
+    fn with_note(score: &mut Score, f: impl Fn(&mut Note)) {
+        f(&mut score.tracks[0].bars[0].voices[0].beats[0].notes[0]);
+    }
+
+    fn with_beat(score: &mut Score, f: impl Fn(&mut Beat)) {
+        f(&mut score.tracks[0].bars[0].voices[0].beats[0]);
+    }
+
+    fn page_of(score: &Score) -> Page {
+        engrave(score, 0, &Options::default()).pages[0].clone()
+    }
+
+    fn slanted(page: &Page) -> usize {
+        page.items
+            .iter()
+            .filter(
+                |i| matches!(i, Item::Line { from, to, .. } if from.x != to.x && from.y != to.y),
+            )
+            .count()
+    }
+
+    #[test]
+    fn tremolo_picking_slashes_by_speed_on_standard_and_tab() {
+        for (speed, glyph) in [
+            (DurationValue::Eighth, TREMOLO[0]),
+            (DurationValue::Sixteenth, TREMOLO[1]),
+            (DurationValue::ThirtySecond, TREMOLO[2]),
+        ] {
+            for tab in [false, true] {
+                let beats = vec![pitched(72, DurationValue::Quarter)];
+                let mut score = if tab {
+                    tab_score(beats)
+                } else {
+                    staff_score(beats)
+                };
+                assert_eq!(count_glyph(&page_of(&score), glyph), 0);
+                with_note(&mut score, |n| n.effects.tremolo_picking = Some(speed));
+                assert_eq!(
+                    count_glyph(&page_of(&score), glyph),
+                    1,
+                    "{speed:?} tab={tab}"
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn tap_slap_pop_and_left_hand_tap_are_marked_above() {
+        for (slap, text) in [(Slap::Tap, "T"), (Slap::Slap, "S"), (Slap::Pop, "P")] {
+            for tab in [false, true] {
+                let beats = vec![pitched(72, DurationValue::Quarter)];
+                let mut score = if tab {
+                    tab_score(beats)
+                } else {
+                    staff_score(beats)
+                };
+                assert!(!has_text(&page_of(&score), text));
+                with_beat(&mut score, |b| b.effects.slap = slap);
+                assert!(has_text(&page_of(&score), text), "{text} tab={tab}");
+            }
+        }
+        for tab in [false, true] {
+            let beats = vec![pitched(72, DurationValue::Quarter)];
+            let mut score = if tab {
+                tab_score(beats)
+            } else {
+                staff_score(beats)
+            };
+            with_note(&mut score, |n| n.effects.left_hand_tap = true);
+            let page = page_of(&score);
+            assert!(
+                has_text(&page, "+") && !has_text(&page, "LH tap"),
+                "tab={tab}"
+            );
+        }
+    }
+
+    #[test]
+    fn grace_notes_have_small_heads_and_tab_digits() {
+        let mut score = staff_score(vec![pitched(72, DurationValue::Quarter)]);
+        let grace = |on_beat| Grace {
+            fret: 70,
+            velocity: 80,
+            duration: DurationValue::Sixteenth,
+            dead: false,
+            on_beat,
+            transition: GraceTransition::None,
+        };
+        let plain = page_of(&score);
+        let (heads, lines) = (count_glyph(&plain, HEAD_BLACK), slanted(&plain));
+        with_note(&mut score, |n| n.effects.grace = Some(grace(false)));
+        let page = page_of(&score);
+        assert_eq!(count_glyph(&page, HEAD_BLACK), heads + 1, "a small head");
+        assert_eq!(slanted(&page), lines + 1, "the acciaccatura's slash");
+        with_note(&mut score, |n| n.effects.grace = Some(grace(true)));
+        let page = page_of(&score);
+        assert_eq!(count_glyph(&page, HEAD_BLACK), heads + 1);
+        assert_eq!(slanted(&page), lines, "no slash on the beat");
+        // On tab: the grace fret in small digits next to the main one.
+        let mut tab = tab_score(vec![pitched(7, DurationValue::Quarter)]);
+        with_note(&mut tab, |n| {
+            n.effects.grace = Some(Grace {
+                fret: 5,
+                ..grace(false)
+            })
+        });
+        let size = |page: &Page, t: &str| {
+            page.items.iter().find_map(|i| match i {
+                Item::Text { text, size, .. } if text == t => Some(*size),
+                _ => None,
+            })
+        };
+        let page = page_of(&tab);
+        assert!(size(&page, "5").unwrap() < size(&page, "7").unwrap());
+    }
+
+    #[test]
+    fn slides_in_and_out_are_diagonals_at_the_note() {
+        for kind in [
+            SlideKind::IntoFromAbove,
+            SlideKind::IntoFromBelow,
+            SlideKind::OutDown,
+            SlideKind::OutUp,
+        ] {
+            for tab in [false, true] {
+                let beats = vec![pitched(72, DurationValue::Quarter)];
+                let mut score = if tab {
+                    tab_score(beats)
+                } else {
+                    staff_score(beats)
+                };
+                let before = slanted(&page_of(&score));
+                with_note(&mut score, |n| n.effects.slides = vec![kind]);
+                let page = page_of(&score);
+                assert_eq!(slanted(&page), before + 1, "{kind:?} tab={tab}");
+                assert!(!has_text(&page, "sl."));
+            }
+        }
+    }
+
+    #[test]
+    fn fades_are_labelled_swells() {
+        let mut score = staff_score(vec![pitched(72, DurationValue::Quarter)]);
+        let before = slanted(&page_of(&score));
+        with_beat(&mut score, |b| b.effects.fade_in = true);
+        let page = page_of(&score);
+        assert!(has_text(&page, "fade in"));
+        assert_eq!(slanted(&page), before + 2, "a wedge");
+        with_beat(&mut score, |b| {
+            b.effects.fade_in = false;
+            b.effects.fade_out = true;
+        });
+        assert!(has_text(&page_of(&score), "fade out"));
+        with_beat(&mut score, |b| {
+            b.effects.fade_out = false;
+            b.effects.volume_swell = true;
+        });
+        let page = page_of(&score);
+        assert!(has_text(&page, "vol. swell"));
+        assert_eq!(slanted(&page), before + 4, "a wedge up and one down");
+    }
+
+    #[test]
+    fn harmonics_have_diamond_heads_and_angle_brackets() {
+        // Standard: a natural harmonic's head is a diamond; an artificial one adds one.
+        let mut score = staff_score(vec![pitched(72, DurationValue::Quarter)]);
+        with_note(&mut score, |n| n.effects.harmonic = Some(Harmonic::Natural));
+        let page = page_of(&score);
+        assert_eq!(
+            (
+                count_glyph(&page, DIAMOND_BLACK),
+                count_glyph(&page, HEAD_BLACK)
+            ),
+            (1, 0)
+        );
+        with_note(&mut score, |n| {
+            n.effects.harmonic = Some(Harmonic::Artificial { semitones: 12 })
+        });
+        let page = page_of(&score);
+        assert_eq!(
+            (
+                count_glyph(&page, DIAMOND_BLACK),
+                count_glyph(&page, HEAD_BLACK)
+            ),
+            (1, 1)
+        );
+        // Tab: <fret>, and A.H. above for the artificial one only.
+        let mut tab = tab_score(vec![pitched(5, DurationValue::Quarter)]);
+        with_note(&mut tab, |n| n.effects.harmonic = Some(Harmonic::Natural));
+        let page = page_of(&tab);
+        assert!(has_text(&page, "<5>") && !has_text(&page, "A.H."));
+        with_note(&mut tab, |n| {
+            n.effects.harmonic = Some(Harmonic::Artificial { semitones: 12 })
+        });
+        let page = page_of(&tab);
+        assert!(has_text(&page, "<5>") && has_text(&page, "A.H."));
     }
 
     #[test]
