@@ -235,6 +235,8 @@ enum Drag {
     Tab(usize, f64),
     /// A pane's scrollbar thumb (horizontal or vertical), held this far (pixels) from its start.
     Scrollbar(PaneId, bool, f64),
+    /// A design-mode handle of a pane's page layout.
+    Design(PaneId, Box<crate::design::Grab>),
 }
 
 /// The pointer shape over something draggable.
@@ -2299,6 +2301,21 @@ fn draw_pane(
         });
         scene.stroke(&Stroke::new(1.5), to_screen(pos.page), border, None, &r);
     }
+    // Design mode: handles at the bar lines, the line ends and the cursor bar's beats.
+    if page_mode && focused && app.design_active() {
+        let dragged = match &views.drag {
+            Some(Drag::Design(_, grab)) => Some(grab.handle),
+            _ => None,
+        };
+        draw_design_handles(
+            scene,
+            &cached.layout,
+            &to_screen,
+            scale,
+            (pane.cursor.track, pane.cursor.bar),
+            dragged,
+        );
+    }
     // Playhead: a red bar at the exact playback position, drawn over the cursor.
     if let Some((page, x, top, bottom)) = playhead {
         let w = 2.0 / scale;
@@ -2524,6 +2541,58 @@ fn draw_waveform(
         chrome_text(),
         false,
     );
+}
+
+/// Draws design mode's handles over the pages: a line at each bar line of a system, a tab past
+/// the line's end, a dot under each beat of the cursor's bar. The one being dragged is solid.
+fn draw_design_handles(
+    scene: &mut Scene,
+    layout: &Layout,
+    to_screen: &impl Fn(usize) -> Affine,
+    scale: f64,
+    cursor: (usize, usize),
+    dragged: Option<crate::design::Handle>,
+) {
+    use crate::design::{BEAT_R, Handle, beat_handle, end_tab};
+    let color = accent();
+    let soft = |c: Color, held: bool| if held { c } else { c.with_alpha(0.55) };
+    let px = 1.0 / scale;
+    for (i, sys) in layout.systems.iter().enumerate() {
+        let at = to_screen(sys.page);
+        for k in 0..sys.bars.saturating_sub(1) {
+            let x = layout.bars[sys.first_bar + k].2;
+            let held = dragged == Some(Handle::BarLine { system: i, k });
+            let r = Rect::new(x - px * 1.5, sys.top - 3.0, x + px * 1.5, sys.bottom + 3.0);
+            scene.fill(Fill::NonZero, at, soft(color, held), None, &r);
+            // A grip in the middle.
+            let mid = (sys.top + sys.bottom) / 2.0;
+            let grip = RoundedRect::new(x - px * 4.0, mid - 6.0, x + px * 4.0, mid + 6.0, 2.0);
+            scene.fill(Fill::NonZero, at, soft(color, held), None, &grip);
+        }
+        let (l, r, t, b) = end_tab(sys);
+        let held = dragged == Some(Handle::LineEnd { system: i });
+        let tab = RoundedRect::new(l, t, r, b, 2.0);
+        scene.fill(Fill::NonZero, at, soft(color, held), None, &tab);
+    }
+    let mut beats: Vec<&BeatRef> = layout
+        .beats
+        .keys()
+        .filter(|b| (b.track, b.bar) == cursor)
+        .collect();
+    beats.sort_by_key(|b| (b.voice, b.beat));
+    for b in beats {
+        if let Some((page, x, y)) = beat_handle(layout, b) {
+            let held = dragged == Some(Handle::Beat(*b));
+            let dot = Circle::new((x, y), BEAT_R);
+            scene.fill(
+                Fill::NonZero,
+                to_screen(page),
+                soft(color, held),
+                None,
+                &dot,
+            );
+        }
+    }
 }
 
 /// The rows of bars the layout has and how many of them (and of its bars) the view shows.
@@ -4797,6 +4866,27 @@ impl Views {
         ))
     }
 
+    /// The design-mode handle under a window position, if the pane there is in design mode.
+    fn design_handle_at(&self, app: &App, x: f64, y: f64) -> Option<crate::design::Handle> {
+        if !app.design_active() {
+            return None;
+        }
+        let (g, px, py) = self.locate(x, y)?;
+        if g.pane != app.focused() {
+            return None;
+        }
+        let cached = self.cache.get(&g.pane).filter(|c| c.key.2 == "page")?;
+        let center = ((g.content.width() / g.scale - 595.0) / 2.0).max(0.0);
+        let page = cached.offsets.iter().rposition(|&o| o <= py)?;
+        crate::design::handle_at(
+            &cached.layout,
+            (app.pane().cursor.track, app.pane().cursor.bar),
+            page,
+            (px - center, py - cached.offsets[page]),
+            4.0 / g.scale,
+        )
+    }
+
     /// Middle-click: closes the buffer tab under the mouse.
     pub fn middle_click(&mut self, app: &mut App, x: f64, y: f64) {
         let hit = self
@@ -4965,6 +5055,14 @@ impl Views {
             Some(Drag::Scrollbar(pane, horizontal, grab)) => {
                 self.scrollbar_to(pane, horizontal, grab, x, y)
             }
+            Some(Drag::Design(pane, grab)) => {
+                let Some(g) = self.geometry.iter().find(|g| g.pane == pane) else {
+                    return false;
+                };
+                let px = (x - g.content.x0) / g.scale + g.scroll.0;
+                let unit = Options::default().sp / 10.0;
+                app.design_preview(grab.apply(px - grab.start, unit));
+            }
             None => return false,
         }
         true
@@ -5000,6 +5098,7 @@ impl Views {
         match self.drag.take() {
             Some(Drag::Volume(..)) => app.group_edits(false),
             Some(Drag::Text) => app.text_release(),
+            Some(Drag::Design(..)) => app.design_end(),
             // Released on another staff: it moves there; on the same one: a click.
             Some(Drag::Prop(from, to, double)) if from == to => app.click_property(from, double),
             Some(Drag::Prop(from, to, _)) => app.drag_property(from, to),
@@ -5033,6 +5132,12 @@ impl Views {
         }
         if matches!(self.drag, Some(Drag::Wave(..))) {
             return Pointer::ResizeRows;
+        }
+        if matches!(self.drag, Some(Drag::Design(..))) {
+            return Pointer::ResizeColumns;
+        }
+        if self.design_handle_at(app, x, y).is_some() {
+            return Pointer::ResizeColumns;
         }
         if self.edges.iter().any(|(r, _)| r.contains((x, y))) {
             return Pointer::ResizeRows;
@@ -5216,6 +5321,24 @@ impl Views {
             return;
         };
         let local = (px, py - cached.offsets[page]);
+        // A design-mode handle starts a drag instead of moving the cursor.
+        if page_mode && app.design_active() {
+            let cursor = (app.pane().cursor.track, app.pane().cursor.bar);
+            let tol = 4.0 / g.scale;
+            if let Some(handle) = crate::design::handle_at(&cached.layout, cursor, page, local, tol)
+            {
+                let grab = crate::design::Grab::new(
+                    &cached.layout,
+                    handle,
+                    px + center,
+                    app.design_overrides(),
+                    app.buffer().score.master_bars.len(),
+                );
+                app.design_begin();
+                self.drag = Some(Drag::Design(g.pane, Box::new(grab)));
+                return;
+            }
+        }
         let hits = &cached.layout.pages[page].hits;
         // Prefer the precise tab-string hit, then the beat column.
         let hit = hits
