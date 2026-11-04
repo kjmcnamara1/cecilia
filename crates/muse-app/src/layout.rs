@@ -111,6 +111,13 @@ impl Node {
     /// Removes a pane, collapsing splits left with one child. Returns false if `self` is that
     /// single leaf (the caller must handle removing the whole tree).
     pub fn remove(&mut self, target: PaneId) -> bool {
+        self.remove_with(target, false)
+    }
+
+    /// Like [`Node::remove`]; with `equalize` the split that lost the pane gives its remaining
+    /// children equal weights instead of handing the space to a neighbour. Other splits keep
+    /// their weights.
+    pub fn remove_with(&mut self, target: PaneId, equalize: bool) -> bool {
         let Node::Split {
             children, weights, ..
         } = self
@@ -121,12 +128,14 @@ impl Node {
             children.remove(i);
             // Its space goes to the neighbour that grows into it.
             let w = weights.remove(i);
-            if let Some(n) = weights.get_mut(i.saturating_sub(1)) {
+            if equalize {
+                weights.iter_mut().for_each(|w| *w = 1.0);
+            } else if let Some(n) = weights.get_mut(i.saturating_sub(1)) {
                 *n += w;
             }
         } else {
             for c in children.iter_mut() {
-                c.remove(target);
+                c.remove_with(target, equalize);
             }
         }
         if children.len() == 1 {
@@ -581,6 +590,48 @@ mod tests {
         assert!(root.remove(3));
         assert_eq!(root, Node::Leaf(1));
         assert!(!root.remove(1));
+    }
+
+    #[test]
+    fn remove_with_equalize_only_touches_the_parent_split() {
+        // Left column of 1, 2, 3 (weights 1, 2, 1 after a manual resize), right pane 4.
+        let col = Node::Split {
+            axis: Axis::Stacked,
+            children: vec![Node::Leaf(1), Node::Leaf(2), Node::Leaf(3)],
+            weights: vec![1.0, 2.0, 1.0],
+        };
+        let mut root = Node::Split {
+            axis: Axis::SideBySide,
+            children: vec![col, Node::Leaf(4)],
+            weights: vec![3.0, 1.0],
+        };
+        let mut plain = root.clone();
+        plain.remove(1);
+        assert!(root.remove_with(1, true));
+        let Node::Split {
+            children, weights, ..
+        } = &root
+        else {
+            panic!("root collapsed");
+        };
+        assert_eq!(weights, &vec![3.0, 1.0]);
+        let Node::Split { weights: w, .. } = &children[0] else {
+            panic!("column collapsed");
+        };
+        assert_eq!(w, &vec![1.0, 1.0]);
+        let Node::Split {
+            children: pc,
+            weights: pw,
+            ..
+        } = &plain
+        else {
+            panic!()
+        };
+        let Node::Split { weights: w, .. } = &pc[0] else {
+            panic!()
+        };
+        assert_eq!(w, &vec![3.0, 1.0]);
+        assert_eq!(pw, &vec![3.0, 1.0]);
     }
 
     #[test]
