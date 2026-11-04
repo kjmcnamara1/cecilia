@@ -2505,12 +2505,10 @@ mod tests {
         let first = app.property_window(visible);
         let h = |r: &PropRow| r.height();
         let above: usize = rows[first..sel].iter().map(h).sum();
-        let below: usize = rows[sel + 1..].iter().map(h).sum();
         let after = visible.saturating_sub(above + h(&rows[sel]));
-        assert!(
-            above.abs_diff(after.min(below)) <= 2 || below < after,
-            "{above} {after}"
-        );
+        // As near the middle as whole rows allow.
+        assert!(above.abs_diff(after) <= 4, "{above} above, {after} below");
+        assert!(first > 0);
         // Drawing again keeps it.
         assert_eq!(app.property_window(visible), first);
     }
@@ -2541,9 +2539,9 @@ mod tests {
         assert_eq!(app.buffer().score.tracks[0].capo, 2);
         keys(&mut app, "<A-h>");
         assert_eq!(app.buffer().score.tracks[0].capo, 1);
-        keys(&mut app, "<A-k>");
+        keys(&mut app, "<A-l>");
         assert_eq!(app.buffer().score.tracks[0].capo, 2);
-        keys(&mut app, "<A-j>");
+        keys(&mut app, "<A-h>");
         assert_eq!(app.buffer().score.tracks[0].capo, 1);
         // Tab is j, shift-tab is k, the arrows likewise.
         let at = app.property_selected();
