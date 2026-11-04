@@ -13,6 +13,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - The palette's keyboard motions wrap around at its edges: `j` / `k` / `Tab` / `S-Tab` from the last line to the first and back, `l` / `h` from the end of a line of buttons to the next / previous line and around the ends of the grid. Counts wrap step by step. Only the visible (filtered, unfolded) tools count. `ui.palette_wrap = false` stops at the edges as before; the mouse is unchanged.
 - `zz` / `zt` / `zb` scroll the view so the cursor sits in the middle / at the top / at the bottom of the score pane (the left / right in the horizontal layout), without moving it (`:scroll-center`, `:scroll-top`, `:scroll-bottom`). The view then stays put until the cursor leaves it.
 
+### Changed
+
+- The barline closing a free-time bar (and so the one between two free-time bars) is drawn dashed, on every staff, the grand staff joins and the TUI tab view (`┆`). The line that closes the previous normal bar stays solid, and repeat ends, double bars and the final barline stay solid.
+
 
 ## [0.19.0] - 2026-11-04
 

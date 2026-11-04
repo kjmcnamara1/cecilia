@@ -105,6 +105,9 @@ strokes (brush, arpeggio, rasgueado, pick strokes), beam and stem overrides, and
 (clef, key and time signature, free time, double bar, bar repeat signs, repeats, alternate
 endings, directions, sections). Each runs an ordinary command and is one undo step.
 
+Free-time bars close with a dashed barline (also between two free-time bars); special lines (repeat
+end, double bar, final barline) stay solid.
+
 ### 4.2 Chant model
 
 Chant track = sequence of syllables with text underlay; each syllable carries neume groups.

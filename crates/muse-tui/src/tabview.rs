@@ -330,7 +330,15 @@ impl Widget for TabView<'_> {
                 };
                 for s in 0..rows as u16 {
                     let y = y0 + 1 + s;
-                    let bar_char = if mb.repeat_start { "‖" } else { "|" };
+                    // The line closing a free-time bar is dashed.
+                    let dashed = bl.bar > 0 && score.closing_barline_dashed(bl.bar - 1);
+                    let bar_char = if mb.repeat_start {
+                        "‖"
+                    } else if dashed {
+                        "┆"
+                    } else {
+                        "|"
+                    };
                     buf.set_string(bx, y, bar_char, line_style);
                     for dx in 1..bl.width {
                         buf.set_string(bx + dx, y, "-", staff_style);
@@ -493,8 +501,13 @@ impl Widget for TabView<'_> {
             if let Some(last) = system.bars.last() {
                 let x = x0 + last.x + last.width;
                 if x < area.x + area.width {
+                    let ch = if score.closing_barline_dashed(last.bar) {
+                        "┆"
+                    } else {
+                        "|"
+                    };
                     for s in 0..rows as u16 {
-                        buf.set_string(x, y0 + 1 + s, "|", line_style);
+                        buf.set_string(x, y0 + 1 + s, ch, line_style);
                     }
                 }
             }

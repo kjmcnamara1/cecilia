@@ -540,6 +540,30 @@ struct StaffSpec {
     half: Option<(u8, bool)>,
 }
 
+/// A dashed vertical barline at `x` from `a` to `b`, at the usual barline thickness; the dash
+/// pattern is stretched to start and end on a dash.
+fn dashed_vline(page: &mut Page, x: f64, a: f64, b: f64, sp: f64) {
+    let (dash, gap) = (0.8 * sp, 0.6 * sp);
+    let len = (b - a).max(0.0);
+    let n = (((len + gap) / (dash + gap)).round() as usize).max(1);
+    let d = if n > 1 {
+        (len - (n - 1) as f64 * gap) / n as f64
+    } else {
+        len
+    };
+    let mut path = BezPath::new();
+    for k in 0..n {
+        let y = a + k as f64 * (d + gap);
+        path.move_to((x, y));
+        path.line_to((x, y + d));
+    }
+    page.items.push(Item::Path {
+        path,
+        color: Color::BLACK,
+        stroke: Some(0.16 * sp),
+    });
+}
+
 pub fn engrave(score: &Score, track_index: usize, options: &Options) -> Layout {
     let Some(track) = score.tracks.get(track_index) else {
         return Layout::default();
@@ -1073,7 +1097,11 @@ fn run_part(ctxs: &[Ctx]) -> Layout {
             let (a, b) = (spans[k].0, spans[k + 1].1);
             for &bi in sys {
                 let end = layout.bars[bi].2;
-                page.line((end, a), (end, b), 0.16 * sp);
+                if main.score.closing_barline_dashed(bi) {
+                    dashed_vline(&mut page, end, a, b, sp);
+                } else {
+                    page.line((end, a), (end, b), 0.16 * sp);
+                }
             }
             let unit = fonts().bbox(FontKind::Music, BRACE, 4.0 * sp);
             let size = 4.0 * sp * (b - a) / unit.height().max(1.0);
@@ -2346,6 +2374,8 @@ impl Ctx<'_> {
             } else if mb.double_bar {
                 page.line((end - 0.6 * sp, a), (end - 0.6 * sp, b), 0.16 * sp);
                 page.line((end, a), (end, b), 0.16 * sp);
+            } else if self.score.closing_barline_dashed(bi) {
+                dashed_vline(page, end, a, b, sp);
             } else {
                 page.line((end, a), (end, b), 0.16 * sp);
             }
@@ -6129,6 +6159,98 @@ mod tests {
         let some = numbers(false);
         assert!(some.len() < bars && some.iter().all(|&n| n > 1));
         assert_eq!(numbers(true), (1..=bars).collect::<Vec<_>>());
+    }
+
+    /// (dashed, solid) counts of vertical barlines at `x`, dashed paths and plain lines.
+    fn barlines_at(layout: &Layout, x: f64) -> (usize, usize) {
+        let near = |v: f64| (v - x).abs() < 1e-6;
+        let mut r = (0, 0);
+        for i in layout.pages.iter().flat_map(|p| &p.items) {
+            match i {
+                Item::Path {
+                    path,
+                    stroke: Some(_),
+                    ..
+                } => {
+                    let b = path.bounding_box();
+                    if b.width() == 0.0 && b.height() > 0.0 && near(b.x0) {
+                        r.0 += 1;
+                    }
+                }
+                Item::Line { from, to, .. } if near(from.x) && near(to.x) && from.y != to.y => {
+                    r.1 += 1
+                }
+                _ => {}
+            }
+        }
+        r
+    }
+
+    #[test]
+    fn free_time_bars_close_with_a_dashed_barline() {
+        // One system, so no other bar ends at the same x.
+        let one_line = Options {
+            mode: Mode::Horizontal,
+            ..Options::default()
+        };
+        let mut score = design_score(5);
+        score.master_bars[1].free_time = true;
+        score.master_bars[2].free_time = true;
+        score.master_bars[3].free_time = true;
+        score.master_bars[3].double_bar = true;
+        let layout = engrave(&score, 0, &one_line);
+        let end = |i: usize| layout.bars[i].2;
+        // A normal bar closes solid; the free-time bars dashed, also between two of them.
+        assert_eq!(barlines_at(&layout, end(0)), (0, 2));
+        assert_eq!(barlines_at(&layout, end(1)), (2, 0));
+        assert_eq!(barlines_at(&layout, end(2)), (2, 0));
+        // A double bar stays solid.
+        assert_eq!(barlines_at(&layout, end(3)), (0, 2));
+        // So does the final barline of a free-time last bar.
+        score.master_bars[4].free_time = true;
+        let layout = engrave(&score, 0, &one_line);
+        assert_eq!(barlines_at(&layout, layout.bars[4].2).0, 0);
+        // And a repeat end.
+        score.master_bars[1].repeat_end = Some(2);
+        let layout = engrave(&score, 0, &one_line);
+        assert_eq!(barlines_at(&layout, layout.bars[1].2).0, 0);
+    }
+
+    #[test]
+    fn free_time_dashes_every_staff_and_the_grand_staff_join() {
+        let beat = |k: u8| Beat {
+            duration: Duration::new(DurationValue::Whole),
+            notes: vec![Note::new(0, k)],
+            ..Beat::default()
+        };
+        let mut score = Score {
+            tempo: 100,
+            master_bars: vec![MasterBar::default(); 2],
+            tracks: vec![Track {
+                kind: TrackKind::Pitched,
+                staves: vec![Staff::Standard(muse_core::Clef::Grand { split: 60 })],
+                bars: (0..2)
+                    .map(|_| Bar {
+                        voices: vec![Voice {
+                            beats: vec![beat(72)],
+                        }],
+                        ..Default::default()
+                    })
+                    .collect(),
+                ..Track::default()
+            }],
+            ..Score::default()
+        };
+        score.master_bars[0].free_time = true;
+        let layout = engrave(&score, 0, &Options::default());
+        // Two halves and the join through both: three dashed lines, none solid.
+        assert_eq!(barlines_at(&layout, layout.bars[0].2), (3, 0));
+        // The standard and tab staves of a fretted track: one each.
+        let mut tab = design_score(2);
+        tab.master_bars[0].free_time = true;
+        let layout = engrave(&tab, 0, &Options::default());
+        assert_eq!(barlines_at(&layout, layout.bars[0].2).1, 0);
+        assert_eq!(barlines_at(&layout, layout.bars[0].2).0, 2);
     }
 
     /// A score of `bars` eighth-note bars on a tab.
