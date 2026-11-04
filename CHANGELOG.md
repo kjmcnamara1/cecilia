@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.15.0] - 2026-11-03
+
 ### Added
 
 - Vim-style editing workflow. Normal mode: `w` / `e` / `b` move along the cursor's string (tab) or line / space (standard) by notes and ties (`:note-row-next`, `:note-row-end`, `:note-row-prev`); `^` / `gh` and `$` / `gl` go to the first / last beat of the bar with a note (`:bar-first-note`, `:bar-last-note`); `I` / `A` insert a beat at the start / end of the bar and start typing (`:insert-bar-start`, `:append-bar-end`); `dl` `dh` `cl` `ch` `yl` `yh` act on the beat under / before the cursor, also on the last beat of the score.
