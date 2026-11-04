@@ -7,6 +7,20 @@ use crate::app::App;
 use crate::config::{InsertKind, Mode};
 use muse_core::{TrackKind, chant, staff};
 
+const SOLFEGE: [&str; 7] = ["do", "re", "mi", "fa", "sol", "la", "ti"];
+
+/// The clef in force at a bar and beat of a chant track: that of the last note at or before it.
+fn clef_at(chant: &chant::Chant, bar: usize, beat: usize) -> chant::ChantClef {
+    let t = chant::transcribe(chant);
+    let notes = chant.resolved();
+    t.positions
+        .iter()
+        .zip(&notes)
+        .take_while(|(p, _)| **p <= (bar, beat))
+        .last()
+        .map_or_else(|| chant.initial_clef(), |(_, n)| n.clef)
+}
+
 /// How a segment is colored.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum SegKind {
@@ -102,7 +116,8 @@ fn fmt_time(t: f64) -> String {
 
 impl App {
     /// Where the cursor is across the staff: a string, a staff position (as the note a
-    /// letter would enter there), a slash staff or a chant pitch letter.
+    /// letter would enter there), a slash staff or the solfège syllable of a chant
+    /// position under the clef in force there.
     fn cursor_place(&self) -> Option<String> {
         let c = self.pane().cursor;
         let score = &self.buffer().score;
@@ -111,10 +126,13 @@ impl App {
             InsertKind::Tab if track.kind == TrackKind::Drums => return None,
             InsertKind::Tab => format!("string {}", c.string + 1),
             InsertKind::Slash => "slash".into(),
-            InsertKind::Chant => format!(
-                "chant {}",
-                chant::pitch_letter(c.line.clamp(0, 13) as u8, false)
-            ),
+            InsertKind::Chant => {
+                let clef = match track.chant.as_deref() {
+                    Some(ch) => clef_at(ch, c.bar, c.beat),
+                    None => crate::edit::chant_clef_of(score, track, self.chord_policy()).0,
+                };
+                SOLFEGE[clef.degree(c.line.clamp(0, 13)) as usize].into()
+            }
             InsertKind::Standard => {
                 let d = c.line;
                 let key = score
@@ -344,5 +362,73 @@ mod tests {
         app.zoom_pane(first, 2.0);
         assert_eq!(app.panes[&first].zoom, 2.0);
         assert_eq!(app.panes[&second].zoom, 1.0);
+    }
+
+    fn place(app: &App) -> String {
+        app.cursor_place().unwrap()
+    }
+
+    fn chant_app(gabc: &str) -> App {
+        let mut app = App::new(Config::default(), None);
+        let chant = muse_formats::gabc::parse(gabc).unwrap();
+        app.buffers[0].score = muse_formats::gabc::chant_score(chant);
+        app.mode = Mode::Insert;
+        app
+    }
+
+    #[test]
+    fn chant_place_is_the_solfege_syllable() {
+        // C clef on line 4: do is the line, position 9 (j).
+        let mut app = chant_app("name: t;\n%%\n(c4) Al(fg)le(h) lu(g)ia.(f.) (::)\n");
+        let names = |app: &mut App, lines: &[i32]| -> Vec<String> {
+            lines
+                .iter()
+                .map(|&l| {
+                    app.pane_mut().cursor.line = l;
+                    place(app)
+                })
+                .collect()
+        };
+        assert_eq!(
+            names(&mut app, &[9, 10, 11, 12, 13, 7, 8, 0]),
+            ["do", "re", "mi", "fa", "sol", "la", "ti", "la"]
+        );
+        // Fa clef on line 3: fa is position 7, so do is position 11.
+        let mut app = chant_app("name: t;\n%%\n(f3) Al(fg)le(h) lu(g)ia.(f.) (::)\n");
+        assert_eq!(names(&mut app, &[11, 7, 13, 3]), ["do", "fa", "mi", "ti"]);
+    }
+
+    #[test]
+    fn chant_place_follows_clef_changes() {
+        let mut app = chant_app("name: t;\n%%\n(c4) Al(f) le(g) (::) lu(c3) ia.(g) (::)\n");
+        app.pane_mut().cursor.line = 9;
+        assert_eq!(place(&app), "do");
+        // On the note after the change to c3 (do on position 7) position 9 is mi.
+        let last = app.buffer().score.tracks[0].bars.len() - 1;
+        {
+            let c = &mut app.pane_mut().cursor;
+            c.bar = last;
+            c.beat = 0;
+        }
+        assert_eq!(place(&app), "mi");
+    }
+
+    #[test]
+    fn chant_staff_of_an_ordinary_track_uses_the_fitted_clef() {
+        let mut app = App::new(Config::default(), None);
+        app.run(crate::Command::New);
+        app.run(crate::Command::StaffAdd(Some("chant".into())));
+        app.run(crate::Command::StaffNext);
+        app.mode = Mode::Insert;
+        assert_eq!(app.insert_kind(), InsertKind::Chant);
+        let (clef, _) = crate::edit::chant_clef_of(
+            &app.buffer().score,
+            &app.buffer().score.tracks[0],
+            app.chord_policy(),
+        );
+        for line in [2, 5, 9, 13] {
+            app.pane_mut().cursor.line = line;
+            assert_eq!(place(&app), SOLFEGE[clef.degree(line) as usize]);
+        }
     }
 }
