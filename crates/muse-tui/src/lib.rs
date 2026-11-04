@@ -652,12 +652,12 @@ fn draw(f: &mut Frame, app: &mut App, play: Option<(usize, Location, f64, f64)>,
         }
         let area = to_rect(r);
         let style = if id == focused {
-            Style::default().fg(rc(app.config.theme.mode_color(app.mode)))
+            Style::default().fg(rc(app.config.focus_ring_color(app.mode)))
         } else {
             Style::default().fg(rc(app.config.theme.dim))
         };
         let block = Block::bordered()
-            .border_type(BorderType::Rounded)
+            .border_type(border_type(app, id == focused))
             .border_style(style)
             .title(format!(" {} ", kind.name()));
         let inner = block.inner(area);
@@ -719,12 +719,12 @@ fn draw(f: &mut Frame, app: &mut App, play: Option<(usize, Location, f64, f64)>,
             None => format!(" {} ", buffer.name),
         };
         let border_style = if id == focused {
-            Style::default().fg(rc(app.config.theme.mode_color(app.mode)))
+            Style::default().fg(rc(app.config.focus_ring_color(app.mode)))
         } else {
             Style::default().fg(rc(app.config.theme.dim))
         };
         let block = Block::bordered()
-            .border_type(BorderType::Rounded)
+            .border_type(border_type(app, id == focused))
             .border_style(border_style)
             .title(title);
         let zoom_indicator = app.is_maximized(id);
@@ -3391,5 +3391,17 @@ mod select_tests {
         assert_eq!(at(70, 0), Some(1));
         assert_eq!(at(1, 30), Some(3));
         assert_eq!(nearest_hit(&hits, 2, 0, 0, 0).map(|h| h.cursor.beat), None);
+    }
+}
+
+/// A pane's border: plain corners when `ui.corner_radius` (or `pane_corner_radius`) is 0, and
+/// a thick line on the focused pane when `ui.focus_ring_width` is 3 or more.
+fn border_type(app: &App, focused: bool) -> BorderType {
+    if focused && app.config.file.ui.focus_ring_width >= 3.0 {
+        BorderType::Thick
+    } else if app.config.pane_corner_scale() == 0.0 {
+        BorderType::Plain
+    } else {
+        BorderType::Rounded
     }
 }

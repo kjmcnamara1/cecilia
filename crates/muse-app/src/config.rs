@@ -103,6 +103,9 @@ pub struct TablineConfig {
     pub icons: String,
     /// Hide the views on the right of the tabline while there is only one.
     pub hide_single_view: bool,
+    /// `:buffer-next` / `:buffer-prev` wrap around at the ends of the tabline (off: they stop
+    /// at the last / first tab).
+    pub wrap: bool,
     pub truncation: TruncationConfig,
 }
 
@@ -112,6 +115,7 @@ impl Default for TablineConfig {
             new_view: "copy".into(),
             icons: "nerd".into(),
             hide_single_view: true,
+            wrap: true,
             truncation: TruncationConfig::default(),
         }
     }
@@ -214,7 +218,19 @@ pub struct UiConfig {
     pub bar_numbers: String,
     /// Draw the staff lines of bars that don't hold their full count in red.
     pub highlight_incomplete_bars: bool,
+    /// Thickness in pixels of the ring around the focused pane in the GUI (0: none; 0 to 8).
+    pub focus_ring_width: f64,
+    /// Color of that ring (`#rgb`, `#rrggbb` or `#rrggbbaa`); unset: the current mode's color.
+    pub focus_ring_color: Option<String>,
+    /// GUI: corner radius in pixels of panes, the focus ring, tabs, buttons and popups
+    /// (0: square; 0 to 24). The built-in look is 6.
+    pub corner_radius: f64,
+    /// GUI: corner radius of panes and their focus ring alone; unset: `corner_radius`.
+    pub pane_corner_radius: Option<f64>,
 }
+
+/// The corner radius the GUI's built-in sizes are drawn for.
+pub const BASE_CORNER_RADIUS: f64 = 6.0;
 
 impl Default for UiConfig {
     fn default() -> Self {
@@ -245,6 +261,10 @@ impl Default for UiConfig {
             chant_chords: "top".into(),
             bar_numbers: "system".into(),
             highlight_incomplete_bars: false,
+            focus_ring_width: 2.0,
+            focus_ring_color: None,
+            corner_radius: BASE_CORNER_RADIUS,
+            pane_corner_radius: None,
             zoom: 1.0,
         }
     }
@@ -863,7 +883,7 @@ impl Default for Config {
 
 impl Config {
     /// Builds a config, collecting (not failing on) invalid keymap entries.
-    pub fn from_file(file: ConfigFile) -> (Self, Vec<String>) {
+    pub fn from_file(mut file: ConfigFile) -> (Self, Vec<String>) {
         let mut errors = Vec::new();
         let leader = parse_keys(&file.general.leader, &[]).unwrap_or_else(|e| {
             errors.push(format!("general.leader: {e}"));
@@ -1047,6 +1067,37 @@ impl Config {
                 file.ui.chant_chords
             ));
         }
+        let ui = &mut file.ui;
+        if !(0.0..=8.0).contains(&ui.focus_ring_width) {
+            errors.push(format!(
+                "ui.focus_ring_width: {} is outside 0 to 8 (clamped)",
+                ui.focus_ring_width
+            ));
+        }
+        ui.focus_ring_width = clamp_setting(ui.focus_ring_width, 0.0, 8.0, 2.0);
+        if !(0.0..=24.0).contains(&ui.corner_radius) {
+            errors.push(format!(
+                "ui.corner_radius: {} is outside 0 to 24 (clamped)",
+                ui.corner_radius
+            ));
+        }
+        ui.corner_radius = clamp_setting(ui.corner_radius, 0.0, 24.0, BASE_CORNER_RADIUS);
+        if let Some(r) = ui.pane_corner_radius {
+            if !(0.0..=24.0).contains(&r) {
+                errors.push(format!(
+                    "ui.pane_corner_radius: {r} is outside 0 to 24 (clamped)"
+                ));
+            }
+            ui.pane_corner_radius = Some(clamp_setting(r, 0.0, 24.0, BASE_CORNER_RADIUS));
+        }
+        if let Some(c) = &ui.focus_ring_color {
+            if crate::theme::Rgba::parse(c).is_none() {
+                errors.push(format!(
+                    "ui.focus_ring_color: '{c}' is not a #rrggbb color (using the mode's color)"
+                ));
+                ui.focus_ring_color = None;
+            }
+        }
         if file.ui.global_waveform.is_some() {
             errors.push(
                 "ui.global_waveform: no longer used; list \"waveform\" in ui.global_tools and open it with :waveform".into(),
@@ -1107,6 +1158,30 @@ impl Config {
             Err(e) if e.kind() == std::io::ErrorKind::NotFound => Ok((Self::default(), vec![])),
             Err(e) => Err(format!("{}: {e}", path.display())),
         }
+    }
+
+    /// The color of the focus ring in `mode`: `ui.focus_ring_color`, else the mode's color.
+    pub fn focus_ring_color(&self, mode: Mode) -> crate::theme::Rgba {
+        self.file
+            .ui
+            .focus_ring_color
+            .as_deref()
+            .and_then(crate::theme::Rgba::parse)
+            .unwrap_or_else(|| self.theme.mode_color(mode))
+    }
+
+    /// Scale from the GUI's built-in corner radii to the configured `ui.corner_radius`.
+    pub fn corner_scale(&self) -> f64 {
+        self.file.ui.corner_radius / BASE_CORNER_RADIUS
+    }
+
+    /// Like [`Config::corner_scale`] for panes and their focus ring.
+    pub fn pane_corner_scale(&self) -> f64 {
+        self.file
+            .ui
+            .pane_corner_radius
+            .unwrap_or(self.file.ui.corner_radius)
+            / BASE_CORNER_RADIUS
     }
 
     pub fn keymap(&self, mode: Mode) -> &Keymap {
@@ -1174,6 +1249,11 @@ fn apply_user(
             Err(e) => errors.push(format!("{section}: {e}")),
         }
     }
+}
+
+/// Clamps a numeric setting to `lo..=hi`; NaN gives `default`.
+fn clamp_setting(v: f64, lo: f64, hi: f64, default: f64) -> f64 {
+    if v.is_nan() { default } else { v.clamp(lo, hi) }
 }
 
 /// Default config file location (`$XDG_CONFIG_HOME/muse/config.toml` on Linux).

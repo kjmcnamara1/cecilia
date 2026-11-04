@@ -1623,7 +1623,7 @@ impl App {
         self.views[active].score = saved;
     }
 
-    /// Shows the buffer `steps` tabs along the bufferline (wrapping) in the focused pane.
+    /// Shows the buffer `steps` tabs along the bufferline (wrapping with `tabline.wrap`) in the focused pane.
     fn cycle_buffer(&mut self, steps: isize) {
         let list = &self.view().buffers;
         if list.is_empty() {
@@ -1634,7 +1634,12 @@ impl App {
             .iter()
             .position(|&b| b == self.pane().buffer)
             .unwrap_or(0) as isize;
-        let next = list[(at + steps).rem_euclid(n) as usize];
+        let to = if self.config.file.tabline.wrap {
+            (at + steps).rem_euclid(n)
+        } else {
+            (at + steps).clamp(0, n - 1)
+        };
+        let next = list[to as usize];
         self.show_buffer(next);
     }
 
@@ -4221,6 +4226,58 @@ pub(crate) mod tests {
         assert!(app.config.file.ui.equalize_on_close);
         app.run(Command::parse("equalize-on-close off").unwrap());
         assert!(!app.config.file.ui.equalize_on_close);
+    }
+
+    #[test]
+    fn buffer_next_and_prev_wrap_with_tabline_wrap() {
+        for wrap in [true, false] {
+            let dir = std::env::temp_dir().join(format!("muse-wrap-{wrap}-{}", std::process::id()));
+            let f = files(&dir, &["a.muse", "b.muse"]);
+            let (config, _) = Config::parse(&format!("[tabline]\nwrap = {wrap}\n")).unwrap();
+            let mut app = App::new(config, None);
+            app.set_tool(PaneKind::Properties, Some(false));
+            for p in &f {
+                app.run(Command::Edit(p.clone()));
+            }
+            assert_eq!(app.buffer().name, "b.muse");
+            app.run(Command::BufferNext);
+            assert_eq!(app.buffer().name, if wrap { "a.muse" } else { "b.muse" });
+            app.run(Command::BufferGoto(1));
+            app.run(Command::BufferPrev);
+            assert_eq!(app.buffer().name, if wrap { "b.muse" } else { "a.muse" });
+        }
+    }
+
+    #[test]
+    fn appearance_settings_default_to_the_built_in_look_and_clamp() {
+        let (c, errors) = Config::parse("").unwrap();
+        assert!(errors.is_empty());
+        assert!(c.file.tabline.wrap);
+        assert_eq!(c.file.ui.focus_ring_width, 2.0);
+        assert_eq!(
+            c.focus_ring_color(Mode::Normal),
+            c.theme.mode_color(Mode::Normal)
+        );
+        assert_eq!(c.corner_scale(), 1.0);
+        assert_eq!(c.pane_corner_scale(), 1.0);
+        let (c, errors) = Config::parse(
+            "[ui]\nfocus_ring_width = 20\nfocus_ring_color = \"#102030\"\ncorner_radius = 12\npane_corner_radius = -3\n",
+        )
+        .unwrap();
+        assert_eq!(errors.len(), 2, "{errors:?}");
+        assert_eq!(c.file.ui.focus_ring_width, 8.0);
+        assert_eq!(
+            c.focus_ring_color(Mode::Insert),
+            crate::theme::Rgba::rgb(0x10, 0x20, 0x30)
+        );
+        assert_eq!(c.corner_scale(), 2.0);
+        assert_eq!(c.pane_corner_scale(), 0.0);
+        let (c, errors) = Config::parse("[ui]\nfocus_ring_color = \"red\"\n").unwrap();
+        assert_eq!(errors.len(), 1);
+        assert_eq!(
+            c.focus_ring_color(Mode::Normal),
+            c.theme.mode_color(Mode::Normal)
+        );
     }
 
     #[test]

@@ -25,6 +25,21 @@ fn tc(f: impl FnOnce(&muse_app::theme::Theme) -> Rgba) -> Color {
     THEME.with(|t| col(f(&t.borrow())))
 }
 
+thread_local! {
+    /// Scales of the built-in corner radii: everything, and panes with their focus ring.
+    static RADII: std::cell::Cell<(f64, f64)> = const { std::cell::Cell::new((1.0, 1.0)) };
+}
+
+/// A built-in corner radius scaled by `ui.corner_radius`.
+fn rad(r: f64) -> f64 {
+    RADII.with(|c| c.get().0) * r
+}
+
+/// A built-in pane corner radius scaled by `ui.pane_corner_radius`.
+fn pane_rad(r: f64) -> f64 {
+    RADII.with(|c| c.get().1) * r
+}
+
 fn col(c: Rgba) -> Color {
     Color::from_rgba8(c.r, c.g, c.b, c.a)
 }
@@ -503,7 +518,7 @@ fn draw_tracks(
         // Volume slider.
         let (v0, v1) = (r.x0 + COL_VOL.0, r.x0 + COL_VOL.1);
         let frac = row.volume as f64 / 127.0;
-        let groove = RoundedRect::new(v0, cy - 2.0, v1, cy + 2.0, 2.0);
+        let groove = RoundedRect::new(v0, cy - 2.0, v1, cy + 2.0, rad(2.0));
         scene.fill(
             Fill::NonZero,
             Affine::IDENTITY,
@@ -511,7 +526,7 @@ fn draw_tracks(
             None,
             &groove,
         );
-        let level = RoundedRect::new(v0, cy - 2.0, v0 + (v1 - v0) * frac, cy + 2.0, 2.0);
+        let level = RoundedRect::new(v0, cy - 2.0, v0 + (v1 - v0) * frac, cy + 2.0, rad(2.0));
         scene.fill(
             Fill::NonZero,
             Affine::IDENTITY,
@@ -544,7 +559,7 @@ fn draw_tracks(
             ),
         ] {
             let b = Rect::new(r.x0 + x, cy - 7.0, r.x0 + x + 15.0, cy + 7.0);
-            let rr = b.to_rounded_rect(3.0);
+            let rr = b.to_rounded_rect(rad(3.0));
             if on {
                 scene.fill(Fill::NonZero, Affine::IDENTITY, col(on_color), None, &rr);
             } else {
@@ -656,7 +671,7 @@ fn draw_tracks(
                         tx += 14.0;
                     } else {
                         let w = (letter.chars().count() as f64 * 7.5).max(13.0);
-                        let b = Rect::new(tx, cy - 7.0, tx + w, cy + 7.0).to_rounded_rect(2.0);
+                        let b = Rect::new(tx, cy - 7.0, tx + w, cy + 7.0).to_rounded_rect(rad(2.0));
                         scene.stroke(&Stroke::new(1.0), Affine::IDENTITY, text_c, None, &b);
                         text(
                             scene,
@@ -706,7 +721,7 @@ fn draw_tracks(
                 Affine::IDENTITY,
                 col(c),
                 None,
-                &block.to_rounded_rect(2.0),
+                &block.to_rounded_rect(rad(2.0)),
             );
             // The edit cursor: a black dot in its bar.
             if row.index == cursor.track && b == cursor.bar && !cursor_hidden {
@@ -986,6 +1001,7 @@ pub fn build(
     height: f64,
 ) {
     THEME.with(|t| *t.borrow_mut() = app.config.theme.clone());
+    RADII.with(|c| c.set((app.config.corner_scale(), app.config.pane_corner_scale())));
     // Panes fill the window between the tab bar and the status line; tool panes are among
     // them.
     let bottom = height - STATUS - CMDLINE;
@@ -1133,13 +1149,7 @@ pub fn build(
         scene.pop_layer();
         // The focused tool pane is outlined in the mode's color.
         if id == focused {
-            scene.stroke(
-                &Stroke::new(2.0),
-                Affine::IDENTITY,
-                tc(|t| t.mode_color(app.mode)),
-                None,
-                &rect.to_rounded_rect(3.0),
-            );
+            ring(scene, app, rect, pane_rad(3.0));
         }
     }
     for (id, info) in std::mem::take(&mut views.view_infos) {
@@ -1198,7 +1208,7 @@ fn draw_tabs(scene: &mut Scene, app: &App, views: &mut Views, width: f64) {
             Affine::IDENTITY,
             bg,
             None,
-            &r.to_rounded_rect(5.0),
+            &r.to_rounded_rect(rad(5.0)),
         );
         let color = if active {
             text_on(accent())
@@ -1250,7 +1260,7 @@ fn draw_tabs(scene: &mut Scene, app: &App, views: &mut Views, width: f64) {
             Affine::IDENTITY,
             bg,
             None,
-            &RoundedRect::new(r.x0, r.y0, r.x1, r.y1 + 6.0, 6.0),
+            &RoundedRect::new(r.x0, r.y0, r.x1, r.y1 + 6.0, rad(6.0)),
         );
         if tab.active {
             fill(
@@ -1381,7 +1391,7 @@ fn draw_toolbar(scene: &mut Scene, app: &App, views: &mut Views, width: f64) {
                 Affine::IDENTITY,
                 bg,
                 None,
-                &r.to_rounded_rect(5.0),
+                &r.to_rounded_rect(rad(5.0)),
             );
         }
         let color = if !b.enabled {
@@ -1420,14 +1430,14 @@ fn draw_tooltip(scene: &mut Scene, r: Rect, tip: &str, width: f64) {
         Affine::IDENTITY,
         popover(),
         None,
-        &tr.to_rounded_rect(5.0),
+        &tr.to_rounded_rect(rad(5.0)),
     );
     scene.stroke(
         &Stroke::new(1.0),
         Affine::IDENTITY,
         dim(),
         None,
-        &tr.to_rounded_rect(5.0),
+        &tr.to_rounded_rect(rad(5.0)),
     );
     text(
         scene,
@@ -1800,7 +1810,7 @@ fn draw_file_icon(scene: &mut Scene, kind: &str, x: f64, cy: f64) {
             f(
                 scene,
                 color,
-                &RoundedRect::new(x, cy - 6.0, x + 14.0, cy + 6.0, 1.5),
+                &RoundedRect::new(x, cy - 6.0, x + 14.0, cy + 6.0, rad(1.5)),
             );
             for k in [3.5, 7.0, 10.5] {
                 scene.fill(
@@ -1862,6 +1872,22 @@ fn mode_tag(pane: &muse_app::Pane) -> &'static str {
     }
 }
 
+/// The ring around the focused pane: `ui.focus_ring_width` thick, `ui.focus_ring_color`.
+fn ring(scene: &mut Scene, app: &App, rect: Rect, radius: f64) {
+    let width = app.config.file.ui.focus_ring_width;
+    if width <= 0.0 {
+        return;
+    }
+    let c = app.config.focus_ring_color(app.mode);
+    scene.stroke(
+        &Stroke::new(width),
+        Affine::IDENTITY,
+        col(c),
+        None,
+        &RoundedRect::from_rect(rect, radius),
+    );
+}
+
 #[allow(clippy::too_many_arguments)]
 fn draw_pane(
     scene: &mut Scene,
@@ -1888,21 +1914,20 @@ fn draw_pane(
         Affine::IDENTITY,
         ground,
         None,
-        &RoundedRect::from_rect(rect, 6.0),
+        &RoundedRect::from_rect(rect, pane_rad(6.0)),
     );
-    // The focused pane is ringed in the mode's color, like the tool panes.
-    let border = if focused {
-        tc(|t| t.mode_color(app.mode))
+    // The focused pane is ringed (`ui.focus_ring_*`; the mode's color unless set).
+    if focused {
+        ring(scene, app, rect, pane_rad(6.0));
     } else {
-        tc(|t| t.chrome.mix(t.chrome_text, 0.25))
-    };
-    scene.stroke(
-        &Stroke::new(if focused { 2.0 } else { 1.0 }),
-        Affine::IDENTITY,
-        border,
-        None,
-        &RoundedRect::from_rect(rect, 6.0),
-    );
+        scene.stroke(
+            &Stroke::new(1.0),
+            Affine::IDENTITY,
+            tc(|t| t.chrome.mix(t.chrome_text, 0.25)),
+            None,
+            &RoundedRect::from_rect(rect, pane_rad(6.0)),
+        );
+    }
     let title = match score.tracks.get(pane.cursor.track) {
         Some(t) => {
             // The horizontal layout has no header on the score: its tuning goes here.
@@ -2320,7 +2345,13 @@ fn draw_pane(
                 3.0,
             )
         };
-        let whole = RoundedRect::new(x - 1.5, pos.top - 1.5, x + w + 1.5, pos.bottom + 1.5, 3.0);
+        let whole = RoundedRect::new(
+            x - 1.5,
+            pos.top - 1.5,
+            x + w + 1.5,
+            pos.bottom + 1.5,
+            rad(3.0),
+        );
         let r = if let Some(ys) = pos.strings(c.staff) {
             match ys.get(c.string) {
                 Some(&y) => {
@@ -2631,7 +2662,7 @@ fn draw_design_handles(
             scene.fill(Fill::NonZero, at, soft(color, held), None, &r);
             // A grip in the middle.
             let mid = (sys.top + sys.bottom) / 2.0;
-            let grip = RoundedRect::new(x - px * 4.0, mid - 6.0, x + px * 4.0, mid + 6.0, 2.0);
+            let grip = RoundedRect::new(x - px * 4.0, mid - 6.0, x + px * 4.0, mid + 6.0, rad(2.0));
             scene.fill(Fill::NonZero, at, soft(color, held), None, &grip);
         }
         let (mx, my) = hover(sys.page);
@@ -2646,7 +2677,7 @@ fn draw_design_handles(
             } else {
                 0.6
             };
-            let button = RoundedRect::new(l, t, r, b, 2.0);
+            let button = RoundedRect::new(l, t, r, b, rad(2.0));
             scene.fill(Fill::NonZero, at, color.with_alpha(alpha), None, &button);
             // The sign, in the color that reads on the button.
             let ink = text_on(color).with_alpha(if on { 1.0 } else { 0.5 });
@@ -2983,9 +3014,9 @@ fn draw_palette(scene: &mut Scene, p: &muse_app::Palette, width: f64, height: f6
         Affine::IDENTITY,
         Color::from_rgba8(0, 0, 0, 70),
         None,
-        &RoundedRect::new(x0 - 2.0, y0 + 2.0, x0 + w + 2.0, y0 + h + 6.0, 12.0),
+        &RoundedRect::new(x0 - 2.0, y0 + 2.0, x0 + w + 2.0, y0 + h + 6.0, rad(12.0)),
     );
-    let frame = RoundedRect::new(x0, y0, x0 + w, y0 + h, 10.0);
+    let frame = RoundedRect::new(x0, y0, x0 + w, y0 + h, rad(10.0));
     scene.fill(Fill::NonZero, Affine::IDENTITY, popover(), None, &frame);
     scene.stroke(&Stroke::new(1.0), Affine::IDENTITY, accent(), None, &frame);
     let line = if p.prompt == ":" {
@@ -3036,7 +3067,7 @@ fn draw_palette(scene: &mut Scene, p: &muse_app::Palette, width: f64, height: f6
                 Affine::IDENTITY,
                 tc(|t| t.accent.with_alpha(60)),
                 None,
-                &RoundedRect::new(x0 + 6.0, ry, x0 + w - 6.0, ry + row_h - 2.0, 6.0),
+                &RoundedRect::new(x0 + 6.0, ry, x0 + w - 6.0, ry + row_h - 2.0, rad(6.0)),
             );
         }
         let base = ry + row_h / 2.0 + 4.5;
@@ -3044,7 +3075,7 @@ fn draw_palette(scene: &mut Scene, p: &muse_app::Palette, width: f64, height: f6
         // Colors get a swatch before their name.
         let tx0 = if swatches { x0 + 48.0 } else { x0 + 16.0 };
         if let Some(c) = item.swatch {
-            let sw = RoundedRect::new(x0 + 16.0, ry + 4.0, x0 + 40.0, ry + row_h - 6.0, 4.0);
+            let sw = RoundedRect::new(x0 + 16.0, ry + 4.0, x0 + 40.0, ry + row_h - 6.0, rad(4.0));
             scene.fill(Fill::NonZero, Affine::IDENTITY, col(c), None, &sw);
             scene.stroke(&Stroke::new(1.0), Affine::IDENTITY, dim(), None, &sw);
         }
@@ -3218,7 +3249,7 @@ fn draw_status(
                 Affine::IDENTITY,
                 col(bg_of(seg.kind)),
                 None,
-                &RoundedRect::new(x, y0 + 4.0, x + w, y0 + STATUS - 4.0, 4.0),
+                &RoundedRect::new(x, y0 + 4.0, x + w, y0 + STATUS - 4.0, rad(4.0)),
             );
         }
         let color = col(fg_of(seg.kind));
@@ -3476,7 +3507,7 @@ fn draw_icon(scene: &mut Scene, icon: muse_app::icons::Icon, x: f64, y: f64, c: 
             outline(
                 scene,
                 c,
-                &RoundedRect::new(cx - 3.0, y + 1.0, cx + 3.0, y + 10.0, 3.0),
+                &RoundedRect::new(cx - 3.0, y + 1.0, cx + 3.0, y + 10.0, rad(3.0)),
             );
             let mut arc = BezPath::new();
             arc.move_to((cx - 5.5, y + 7.0));
@@ -3623,7 +3654,7 @@ fn draw_edit_palette(scene: &mut Scene, app: &App, views: &mut Views, r: Rect) {
                     continue;
                 };
                 let b = Rect::new(r.x0 + PAD, y + 2.0, r.x1 - PAD, y + HEAD - 2.0);
-                let shape = b.to_rounded_rect(5.0);
+                let shape = b.to_rounded_rect(rad(5.0));
                 if *i == sel && show_sel {
                     scene.fill(
                         Fill::NonZero,
@@ -3676,7 +3707,7 @@ fn draw_edit_palette(scene: &mut Scene, app: &App, views: &mut Views, r: Rect) {
                         r.x0 + PAD + (k + 1) as f64 * CELL - 2.0,
                         y + CELL - 2.0,
                     );
-                    let shape = b.to_rounded_rect(5.0);
+                    let shape = b.to_rounded_rect(rad(5.0));
                     let over = b.contains((hx, hy));
                     let selected = i == sel && show_sel;
                     let off = row.unavailable.is_some();
@@ -3717,7 +3748,7 @@ fn draw_edit_palette(scene: &mut Scene, app: &App, views: &mut Views, r: Rect) {
     // The search field along the bottom of the pane, as in the properties pane.
     if let Some(search) = &app.palette.search {
         let b = Rect::new(r.x0 + 8.0, r.y1 - 40.0, r.x1 - 8.0, r.y1 - 8.0);
-        let shape = b.to_rounded_rect(6.0);
+        let shape = b.to_rounded_rect(rad(6.0));
         scene.fill(Fill::NonZero, Affine::IDENTITY, col(th.tab), None, &shape);
         scene.stroke(
             &Stroke::new(1.0),
@@ -3761,7 +3792,7 @@ fn draw_edit_palette(scene: &mut Scene, app: &App, views: &mut Views, r: Rect) {
             Affine::IDENTITY,
             popover(),
             None,
-            &b.to_rounded_rect(5.0),
+            &b.to_rounded_rect(rad(5.0)),
         );
         text(
             scene,
@@ -4268,7 +4299,7 @@ fn draw_properties(scene: &mut Scene, app: &App, views: &mut Views, r: Rect) {
                 Affine::IDENTITY,
                 col(th.mode_normal),
                 None,
-                &b.to_rounded_rect(6.0),
+                &b.to_rounded_rect(rad(6.0)),
             );
         }
         let c = if current {
@@ -4393,7 +4424,7 @@ fn draw_properties(scene: &mut Scene, app: &App, views: &mut Views, r: Rect) {
                 } else {
                     Rect::new(box_x0, by0, box_x1, by1)
                 };
-                let shape = b.to_rounded_rect(if toggle { 12.0 } else { 6.0 });
+                let shape = b.to_rounded_rect(rad(if toggle { 12.0 } else { 6.0 }));
                 let track = if toggle && on { th.mode_normal } else { th.tab };
                 scene.fill(Fill::NonZero, Affine::IDENTITY, col(track), None, &shape);
                 if toggle {
@@ -4440,7 +4471,8 @@ fn draw_properties(scene: &mut Scene, app: &App, views: &mut Views, r: Rect) {
                 let mut tx = box_x0 + 10.0;
                 let inner = box_x1 - box_x0 - 20.0;
                 if let Some(c) = row.swatch {
-                    let sw = RoundedRect::new(tx, by0 + 9.0, tx + 18.0, by0 + BOX_H - 9.0, 4.0);
+                    let sw =
+                        RoundedRect::new(tx, by0 + 9.0, tx + 18.0, by0 + BOX_H - 9.0, rad(4.0));
                     scene.fill(Fill::NonZero, Affine::IDENTITY, col(c), None, &sw);
                     scene.stroke(&Stroke::new(1.0), Affine::IDENTITY, dim(), None, &sw);
                     tx += 28.0;
@@ -4589,7 +4621,7 @@ fn draw_properties(scene: &mut Scene, app: &App, views: &mut Views, r: Rect) {
                     let mut boxes = vec![(left, 0u8)];
                     if !row.value.is_empty() {
                         let b2 = Rect::new(box_x1 + 8.0, by0, bx1, by1);
-                        let shape = b2.to_rounded_rect(6.0);
+                        let shape = b2.to_rounded_rect(rad(6.0));
                         let has = row.icon2.is_some();
                         let fill_c = if has { th.tab } else { th.tab.with_alpha(110) };
                         scene.fill(Fill::NonZero, Affine::IDENTITY, col(fill_c), None, &shape);
@@ -4631,7 +4663,7 @@ fn draw_properties(scene: &mut Scene, app: &App, views: &mut Views, r: Rect) {
     // The search field along the bottom of the pane.
     if let Some(search) = &app.props.search {
         let b = Rect::new(bx0, r.y1 - 52.0, bx1, r.y1 - 14.0);
-        let shape = b.to_rounded_rect(6.0);
+        let shape = b.to_rounded_rect(rad(6.0));
         scene.fill(Fill::NonZero, Affine::IDENTITY, col(th.tab), None, &shape);
         scene.stroke(
             &Stroke::new(1.0),
@@ -4773,7 +4805,7 @@ fn draw_tuner(scene: &mut Scene, app: &App, r: Rect) {
         Affine::IDENTITY,
         col(good.with_alpha(45)),
         None,
-        &RoundedRect::new(x_of(-3.0), y - 16.0, x_of(3.0), y + 16.0, 3.0),
+        &RoundedRect::new(x_of(-3.0), y - 16.0, x_of(3.0), y + 16.0, rad(3.0)),
     );
     if let Some(v) = &view {
         let off = v.cents.abs();
@@ -4947,7 +4979,7 @@ fn draw_fretboard(
             Affine::IDENTITY,
             col(th.capo),
             None,
-            &RoundedRect::new(x - 3.0, top - 7.0, x + 3.0, bottom + 7.0, 3.0),
+            &RoundedRect::new(x - 3.0, top - 7.0, x + 3.0, bottom + 7.0, rad(3.0)),
         );
     }
     // Strings (thicker going down), with their open notes on the left. Each string's cells
@@ -5050,7 +5082,7 @@ fn draw_piano_panel(
             Affine::IDENTITY,
             col(c),
             None,
-            &RoundedRect::new(x + 0.5, top, x + kw - 0.5, bottom, 2.0),
+            &RoundedRect::new(x + 0.5, top, x + kw - 0.5, bottom, rad(2.0)),
         );
         if p % 12 == 0 {
             text(
@@ -5082,7 +5114,13 @@ fn draw_piano_panel(
             Affine::IDENTITY,
             col(c),
             None,
-            &RoundedRect::new(bx, top, bx + kw * 0.64, top + (bottom - top) * 0.62, 1.5),
+            &RoundedRect::new(
+                bx,
+                top,
+                bx + kw * 0.64,
+                top + (bottom - top) * 0.62,
+                rad(1.5),
+            ),
         );
     }
     // Black keys lie over white ones: they are hit first.
@@ -5091,7 +5129,7 @@ fn draw_piano_panel(
 
 /// A piano keyboard (the synth plays), as the 󰣱 glyph.
 fn draw_piano(scene: &mut Scene, x: f64, cy: f64, color: Color) {
-    let body = RoundedRect::new(x, cy - 6.0, x + 14.0, cy + 6.0, 1.5);
+    let body = RoundedRect::new(x, cy - 6.0, x + 14.0, cy + 6.0, rad(1.5));
     scene.stroke(&Stroke::new(1.4), Affine::IDENTITY, color, None, &body);
     for k in [3.5, 7.0, 10.5] {
         fill(
@@ -5178,7 +5216,7 @@ fn draw_expand(scene: &mut Scene, x: f64, cy: f64, color: Color) {
 
 /// A small briefcase: the workspace.
 fn draw_workspace_icon(scene: &mut Scene, x: f64, cy: f64, color: Color) {
-    let body = RoundedRect::new(x, cy - 4.0, x + 13.0, cy + 6.0, 1.5);
+    let body = RoundedRect::new(x, cy - 4.0, x + 13.0, cy + 6.0, rad(1.5));
     scene.stroke(&Stroke::new(1.5), Affine::IDENTITY, color, None, &body);
     let mut handle = BezPath::new();
     handle.move_to((x + 4.0, cy - 4.0));
@@ -5195,7 +5233,7 @@ fn panel(scene: &mut Scene, r: Rect, title: &str) {
         Affine::IDENTITY,
         tc(|t| t.panel.with_alpha(240)),
         None,
-        &RoundedRect::from_rect(r, 8.0),
+        &RoundedRect::from_rect(r, rad(8.0)),
     );
     text(
         scene,
