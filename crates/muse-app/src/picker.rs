@@ -699,6 +699,10 @@ impl App {
                 let c = &self.config;
                 let maps = [
                     (c.keymap(Mode::Normal), "", true),
+                    (c.normal_keymap(InsertKind::Tab), "(tab) ", true),
+                    (c.normal_keymap(InsertKind::Standard), "(standard) ", true),
+                    (c.normal_keymap(InsertKind::Slash), "(slash) ", true),
+                    (c.normal_keymap(InsertKind::Chant), "(chant) ", true),
                     (c.keymap(Mode::Visual), "visual ", false),
                     (c.keymap(Mode::Insert), "insert ", false),
                     (c.insert_keymap(InsertKind::Tab), "insert (tab) ", false),

@@ -10,6 +10,8 @@ pub mod complete;
 pub mod config;
 pub mod dialog;
 pub mod edit;
+#[cfg(test)]
+mod edit_tests;
 mod editor;
 pub mod history;
 pub mod icons;

@@ -301,6 +301,15 @@ pub struct KeymapConfig {
     pub normal: HashMap<String, Binding>,
     pub command: HashMap<String, Binding>,
     pub insert: HashMap<String, Binding>,
+    /// Normal-mode keys for the notation under the cursor, looked up before `normal`.
+    #[serde(rename = "normal-tab")]
+    pub normal_tab: HashMap<String, Binding>,
+    #[serde(rename = "normal-standard")]
+    pub normal_standard: HashMap<String, Binding>,
+    #[serde(rename = "normal-slash")]
+    pub normal_slash: HashMap<String, Binding>,
+    #[serde(rename = "normal-chant")]
+    pub normal_chant: HashMap<String, Binding>,
     /// Insert-mode keys for the notation under the cursor, looked up before `insert`.
     #[serde(rename = "insert-tab")]
     pub insert_tab: HashMap<String, Binding>,
@@ -329,13 +338,19 @@ const DEFAULT_NORMAL: &[(&str, &str)] = &[
     ("<Up>", "string-up"),
     ("<A-j>", "staff-next"),
     ("<A-k>", "staff-prev"),
-    ("w", "note-next"),
-    ("b", "note-prev"),
+    ("w", "note-row-next"),
+    ("e", "note-row-end"),
+    ("b", "note-row-prev"),
+    ("W", "note-next"),
+    ("B", "note-prev"),
+    ("^", "bar-first-note"),
+    ("gh", "bar-first-note"),
+    ("$", "bar-last-note"),
+    ("gl", "bar-last-note"),
     ("}", "bar-next"),
     ("{", "bar-prev"),
     ("0", "bar-start"),
     ("<Home>", "bar-start"),
-    ("$", "bar-end"),
     ("<End>", "bar-end"),
     ("gg", "goto-first"),
     ("G", "goto-last"),
@@ -410,6 +425,9 @@ const DEFAULT_NORMAL: &[(&str, &str)] = &[
     // Editing
     ("i", "insert"),
     ("a", "append"),
+    ("I", "insert-bar-start"),
+    ("A", "append-bar-end"),
+    ("gi", "insert-here"),
     ("x", "delete-note"),
     ("d", "delete"),
     ("y", "yank"),
@@ -426,24 +444,13 @@ const DEFAULT_NORMAL: &[(&str, &str)] = &[
     ("\"", "register"),
     ("v", "visual"),
     ("V", "visual-bar"),
-    ("o", "bar-insert-after"),
-    ("O", "bar-insert-before"),
+    ("o", "bar-open-after"),
+    ("O", "bar-open-before"),
     ("+", "duration-longer"),
     ("-", "duration-shorter"),
     ("<C-a>", "pitch-up"),
     ("<C-x>", "pitch-down"),
     ("r", "rest"),
-    ("th", "toggle hammer"),
-    ("tb", "toggle bend"),
-    ("ts", "toggle slide"),
-    ("tv", "toggle vibrato"),
-    ("tx", "toggle dead"),
-    ("tm", "toggle palm-mute"),
-    ("tl", "toggle let-ring"),
-    ("tg", "toggle ghost"),
-    ("ta", "toggle accent"),
-    ("tn", "toggle harmonic"),
-    ("tt", "toggle tie"),
     ("t.", "dot"),
     ("t3", "tuplet 3"),
     ("<F1>", "help"),
@@ -462,6 +469,41 @@ const DEFAULT_NORMAL: &[(&str, &str)] = &[
     ("<C-0>", "zoom-reset"),
 ];
 
+/// Normal mode on a tab (and drum lanes): the technique keys of a fretted instrument.
+const DEFAULT_NORMAL_TAB: &[(&str, &str)] = &[
+    ("th", "toggle hammer"),
+    ("tb", "toggle bend"),
+    ("ts", "toggle slide"),
+    ("tv", "toggle vibrato"),
+    ("tx", "toggle dead"),
+    ("tm", "toggle palm-mute"),
+    ("tl", "toggle let-ring"),
+    ("tg", "toggle ghost"),
+    ("ta", "toggle accent"),
+    ("tn", "toggle harmonic"),
+    ("tt", "toggle tie"),
+];
+
+/// Normal mode on a standard staff.
+const DEFAULT_NORMAL_STANDARD: &[(&str, &str)] = &[
+    ("th", "toggle hammer"),
+    ("ts", "toggle slide"),
+    ("tv", "toggle vibrato"),
+    ("tx", "toggle dead"),
+    ("tg", "toggle ghost"),
+    ("ta", "toggle accent"),
+    ("tt", "toggle tie"),
+    ("t#", "accidental sharp"),
+    ("t&", "accidental flat"),
+    ("t=", "accidental natural"),
+];
+
+/// Normal mode on a slash staff.
+const DEFAULT_NORMAL_SLASH: &[(&str, &str)] = &[("ta", "toggle accent"), ("tt", "toggle tie")];
+
+/// Normal mode on chant: no technique keys (chant signs are typed in insert mode).
+const DEFAULT_NORMAL_CHANT: &[(&str, &str)] = &[];
+
 const DEFAULT_INSERT: &[(&str, &str)] = &[
     ("<Esc>", "normal"),
     ("<Left>", "beat-prev"),
@@ -471,7 +513,12 @@ const DEFAULT_INSERT: &[(&str, &str)] = &[
     ("<Down>", "string-down"),
     ("<BS>", "delete-note"),
     ("<Del>", "delete-note"),
-    ("<CR>", "beat-new"),
+    ("<CR>", "insert-enter"),
+    ("<A-CR>", "beat-new"),
+    ("h", "beat-prev"),
+    ("j", "string-down"),
+    ("k", "string-up"),
+    ("l", "beat-next"),
     ("r", "rest"),
     (".", "dot"),
     ("+", "duration-longer"),
@@ -490,13 +537,13 @@ const DEFAULT_INSERT: &[(&str, &str)] = &[
 
 /// Insert mode on a tab (and drum lanes): digits type frets, letters toggle effects.
 const DEFAULT_INSERT_TAB: &[(&str, &str)] = &[
-    ("h", "toggle hammer"),
+    ("H", "toggle hammer"),
     ("b", "toggle bend"),
     ("s", "toggle slide"),
     ("~", "toggle vibrato"),
     ("x", "toggle dead"),
     ("m", "toggle palm-mute"),
-    ("l", "toggle let-ring"),
+    ("L", "toggle let-ring"),
     ("g", "toggle ghost"),
     ("a", "toggle accent"),
     ("n", "toggle harmonic"),
@@ -516,7 +563,7 @@ const DEFAULT_INSERT_STANDARD: &[(&str, &str)] = &[
     ("&", "accidental flat"),
     ("=", "accidental natural"),
     ("t", "toggle tie"),
-    ("h", "toggle hammer"),
+    ("H", "toggle hammer"),
     ("s", "toggle slide"),
     ("~", "toggle vibrato"),
     (">", "toggle accent"),
@@ -681,6 +728,8 @@ const DEFAULT_VISUAL: &[(&str, &str)] = &[
     ("c", "change"),
     ("v", "visual"),
     ("V", "visual-bar"),
+    ("i", "visual-insert"),
+    ("a", "visual-append"),
 ];
 
 /// Resolved key bindings for one mode.
@@ -748,6 +797,8 @@ pub struct Config {
     pub keymaps: HashMap<Mode, Keymap>,
     /// Insert-mode keys per notation, looked up before the shared insert keymap.
     pub insert_keymaps: HashMap<InsertKind, Keymap>,
+    /// Normal-mode keys per notation, looked up before the shared normal keymap.
+    pub normal_keymaps: HashMap<InsertKind, Keymap>,
     pub leader: Vec<Key>,
     /// Interface colors (`[theme]`).
     pub theme: crate::theme::Theme,
@@ -876,6 +927,41 @@ impl Config {
             apply_user(&mut map, user, &leader, name, &mut errors);
             insert_keymaps.insert(kind, map);
         }
+        let mut normal_keymaps = HashMap::new();
+        for (kind, defaults, user, name) in [
+            (
+                InsertKind::Tab,
+                DEFAULT_NORMAL_TAB,
+                &file.keymap.normal_tab,
+                "keymap.normal-tab",
+            ),
+            (
+                InsertKind::Standard,
+                DEFAULT_NORMAL_STANDARD,
+                &file.keymap.normal_standard,
+                "keymap.normal-standard",
+            ),
+            (
+                InsertKind::Slash,
+                DEFAULT_NORMAL_SLASH,
+                &file.keymap.normal_slash,
+                "keymap.normal-slash",
+            ),
+            (
+                InsertKind::Chant,
+                DEFAULT_NORMAL_CHANT,
+                &file.keymap.normal_chant,
+                "keymap.normal-chant",
+            ),
+        ] {
+            let mut map = Keymap::default();
+            for (keys, cmd) in defaults {
+                let keys = parse_keys(keys, &leader).expect("valid default key");
+                map.bind_default(keys, cmd);
+            }
+            apply_user(&mut map, user, &leader, name, &mut errors);
+            normal_keymaps.insert(kind, map);
+        }
         keymaps.insert(Mode::Insert, insert);
         keymaps.insert(Mode::Visual, visual);
         let mut command = Keymap::default();
@@ -936,6 +1022,7 @@ impl Config {
                 file,
                 keymaps,
                 insert_keymaps,
+                normal_keymaps,
                 leader,
                 theme,
             },
@@ -975,6 +1062,19 @@ impl Config {
 
     pub fn insert_keymap(&self, kind: InsertKind) -> &Keymap {
         &self.insert_keymaps[&kind]
+    }
+
+    pub fn normal_keymap(&self, kind: InsertKind) -> &Keymap {
+        &self.normal_keymaps[&kind]
+    }
+
+    /// Looks keys up in Normal mode: the keys of the notation under the cursor first, then
+    /// the shared ones.
+    pub fn normal_lookup(&self, kind: InsertKind, keys: &[Key]) -> Lookup<'_> {
+        match self.normal_keymap(kind).lookup(keys) {
+            Lookup::None => self.keymap(Mode::Normal).lookup(keys),
+            found => found,
+        }
     }
 }
 
