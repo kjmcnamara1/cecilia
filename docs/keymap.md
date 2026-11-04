@@ -40,12 +40,16 @@ only be used in the GUI there, and `<D-…>` bindings never fire.
 
 | keys                      | command                                                                                                                                                  |        |
 | ------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------- | ------ |
-| `h` / `l`                 | previous / next beat                                                                                                                                     | _(M1)_ |
+| `h` / `l`                 | previous / next beat, staying on the same string, line or space                                                                                          | _(M1)_ |
 | `j` / `k`                 | next / previous row on the cursor's staff: tab strings, or staff lines and spaces, with four ledger-line positions beyond the staff's edges to place extra notes. With `ui.jk_moves_between_staves = true` they go on into the next / previous staff instead (`:string-down`, `:string-up`) | _(M1)_ |
 | `<A-j>` / `<A-k>`         | cursor to the next / previous staff of the part (`:staff-next`, `:staff-prev`). Onto a chant staff it lands on the position of the beat's note, and the cursor there is a square on that one position of that staff only | |
-| `w` / `b`                 | next / previous beat with notes                                                                                                                          | _(M1)_ |
+| `w`                       | next note on the cursor's string (tab) or line / space (standard) that does not continue a tie. On a slash or chant staff, the next beat with a note (`:note-row-next`) | |
+| `e`                       | end of the tie the cursor note is in (its last note); on a note that is not tied on, or off a note, the end of the next note's tie on the row (`:note-row-end`) | |
+| `b`                       | start of the tie the cursor note is in; on the first note of a tie, or off a note, the start of the previous note's tie on the row (`:note-row-prev`)    | |
+| `W` / `B`                 | next / previous beat with a note on any string or line (the old `w` / `b`; `:note-next`, `:note-prev`)                                                    | _(M1)_ |
 | `}` / `{`                 | next / previous bar                                                                                                                                      | _(M1)_ |
-| `0` / `$`                 | first / last beat of bar                                                                                                                                 | _(M1)_ |
+| `^` / `$`, `gh` / `gl`    | first / last beat of the bar that has a note, on any string or line; a bar without notes: its first / last beat (`:bar-first-note`, `:bar-last-note`)   | |
+| `0` `<Home>` / `<End>`    | first / last beat of the bar, note or not (`:bar-start`, `:bar-end`)                                                                                      | _(M1)_ |
 | `gg` / `G`                | first bar / last bar (`[count]G` = bar _count_)                                                                                                          | _(M1)_ |
 | `J` / `K`                 | next / previous track                                                                                                                                    | _(M1)_ |
 | `]s` / `[s`         | next / previous section (`[count]` sections away; `''` goes back) |        |
@@ -158,27 +162,59 @@ view pickers also work while a song plays.
 | `:view N` / `:view-next` / `:view-prev`                                                          | switch views                                                                                        |
 | `:view-rename [name]`                                                                            | name the view in the tabline (no name: its number)                                                  |
 
-### Editing (M4, done)
+### Editing
+
+Editing is vim-like: the unit of `d` `c` `y` is the beat (motions `h` `l` `w` `e` `b` `^` `$` …)
+or, doubled, the bar. `[count]` works on motions and on `o`, `p`, `x`, `dd` …; `.` repeats the
+last change, an insert session included. Every edit, and an `i` / `a` / `o` … together with what
+is typed after it, is one undo step.
 
 | keys                                                   | command                                                                                           |
 | ------------------------------------------------------ | ------------------------------------------------------------------------------------------------- |
-| `i` / `a`                                              | insert at the cursor beat / append a beat and insert                                              |
-| `x`                                                    | delete the note on the cursor string (`[count]x`)                                                 |
-| `d{motion}` / `dd`                                     | delete beats / bars (`[count]dd`)                                                                 |
-| `y{motion}` / `yy`, `p` / `P`                          | yank beats or bars / put after / before                                                           |
-| `c{motion}` / `cc`                                     | change (delete, then insert)                                                                      |
+| `i` / `a`                                              | new rest beat before / after the cursor beat (in the insert duration), then Insert mode on it (`:insert`, `:append`) |
+| `I` / `A`                                              | same at the start / end of the bar (`:insert-bar-start`, `:append-bar-end`)                       |
+| `o` / `O`                                              | new bar after / before the cursor bar (`[count]` bars), then Insert mode on it (`:bar-open-after`, `:bar-open-before`) |
+| `gi`                                                   | Insert mode on the cursor beat, adding nothing (`:insert-here`; the old `i`)                      |
+| `x`                                                    | delete the one note under the cursor: on the cursor string, or at the cursor line / space (`[count]x`); on a slash staff the beat's slash, i.e. all its notes |
+| `d{motion}` / `dd`                                     | delete beats / bars (`[count]dd`). `dl` the beat under the cursor, `dh` the one before it, `dw` `de` `db` `d$` `d^` …  |
+| `y{motion}` / `yy`, `p` / `P`                          | yank beats or bars (`yl`, `yh` …, `yy` the bar) / put after / before the cursor                   |
+| `c{motion}` / `cc`                                     | change: the beats become rests of the same lengths (the cursor beat for `cl`, the one before it for `ch`, which the cursor moves to) and Insert mode starts on them; `cc` clears the bar of the cursor's track, leaving an empty bar |
 | `"{reg}`                                               | use register for the next yank/delete/put                                                         |
 | `.`                                                    | repeat the last change (including an insert session)                                              |
 | `u` / `U` / `g-` / `g+`                                | undo / redo / older / newer state across undo branches                                            |
 | `q{reg}` … `q` / `[count]@{reg}` / `@@`                | record / play / replay a macro; `q{A-Z}` appends to the lowercase register                        |
-| `v` / `V`                                              | visual beats / visual bars (then `d`, `y`, `c`, `x`)                                              |
-| `o` / `O`                                              | new bar after / before                                                                            |
+| `v` / `V`                                              | visual beats / visual bars (then `d`, `y`, `c`, `x`; `i` / `a` below)                            |
 | `+` / `-`                                              | longer / shorter note value                                                                       |
 | `<C-a>` / `<C-x>`                                      | pitch up / down a semitone (moves string when the fret runs out)                                  |
 | `r`                                                    | make the beat a rest                                                                              |
-| `th` `tb` `ts` `tv` `tx` `tm` `tl` `tg` `ta` `tn` `tt` | toggle hammer/pull, bend, slide, vibrato, dead, palm mute, let ring, ghost, accent, harmonic, tie |
 | `t.` / `t3`                                            | toggle dot / triplet                                                                              |
 | `ZZ`                                                   | write and close                                                                                   |
+
+The `t` keys depend on the notation under the cursor (`[keymap.normal-tab]`, `-standard`,
+`-slash`, `-chant`, looked up before `[keymap.normal]`; `<F1>` and the keymaps picker list the
+current ones):
+
+| notation | keys |
+| --- | --- |
+| tab | `th` `tb` `ts` `tv` `tx` `tm` `tl` `tg` `ta` `tn` `tt`: toggle hammer/pull, bend, slide, vibrato, dead, palm mute, let ring, ghost, accent, harmonic, tie |
+| standard | `th` `ts` `tv` `tx` `tg` `ta` `tt` (hammer/pull, slide, vibrato, dead, ghost, accent, tie), `t#` `t&` `t=` (sharp, flat, natural) |
+| slash | `ta` `tt` (accent, tie) |
+| chant | none (chant signs are typed in Insert mode) |
+
+**Visual mode** (`v` beats, `V` bars; a `d` `y` `c` `x` act on the selection, motions extend it):
+
+| keys | command |
+| --- | --- |
+| `i` / `a` | leave the selection and insert a new beat before its first / after its last beat (a bar selection: at the start of its first bar / the end of its last bar), then Insert mode (`:visual-insert`, `:visual-append`) |
+
+Choices where the wish was open: `e` is vim's end-of-word, so on a note that does not start a
+tie it goes to the end of the *next* note's tie (a lone note is its own tie); `b` likewise to
+the start of the previous one. `ch` clears the beat before the cursor and the cursor goes there.
+`dl` / `cl` / `yl` on the last beat of the score still act on that beat. `^` / `$` ignore the
+row (a `w` on a string would not find the first note of a bar played on another string).
+With `d` and `c`, `e` `$` are inclusive, `w` `b` `^` `h` `l` exclusive, as in vim. `cc` and the
+other changes clear only the cursor's track (a bar's other tracks stay); `dd` and `yy` still
+act on the bar of every track, as bars are shared.
 
 ### Other
 
@@ -355,6 +391,15 @@ are `[keymap.palette]`, then the usual ones:
 | `za` `zc` `zo` | toggle / close / open the section |
 | `<Esc>` `q` | back to the score pane |
 
+The palette lists only the tools that apply to the mode and to the staff under the cursor (a
+section with none left is hidden; folds are kept): on a **tab** everything but the accidentals;
+on a **standard** staff the accidentals and the marks it can show (no bends, palm mute, let
+ring, tap / slap / pop or fade-in); on a **slash** staff the note values, rest, tie, accents,
+staccato and dynamics; on **chant** the note values only; in **Visual** mode the note values
+only (the length of the beats `i` / `a` add). It follows the cursor from one staff to another.
+The duration selected in it (the tinted button) is the length of the beats `i`, `a`, `I`, `A`
+and Enter in Insert mode make.
+
 A button's name (tooltip and label) ends with the insert-mode keys bound to its command, from the live keymaps so your overrides show ("Palm mute (m)", at most three, "Quarter note (<A-3>)"; none: no parentheses). Buttons that can't take effect at the cursor are dimmed and named "(unavailable)" after that: note-level ones (pitch, tie, dead and ghost notes, dynamics, articulations, most effects) off a note, accidentals on a tab. They are worked out by trying the command's own edit, so they follow what the command refuses. They stay selectable, but applying one does nothing and the status line says why.
 
 A click applies a button (and returns to the score pane) or folds a section; the wheel scrolls.
@@ -392,7 +437,9 @@ Shared keys:
 | ---------------------------- | --------------------------------------------------------------- |
 | `<Space>` / `<Right>`        | next beat, appending one (or moving to the next bar) at the end |
 | `<Left>` / `<Up>` / `<Down>` | previous beat / row up / row down (across staves, as `k` / `j`) |
-| `<CR>`                       | new beat after the cursor                                       |
+| `h` `l` / `j` `k`            | previous / next beat (no beat is added), row down / up. Not on chant, where they are pitches; on drum tracks `h` and `k` are the hi-hat and kick |
+| `<CR>`                       | finish the beat: on a tab the fret typed stays (an empty beat becomes a rest); on a standard staff a note is put at the cursor's line or space (in the key; nothing if the beat has a note there already); on a slash staff the slash. Then the cursor goes to the next beat, as `<Space>` (appending one while the bar has room for it, else to the start of the next bar, adding a bar at the end of the score). The beats get the insert duration: the duration tool of the palette, `+` `-` `<A-1>`…`<A-7>`. Chant keeps `<CR>` = a new syllable (`:insert-enter`) |
+| `<A-CR>`                     | new beat after the cursor, staying (`:beat-new`; the old `<CR>`) |
 | `<BS>` / `<Del>`             | delete the note                                                 |
 | `r` / `.` / `<C-t>`          | rest / dot / triplet                                            |
 | `+` / `-` / `<A-1>`…`<A-7>`  | longer / shorter / whole … 64th                                 |
@@ -404,7 +451,7 @@ On a **tab**:
 | keys                                        | command                                                                                    |
 | ------------------------------------------- | ------------------------------------------------------------------------------------------ |
 | `0`–`9`                                     | fret on the cursor string (two quick digits = two-digit fret)                              |
-| `h` `b` `s` `~` `x` `m` `l` `g` `a` `n` `t` | hammer/pull, bend, slide, vibrato, dead, palm mute, let ring, ghost, accent, harmonic, tie |
+| `H` `b` `s` `~` `x` `m` `L` `g` `a` `n` `t` | hammer/pull, bend, slide, vibrato, dead, palm mute, let ring, ghost, accent, harmonic, tie (`H` and `L` were `h` and `l`) |
 
 On drum tracks _(M7)_, letters add or remove an instrument on the cursor beat: `k` bass drum,
 `s` snare, `h` closed hi-hat, `o` open hi-hat, `p` pedal hi-hat, `c` crash, `d` ride, `t` high
@@ -417,9 +464,9 @@ the staff they go on to the tab below or the next staff):
 | ------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | `a`–`g`                               | that note, in the key, nearest the cursor (`:note-letter`): it replaces the note the cursor is on, or joins the chord; the cursor moves onto it. Fretted tracks pick a string |
 | `#` / `&` / `=`                       | the cursor note sharp / flat / natural (`:accidental`)                                                                                                    |
-| `t` `h` `s` `~` `>` `(` `x`           | tie, hammer/pull, slide, vibrato, accent, ghost, dead                                                                                                     |
+| `t` `H` `s` `~` `>` `(` `x`           | tie, hammer/pull, slide, vibrato, accent, ghost, dead                                                                                                     |
 
-On a **slash** staff: `/` puts a slash on the beat (`:slash`); `t` tie, `>` accent.
+On a **slash** staff: `/` puts a slash on the beat (`:slash`; `<CR>` does as well); `t` tie, `>` accent.
 
 On **chant**, the cursor is on a note: a single square on that position of the chant staff. On a chant track (opened from GABC) these edit the chant
 itself; on any other track they edit the track's notes (shown on its other staves too) and keep
