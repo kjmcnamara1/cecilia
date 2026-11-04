@@ -6,6 +6,7 @@ Planned work. Finished items move to `CHANGELOG.md` under `[Unreleased]`.
 
 - [ ] Rename project to Cecilia (Ceci)
 - [ ] Use .cc as file extension?
+- [ ] Change icon
 
 ### Engraving
 
