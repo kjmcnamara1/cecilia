@@ -7,7 +7,7 @@ use muse_core::chant::ClefKind;
 use muse_core::*;
 
 use crate::app::{beats, clamp_cursor};
-use crate::command::{Command, Operator};
+use crate::command::{BeatAt, Command, Operator};
 use crate::config::{InsertKind, Lookup, Mode};
 use crate::edit::{self, BarClip, EditCx, Pos};
 use crate::keys::{Key, KeyCode};
@@ -67,6 +67,11 @@ fn is_motion(cmd: &Command) -> bool {
             | BeatPrev
             | NoteNext
             | NotePrev
+            | RowNext
+            | RowEnd
+            | RowPrev
+            | BarFirstNote
+            | BarLastNote
             | BarNext
             | BarPrev
             | BarStart
@@ -267,6 +272,7 @@ impl App {
             Mode::Visual => ("Visual", rows(c.keymap(Mode::Visual), &[])),
             Mode::Normal | Mode::Tracks | Mode::Properties | Mode::Palette => {
                 let normal = c.keymap(Mode::Normal);
+                let notation = c.normal_keymap(self.insert_kind());
                 let (name, pane) = match self.focused_kind() {
                     PaneKind::Tracks => ("Tracks pane", Some(Mode::Tracks)),
                     PaneKind::Properties => ("Properties pane", Some(Mode::Properties)),
@@ -278,6 +284,10 @@ impl App {
                 if let Some(m) = pane {
                     v = rows(c.keymap(m), &[]);
                     skip.push(c.keymap(m));
+                }
+                if pane.is_none() {
+                    v.extend(rows(notation, &[]));
+                    skip.push(notation);
                 }
                 v.extend(rows(normal, &skip));
                 (name, v)
@@ -320,7 +330,8 @@ impl App {
             }
         }
         self.pending.push(key);
-        let cmds = match self.config.keymap(Mode::Normal).lookup(&self.pending) {
+        let kind = self.insert_kind();
+        let cmds = match self.config.normal_lookup(kind, &self.pending) {
             Lookup::Exact(cmds) => cmds.to_vec(),
             Lookup::Prefix => return,
             Lookup::None => {
@@ -532,7 +543,7 @@ impl App {
         };
         let cmds = match lookup {
             Some(c) => c,
-            None => match self.config.keymap(Mode::Normal).lookup(&self.pending) {
+            None => match self.config.normal_lookup(self.insert_kind(), &self.pending) {
                 Lookup::Exact(c) => c.to_vec(),
                 Lookup::Prefix => return,
                 Lookup::None => {
@@ -619,15 +630,14 @@ impl App {
                 self.ed.group = Some(false);
                 self.edit(|cx| {
                     let to = to.min(cx.score.master_bars.len() - 1);
-                    for t in 0..cx.score.tracks.len() {
-                        for b in from..=to {
-                            cx.bar(t, b).voices = vec![Voice {
-                                beats: vec![Beat {
-                                    empty: true,
-                                    ..Beat::default()
-                                }],
-                            }];
-                        }
+                    let t = cx.cursor.track;
+                    for b in from..=to {
+                        cx.bar(t, b).voices = vec![Voice {
+                            beats: vec![Beat {
+                                empty: true,
+                                ..Beat::default()
+                            }],
+                        }];
                     }
                     cx.cursor.bar = from;
                     cx.cursor.beat = 0;
@@ -644,7 +654,10 @@ impl App {
         let target = self.pane().cursor;
         self.panes.get_mut(&self.focused()).unwrap().cursor = start;
         let score = &self.buffer().score;
-        let inclusive = matches!(motion, Command::BarEnd);
+        let inclusive = matches!(
+            motion,
+            Command::BarEnd | Command::BarLastNote | Command::RowEnd
+        );
         let (s, t) = ((start.bar, start.beat), (target.bar, target.beat));
         let range = if t > s {
             let end = if inclusive {
@@ -655,13 +668,18 @@ impl App {
             end.map(|e| (s, e))
         } else if t < s {
             previous(score, &start).map(|e| (t, e))
-        } else if inclusive {
+        } else if inclusive || motion == Command::BeatNext {
+            // `l` on the last beat of the score still covers the beat under the cursor.
             Some((s, s))
         } else {
             None
         };
         if let Some((from, to)) = range {
             self.operate_range(op, from, to);
+        } else if op == Operator::Change {
+            // Nothing to clear, but `c` still ends in insert mode.
+            self.ed.group = Some(false);
+            self.enter_insert();
         }
     }
 
@@ -699,11 +717,9 @@ impl App {
                 });
             }
             Operator::Change => {
-                let duration = self.insert_duration();
                 self.ed.group = Some(false);
                 self.edit(|cx| {
-                    edit::delete_range(cx, from, to);
-                    edit::insert_beat(cx, false, duration);
+                    edit::clear_range(cx, from, to);
                     Ok(())
                 });
                 self.enter_insert();
@@ -742,13 +758,29 @@ impl App {
         let duration = self.insert_duration();
         match cmd {
             Insert => self.enter_insert(),
-            Append => {
+            InsertBeat(at) => {
+                let at = *at;
                 self.ed.group = Some(false);
                 self.edit(|cx| {
-                    edit::insert_beat(cx, true, duration);
+                    match at {
+                        BeatAt::Before | BeatAt::After => {}
+                        BeatAt::BarStart => cx.cursor.beat = 0,
+                        BeatAt::BarEnd => cx.cursor.beat = cx.voice().len() - 1,
+                    }
+                    edit::insert_beat(cx, matches!(at, BeatAt::After | BeatAt::BarEnd), duration);
                     Ok(())
                 });
                 self.enter_insert();
+            }
+            VisualInsert { after } => self.visual_insert(*after),
+            InsertEnter => {
+                self.ed.digit = None;
+                let kind = self.insert_kind();
+                self.edit(|cx| {
+                    edit::enter(cx, kind, duration)?;
+                    edit::advance(cx, duration);
+                    Ok(())
+                });
             }
             InsertNext => {
                 self.edit(|cx| {
@@ -816,6 +848,18 @@ impl App {
                     cx.cursor.beat = 0;
                     Ok(())
                 });
+            }
+            BarOpen { after } => {
+                let at = self.pane().cursor.bar + usize::from(*after);
+                let n = self.count.take().unwrap_or(1);
+                self.ed.group = Some(false);
+                self.edit(|cx| {
+                    edit::insert_bars(cx, at, n);
+                    cx.cursor.bar = at;
+                    cx.cursor.beat = 0;
+                    Ok(())
+                });
+                self.enter_insert();
             }
             BarDelete => self.operate_bars(self::Operator::Delete, 1),
             DurationLonger | DurationShorter | Duration(_) | Dot | Tuplet(_) => {
@@ -1126,6 +1170,28 @@ impl App {
             _ => return false,
         }
         true
+    }
+
+    /// Visual `i` / `a`: leaves the selection and starts typing in a new beat before / after
+    /// it (a bar selection: at the start of its first bar / the end of its last).
+    fn visual_insert(&mut self, after: bool) {
+        let Some((anchor, cursor, bars)) = self.selection() else {
+            return;
+        };
+        let (a, b) = ((anchor.bar, anchor.beat), (cursor.bar, cursor.beat));
+        let (lo, hi) = if a <= b { (a, b) } else { (b, a) };
+        self.run(Command::Normal);
+        let at = match (after, bars) {
+            (false, false) => BeatAt::Before,
+            (true, false) => BeatAt::After,
+            (false, true) => BeatAt::BarStart,
+            (true, true) => BeatAt::BarEnd,
+        };
+        let (bar, beat) = if after { hi } else { lo };
+        let p = self.pane_mut();
+        p.cursor.bar = bar;
+        p.cursor.beat = beat;
+        self.run(Command::InsertBeat(at));
     }
 
     fn enter_insert(&mut self) {
@@ -2147,7 +2213,7 @@ mod tests {
     #[test]
     fn techniques_durations_and_score_commands() {
         let mut a = app();
-        keys(&mut a, "i5h<A-4>b<Esc>");
+        keys(&mut a, "i5H<A-4>b<Esc>");
         let beat = a.buffer().score.tracks[0].bars[0].voices[0].beats[0].clone();
         assert!(beat.notes[0].effects.hammer_pull);
         assert!(beat.notes[0].effects.bend.is_some());

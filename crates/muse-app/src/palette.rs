@@ -9,6 +9,7 @@ use std::collections::{HashMap, HashSet};
 
 use crate::app::{App, Cursor, PaneKind};
 use crate::command::Command;
+use crate::config::InsertKind;
 use crate::edit::{self, EditCx};
 use muse_core::TrackKind;
 
@@ -203,9 +204,50 @@ fn probe_edit(
     }
 }
 
+/// Whether a palette item's command is for a notation (the staff under the cursor) in a mode.
+///
+/// Tab: everything but accidentals. Standard staff: accidentals and the marks it can show (no
+/// bends, palm mutes, let ring, tap / slap / pop or fade-ins). Slash: note values, rests, ties
+/// and accents. Chant: note values only. Visual mode (a selection, no note under the cursor):
+/// note values only, the length of the beat `i` / `a` add.
+fn applies(command: &str, kind: InsertKind, visual: bool) -> bool {
+    let (name, arg) = command.split_once(' ').unwrap_or((command, ""));
+    let value = matches!(name, "duration" | "dot" | "tuplet");
+    if visual || kind == InsertKind::Chant {
+        return value;
+    }
+    match kind {
+        InsertKind::Tab => name != "accidental",
+        InsertKind::Standard => match name {
+            "toggle" => !matches!(
+                arg,
+                "bend"
+                    | "half-bend"
+                    | "let-ring"
+                    | "palm-mute"
+                    | "tap"
+                    | "slap"
+                    | "pop"
+                    | "fade-in"
+            ),
+            _ => true,
+        },
+        _ => {
+            value
+                || name == "rest"
+                || matches!(arg, "tie" | "accent" | "heavy-accent" | "staccato")
+                || name == "dynamic"
+        }
+    }
+}
+
 impl App {
-    /// The rows: each section's header, then its items unless folded.
+    /// The rows: each section's header, then its items unless folded. Only the tools that
+    /// apply to the mode and the staff under the cursor are listed; a section with none is
+    /// left out.
     pub fn palette_rows(&self) -> Vec<PaletteRow> {
+        let kind = self.insert_kind();
+        let visual = self.mode == crate::config::Mode::Visual;
         let note = self.palette_note();
         let beat = self.palette_beat();
         // The beat under the cursor; the duration new notes get where there is none.
@@ -217,6 +259,9 @@ impl App {
         let fx = beat.as_ref().map(|b| b.effects.clone());
         let mut rows = Vec::new();
         for (s, (title, items)) in SECTIONS.iter().enumerate() {
+            if !items.iter().any(|(_, c, _)| applies(c, kind, visual)) {
+                continue;
+            }
             let folded = self.palette.folded.contains(&s);
             rows.push(PaletteRow {
                 kind: PaletteKind::Header { section: s, folded },
@@ -231,6 +276,9 @@ impl App {
                 continue;
             }
             for (label, command, short) in items.iter() {
+                if !applies(command, kind, visual) {
+                    continue;
+                }
                 let (name, arg) = command.split_once(' ').unwrap_or((command, ""));
                 let active = match (name, arg) {
                     ("duration", n) => n.parse() == Ok(duration.value.denominator()),
@@ -447,6 +495,9 @@ impl App {
     /// Moves the selection a line down (`dy` 1) or up, keeping to the column last chosen.
     fn palette_vertical(&mut self, dy: isize) {
         let lines = self.palette_lines();
+        if lines.is_empty() {
+            return;
+        }
         let (l, _) = self.palette_at(&lines);
         let to = (l as isize + dy).clamp(0, lines.len() as isize - 1) as usize;
         self.palette.selected = match &lines[to] {
@@ -833,9 +884,14 @@ mod tests {
     #[test]
     fn note_items_are_unavailable_off_a_note() {
         let mut app = app();
-        // On a note everything applies, but accidentals need a staff with lines (this is a tab).
+        // On a note everything listed applies; accidentals are not listed on a tab.
         let accidentals = ["accidental sharp", "accidental flat", "accidental natural"];
-        assert_eq!(disabled(&app), accidentals);
+        assert!(disabled(&app).is_empty());
+        assert!(
+            !app.palette_rows()
+                .iter()
+                .any(|r| accidentals.contains(&r.command))
+        );
         // On a rest the note-level items are out; durations, rest and dynamics-free items stay.
         app.run(Command::BeatNext);
         let off = disabled(&app);
@@ -860,7 +916,7 @@ mod tests {
         }
         // Back on a note they come back.
         app.run(Command::BeatPrev);
-        assert_eq!(disabled(&app), accidentals);
+        assert!(disabled(&app).is_empty());
     }
 
     #[test]
