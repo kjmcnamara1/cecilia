@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.19.0] - 2026-11-04
+
 ### Added
 
 - Palette tools: double dot, fermata, double sharp / flat, crescendo / decrescendo, fade in / out and volume swell, artificial harmonic, left-hand tapping, grace notes before / on the beat, the six slides (shift, legato, in from above / below, out downwards / upwards), arpeggio down / up, rasgueado, pickstroke down / up, beams (automatic, force, break, break secondary) and stems (automatic, up, down), and the bar tools: clef, key and time signature, free time, double bar line, repeat one / two bars, repeat open / close, alternate endings, directions and section. Tools that need an argument open the command line with the command typed. Commands: `:double-dot`, `:free-time`, `:double-bar`, `:bar-repeat 1|2|off`, `:ending`, `:direction`, `:beams`, `:stems`, `:accidental double-sharp|double-flat`, more `:toggle` techniques; `:key` also takes names (`Bb`, `F#m`).
