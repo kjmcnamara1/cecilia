@@ -140,6 +140,9 @@ pub struct Theme {
     pub panel: Rgba,
     /// A bar without notes in the tracks panel.
     pub empty_bar: Rgba,
+    /// Staff lines of a bar that doesn't hold its full count (`:incomplete-bars`), drawn on the
+    /// page: red enough to read on every preset's light page.
+    pub incomplete_bar: Rgba,
     /// The command palette, pickers, which-key and tooltips.
     pub popover: Rgba,
     /// Error messages.
@@ -198,6 +201,7 @@ pub const COLOR_NAMES: &[&str] = &[
     "capo",
     "panel",
     "empty_bar",
+    "incomplete_bar",
     "popover",
     "error",
     "lyrics",
@@ -243,6 +247,7 @@ impl Theme {
             button_hover: Rgba::rgb(72, 75, 86),
             panel: Rgba::rgb(30, 32, 37),
             empty_bar: Rgba::rgb(55, 58, 66),
+            incomplete_bar: Rgba::rgb(214, 40, 40),
             popover: Rgba::rgb(36, 38, 44),
             error: Rgba::rgb(255, 110, 100),
             lyrics: Rgba::rgb(110, 200, 130),
@@ -284,6 +289,7 @@ impl Theme {
             button_hover: Rgba::rgb(218, 219, 225),
             panel: Rgba::rgb(246, 246, 248),
             empty_bar: Rgba::rgb(222, 223, 228),
+            incomplete_bar: Rgba::rgb(214, 40, 40),
             popover: Rgba::rgb(252, 252, 253),
             error: Rgba::rgb(200, 40, 30),
             lyrics: Rgba::rgb(40, 140, 80),
@@ -323,6 +329,7 @@ impl Theme {
             button_hover: hex("#434c5e"),
             panel: hex("#272c36"),
             empty_bar: hex("#3b4252"),
+            incomplete_bar: Rgba::rgb(214, 40, 40),
             popover: hex("#3b4252"),
             error: hex("#bf616a"),
             lyrics: hex("#a3be8c"),
@@ -366,6 +373,7 @@ impl Theme {
             button_hover: hex("#504945"),
             panel: hex("#1d2021"),
             empty_bar: hex("#3c3836"),
+            incomplete_bar: Rgba::rgb(214, 40, 40),
             popover: hex("#3c3836"),
             error: hex("#fb4934"),
             lyrics: hex("#b8bb26"),
@@ -409,6 +417,7 @@ impl Theme {
             button_hover: hex("#0b4553"),
             panel: hex("#00212b"),
             empty_bar: hex("#073642"),
+            incomplete_bar: Rgba::rgb(214, 40, 40),
             popover: hex("#073642"),
             error: hex("#dc322f"),
             lyrics: hex("#859900"),
@@ -445,6 +454,7 @@ impl Theme {
             button_hover: hex("#e4ddc8"),
             panel: hex("#f5efdc"),
             empty_bar: hex("#e4ddc8"),
+            incomplete_bar: Rgba::rgb(214, 40, 40),
             popover: hex("#fdf6e3"),
             track_colors: spectrum(hex("#b58900"), 8, 0.45),
             ..Self::solarized_dark()
@@ -484,6 +494,7 @@ impl Theme {
             "capo" => &mut self.capo,
             "panel" => &mut self.panel,
             "empty_bar" => &mut self.empty_bar,
+            "incomplete_bar" => &mut self.incomplete_bar,
             "popover" => &mut self.popover,
             "error" => &mut self.error,
             "lyrics" => &mut self.lyrics,

@@ -16,6 +16,8 @@ pub enum SegKind {
     ModeText,
     /// The status line's own color (sections `c` and `x`).
     Plain,
+    /// Plain, but in the error color: a bar that is too short or too long.
+    Warn,
 }
 
 /// A small symbol before a segment's text.
@@ -235,6 +237,20 @@ impl App {
             );
         }
         right.push(Segment::new(x.join("  "), SegKind::Plain));
+        // In insert mode: the cursor's bar, in quarter-note beats of the voice under the
+        // cursor against what the time signature asks for (`3.0/4.0`); error-colored unless
+        // the bar is complete. Nothing in free time and in a pickup bar.
+        if self.mode == Mode::Insert {
+            let c = pane.cursor;
+            if let Some(count) = score.bar_count(c.track, c.bar, c.voice) {
+                let kind = if count.is_complete() {
+                    SegKind::Plain
+                } else {
+                    SegKind::Warn
+                };
+                right.push(Segment::new(count.label(), kind));
+            }
+        }
         // The zoom, while it isn't 100%.
         if zoom && (self.zoom() - 1.0).abs() > 1e-6 {
             right.push(
@@ -332,6 +348,58 @@ mod tests {
         assert_eq!(app.zoom(), 1.0);
         assert_eq!(progress(3, 8), "50%");
         assert_eq!(progress(7, 8), "Bot");
+    }
+
+    #[test]
+    fn insert_mode_shows_the_bar_count() {
+        use muse_core::{Beat, Duration, DurationValue};
+        let mut app = App::new(Config::default(), None);
+        app.run(Command::New);
+        let count = |app: &App| {
+            let s = app.statusline(None, false);
+            s.right
+                .iter()
+                .find(|s| s.text.contains('/') && s.text.contains('.'))
+                .map(|s| (s.text.clone(), s.kind))
+        };
+        // Not in normal mode.
+        assert_eq!(count(&app), None);
+        app.run(Command::parse("insert").unwrap());
+        assert_eq!(app.mode, Mode::Insert);
+        assert_eq!(count(&app), Some(("0.0/4.0".into(), SegKind::Warn)));
+        let b = app.pane().buffer;
+        let quarter = |n: usize| {
+            let beat = Beat {
+                duration: Duration::new(DurationValue::Quarter),
+                ..Beat::default()
+            };
+            vec![beat; n]
+        };
+        let fill = |app: &mut App, n: usize| {
+            app.buffers[b].score.tracks[0].bars[0].voices[0].beats = quarter(n);
+        };
+        fill(&mut app, 3);
+        assert_eq!(count(&app), Some(("3.0/4.0".into(), SegKind::Warn)));
+        fill(&mut app, 4);
+        assert_eq!(count(&app), Some(("4.0/4.0".into(), SegKind::Plain)));
+        fill(&mut app, 5);
+        assert_eq!(count(&app), Some(("5.0/4.0".into(), SegKind::Warn)));
+        // The voice under the cursor counts.
+        app.buffers[b].score.tracks[0].bars[0]
+            .voices
+            .push(Default::default());
+        app.buffers[b].score.tracks[0].bars[0].voices[1].beats = quarter(4);
+        app.pane_mut().cursor.voice = 1;
+        assert_eq!(count(&app), Some(("4.0/4.0".into(), SegKind::Plain)));
+        // 6/8 is three quarter beats; free time shows nothing.
+        app.pane_mut().cursor.voice = 0;
+        app.buffers[b].score.master_bars[0].time_signature.numerator = 6;
+        app.buffers[b].score.master_bars[0]
+            .time_signature
+            .denominator = 8;
+        assert_eq!(count(&app), Some(("5.0/3.0".into(), SegKind::Warn)));
+        app.buffers[b].score.master_bars[0].free_time = true;
+        assert_eq!(count(&app), None);
     }
 
     #[test]

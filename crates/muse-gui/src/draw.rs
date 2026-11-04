@@ -75,20 +75,24 @@ const BASE_SCALE: f64 = 1.6;
 /// A linked note's color-recolored pages: the note, its color, and (page, scene) pairs.
 type Lit = (muse_app::LinkedNote, [u8; 4], Vec<(usize, Scene)>);
 
+type CacheKey = (
+    usize,
+    usize,
+    String,
+    i64,
+    u64,
+    bool,
+    [u8; 8],
+    &'static str,
+    bool,
+    // The incomplete-bar color, while highlighted.
+    Option<[u8; 3]>,
+);
+
 struct Cached {
     /// (buffer, track, layout mode, width bucket, score version, chant view, page + ink colors,
     /// chord policy)
-    key: (
-        usize,
-        usize,
-        String,
-        i64,
-        u64,
-        bool,
-        [u8; 8],
-        &'static str,
-        bool,
-    ),
+    key: CacheKey,
     layout: Layout,
     scenes: Vec<Scene>,
     /// The note shown in the mode's color on the track's other staves, its color, and the pages
@@ -1993,6 +1997,10 @@ fn draw_pane(
         },
         app.chord_policy().name(),
         app.every_bar_number,
+        app.highlight_incomplete_bars.then(|| {
+            let c = app.config.theme.incomplete_bar;
+            [c.r, c.g, c.b]
+        }),
     );
     if views.cache.get(&id).is_none_or(|c| c.key != key) {
         let mode = match mode_name {
@@ -2012,6 +2020,10 @@ fn draw_pane(
             chant: app.chant_view,
             chords: app.chord_policy(),
             every_bar_number: app.every_bar_number,
+            incomplete_bars: app.highlight_incomplete_bars.then(|| {
+                let c = app.config.theme.incomplete_bar;
+                muse_engrave::display::Color::rgb(c.r, c.g, c.b)
+            }),
             ..Options::default()
         };
         let layout = muse_engrave::engrave(score, pane.cursor.track, &options);
@@ -2963,12 +2975,13 @@ fn draw_status(
     let bg_of = |k: SegKind| match k {
         SegKind::Mode => mode,
         SegKind::ModeText => th.status_b,
-        SegKind::Plain => th.chrome,
+        SegKind::Plain | SegKind::Warn => th.chrome,
     };
     let fg_of = |k: SegKind| match k {
         SegKind::Mode => th.text_on(mode),
         SegKind::ModeText => mode,
         SegKind::Plain => th.chrome_text,
+        SegKind::Warn => th.error,
     };
     let fonts = muse_engrave::fonts::fonts();
     // Chips have a little padding inside; plain sections a little more room around them.
@@ -2993,7 +3006,7 @@ fn draw_status(
             }
     };
     let draw = |scene: &mut Scene, x: f64, w: f64, seg: &Segment| {
-        if seg.kind != SegKind::Plain {
+        if !matches!(seg.kind, SegKind::Plain | SegKind::Warn) {
             scene.fill(
                 Fill::NonZero,
                 Affine::IDENTITY,
