@@ -12,6 +12,24 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - In insert mode the status line shows how full the cursor's bar is, as quarter-note beats of the voice under the cursor over the time signature's length (`3.0/4.0`, `4.5/4.0`; 6/8 is `3.0`, 7/8 `3.5`), in the error color unless the bar is complete. Free-time bars and a pickup bar show nothing.
 - `ui.highlight_incomplete_bars = true` (and `:incomplete-bars on|off|toggle`) draws the staff lines of bars that are too short or too long in red, on every kind of staff in the GUI and on the dashed staff lines of the terminal tab view. The color is the new theme color `incomplete_bar`.
 
+## [0.15.0] - 2026-11-03
+
+### Added
+
+- Vim-style editing workflow. Normal mode: `w` / `e` / `b` move along the cursor's string (tab) or line / space (standard) by notes and ties (`:note-row-next`, `:note-row-end`, `:note-row-prev`); `^` / `gh` and `$` / `gl` go to the first / last beat of the bar with a note (`:bar-first-note`, `:bar-last-note`); `I` / `A` insert a beat at the start / end of the bar and start typing (`:insert-bar-start`, `:append-bar-end`); `dl` `dh` `cl` `ch` `yl` `yh` act on the beat under / before the cursor, also on the last beat of the score.
+- Visual mode: `i` / `a` insert a beat before / after the selection (a bar selection: at the start of its first bar / the end of its last) and start typing (`:visual-insert`, `:visual-append`).
+- Insert mode: Enter finishes the beat (on a standard staff it puts a note at the cursor's line or space, on a slash staff a slash; a tab's fret is already in) and moves to the next beat, to the start of the next bar after the last complete beat, with the duration chosen in the palette (`:insert-enter`); `h` `l` `j` `k` move the cursor (not on chant, where they are pitches); `<A-CR>` adds a beat without typing into it.
+- Normal-mode keymaps per notation, `[keymap.normal-tab]`, `[keymap.normal-standard]`, `[keymap.normal-slash]` and `[keymap.normal-chant]`, looked up before `[keymap.normal]` like the insert ones; on a standard staff `t#` `t&` `t=` make a note sharp, flat or natural.
+- The editing palette lists only the tools that apply to the mode and the staff under the cursor: accidentals on standard staves, bends and palm mute on tabs, note values and ties on slash, note values only on chant and in Visual mode.
+
+### Changed
+
+- `i` and `a` now add a rest beat before / after the cursor beat (in the insert duration) and insert into it; `o` and `O` add a bar and start Insert mode. The old `i` (Insert mode on the cursor beat, adding nothing) is `gi` / `:insert-here`; `:bar-insert-after` / `:bar-insert-before` still add a bar without starting Insert mode.
+- Normal `w` / `b` follow the cursor's row and ties; the old next / previous beat with a note is `W` / `B`. `$` is the last beat with a note (the last beat of the bar is `<End>`, the first `0` / `<Home>`).
+- `x` deletes only the note under the cursor, also on a piano or other non-fretted track, where it used to clear the beat (on a slash staff it still clears the beat).
+- `c` over beats (`cl`, `ch`, `cw`, visual `c` …) turns them into rests of the same lengths instead of deleting them and adding one beat; `cc` clears only the cursor track's bar.
+- Insert mode: `<CR>` is Enter as above (a new beat after the cursor is `<A-CR>`); on a tab `h` and `l` (hammer-on / pull-off, let ring) are `H` and `L`, and on a standard staff hammer-on / pull-off is `H`.
+
 ## [0.14.0] - 2026-11-03
 
 ### Added

@@ -167,6 +167,28 @@ impl<'a> EditCx<'a> {
         staff::diatonic(written, self.key())
     }
 
+    /// Whether the cursor beat has a note at the cursor (its line or space; on a tab, string).
+    fn beat_note_at_cursor(&self) -> Option<u8> {
+        if self.on_lines() {
+            self.note_at_staff(self.cursor.line)
+        } else {
+            let beat = self
+                .score
+                .tracks
+                .get(self.cursor.track)?
+                .bars
+                .get(self.cursor.bar)?
+                .voices
+                .get(self.cursor.voice)?
+                .beats
+                .get(self.cursor.beat)?;
+            beat.notes
+                .iter()
+                .find(|n| n.string as usize == self.cursor.string)
+                .map(|n| n.string)
+        }
+    }
+
     /// String of the cursor beat's note at a staff position.
     fn note_at_staff(&self, p: i32) -> Option<u8> {
         let track = self.score.tracks.get(self.cursor.track)?;
@@ -522,15 +544,64 @@ pub fn pitch_name(pitch: u8) -> String {
     format!("{}{}", NAMES[pitch as usize % 12], pitch as i32 / 12 - 1)
 }
 
+/// Deletes the one note under the cursor (the note on its string, or at its line or space);
+/// on a slash staff, which shows the beat as one slash, all the beat's notes.
 pub fn delete_note(cx: &mut EditCx) {
     let string = cx.string();
-    let fretted = cx.track().kind == TrackKind::Fretted;
+    let slash = cx.staff() == Some(Staff::Slash);
+    let pitched = cx.track().kind == TrackKind::Pitched;
     let beat = cx.beat();
-    if fretted {
-        beat.notes.retain(|n| n.string != string);
-    } else {
+    if slash {
         beat.notes.clear();
+        return;
     }
+    beat.notes.retain(|n| n.string != string);
+    if pitched {
+        renumber_pitched(beat);
+    }
+}
+
+/// Insert mode's Enter: completes what was typed in the cursor beat, adding the note the
+/// cursor stands for where the notation has none yet (a note on the cursor's line or space
+/// of a standard staff, a slash on a slash staff); a tab's fret is already in. An empty
+/// bar's placeholder becomes a real beat of the duration.
+pub fn enter(
+    cx: &mut EditCx,
+    kind: crate::config::InsertKind,
+    duration: Duration,
+) -> Result<(), String> {
+    use crate::config::InsertKind;
+    match kind {
+        InsertKind::Standard if cx.on_lines() && cx.beat_note_at_cursor().is_none() => {
+            let d = cx.cursor.line;
+            let step = d.rem_euclid(7);
+            let alter = staff::key_alters(cx.key())[step as usize];
+            put_staff_note(cx, d, alter, duration)?;
+        }
+        InsertKind::Slash => put_slash(cx, duration)?,
+        _ => ensure_real(cx.beat(), duration),
+    }
+    Ok(())
+}
+
+/// Turns the beats between two positions (inclusive) into rests of the same durations; the
+/// cursor goes to the first. An empty bar placeholder stays as it is.
+pub fn clear_range(cx: &mut EditCx, from: Pos, to: Pos) {
+    let (t, v) = (cx.cursor.track, cx.cursor.voice);
+    for b in from.0..=to.0.min(cx.score.master_bars.len().saturating_sub(1)) {
+        if cx.score.tracks[t].bars[b].voices.get(v).is_none() {
+            continue;
+        }
+        let bar = cx.bar(t, b);
+        for (i, beat) in bar.voices[v].beats.iter_mut().enumerate() {
+            let inside = (b > from.0 || i >= from.1) && (b < to.0 || i <= to.1);
+            if inside && !beat.empty {
+                *beat = Beat::rest(beat.duration);
+            }
+        }
+    }
+    cx.cursor.bar = from.0;
+    cx.cursor.beat = from.1;
 }
 
 /// Turns the cursor beat into a rest.

@@ -46,11 +46,32 @@ pub enum Operator {
     Change,
 }
 
+/// Where `i`, `a`, `I` and `A` put the beat they start typing into.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum BeatAt {
+    /// Before the cursor beat.
+    Before,
+    /// After the cursor beat.
+    After,
+    /// At the start of the bar.
+    BarStart,
+    /// At the end of the bar.
+    BarEnd,
+}
+
 #[derive(Debug, Clone, PartialEq)]
 pub enum Command {
     // Editing
+    /// Insert mode on the cursor beat, adding nothing.
     Insert,
-    Append,
+    /// A new rest beat at the place, then insert mode.
+    InsertBeat(BeatAt),
+    /// Visual mode: a beat before / after the selection, then insert mode.
+    VisualInsert {
+        after: bool,
+    },
+    /// Insert mode: put a note at the cursor (a fret is already in) and move to the next beat.
+    InsertEnter,
     DeleteNote,
     Operator(Operator),
     Put {
@@ -68,6 +89,10 @@ pub enum Command {
         bars: bool,
     },
     BarInsert {
+        after: bool,
+    },
+    /// A new bar before / after the cursor bar, then insert mode (`O`, `o`).
+    BarOpen {
         after: bool,
     },
     BarDelete,
@@ -308,6 +333,15 @@ pub enum Command {
     StaffPrev,
     NoteNext,
     NotePrev,
+    /// Next note on the cursor's row (string, line or space) that is not tied from the last
+    /// one (`w`); the end of its tie, or of the next note's tie (`e`); the start of the tie
+    /// the cursor is in, or of the previous note's (`b`).
+    RowNext,
+    RowEnd,
+    RowPrev,
+    /// First / last beat of the bar with a note (`^`, `$`).
+    BarFirstNote,
+    BarLastNote,
     BarNext,
     BarPrev,
     BarStart,
@@ -454,6 +488,11 @@ impl Command {
             "staff-prev" => StaffPrev,
             "note-next" => NoteNext,
             "note-prev" => NotePrev,
+            "note-row-next" => RowNext,
+            "note-row-end" => RowEnd,
+            "note-row-prev" => RowPrev,
+            "bar-first-note" => BarFirstNote,
+            "bar-last-note" => BarLastNote,
             "bar-next" => BarNext,
             "bar-prev" => BarPrev,
             "bar-start" => BarStart,
@@ -554,8 +593,14 @@ impl Command {
             "zoom-out" => ZoomOut,
             "zoom-reset" => ZoomReset,
             "nop" => Nop,
-            "insert" => Insert,
-            "append" => Append,
+            "insert-here" => Insert,
+            "insert" => InsertBeat(BeatAt::Before),
+            "append" => InsertBeat(BeatAt::After),
+            "insert-bar-start" => InsertBeat(BeatAt::BarStart),
+            "append-bar-end" => InsertBeat(BeatAt::BarEnd),
+            "visual-insert" => VisualInsert { after: false },
+            "visual-append" => VisualInsert { after: true },
+            "insert-enter" => InsertEnter,
             "delete-note" => DeleteNote,
             "delete" => Operator(self::Operator::Delete),
             "yank" => Operator(self::Operator::Yank),
@@ -574,6 +619,8 @@ impl Command {
             "visual-bar" => Visual { bars: true },
             "bar-insert-after" => BarInsert { after: true },
             "bar-insert-before" => BarInsert { after: false },
+            "bar-open-after" => BarOpen { after: true },
+            "bar-open-before" => BarOpen { after: false },
             "bar-delete" => BarDelete,
             "duration-longer" => DurationLonger,
             "duration-shorter" => DurationShorter,
@@ -992,6 +1039,9 @@ impl Command {
                 | StaffPrev
                 | NoteNext
                 | NotePrev
+                | RowNext
+                | RowEnd
+                | RowPrev
                 | BarNext
                 | BarPrev
                 | TrackNext
@@ -1017,11 +1067,13 @@ impl Command {
         matches!(
             self,
             Insert
-                | Append
+                | InsertBeat(_)
+                | InsertEnter
                 | DeleteNote
                 | Operator(_)
                 | Put { .. }
                 | BarInsert { .. }
+                | BarOpen { .. }
                 | BarDelete
                 | DurationLonger
                 | DurationShorter
