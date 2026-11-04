@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed
+
+- The TUI tab view draws bar lines as continuous vertical lines through every string row, with box-drawing joints where they cross the staff lines (`┬┼┴`), cut flush at the start and end of each system (`┌├└`, `┐┤┘`), and the staff lines as `─`. Double bars (`╥╫╨`), the final bar (thin + heavy), free-time bars (`┆`) and the lines at the start and end of each system use the same style. Repeat signs are a thin + heavy pair with two dots on the middle rows (`:│┃`, `┃│:`, and `:│┃│:` where a repeat end meets a repeat start). The bars with wider lines take 2 to 5 columns, accounted for in the line breaking, cursor and click positions. See SPEC.md.
+
 ## [0.20.0] - 2026-11-04
 
 ### Added

@@ -1,6 +1,6 @@
 //! Text tablature rendering for one pane.
 
-use crate::rc;
+use crate::{barline, rc};
 use muse_app::{App, Cursor};
 use muse_core::{Beat, DurationValue, Note, Score, Track, TrackKind};
 use ratatui::buffer::Buffer;
@@ -20,6 +20,8 @@ pub struct Hit {
 struct BarLayout {
     bar: usize,
     x: u16,
+    /// Columns of the bar line opening the bar (see [`barline::boundary`]).
+    lead: u16,
     /// (x offset from bar start, width) per beat
     beats: Vec<(u16, u16)>,
     width: u16,
@@ -92,25 +94,37 @@ pub fn layout_systems(score: &Score, track: usize, width: u16, scale: u16) -> Ve
     let mut x = 0;
     for (bi, bar) in t.bars.iter().enumerate() {
         let beats = bar.voices.first().map_or(&[][..], |v| &v.beats[..]);
-        let mut offs = vec![];
-        let mut bx = 1; // bar line
-        for b in beats {
-            let w = beat_width(b, t, scale);
-            offs.push((bx, w));
-            bx += w;
-        }
-        if beats.is_empty() {
-            offs.push((1, 4 * scale / 2));
-            bx += 4 * scale / 2;
-        }
-        let bw = bx.min(avail);
-        if x + bw > avail && !current.bars.is_empty() {
+        // Beat offsets after `lead` columns of bar line.
+        let place = |lead: u16| {
+            let mut offs = vec![];
+            let mut bx = lead;
+            for b in beats {
+                let w = beat_width(b, t, scale);
+                offs.push((bx, w));
+                bx += w;
+            }
+            if beats.is_empty() {
+                offs.push((lead, 4 * scale / 2));
+                bx += 4 * scale / 2;
+            }
+            (offs, bx)
+        };
+        let lead_of = |first| barline::boundary(score, bi, first).len() as u16;
+        // The line after the bar if it ends the system (one column is already reserved).
+        let tail = barline::tail(score, bi).len() as u16 - 1;
+        let mut lead = lead_of(current.bars.is_empty());
+        let (mut offs, mut bx) = place(lead);
+        if x + bx.min(avail) + tail > avail && !current.bars.is_empty() {
             systems.push(std::mem::replace(&mut current, System { bars: vec![] }));
             x = 0;
+            lead = lead_of(true);
+            (offs, bx) = place(lead);
         }
+        let bw = bx.min(avail);
         current.bars.push(BarLayout {
             bar: bi,
             x,
+            lead,
             beats: offs,
             width: bw,
         });
@@ -328,20 +342,18 @@ impl Widget for TabView<'_> {
                 } else {
                     dim
                 };
-                for s in 0..rows as u16 {
-                    let y = y0 + 1 + s;
-                    // The line closing a free-time bar is dashed.
-                    let dashed = bl.bar > 0 && score.closing_barline_dashed(bl.bar - 1);
-                    let bar_char = if mb.repeat_start {
-                        "‖"
-                    } else if dashed {
-                        "┆"
-                    } else {
-                        "|"
-                    };
-                    buf.set_string(bx, y, bar_char, line_style);
-                    for dx in 1..bl.width {
-                        buf.set_string(bx + dx, y, "-", staff_style);
+                // Staff lines, then the bar line opening the bar over their start.
+                let first = system.bars.first().is_some_and(|f| f.bar == bl.bar);
+                let cols = barline::boundary(score, bl.bar, first);
+                for s in 0..rows {
+                    let y = y0 + 1 + s as u16;
+                    for dx in bl.lead..bl.width {
+                        buf.set_string(bx + dx, y, "─", staff_style);
+                    }
+                    for (i, &c) in cols.iter().enumerate() {
+                        let (l, r) = barline::arms(cols, i, first, false);
+                        let g = barline::glyph(c, s, rows, l, r).to_string();
+                        buf.set_string(bx + i as u16, y, g, line_style);
                     }
                 }
                 let beats = track.bars[bl.bar]
@@ -483,31 +495,29 @@ impl Widget for TabView<'_> {
                     }
                     tick += len;
                 }
-                // Closing repeat.
+                // Repeat count above the closing repeat line.
                 if let Some(n) = mb.repeat_end {
-                    let end_x = bx + bl.width;
-                    for s in 0..rows as u16 {
-                        buf.set_string(end_x.saturating_sub(1), y0 + 1 + s, "‖", line_style);
-                    }
                     buf.set_string(
-                        end_x.saturating_sub(3),
+                        (bx + bl.width).saturating_sub(3),
                         y0,
                         format!("x{n}"),
                         Style::default().fg(rc(th.marker)),
                     );
                 }
             }
-            // Final bar line of the system.
+            // Bar line closing the system.
             if let Some(last) = system.bars.last() {
                 let x = x0 + last.x + last.width;
-                if x < area.x + area.width {
-                    let ch = if score.closing_barline_dashed(last.bar) {
-                        "┆"
-                    } else {
-                        "|"
-                    };
-                    for s in 0..rows as u16 {
-                        buf.set_string(x, y0 + 1 + s, ch, line_style);
+                let cols = barline::tail(score, last.bar);
+                for (i, &c) in cols.iter().enumerate() {
+                    let cx = x + i as u16;
+                    if cx >= area.x + area.width {
+                        break;
+                    }
+                    for s in 0..rows {
+                        let (l, r) = barline::arms(cols, i, false, true);
+                        let g = barline::glyph(c, s, rows, l, r).to_string();
+                        buf.set_string(cx, y0 + 1 + s as u16, g, line_style);
                     }
                 }
             }
@@ -547,6 +557,52 @@ mod tests {
         assert_eq!(systems[0].bars.len(), 3);
         assert_eq!(systems.len(), 4);
         assert_eq!(system_of_bar(&systems, 9), 3);
+    }
+
+    #[test]
+    fn repeat_lines_widen_the_bar_columns() {
+        let beat = Beat {
+            notes: vec![Note::new(0, 12)],
+            ..Beat::default()
+        };
+        let bar = Bar {
+            voices: vec![Voice { beats: vec![beat] }],
+            ..Default::default()
+        };
+        let track = Track {
+            strings: vec![64; 6],
+            bars: vec![bar; 4],
+            ..Track::default()
+        };
+        let mut score = Score {
+            master_bars: vec![MasterBar::default(); 4],
+            tracks: vec![track],
+            ..Score::default()
+        };
+        let lead = |s: &Score, w| {
+            let sys = layout_systems(s, 0, w, 2);
+            sys.iter()
+                .flat_map(|s| &s.bars)
+                .map(|b| b.lead)
+                .collect::<Vec<_>>()
+        };
+        assert_eq!(lead(&score, 80), [1, 1, 1, 1]);
+        score.master_bars[1].repeat_end = Some(2);
+        score.master_bars[2].repeat_start = true;
+        // Repeat end joined with repeat start: dots, thin, heavy, thin, dots.
+        assert_eq!(lead(&score, 80), [1, 1, 5, 1]);
+        score.master_bars[2].repeat_start = false;
+        assert_eq!(lead(&score, 80), [1, 1, 3, 1]);
+        score.master_bars[1].repeat_end = None;
+        score.master_bars[1].repeat_start = true;
+        assert_eq!(lead(&score, 80), [1, 3, 1, 1]);
+        // Beat offsets follow the lead, so clicks and the cursor stay on the beats.
+        let sys = layout_systems(&score, 0, 80, 2);
+        assert_eq!(sys[0].bars[1].beats[0].0, 3);
+        assert_eq!(sys[0].bars[1].width, 3 + sys[0].bars[1].beats[0].1);
+        // The last bar ends with a two-column final line: it needs a column more to fit.
+        let narrow = layout_systems(&score, 0, 4 + 4 * 5 + 2, 2);
+        assert!(narrow.len() > 1);
     }
 
     #[test]

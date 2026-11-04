@@ -264,6 +264,26 @@ select, drag pane borders, click tabs, scroll/zoom, context menus that invoke th
   clicking line-end "+" / "-" buttons with the mouse) and are stored in the score (`Score.design`, native `.muse` format only). Notation uses SMuFL fonts (Bravura, SIL OFL), including the
   plainchant ranges; square notation is set with the Caeciliae chant font (Oblates of St. Joseph,
   SIL OFL 1.1, bundled unmodified; see `assets/fonts/OFL-Caeciliae.txt`).
+- **TUI tab bar lines** (`muse-tui`, `barline.rs`): every bar line is one or more columns that
+  run through all string rows, with joints where the line crosses a staff line (`─`); plain
+  Unicode box drawing, no Nerd Font. Columns (top / middle / bottom row): thin `┬┼┴`, heavy
+  `┰╂┸`, double `╥╫╨` (`│ ┃ ║` on a one-string staff), dashed `┆`, repeat dots `•` on rows 1 and
+  n-2 (n = strings). The strings stop flush at the edges of a system: the outermost column
+  there has the half joints `┌├└` / `┎┠┖` / `╓╟╙` at the left edge and `┐┤┘` / `┒┨┚` / `╖╢╜` at
+  the right edge, and columns of a line with no string between them are plain verticals.
+
+  | line | glyph columns | width |
+  |------|---------------|-------|
+  | normal / system start | thin | 1 |
+  | double bar | double | 1 |
+  | closes a free-time bar | dashed | 1 |
+  | final bar | thin heavy | 2 |
+  | repeat end | dots thin heavy | 3 |
+  | repeat start | heavy thin dots | 3 |
+  | repeat end + start | dots thin heavy thin dots | 5 |
+
+  Special lines outrank the dashed one. A wider line takes its columns from the start of the
+  bar (or after the last bar of a system), and the beats are placed after it.
 - **TUI** (`muse-tui`): chant tracks show as a text staff with neume marks and syllables; read,
   play and basic editing of tablature (frets, durations, ties, rests,
   basic techniques) rendered as text tab. Same keymaps, config and commands as the GUI; commands not
