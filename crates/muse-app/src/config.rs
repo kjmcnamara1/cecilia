@@ -727,6 +727,8 @@ const DEFAULT_PROPERTIES: &[(&str, &str)] = &[
     ("<C-Tab>", "properties-tab"),
     ("H", "properties-tab-prev"),
     ("<C-S-Tab>", "properties-tab-prev"),
+    ("<C-l>", "properties-box +1"),
+    ("<C-h>", "properties-box -1"),
     ("<A-j>", "properties-staff-move +1"),
     ("<A-k>", "properties-staff-move -1"),
     ("1", "properties-tab score"),

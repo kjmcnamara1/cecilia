@@ -283,6 +283,8 @@ pub enum Command {
     PropertiesChange,
     /// Moves the selected staff down (+1) or up (-1) among the track's staves.
     PropertiesStaffMove(isize),
+    /// On a staff row: selects the notation box (-1) or the clef box (+1).
+    PropertiesBox(isize),
     /// Focus the tracks panel, or give the focus back to the score.
     TracksFocus,
     /// In the tracks panel: select the row below / above (tracks, the audio track, the master).
@@ -1066,6 +1068,10 @@ impl Command {
                     .ok_or("properties-step: expected +1 or -1")?,
             ),
             "properties-change" => PropertiesChange,
+            "properties-box" => PropertiesBox(
+                arg.and_then(|a| a.trim().parse().ok())
+                    .ok_or("properties-box: expected +1 or -1")?,
+            ),
             "properties-staff-move" => PropertiesStaffMove(
                 arg.and_then(|a| a.trim().parse().ok())
                     .ok_or("properties-staff-move: expected +1 or -1")?,

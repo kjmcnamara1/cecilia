@@ -405,8 +405,9 @@ score pane). It stays Normal mode; while the pane has the focus its keys are
 | `j` `<Down>` `<Tab>` / `k` `<Up>` `<S-Tab>` | select the next / previous property |
 | `L` `<C-Tab>` / `H` `<C-S-Tab>`, `1` `2` `3` | next / previous tab, the score / track / lyrics tab |
 | `<CR>` `i` `a` | edit the property (insert mode). The score updates as you type, and the edit is one undo step. `<CR>` keeps a single line, `<Esc>` and `<C-c>` cancel it; `<Left>` `<Right>` `<Home>` `<End>` move, `<C-u>` clears. The lyrics text area is edited like vim: `<Esc>` goes to normal mode (`h` `j` `k` `l` `w` `b` `e` `0` `^` `$` `gg` `G` move; `x` `D` `dd` delete; `i` `a` `I` `A` `o` `O` `<CR>` insert; `u` `<C-r>` undo and redo), each change and each insert session an undo step; `<Esc>` in normal mode leaves it. The status line shows the current mode. Color opens a picker of named colors, each with a swatch and its hex code; type `#rrggbb` or `rgb(r,g,b)` for your own. Tuning opens a picker of common tunings of the track's instrument (Drop D, DADGAD, Open C …), searchable by name or description; type the notes (`D2 A2 D3 G3 B3 E4`) for your own. Instrument opens its picker; mute and solo are switches (a click flips them, with on/off beside them); a section header folds |
-| `h` `l` / `<Left>` `<Right>` | a switch off / on; a choice (color, tuning, instrument, staff kind) the previous / next one, without wrapping; a number down / up by one |
+| `h` `l` / `<Left>` `<Right>` | a switch off / on; a choice (color, tuning, instrument, a staff's notation or clef) the previous / next one, without wrapping; a number down / up by one |
 | `c` / `d` | clear the property's text and edit it / just clear it |
+| `<C-l>` `<C-h>` | on a staff row, select the clef box / the notation box (a click on a box selects it too); tab and slash staves have no clef |
 | `<A-j>` `<A-k>` | swap the selected staff with the one below / above |
 | `za` `zc` `zo` | toggle / close / open the section |
 | `x` | same as `d`: clear the text, lyrics or the track's own color, or remove the selected staff |

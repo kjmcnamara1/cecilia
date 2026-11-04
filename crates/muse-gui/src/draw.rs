@@ -299,6 +299,8 @@ impl PropsText {
 enum PropHit {
     Tab(muse_app::properties::PropTab),
     Row(usize),
+    /// A box of a staff row: 0 the notation, 1 the clef.
+    StaffBox(usize, u8),
 }
 
 /// What a click on the tracks panel does.
@@ -3390,6 +3392,28 @@ fn draw_icon(scene: &mut Scene, icon: muse_app::icons::Icon, x: f64, y: f64, c: 
             };
             letter(scene, s, cx, cy + size * 0.36, size);
         }
+        Icon::Standard => {
+            for dy in [-4.0, -2.0, 0.0, 2.0, 4.0] {
+                line(scene, (x + 1.0, cy + dy), (x + 17.0, cy + dy), 0.8);
+            }
+            solid(scene, c, &Circle::new((cx, cy + 2.0), 2.4));
+        }
+        Icon::Neutral => {
+            for dx in [-2.5, 2.5] {
+                line(scene, (cx + dx, cy - 5.0), (cx + dx, cy + 5.0), 2.0);
+            }
+        }
+        Icon::ChantDo | Icon::ChantFa => {
+            for dy in [-6.0, -2.0, 2.0, 6.0] {
+                line(scene, (x + 1.0, cy + dy), (x + 17.0, cy + dy), 0.8);
+            }
+            let (s, size) = if icon == Icon::ChantDo {
+                ("C", 13.0)
+            } else {
+                ("F", 13.0)
+            };
+            letter(scene, s, cx, cy + size * 0.36, size);
+        }
         Icon::Tab | Icon::TabRhythm => {
             for (i, l) in ["T", "A", "B"].into_iter().enumerate() {
                 letter(scene, l, cx - 2.0, y + 6.0 + i as f64 * 5.5, 6.5);
@@ -4279,7 +4303,12 @@ fn draw_properties(scene: &mut Scene, app: &App, views: &mut Views, r: Rect) {
         }
         let h = row.height() as f64 * PROPS_UNIT;
         let sel = app.property_row_selected(k);
-        let box_sel = k == app.property_selected();
+        let staff_row = app.property_is_staff(k);
+        let box_sel = if staff_row {
+            app.property_box_selected(k, 0)
+        } else {
+            k == app.property_selected()
+        };
         let mut hit = Rect::new(r.x0, y, r.x1, (y + h).min(bottom));
         match &row.kind {
             RowKind::Header { folded, .. } => {
@@ -4348,6 +4377,9 @@ fn draw_properties(scene: &mut Scene, app: &App, views: &mut Views, r: Rect) {
                 let toggle = matches!(field, Field::Mute | Field::Solo);
                 let box_x1 = if toggle {
                     box_x0 + 52.0
+                } else if staff {
+                    // Two boxes: the notation, and the clef.
+                    box_x0 + (bx1 - box_x0 - 8.0) * 0.5
                 } else if row.aside.is_empty() {
                     bx1
                 } else {
@@ -4548,6 +4580,47 @@ fn draw_properties(scene: &mut Scene, app: &App, views: &mut Views, r: Rect) {
                             }
                             text(scene, &shown, tx, ty, size, Align::Left, c, false);
                         }
+                    }
+                }
+                if staff {
+                    // The clef box beside the notation box (dim and empty for tab and slash);
+                    // each box takes its own clicks.
+                    let left = Rect::new(box_x0, by0, box_x1, by1);
+                    let mut boxes = vec![(left, 0u8)];
+                    if !row.value.is_empty() {
+                        let b2 = Rect::new(box_x1 + 8.0, by0, bx1, by1);
+                        let shape = b2.to_rounded_rect(6.0);
+                        let has = row.icon2.is_some();
+                        let fill_c = if has { th.tab } else { th.tab.with_alpha(110) };
+                        scene.fill(Fill::NonZero, Affine::IDENTITY, col(fill_c), None, &shape);
+                        if app.property_box_selected(k, 1) {
+                            scene.fill(
+                                Fill::NonZero,
+                                Affine::IDENTITY,
+                                col(th.mode_normal.with_alpha(40)),
+                                None,
+                                &shape,
+                            );
+                            scene.stroke(
+                                &Stroke::new(1.0),
+                                Affine::IDENTITY,
+                                col(th.mode_normal),
+                                None,
+                                &shape,
+                            );
+                        }
+                        let mut tx = b2.x0 + 10.0;
+                        if let Some(icon) = row.icon2 {
+                            draw_icon(scene, icon, tx, by0 + (BOX_H - 18.0) / 2.0, c);
+                            tx += 28.0;
+                        }
+                        let ty = by0 + BOX_H / 2.0 + size * 0.35;
+                        text(scene, &row.value2, tx, ty, size, Align::Left, c, false);
+                        boxes.push((b2, 1));
+                    }
+                    for (b, n) in boxes {
+                        let b = Rect::new(b.x0, hit.y0.max(b.y0), b.x1, hit.y1.min(b.y1));
+                        views.props.push((b, PropHit::StaffBox(k, n)));
                     }
                 }
             }
@@ -5272,10 +5345,16 @@ impl Views {
     /// Mouse down over the properties pane: a tab shows, a row selects, a selected row edits.
     /// True when the pane took the click.
     fn click_properties(&mut self, app: &mut App, x: f64, y: f64, double: bool) -> bool {
-        let Some(&(_, hit)) = self.props.iter().find(|(r, _)| r.contains((x, y))) else {
+        let Some(&(_, mut hit)) = self.props.iter().find(|(r, _)| r.contains((x, y))) else {
             return false;
         };
+        // A click in a box of a staff selects that box, then acts as on the row.
+        if let PropHit::StaffBox(i, b) = hit {
+            app.set_staff_box(b);
+            hit = PropHit::Row(i);
+        }
         match hit {
+            PropHit::StaffBox(..) => {}
             PropHit::Tab(t) => app.set_property_tab(t),
             // A staff can be dragged to another place; a plain click waits for the release.
             PropHit::Row(i)
@@ -5361,7 +5440,7 @@ impl Views {
             }
             Some(Drag::Prop(from, _, double)) => {
                 let over = self.props.iter().find_map(|(r, h)| match h {
-                    PropHit::Row(i) if r.contains((x, y)) => Some(*i),
+                    PropHit::Row(i) | PropHit::StaffBox(i, _) if r.contains((x, y)) => Some(*i),
                     _ => None,
                 });
                 if let Some(i) = over {

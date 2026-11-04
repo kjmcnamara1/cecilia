@@ -995,6 +995,9 @@ pub fn describe(command: &str) -> Option<&'static str> {
             "Properties pane: fold (close), unfold (open) or toggle the selected section"
         }
         "properties-staff-move" => "Properties pane: move the selected staff down (+1) or up (-1)",
+        "properties-box" => {
+            "Properties pane: on a staff, select the notation box (-1) or the clef box (+1)"
+        }
         "properties-change" => "Properties pane: clear the selected property and edit it",
         "properties-step" => {
             "Properties pane: switch off (-1) / on (+1), or the previous / next choice"

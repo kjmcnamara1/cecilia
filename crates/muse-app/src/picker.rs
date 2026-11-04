@@ -27,6 +27,8 @@ pub enum PickerKind {
     Tuning(usize),
     /// The kinds of staff for a track's staff (its index; one past the last adds one).
     Staff(usize, usize),
+    /// The clefs of a track's staff (its index) in its notation.
+    Clef(usize, usize),
 }
 
 impl PickerKind {
@@ -55,7 +57,8 @@ impl PickerKind {
             PickerKind::Instrument(_) => "Instruments",
             PickerKind::Color(_) => "Colors",
             PickerKind::Tuning(_) => "Tunings",
-            PickerKind::Staff(..) => "Staves",
+            PickerKind::Staff(..) => "Notation",
+            PickerKind::Clef(..) => "Clefs",
         }
     }
 }
@@ -140,11 +143,25 @@ fn parse_color_query(q: &str) -> Option<Rgba> {
     }
 }
 
-/// A staff as the properties pane shows it: `treble`, `bass`, `grand`, `tab` …
-pub(crate) fn staff_label(staff: muse_core::Staff) -> String {
+/// The notation of a staff as the properties pane shows it: `standard`, `tab`, `tab+` …
+pub(crate) fn notation_label(staff: muse_core::Staff) -> &'static str {
+    match staff {
+        muse_core::Staff::Standard(_) => "standard",
+        muse_core::Staff::Tab => "tab",
+        muse_core::Staff::TabRhythm => "tab+",
+        muse_core::Staff::Slash => "slash",
+        muse_core::Staff::Chant | muse_core::Staff::ChantFa => "chant",
+    }
+}
+
+/// The clef of a staff as the properties pane shows it: `treble`, `bass`, `grand`, `neutral`,
+/// `do`, `fa`; empty for tab and slash, which have none.
+pub(crate) fn clef_label(staff: muse_core::Staff) -> String {
     match staff {
         muse_core::Staff::Standard(c) => c.name(),
-        other => other.name(),
+        muse_core::Staff::Chant => "do".into(),
+        muse_core::Staff::ChantFa => "fa".into(),
+        _ => String::new(),
     }
 }
 
@@ -584,43 +601,36 @@ impl App {
                 let tab_ok = track.kind == muse_core::TrackKind::Fretted
                     || track.kind == muse_core::TrackKind::Pitched;
                 let kinds = [
-                    ("treble", "treble", "Standard notation, treble clef"),
-                    ("bass", "bass", "Standard notation, bass clef"),
-                    (
-                        "grand",
-                        "grand",
-                        "Standard notation, treble and bass joined",
-                    ),
-                    (
-                        "neutral",
-                        "neutral",
-                        "Standard notation, percussion clef (drum tracks)",
-                    ),
-                    ("tab", "tab", "Tablature"),
-                    ("tab+", "tab+", "Tablature with rhythm"),
-                    ("slash", "slash", "Rhythm slashes"),
-                    ("chant", "chant", "Gregorian square notation, do clef"),
-                    ("chant fa", "chant fa", "Gregorian square notation, fa clef"),
+                    ("standard", "Standard notation"),
+                    ("tab", "Tablature"),
+                    ("tab+", "Tablature with rhythm"),
+                    ("slash", "Rhythm slashes"),
+                    ("chant", "Gregorian square notation"),
                 ];
-                let drums = track.kind == muse_core::TrackKind::Drums;
-                let clef = self.config.default_clef();
                 let mut out: Vec<Entry> = kinds
                     .into_iter()
-                    .filter(|(k, ..)| {
-                        (tab_ok || !k.starts_with("tab")) && (drums || *k != "neutral")
-                    })
-                    .map(|(kind, label, about)| {
-                        let staff = muse_core::Staff::parse(kind, clef).ok();
-                        // A grand staff counts whatever its split.
-                        let same = match (staff, here) {
-                            (
-                                Some(muse_core::Staff::Standard(muse_core::Clef::Grand { .. })),
-                                Some(muse_core::Staff::Standard(muse_core::Clef::Grand { .. })),
-                            ) => true,
-                            (a, b) => a.is_some() && a == b,
-                        };
+                    .filter(|(k, _)| tab_ok || !k.starts_with("tab"))
+                    .map(|(kind, about)| {
+                        // The staff it gives, for its icon: the current clef is kept.
+                        let staff = muse_core::Staff::parse(
+                            kind,
+                            match here {
+                                Some(muse_core::Staff::Standard(c)) => c,
+                                _ => self.config.default_clef(),
+                            },
+                        )
+                        .ok()
+                        .map(|s| match (s, here) {
+                            (muse_core::Staff::Chant, Some(muse_core::Staff::ChantFa)) => {
+                                muse_core::Staff::ChantFa
+                            }
+                            (s, _) => s,
+                        });
+                        let same = here.is_some_and(|h| {
+                            staff.is_some_and(|s| notation_label(s) == notation_label(h))
+                        });
                         Entry {
-                            label: label.into(),
+                            label: kind.into(),
                             description: if same {
                                 format!("{about}  (current)")
                             } else {
@@ -633,7 +643,7 @@ impl App {
                             },
                             search_description: true,
                             swatch: None,
-                            icon: staff.map(Icon::of_staff),
+                            icon: staff.map(Icon::of_notation),
                             current: same,
                         }
                     })
@@ -650,6 +660,64 @@ impl App {
                     });
                 }
                 out
+            }
+            PickerKind::Clef(t, i) => {
+                let Some(track) = self.buffer().score.tracks.get(t) else {
+                    return Vec::new();
+                };
+                let here = track.staves().get(i).copied();
+                let drums = track.kind == muse_core::TrackKind::Drums;
+                use muse_core::{Clef, Staff};
+                let kinds: &[(&str, &str, Staff)] = match here {
+                    Some(Staff::Standard(_)) => &[
+                        ("treble", "Treble clef", Staff::Standard(Clef::Treble)),
+                        ("bass", "Bass clef", Staff::Standard(Clef::Bass)),
+                        (
+                            "grand",
+                            "Treble and bass joined",
+                            Staff::Standard(Clef::Grand {
+                                split: muse_core::GRAND_SPLIT,
+                            }),
+                        ),
+                        (
+                            "neutral",
+                            "Percussion clef (drum tracks)",
+                            Staff::Standard(Clef::Neutral),
+                        ),
+                    ],
+                    Some(Staff::Chant | Staff::ChantFa) => &[
+                        ("do", "Do (C) clef", Staff::Chant),
+                        ("fa", "Fa (F) clef", Staff::ChantFa),
+                    ],
+                    _ => &[],
+                };
+                kinds
+                    .iter()
+                    .filter(|(k, ..)| *k != "neutral" || drums)
+                    .map(|&(name, about, staff)| {
+                        // A grand staff counts whatever its split.
+                        let same = match (staff, here) {
+                            (
+                                Staff::Standard(Clef::Grand { .. }),
+                                Some(Staff::Standard(Clef::Grand { .. })),
+                            ) => true,
+                            (a, b) => Some(a) == b,
+                        };
+                        Entry {
+                            label: name.into(),
+                            description: if same {
+                                format!("{about}  (current)")
+                            } else {
+                                about.into()
+                            },
+                            action: Command::Clef(name.into()),
+                            search_description: true,
+                            swatch: None,
+                            icon: Icon::of_clef(staff),
+                            current: same,
+                        }
+                    })
+                    .collect()
             }
             PickerKind::Section => {
                 let bars = &self.buffer().score.master_bars;
