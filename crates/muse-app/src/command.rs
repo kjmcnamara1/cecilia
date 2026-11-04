@@ -129,6 +129,9 @@ pub enum Command {
     Ending(u8),
     /// Toggle a direction (D.C., D.S., Fine, Coda …) over the cursor bar.
     DirectionMark(muse_core::Direction),
+    /// Louder (`+N`) or softer (`-N`) by dynamic steps: the cursor note, or every note of the
+    /// Visual selection.
+    DynamicStep(i32),
     /// A double dot on the cursor beat (toggles).
     DoubleDot,
     /// Beaming override of the cursor beat or the selection.
@@ -705,6 +708,11 @@ impl Command {
                 })?)
             }
             "double-dot" => DoubleDot,
+            "dynamic-step" => DynamicStep(
+                arg.and_then(|a| a.trim().parse::<i32>().ok())
+                    .filter(|n| *n != 0)
+                    .ok_or("dynamic-step: expected +1 (louder) or -1 (softer)")?,
+            ),
             "beams" => Beams(match arg {
                 Some("auto") | Some("automatic") => muse_core::BeamMode::Auto,
                 Some("force") => muse_core::BeamMode::Force,
@@ -1138,6 +1146,7 @@ impl Command {
             self,
             Toggle(_)
                 | Dynamic(_)
+                | DynamicStep(_)
                 | Duration(_)
                 | DurationLonger
                 | DurationShorter

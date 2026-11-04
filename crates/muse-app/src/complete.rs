@@ -23,6 +23,7 @@ pub const COMMANDS: &[&str] = &[
     "beams",
     "direction",
     "double-bar",
+    "dynamic-step",
     "double-dot",
     "ending",
     "free-time",
@@ -307,6 +308,7 @@ fn values(command: &str) -> Option<&'static [&'static str]> {
         ],
         "accidental" => &["double-flat", "double-sharp", "flat", "natural", "sharp"],
         "bar-repeat" => &["1", "2", "off"],
+        "dynamic-step" => &["+1", "-1"],
         "beams" => &["auto", "break", "break-secondary", "force"],
         "stems" => &["auto", "down", "up"],
         "ending" => &["1", "2", "3", "1 2", "none"],
@@ -887,6 +889,9 @@ pub fn describe(command: &str) -> Option<&'static str> {
         "key" => "Key signature from the cursor bar: sharps / flats (2, -3) or a name (G, Bb, Am)",
         "free-time" => "Toggle free time on the bar",
         "double-bar" => "Toggle a double bar line at the end of the bar",
+        "dynamic-step" => {
+            "Louder (+1) or softer (-1) by a dynamic: the note, or the Visual selection"
+        }
         "double-dot" => "Toggle a double dot on the beat",
         "bar-repeat" => {
             "Repeat the previous bar (1) or two bars (2) with a repeat sign; off removes it"

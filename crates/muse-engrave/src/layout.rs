@@ -4582,6 +4582,25 @@ mod tests {
     }
 
     #[test]
+    fn a_uniform_section_gets_one_dynamic_mark_and_the_next_change_its_own() {
+        // mp, then ff on three beats, then mp again: three marks, not six.
+        let mut beats: Vec<Beat> = (0..6).map(|_| pitched(72, DurationValue::Eighth)).collect();
+        for (i, b) in beats.iter_mut().enumerate() {
+            b.notes[0].velocity = if (1..4).contains(&i) { 111 } else { 63 };
+        }
+        let score = staff_score(beats);
+        let page = &engrave(&score, 0, &Options::default()).pages[0];
+        // ff is two forte glyphs; mp is a mezzo and a piano each.
+        assert_eq!(count_glyph(page, '\u{E522}'), 2, "one ff mark");
+        assert_eq!(
+            count_glyph(page, '\u{E521}'),
+            2,
+            "mp at the start and after the section"
+        );
+        assert_eq!(count_glyph(page, '\u{E520}'), 2);
+    }
+
+    #[test]
     fn directions_print_as_text() {
         let mut score = staff_score(vec![pitched(72, DurationValue::Quarter)]);
         score.master_bars[0].directions = vec![Direction::DaCapoAlCoda];

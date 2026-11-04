@@ -458,8 +458,13 @@ undo step, and a button is tinted when the whole selection has it:
   notes, left-hand tapping …): if every beat or note has it, it is taken off all; otherwise it
   is put on those that lack it.
 - Crescendo / decrescendo: one hairpin from the first selected beat to the last (consecutive
-  beats with the same hairpin are drawn as one wedge); again takes it off. Dynamics (`ppp` …
-  `fff`) go on the first beat.
+  beats with the same hairpin are drawn as one wedge); again takes it off.
+- Dynamics: `ppp` … `fff` set every note of the selection to that dynamic (rests are left
+  alone); one mark is engraved at the start of the section and another where the dynamic differs
+  again, so the beat after the selection keeps and shows its own. "Louder" / "softer" in the
+  palette, `<A-+>` / `<A-->` in Visual mode (`:dynamic-step +1`, `:dynamic-step -1`; also on the
+  cursor note outside Visual mode) move every note one dynamic up or down, keeping the
+  differences between them until they reach `ppp` or `fff`.
 - Legato (hammer-on / pull-off), legato slide and shift slide link each beat to the next, so the
   last beat of the selection is left out (a single beat is just toggled); ties join each note to
   the note before it on the same string (or of the same pitch).

@@ -70,6 +70,8 @@ pub const SECTIONS: &[(&str, &[Item])] = &[
             ("Forte (f)", "dynamic f", "f"),
             ("Fortissimo (ff)", "dynamic ff", "ff"),
             ("Fortississimo (fff)", "dynamic fff", "fff"),
+            ("Louder", "dynamic-step +1", "d+"),
+            ("Softer", "dynamic-step -1", "d-"),
             ("Crescendo", "toggle crescendo", "<"),
             ("Decrescendo", "toggle decrescendo", ">"),
             ("Fade in", "toggle fade-in", "fi"),
@@ -416,7 +418,7 @@ fn applies(command: &str, kind: InsertKind, visual: Option<bool>) -> bool {
                         | "decrescendo"
                         | "fermata"
                 )
-                || name == "dynamic"
+                || matches!(name, "dynamic" | "dynamic-step")
         }
     }
 }
@@ -511,6 +513,17 @@ impl App {
                 });
                 let active = match (name, arg) {
                     _ if over_range.is_some() => over_range == Some(true),
+                    ("dynamic", d) if range.is_some() => {
+                        let (from, to) = range.unwrap();
+                        edit::range_has_dynamic(
+                            &self.buffer().score,
+                            cursor.track,
+                            cursor.voice,
+                            from,
+                            to,
+                            d,
+                        )
+                    }
                     ("duration", n) => n.parse() == Ok(duration.value.denominator()),
                     ("rest", _) => rest,
                     ("accidental", "double-sharp") => alter(2),

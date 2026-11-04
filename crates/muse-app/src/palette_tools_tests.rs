@@ -576,10 +576,10 @@ fn one_hairpin_across_the_selection() {
     assert_eq!(a.mode, Mode::Visual);
     assert!((0..4).all(|i| beat(&a, 0, i).effects.hairpin == Some(Hairpin::Crescendo)));
     run(&mut a, "toggle crescendo");
-    // A dynamic goes on the first beat only.
+    // A dynamic goes on every selected beat.
     run(&mut a, "dynamic p");
-    assert_eq!(beat(&a, 0, 0).notes[0].velocity, 47);
-    assert_eq!(beat(&a, 0, 1).notes[0].velocity, DEFAULT_VELOCITY);
+    assert!((0..4).all(|i| beat(&a, 0, i).notes[0].velocity == 47));
+    assert_eq!(beat(&a, 0, 4).notes[0].velocity, DEFAULT_VELOCITY);
 }
 
 #[test]
@@ -956,4 +956,88 @@ fn hjkl_move_in_the_palette_while_visual_mode_stays() {
     keys(&mut a, "<leader>E");
     assert_eq!(a.focused_kind(), crate::app::PaneKind::Score);
     assert!(a.selection().is_some());
+}
+
+fn set_velocities(a: &mut App, v: &[u8]) {
+    let b = a.pane().buffer;
+    let beats = &mut a.buffers[b].score.tracks[0].bars[0].voices[0].beats;
+    for (beat, &vel) in beats.iter_mut().zip(v) {
+        for n in &mut beat.notes {
+            n.velocity = vel;
+        }
+    }
+}
+
+fn velocities(a: &App, n: usize) -> Vec<u8> {
+    (0..n)
+        .map(|i| beat(a, 0, i).notes.first().map_or(0, |n| n.velocity))
+        .collect()
+}
+
+#[test]
+fn a_dynamic_over_a_selection_changes_the_whole_section() {
+    let mut a = app();
+    fill(&mut a, 0, 6);
+    // mp, p, mf, f, then two beats outside the selection at mp.
+    set_velocities(&mut a, &[63, 47, 79, 95, 63, 63]);
+    select(&mut a, 4);
+    let steps = undo_steps(&a);
+    apply(&mut a, "dynamic ff");
+    assert_eq!(velocities(&a, 6), vec![111, 111, 111, 111, 63, 63]);
+    assert_eq!(undo_steps(&a), steps + 1, "one undo step");
+    assert_eq!(a.mode, Mode::Visual);
+    assert!(row(&a.palette_rows(), "dynamic ff").active);
+    assert!(!row(&a.palette_rows(), "dynamic mp").active);
+    // Rests in the selection are left alone.
+    {
+        let b = a.pane().buffer;
+        a.buffers[b].score.tracks[0].bars[0].voices[0].beats[1]
+            .notes
+            .clear();
+    }
+    apply(&mut a, "dynamic p");
+    assert_eq!(velocities(&a, 1), vec![47]);
+    assert!(beat(&a, 0, 1).is_rest());
+    assert_eq!(velocities(&a, 6)[2..], [47, 47, 63, 63]);
+    // `.` applies it to as many beats from the cursor.
+    keys(&mut a, "<Esc>");
+    a.pane_mut().cursor.beat = 4;
+    keys(&mut a, ".");
+    assert_eq!(velocities(&a, 6)[4..], [47, 47]);
+    run(&mut a, "undo");
+    assert_eq!(velocities(&a, 6)[4..], [63, 63]);
+}
+
+#[test]
+fn stepping_the_dynamics_keeps_the_differences_and_clamps() {
+    let mut a = app();
+    fill(&mut a, 0, 5);
+    set_velocities(&mut a, &[63, 47, 79, 111, 127]);
+    select(&mut a, 4);
+    let steps = undo_steps(&a);
+    keys(&mut a, "<A-+>");
+    assert_eq!(velocities(&a, 5), vec![79, 63, 95, 127, 127]);
+    assert_eq!(undo_steps(&a), steps + 1);
+    keys(&mut a, "<A-->");
+    keys(&mut a, "<A-->");
+    assert_eq!(velocities(&a, 5), vec![47, 31, 63, 95, 127]);
+    // Softer keeps going to ppp and stops.
+    for _ in 0..6 {
+        run(&mut a, "dynamic-step -1");
+    }
+    assert_eq!(velocities(&a, 4), vec![15; 4]);
+    assert_eq!(
+        velocities(&a, 5)[4],
+        127,
+        "outside the selection nothing changed"
+    );
+    // The palette has them.
+    let rows = a.palette_rows();
+    assert!(rows.iter().any(|r| r.command == "dynamic-step +1"));
+    assert!(rows.iter().any(|r| r.command == "dynamic-step -1"));
+    // `.` repeats a step over as many beats.
+    keys(&mut a, "<Esc>");
+    a.pane_mut().cursor.beat = 4;
+    apply(&mut a, "dynamic-step +1");
+    assert_eq!(velocities(&a, 5)[4], 127);
 }

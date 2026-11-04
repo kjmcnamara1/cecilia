@@ -1024,6 +1024,11 @@ impl App {
                 let t = t.clone();
                 self.edit(|cx| edit::toggle_range(cx, from, to, &t));
             }
+            DynamicStep(by) => {
+                let (from, to) = self.beat_range();
+                let by = *by;
+                self.edit(|cx| edit::step_dynamic_range(cx, from, to, by));
+            }
             Dynamic(d) if self.selection().is_some() => {
                 let (from, to) = self.beat_range();
                 let d = d.clone();

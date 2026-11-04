@@ -1623,21 +1623,70 @@ pub fn toggle_range(cx: &mut EditCx, from: Pos, to: Pos, technique: &str) -> Res
     Ok(())
 }
 
-/// Sets the dynamic of the first beat of a range.
+/// Sets the dynamic of every note of a range (rests are left alone).
 pub fn set_dynamic_range(cx: &mut EditCx, from: Pos, to: Pos, dynamic: &str) -> Result<(), String> {
     let velocity = crate::palette::dynamic_velocity(dynamic).ok_or("unknown dynamic")?;
     let (t, v) = (cx.cursor.track, cx.cursor.voice);
-    let first = *beat_positions(cx.score, t, v, from, to)
-        .first()
-        .ok_or("no beats in the selection")?;
-    let beat = &mut cx.bar(t, first.0).voices[v].beats[first.1];
-    if beat.notes.is_empty() {
-        return Err("no note in the first beat of the selection".into());
+    let mut any = false;
+    for (b, i) in beat_positions(cx.score, t, v, from, to) {
+        for n in &mut cx.bar(t, b).voices[v].beats[i].notes {
+            n.velocity = velocity;
+            any = true;
+        }
     }
-    for n in &mut beat.notes {
-        n.velocity = velocity;
+    if any {
+        Ok(())
+    } else {
+        Err("no notes in the selection".into())
     }
-    Ok(())
+}
+
+/// The dynamics, softest first, as velocities.
+const DYNAMIC_STEPS: [u8; 8] = [15, 31, 47, 63, 79, 95, 111, 127];
+
+/// Moves the dynamic of every note of a range `by` steps louder (positive) or softer, each
+/// note keeping its distance from the others until it reaches ppp or fff.
+pub fn step_dynamic_range(cx: &mut EditCx, from: Pos, to: Pos, by: i32) -> Result<(), String> {
+    let (t, v) = (cx.cursor.track, cx.cursor.voice);
+    let mut any = false;
+    for (b, i) in beat_positions(cx.score, t, v, from, to) {
+        for n in &mut cx.bar(t, b).voices[v].beats[i].notes {
+            let level = DYNAMIC_STEPS
+                .iter()
+                .position(|s| dynamic_name(*s) == dynamic_name(n.velocity))
+                .unwrap_or(5) as i32;
+            n.velocity = DYNAMIC_STEPS[(level + by).clamp(0, 7) as usize];
+            any = true;
+        }
+    }
+    if any {
+        Ok(())
+    } else {
+        Err("no notes to change".into())
+    }
+}
+
+/// Whether every note of a range has the dynamic.
+pub fn range_has_dynamic(
+    score: &Score,
+    track: usize,
+    voice: usize,
+    from: Pos,
+    to: Pos,
+    dynamic: &str,
+) -> bool {
+    let Some(velocity) = crate::palette::dynamic_velocity(dynamic) else {
+        return false;
+    };
+    let t = &score.tracks[track];
+    let notes: Vec<&Note> = beat_positions(score, track, voice, from, to)
+        .iter()
+        .flat_map(|&(b, i)| &t.bars[b].voices[voice].beats[i].notes)
+        .collect();
+    !notes.is_empty()
+        && notes
+            .iter()
+            .all(|n| dynamic_name(n.velocity) == dynamic_name(velocity))
 }
 
 /// Changes the duration of every beat of a range; returns how many beats there are.
