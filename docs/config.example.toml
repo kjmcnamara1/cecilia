@@ -19,6 +19,7 @@ progress_bar = true      # sections, play position and time along the bottom of 
 tracks_panel = false     # start with the tracks pane (mixer and bar overview) docked at the bottom
 properties = false       # show the properties pane (score, track, lyrics) along the right (<leader>p)
 palette = false          # show the editing palette (durations, effects, slides, strokes, beams and stems, bar and repeat tools) along the left (<leader>e)
+palette_wrap = true      # h/j/k/l, the arrows and Tab wrap around at the palette's edges (off: stop there)
 toolbar = true           # the toolbar of common commands at the top of the window (:toolbar, <leader>B)
 fretboard = false        # start with a fretboard pane: the notes at the cursor or playhead (<leader>F)
 piano = false            # piano keys likewise (<leader>K)

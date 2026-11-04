@@ -7,6 +7,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- `gg` / `G` in the focused palette select its first / last row (`:palette-first`, `:palette-last`), in every mode including Visual; the view scrolls to it.
+- The palette's keyboard motions wrap around at its edges: `j` / `k` / `Tab` / `S-Tab` from the last line to the first and back, `l` / `h` from the end of a line of buttons to the next / previous line and around the ends of the grid. Counts wrap step by step. Only the visible (filtered, unfolded) tools count. `ui.palette_wrap = false` stops at the edges as before; the mouse is unchanged.
+
 ## [0.19.0] - 2026-11-04
 
 ### Added

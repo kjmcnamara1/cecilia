@@ -826,7 +826,12 @@ impl App {
             return;
         }
         let (l, _) = self.palette_at(&lines);
-        let to = (l as isize + dy).clamp(0, lines.len() as isize - 1) as usize;
+        let n = lines.len() as isize;
+        let to = if self.config.file.ui.palette_wrap {
+            (l as isize + dy).rem_euclid(n)
+        } else {
+            (l as isize + dy).clamp(0, n - 1)
+        } as usize;
         self.palette.selected = match &lines[to] {
             PaletteLine::Header(i) => *i,
             PaletteLine::Cells(c) => c[self.palette.want_col.get().min(c.len() - 1)],
@@ -836,11 +841,32 @@ impl App {
     /// Moves the selection a button left or right within its line.
     fn palette_horizontal(&mut self, dx: isize) {
         let lines = self.palette_lines();
+        if lines.is_empty() {
+            return;
+        }
         let (l, k) = self.palette_at(&lines);
-        if let PaletteLine::Cells(c) = &lines[l] {
-            let k = (k as isize + dx).clamp(0, c.len() as isize - 1) as usize;
-            self.palette.selected = c[k];
-            self.palette.want_col.set(k);
+        let PaletteLine::Cells(c) = &lines[l] else {
+            return;
+        };
+        let next = k as isize + dx;
+        let mut to = (l, next.clamp(0, c.len() as isize - 1) as usize);
+        if self.config.file.ui.palette_wrap && (next < 0 || next >= c.len() as isize) {
+            // Past the end of a line: on to the next line of buttons (the one before when going
+            // left), skipping the section titles, around the ends of the grid.
+            let cells: Vec<usize> = (0..lines.len())
+                .filter(|&i| matches!(lines[i], PaletteLine::Cells(_)))
+                .collect();
+            let at = cells.iter().position(|&i| i == l).unwrap_or(0);
+            let m = cells.len() as isize;
+            let line = cells[(at as isize + dx.signum()).rem_euclid(m) as usize];
+            let PaletteLine::Cells(c) = &lines[line] else {
+                return;
+            };
+            to = (line, if dx < 0 { c.len() - 1 } else { 0 });
+        }
+        if let PaletteLine::Cells(c) = &lines[to.0] {
+            self.palette.selected = c[to.1];
+            self.palette.want_col.set(to.1);
         }
     }
 
@@ -1102,6 +1128,8 @@ impl App {
             }
             PaletteDown => self.palette_vertical(1),
             PaletteUp => self.palette_vertical(-1),
+            PaletteFirst => self.palette.selected = 0,
+            PaletteLast => self.palette.selected = self.palette_rows().len().saturating_sub(1),
             PaletteLeft => self.palette_horizontal(-1),
             PaletteRight => self.palette_horizontal(1),
             PaletteActivate => self.activate_palette(),
@@ -1117,6 +1145,7 @@ impl App {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::Key;
     use crate::app::tests::{keys as press, test_app as app};
     use crate::config::Config;
     use crate::layout::{Axis, Node};
@@ -1317,8 +1346,8 @@ mod tests {
         assert_eq!(app.palette_selected(), second[2]);
         press(&mut app, "k");
         assert_eq!(app.palette_selected(), first[2]);
-        press(&mut app, "hhhh");
-        assert_eq!(app.palette_selected(), first[0], "no wrapping");
+        press(&mut app, "hh");
+        assert_eq!(app.palette_selected(), first[0]);
         // Down past the last button of a short line goes to its last one.
         app.palette.want_col.set(3);
         for _ in 0..2 {
@@ -1562,5 +1591,215 @@ mod tests {
             name(&app, "toggle palm-mute"),
             "Palm mute (M, m, p) (unavailable)"
         );
+    }
+
+    fn no_wrap_app() -> App {
+        let (config, _) = Config::parse("[ui]\npalette_wrap = false\n").unwrap();
+        let mut app = App::new(config, None);
+        app.run(Command::New);
+        app.run(Command::PaletteFocus);
+        app.set_palette_cols(4);
+        app
+    }
+
+    fn focused_app(notation: Option<&str>) -> App {
+        let mut app = app();
+        if let Some(n) = notation {
+            app.run(Command::Notation(n.into()));
+        }
+        app.run(Command::PaletteFocus);
+        app.set_palette_cols(4);
+        app
+    }
+
+    /// The lines of buttons, as indexes into the rows.
+    fn cell_lines(app: &App) -> Vec<Vec<usize>> {
+        app.palette_lines()
+            .into_iter()
+            .filter_map(|l| match l {
+                PaletteLine::Cells(c) => Some(c),
+                _ => None,
+            })
+            .collect()
+    }
+
+    #[test]
+    fn it_wraps_vertically_in_every_notation() {
+        for n in [None, Some("standard"), Some("slash")] {
+            let mut app = focused_app(n);
+            let lines = app.palette_lines().len();
+            assert_eq!(app.palette_selected(), 0);
+            press(&mut app, "k");
+            let PaletteLine::Cells(last) = app.palette_lines().last().unwrap().clone() else {
+                panic!("the grid ends with buttons");
+            };
+            assert!(
+                last.contains(&app.palette_selected()),
+                "{n:?}: k from the top"
+            );
+            press(&mut app, "j");
+            assert_eq!(app.palette_selected(), 0, "{n:?}: j from the bottom");
+            // A count walks round: as many lines as there are brings it back.
+            press(&mut app, &format!("{lines}j"));
+            assert_eq!(app.palette_selected(), 0, "{n:?}: count");
+            press(&mut app, "<S-Tab>");
+            assert!(last.contains(&app.palette_selected()));
+            press(&mut app, "<Tab>");
+            assert_eq!(app.palette_selected(), 0);
+        }
+    }
+
+    #[test]
+    fn it_wraps_horizontally_across_lines_and_the_ends() {
+        for n in [None, Some("standard")] {
+            let mut app = focused_app(n);
+            let cells = cell_lines(&app);
+            let (first, last) = (&cells[0], cells.last().unwrap());
+            press(&mut app, "j");
+            assert_eq!(app.palette_selected(), first[0]);
+            press(&mut app, "h");
+            assert_eq!(
+                app.palette_selected(),
+                *last.last().unwrap(),
+                "{n:?}: very first -> last"
+            );
+            press(&mut app, "l");
+            assert_eq!(
+                app.palette_selected(),
+                first[0],
+                "{n:?}: very last -> first"
+            );
+            press(&mut app, "lll");
+            assert_eq!(app.palette_selected(), first[3]);
+            press(&mut app, "l");
+            let second = &cells[1];
+            assert_eq!(
+                app.palette_selected(),
+                second[0],
+                "{n:?}: end of a line -> next"
+            );
+            press(&mut app, "h");
+            assert_eq!(
+                app.palette_selected(),
+                first[3],
+                "{n:?}: start of a line -> previous"
+            );
+            // Past the end of a section's last line, on into the next section's buttons.
+            let a = cells.iter().position(|c| c.len() < 4 && c != last).unwrap();
+            app.palette.selected = *cells[a].last().unwrap();
+            press(&mut app, "l");
+            assert_eq!(app.palette_selected(), cells[a + 1][0]);
+        }
+    }
+
+    #[test]
+    fn wrapping_skips_folded_sections() {
+        let mut app = focused_app(None);
+        let headers: Vec<usize> = app
+            .palette_lines()
+            .iter()
+            .filter_map(|l| match l {
+                PaletteLine::Header(i) => Some(*i),
+                _ => None,
+            })
+            .collect();
+        // Folding the last section: l from the last button before wraps to the very first.
+        let last_header = *headers.last().unwrap();
+        app.palette.selected = last_header;
+        press(&mut app, "zc");
+        let cells = cell_lines(&app);
+        let last = *cells.last().unwrap().last().unwrap();
+        app.palette.selected = last;
+        press(&mut app, "l");
+        assert_eq!(app.palette_selected(), cells[0][0]);
+        press(&mut app, "h");
+        assert_eq!(app.palette_selected(), last);
+        // Down from the folded last title wraps to the first title.
+        app.palette.selected = last_header;
+        press(&mut app, "j");
+        assert_eq!(app.palette_selected(), 0);
+        press(&mut app, "k");
+        assert_eq!(app.palette_selected(), last_header);
+    }
+
+    #[test]
+    fn wrapping_goes_on_from_a_search_hit() {
+        let mut app = focused_app(None);
+        press(&mut app, "/");
+        for c in "fermata".chars() {
+            app.handle_key(Key::char(c));
+        }
+        press(&mut app, "<CR>");
+        let hit = app.palette_selected();
+        assert_ne!(hit, 0, "the search moved the selection");
+        // The rows are the ones shown for the mode and staff; walking down wraps over them.
+        let lines = app.palette_lines();
+        let line = app.palette_at(&lines).0;
+        press(&mut app, &format!("{}j", lines.len()));
+        assert_eq!(app.palette_at(&lines).0, line);
+    }
+
+    #[test]
+    fn it_stops_at_the_edges_with_palette_wrap_off() {
+        let mut app = no_wrap_app();
+        press(&mut app, "k");
+        assert_eq!(app.palette_selected(), 0);
+        press(&mut app, "h");
+        assert_eq!(app.palette_selected(), 0);
+        press(&mut app, "j");
+        press(&mut app, "hhhhh");
+        let first = cell_lines(&app)[0].clone();
+        assert_eq!(app.palette_selected(), first[0]);
+        press(&mut app, "llllllll");
+        assert_eq!(app.palette_selected(), first[3], "stays in its line");
+        press(&mut app, "100j");
+        let PaletteLine::Cells(last) = app.palette_lines().last().unwrap().clone() else {
+            panic!()
+        };
+        assert!(last.contains(&app.palette_selected()));
+        press(&mut app, "j");
+        assert!(last.contains(&app.palette_selected()), "no wrap down");
+    }
+
+    #[test]
+    fn gg_and_g_go_to_the_top_and_bottom() {
+        for visual in [false, true] {
+            let mut app = focused_app(None);
+            if visual {
+                press(&mut app, "<Esc>");
+                press(&mut app, "v");
+                app.run(Command::PaletteFocus);
+                assert_eq!(app.mode, crate::config::Mode::Visual);
+            }
+            let before = app.pane().cursor;
+            let last = app.palette_rows().len() - 1;
+            press(&mut app, "G");
+            assert_eq!(app.palette_selected(), last);
+            press(&mut app, "gg");
+            assert_eq!(app.palette_selected(), 0);
+            assert_eq!(app.pane().cursor, before, "the score is left alone");
+            if visual {
+                assert_eq!(app.mode, crate::config::Mode::Visual);
+            }
+            // Folded last section: G lands on its title; a search moves off and gg returns.
+            app.palette.selected = last;
+            press(&mut app, "G");
+            press(&mut app, "zc");
+            let rows = app.palette_rows();
+            press(&mut app, "gg");
+            press(&mut app, "G");
+            assert_eq!(app.palette_selected(), rows.len() - 1);
+            assert!(matches!(
+                rows[rows.len() - 1].kind,
+                PaletteKind::Header { .. }
+            ));
+            press(&mut app, "/");
+            for c in "fermata".chars() {
+                app.handle_key(Key::char(c));
+            }
+            press(&mut app, "<CR>");
+            press(&mut app, "gg");
+            assert_eq!(app.palette_selected(), 0);
+        }
     }
 }

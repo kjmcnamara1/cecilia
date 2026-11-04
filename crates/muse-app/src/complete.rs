@@ -969,6 +969,8 @@ pub fn describe(command: &str) -> Option<&'static str> {
         "tracks-focus" => "Focus the tracks panel (again: back to the score)",
         "palette" => "Show or hide the editing palette (durations, rests, effects)",
         "palette-focus" => "Focus the editing palette (again: back to the score)",
+        "palette-first" => "Palette: select the first button (top)",
+        "palette-last" => "Palette: select the last button (bottom)",
         "palette-down" => "Palette: select the button below",
         "palette-up" => "Palette: select the button above",
         "palette-left" => "Palette: select the button to the left",

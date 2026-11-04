@@ -249,6 +249,8 @@ pub enum Command {
     /// In the palette: select the next / previous row, apply the selected item, or fold /
     /// unfold (`Some`) or toggle the selected section.
     PaletteDown,
+    PaletteFirst,
+    PaletteLast,
     PaletteUp,
     PaletteLeft,
     PaletteRight,
@@ -1014,6 +1016,8 @@ impl Command {
             }),
             "palette-focus" => PaletteFocus,
             "palette-down" => PaletteDown,
+            "palette-first" => PaletteFirst,
+            "palette-last" => PaletteLast,
             "palette-up" => PaletteUp,
             "palette-left" => PaletteLeft,
             "palette-right" => PaletteRight,
