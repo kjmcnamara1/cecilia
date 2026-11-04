@@ -5239,6 +5239,8 @@ impl Views {
             {
                 p.cursor.line = line;
             }
+            // A slash staff is one line: a click above or below it still lands on the line.
+            app.normalize_cursor(g.pane);
         }
     }
 

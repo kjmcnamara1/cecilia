@@ -2631,6 +2631,16 @@ impl App {
         }
     }
 
+    /// Puts a pane's cursor back in range after a frontend set its fields directly (a click).
+    /// On a slash staff this puts it on the staff's one line, wherever the click fell.
+    pub fn normalize_cursor(&mut self, pane: PaneId) {
+        if let Some(p) = self.panes.get_mut(&pane) {
+            if let Some(b) = self.buffers.get(p.buffer) {
+                clamp_cursor(&b.score, &mut p.cursor);
+            }
+        }
+    }
+
     fn move_cursor(&mut self, f: impl FnOnce(&Score, &mut Cursor)) {
         let id = self.focused();
         let pane = self.panes.get_mut(&id).unwrap();
@@ -2916,7 +2926,8 @@ pub(crate) fn clamp_cursor(score: &Score, c: &mut Cursor) {
     let staff = staves[c.staff];
     if !uses_strings(track, staff) {
         let middle = staff_middle(track, staff);
-        if (c.line - middle).abs() > 24 {
+        // A slash staff is a single line: the cursor always sits on it.
+        if staff == Staff::Slash || (c.line - middle).abs() > 24 {
             c.line = middle;
         }
     }

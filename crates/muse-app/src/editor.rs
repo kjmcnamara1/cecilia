@@ -2023,6 +2023,37 @@ mod tests {
     }
 
     #[test]
+    fn the_cursor_stays_on_the_line_of_a_slash_staff() {
+        let mut a = app();
+        a.run(Command::StaffAdd(Some("slash".into())));
+        let slash = a.buffer().score.tracks[0]
+            .staves()
+            .iter()
+            .position(|s| *s == Staff::Slash)
+            .unwrap();
+        // Landing on it from another staff with a stray line, as a click does.
+        let id = a.focused();
+        a.pane_mut().cursor.staff = slash;
+        a.pane_mut().cursor.line = 41;
+        a.normalize_cursor(id);
+        assert_eq!(a.pane().cursor.line, 34);
+        // Moving between staves and within the slash staff keeps it on the line.
+        a.pane_mut().cursor.staff = 0;
+        a.pane_mut().cursor.line = 29;
+        keys(&mut a, "<A-j>");
+        keys(&mut a, "<A-j>");
+        assert_eq!(a.pane().cursor.staff, slash);
+        assert_eq!(a.pane().cursor.line, 34);
+        keys(&mut a, "jkjk");
+        assert_eq!(a.pane().cursor.line, 34);
+        // Another kind of staff keeps what a click set.
+        a.pane_mut().cursor.staff = 0;
+        a.pane_mut().cursor.line = 31;
+        a.normalize_cursor(id);
+        assert_eq!(a.pane().cursor.line, 31);
+    }
+
+    #[test]
     fn cursor_moves_across_staves() {
         let mut a = app();
         a.config.file.ui.jk_moves_between_staves = true;
