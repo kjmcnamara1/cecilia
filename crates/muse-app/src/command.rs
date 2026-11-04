@@ -238,6 +238,8 @@ pub enum Command {
     Tuner(Option<bool>),
     /// Show or hide the toolbar (no argument: toggle).
     Toolbar(Option<bool>),
+    /// Turn `ui.equalize_on_close` on or off for this session (no argument: toggle).
+    EqualizeOnClose(Option<bool>),
     /// Show or hide the properties pane (no argument: toggle).
     Properties(Option<bool>),
     /// Focus the properties pane, or give the focus back to the score.
@@ -1110,6 +1112,12 @@ impl Command {
                 Some("on") => Some(true),
                 Some("off") => Some(false),
                 Some(a) => return Err(format!("toolbar: '{a}' is not on or off")),
+            }),
+            "equalize-on-close" => EqualizeOnClose(match arg {
+                None => None,
+                Some("on") => Some(true),
+                Some("off") => Some(false),
+                Some(a) => return Err(format!("equalize-on-close: '{a}' is not on or off")),
             }),
             "track-volume" => TrackVolume(
                 arg.and_then(crate::tracks::VolumeChange::parse)

@@ -2376,6 +2376,12 @@ impl App {
             }
             ResizeEqual => self.views[self.active_view].root.equalize(),
             Toolbar(on) => self.toolbar = on.unwrap_or(!self.toolbar),
+            EqualizeOnClose(on) => {
+                let ui = &mut self.config.file.ui;
+                ui.equalize_on_close = on.unwrap_or(!ui.equalize_on_close);
+                let state = if ui.equalize_on_close { "on" } else { "off" };
+                self.info(format!("equalize-on-close {state}"));
+            }
             Fretboard(on) => self.set_tool(PaneKind::Fretboard, on),
             GlobalTool(name) => self.toggle_global_tool(&name),
             ProgressBar(on) => self.progress_bar = on.unwrap_or(!self.progress_bar),
@@ -4203,6 +4209,18 @@ pub(crate) mod tests {
         });
         assert_eq!(rect_of(&app, a).h, rect_of(&app, c).h);
         assert_eq!(rect_of(&app, right), right_before);
+    }
+
+    #[test]
+    fn equalize_on_close_command_toggles_the_setting() {
+        let mut app = App::new(Config::default(), None);
+        assert!(app.config.file.ui.equalize_on_close);
+        app.run(Command::parse("equalize-on-close").unwrap());
+        assert!(!app.config.file.ui.equalize_on_close);
+        app.run(Command::parse("equalize-on-close on").unwrap());
+        assert!(app.config.file.ui.equalize_on_close);
+        app.run(Command::parse("equalize-on-close off").unwrap());
+        assert!(!app.config.file.ui.equalize_on_close);
     }
 
     #[test]

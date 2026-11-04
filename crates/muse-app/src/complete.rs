@@ -138,6 +138,7 @@ pub const COMMANDS: &[&str] = &[
     "keymaps",
     "tracks",
     "toolbar",
+    "equalize-on-close",
     "fretboard",
     "piano",
     "progress-bar",
@@ -357,7 +358,8 @@ fn values(command: &str) -> Option<&'static [&'static str]> {
             "view",
             "workspace",
         ],
-        "tracks" | "toolbar" | "palette" | "fretboard" | "piano" | "tuner" => &["off", "on"],
+        "tracks" | "toolbar" | "equalize-on-close" | "palette" | "fretboard" | "piano"
+        | "tuner" => &["off", "on"],
         "track-color" => &["off"],
         "design" => &["off", "on", "toggle"],
         "bar-width" | "bars-per-line" => &["auto"],
@@ -950,6 +952,9 @@ pub fn describe(command: &str) -> Option<&'static str> {
         "section-prev" => "Previous section",
         "tracks" => "Show or hide the tracks panel",
         "toolbar" => "Show or hide the toolbar",
+        "equalize-on-close" => {
+            "Equalize the remaining panes of a split when one closes (on, off or toggle)"
+        }
         "fretboard" => "Show or hide the fretboard (notes at the cursor or playhead)",
         "piano" => "Show or hide the piano keys (notes at the cursor or playhead)",
         "tuner" => "Show or hide the tuner (listens to the audio input)",
