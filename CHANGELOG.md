@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.22.0] - 2026-11-04
+
 ### Added
 
 - `gg` / `G` in the focused properties pane select its first / last property (`:properties-first`, `:properties-last`). `zz` scrolls the pane so the selected property is in the middle (`:properties-center`).
@@ -14,6 +16,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Changed
 
 - Each staff row of the track properties pane has two boxes: the notation (standard, tab, tab+, slash, chant) and the clef (treble, bass, grand, neutral; do, fa for chant; empty and dimmed for tab and slash), each with its own picker and icon. `h` / `l` (`properties-box`) or a click select the box. The Add Staff row picks a notation.
+- In the properties pane `h` / `l` (and the arrows) move focus between boxes, and `<A-h>` / `<A-l>` step the value (switch, choice, number) instead; staff reorder is now `<C-j>` / `<C-k>`.
 
 ## [0.21.1] - 2026-11-04
 
