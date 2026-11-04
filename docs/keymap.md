@@ -429,7 +429,7 @@ Insert-mode keys depend on where the cursor is: on a **tab** (or drum lanes), on
 staff, on a **slash** staff or on **chant**. Each has its own keymap, looked up first
 (`[keymap.insert-tab]`, `[keymap.insert-standard]`, `[keymap.insert-slash]`,
 `[keymap.insert-chant]` in `config.toml`), then the keys shared by all (`[keymap.insert]`).
-The status line shows where the cursor is (`string 3`, `G4`, `slash`, `chant h`).
+The status line shows where the cursor is (`string 3`, `G4`, `slash`, `do`, `re` … `ti` on chant).
 
 Shared keys:
 
