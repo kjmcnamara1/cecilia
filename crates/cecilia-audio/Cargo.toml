@@ -1,0 +1,20 @@
+[package]
+name = "cecilia-audio"
+description = "Playback engine for cecilia"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+rust-version.workspace = true
+
+[dependencies]
+cecilia-core.workspace = true
+rustysynth.workspace = true
+cpal.workspace = true
+thiserror.workspace = true
+symphonia = { version = "0.5", default-features = false, features = ["mp3", "aac", "isomp4", "flac", "vorbis", "ogg", "wav", "pcm"] }
+signalsmith-stretch = "0.1"
+hound = "3.5"
+flacenc = "0.5"
+
+[dev-dependencies]
+cecilia-formats.workspace = true

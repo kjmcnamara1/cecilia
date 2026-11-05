@@ -1,0 +1,10 @@
+[package]
+name = "cecilia-convert"
+description = "Notation conversions for cecilia: fingering, retuning, chant transcription"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+rust-version.workspace = true
+
+[dependencies]
+cecilia-core.workspace = true

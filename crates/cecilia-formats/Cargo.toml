@@ -1,0 +1,15 @@
+[package]
+name = "cecilia-formats"
+description = "File format import/export for cecilia"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+rust-version.workspace = true
+
+[dependencies]
+cecilia-core.workspace = true
+cecilia-convert.workspace = true
+thiserror.workspace = true
+roxmltree.workspace = true
+zip.workspace = true
+serde_json.workspace = true

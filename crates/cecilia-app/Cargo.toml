@@ -1,0 +1,23 @@
+[package]
+name = "cecilia-app"
+description = "Headless application state, commands and keymaps for cecilia"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+rust-version.workspace = true
+
+[dependencies]
+cecilia-core.workspace = true
+cecilia-formats.workspace = true
+cecilia-audio.workspace = true
+cecilia-convert.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+toml.workspace = true
+directories.workspace = true
+thiserror.workspace = true
+rfd = { version = "0.17", optional = true }
+
+[features]
+# The system file picker for `:open` without a file (the frontends turn it on).
+dialog = ["dep:rfd"]

@@ -1,0 +1,20 @@
+[package]
+name = "cecilia"
+description = "Tablature, notation and chant editor and player"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+rust-version.workspace = true
+
+[dependencies]
+cecilia-core.workspace = true
+cecilia-formats.workspace = true
+cecilia-convert.workspace = true
+cecilia-app.workspace = true
+cecilia-audio.workspace = true
+cecilia-tui.workspace = true
+cecilia-engrave.workspace = true
+cecilia-gui.workspace = true
+anyhow.workspace = true
+clap.workspace = true
+serde_json.workspace = true

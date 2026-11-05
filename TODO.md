@@ -2,12 +2,6 @@
 
 Planned work. Finished items move to `CHANGELOG.md` under `[Unreleased]`.
 
-### Title
-
-- [ ] Rename this entire project from muse to cecilia
-- [ ] Use .cc as file extension instead of .muse
-- [ ] Change icon to use assets/cecilia-transparent.svg
-
 ### Docs
 
 - [ ] Static site for documentation (Zensical)
@@ -23,7 +17,7 @@ Planned work. Finished items move to `CHANGELOG.md` under `[Unreleased]`.
 ### File Save/Export
 
 - [ ] Converting/exporting to chant (.gabc) files
-- [ ] Nothing should be lost when writing to .muse files
+- [ ] Nothing should be lost when writing to .cc files
 - [ ] Some data may be lost when writing to .gp, .musexml, .gabc, or .txt
 
 ### File/Track Import
@@ -50,9 +44,9 @@ Planned work. Finished items move to `CHANGELOG.md` under `[Unreleased]`.
       and panes)
   - :workspace-close will close all windows attached to the workspace
   - :quit will close the app and all workspaces/windows
-  - starting a new instance of muse will attach to the currently running
+  - starting a new instance of cecilia will attach to the currently running
     workspace by default
-  - can still start "muse --workspace NAME" to open a window in
+  - can still start "cecilia --workspace NAME" to open a window in
     a new/different workspace
 
 ### TUI
