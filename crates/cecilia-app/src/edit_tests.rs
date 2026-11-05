@@ -909,8 +909,9 @@ fn voice_next_goes_round_through_the_bar_voices_and_one_more() {
     assert_eq!(voices_of(&a, 0).len(), 4);
     a.run(Command::VoiceNext);
     assert_eq!(v(&a), 0);
+    // Back from the first voice: the one more than those with notes.
     a.run(Command::VoicePrev);
-    assert_eq!(v(&a), 3);
+    assert_eq!(v(&a), 1);
     a.run(Command::parse("voice 9").unwrap());
     assert_eq!(v(&a), 3);
 }
