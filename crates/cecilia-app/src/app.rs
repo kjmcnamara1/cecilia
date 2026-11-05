@@ -2820,6 +2820,12 @@ impl App {
                 Err(e) => return self.error(format!("{}: {e}", file.display())),
             }
         }
+        let ext = target
+            .extension()
+            .and_then(|e| e.to_str())
+            .unwrap_or_default()
+            .to_string();
+        let lost = cecilia_formats::voices_lost(score, &ext);
         match cecilia_formats::write_file(score, &target) {
             Ok(()) => {
                 let size = std::fs::metadata(&target).map(|m| m.len()).unwrap_or(0);
@@ -2828,7 +2834,18 @@ impl App {
                     self.buffers[index].history.mark_saved();
                     self.swap_release(index);
                 }
-                self.info(format!("\"{}\" written, {size} bytes", target.display()));
+                let note = if lost > 0 {
+                    format!(
+                        " (warning: {lost} voice bar{} beyond what .{ext} stores left out)",
+                        if lost == 1 { "" } else { "s" }
+                    )
+                } else {
+                    String::new()
+                };
+                self.info(format!(
+                    "\"{}\" written, {size} bytes{note}",
+                    target.display()
+                ));
             }
             Err(e) => self.error(format!("{}: {e}", target.display())),
         }

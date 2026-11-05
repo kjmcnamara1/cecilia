@@ -1196,7 +1196,9 @@ pub fn adjacent_voice(score: &Score, c: &Cursor, forward: bool) -> usize {
                 .map_or(1, |i| i + 1)
         });
     // Voices up to and including the first free slot after the last used one.
-    let last = have.min(cecilia_core::MAX_VOICES - 1).max(c.voice.min(cecilia_core::MAX_VOICES - 1));
+    let last = have
+        .min(cecilia_core::MAX_VOICES - 1)
+        .max(c.voice.min(cecilia_core::MAX_VOICES - 1));
     if forward {
         if c.voice >= last { 0 } else { c.voice + 1 }
     } else if c.voice == 0 {

@@ -129,6 +129,24 @@ pub fn write_bytes(score: &Score, extension: &str) -> Result<Vec<u8>> {
     }
 }
 
+/// Voices with notes that a file of this extension cannot store, summed over the score: `.gp5`
+/// keeps two voices per staff, `.gp` / `.gpx` four. Writing drops them, so callers can warn.
+pub fn voices_lost(score: &Score, extension: &str) -> usize {
+    let limit = match extension.to_ascii_lowercase().as_str() {
+        "gp5" => 2,
+        "gp" | "gpx" => 4,
+        _ => return 0,
+    };
+    let split = score.split_grand();
+    split
+        .tracks
+        .iter()
+        .flat_map(|t| &t.bars)
+        .flat_map(|b| b.voices.iter().skip(limit))
+        .filter(|v| v.beats.iter().any(|b| !b.notes.is_empty()))
+        .count()
+}
+
 /// Writes a score to a file in the format given by its extension.
 pub fn write_file(score: &Score, path: &Path) -> Result<()> {
     let ext = path
