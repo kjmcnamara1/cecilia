@@ -2,6 +2,19 @@
 
 use std::path::PathBuf;
 
+/// A number for a session setting: absent shows it; `default` unsets it where `has_default`.
+/// Range checks happen where it is applied (clamped like on config load).
+fn number_arg(name: &str, arg: Option<&str>, has_default: bool) -> Result<SettingArg<f64>, String> {
+    match arg {
+        None => Ok(SettingArg::Show),
+        Some("default") if has_default => Ok(SettingArg::Default),
+        Some(a) => match a.parse::<f64>() {
+            Ok(n) if n.is_finite() => Ok(SettingArg::Set(n)),
+            _ => Err(format!("{name}: '{a}' is not a number")),
+        },
+    }
+}
+
 /// A size given as `N` (to N) or `+N` / `-N` (by N).
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Amount {
@@ -57,6 +70,15 @@ pub enum BeatAt {
     BarStart,
     /// At the end of the bar.
     BarEnd,
+}
+
+/// The argument of a command that sets a session setting: none (show it), `default` (unset),
+/// or a value.
+#[derive(Debug, Clone, PartialEq)]
+pub enum SettingArg<T> {
+    Show,
+    Default,
+    Set(T),
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -240,6 +262,16 @@ pub enum Command {
     Toolbar(Option<bool>),
     /// Turn `ui.equalize_on_close` on or off for this session (no argument: toggle).
     EqualizeOnClose(Option<bool>),
+    /// Set `ui.focus_ring_width` for this session (no argument: show it).
+    FocusRingWidth(SettingArg<f64>),
+    /// Set `ui.focus_ring_color` (`#hex`, or `default` for the mode's color).
+    FocusRingColor(SettingArg<String>),
+    /// Set `ui.corner_radius`.
+    CornerRadius(SettingArg<f64>),
+    /// Set `ui.pane_corner_radius` (`default`: follow `corner_radius`).
+    PaneCornerRadius(SettingArg<f64>),
+    /// Turn `tabline.wrap` on or off for this session (no argument: toggle).
+    TablineWrap(Option<bool>),
     /// Show or hide the properties pane (no argument: toggle).
     Properties(Option<bool>),
     /// Focus the properties pane, or give the focus back to the score.
@@ -1118,6 +1150,25 @@ impl Command {
                 Some("on") => Some(true),
                 Some("off") => Some(false),
                 Some(a) => return Err(format!("equalize-on-close: '{a}' is not on or off")),
+            }),
+            "focus-ring-width" => FocusRingWidth(number_arg("focus-ring-width", arg, true)?),
+            "corner-radius" => CornerRadius(number_arg("corner-radius", arg, false)?),
+            "pane-corner-radius" => PaneCornerRadius(number_arg("pane-corner-radius", arg, true)?),
+            "focus-ring-color" => FocusRingColor(match arg {
+                None => SettingArg::Show,
+                Some("default") => SettingArg::Default,
+                Some(a) if crate::theme::Rgba::parse(a).is_some() => SettingArg::Set(a.into()),
+                Some(a) => {
+                    return Err(format!(
+                        "focus-ring-color: '{a}' is not a #rrggbb color or default"
+                    ));
+                }
+            }),
+            "tabline-wrap" => TablineWrap(match arg {
+                None => None,
+                Some("on") => Some(true),
+                Some("off") => Some(false),
+                Some(a) => return Err(format!("tabline-wrap: '{a}' is not on or off")),
             }),
             "track-volume" => TrackVolume(
                 arg.and_then(crate::tracks::VolumeChange::parse)

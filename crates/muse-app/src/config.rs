@@ -1068,27 +1068,29 @@ impl Config {
             ));
         }
         let ui = &mut file.ui;
-        if !(0.0..=8.0).contains(&ui.focus_ring_width) {
+        if !(0.0..=FOCUS_RING_WIDTH_MAX).contains(&ui.focus_ring_width) {
             errors.push(format!(
                 "ui.focus_ring_width: {} is outside 0 to 8 (clamped)",
                 ui.focus_ring_width
             ));
         }
-        ui.focus_ring_width = clamp_setting(ui.focus_ring_width, 0.0, 8.0, 2.0);
-        if !(0.0..=24.0).contains(&ui.corner_radius) {
+        ui.focus_ring_width = clamp_setting(ui.focus_ring_width, 0.0, FOCUS_RING_WIDTH_MAX, 2.0);
+        if !(0.0..=CORNER_RADIUS_MAX).contains(&ui.corner_radius) {
             errors.push(format!(
                 "ui.corner_radius: {} is outside 0 to 24 (clamped)",
                 ui.corner_radius
             ));
         }
-        ui.corner_radius = clamp_setting(ui.corner_radius, 0.0, 24.0, BASE_CORNER_RADIUS);
+        ui.corner_radius =
+            clamp_setting(ui.corner_radius, 0.0, CORNER_RADIUS_MAX, BASE_CORNER_RADIUS);
         if let Some(r) = ui.pane_corner_radius {
-            if !(0.0..=24.0).contains(&r) {
+            if !(0.0..=CORNER_RADIUS_MAX).contains(&r) {
                 errors.push(format!(
                     "ui.pane_corner_radius: {r} is outside 0 to 24 (clamped)"
                 ));
             }
-            ui.pane_corner_radius = Some(clamp_setting(r, 0.0, 24.0, BASE_CORNER_RADIUS));
+            ui.pane_corner_radius =
+                Some(clamp_setting(r, 0.0, CORNER_RADIUS_MAX, BASE_CORNER_RADIUS));
         }
         if let Some(c) = &ui.focus_ring_color {
             if crate::theme::Rgba::parse(c).is_none() {
@@ -1251,8 +1253,12 @@ fn apply_user(
     }
 }
 
+/// Largest `ui.focus_ring_width`, and largest corner radii.
+pub const FOCUS_RING_WIDTH_MAX: f64 = 8.0;
+pub const CORNER_RADIUS_MAX: f64 = 24.0;
+
 /// Clamps a numeric setting to `lo..=hi`; NaN gives `default`.
-fn clamp_setting(v: f64, lo: f64, hi: f64, default: f64) -> f64 {
+pub fn clamp_setting(v: f64, lo: f64, hi: f64, default: f64) -> f64 {
     if v.is_nan() { default } else { v.clamp(lo, hi) }
 }
 

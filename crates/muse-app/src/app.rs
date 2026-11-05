@@ -6,8 +6,11 @@ use std::time::SystemTime;
 
 use muse_core::{Beat, Clef, Note, Score, Staff, StaffClef, Track, TrackKind, staff};
 
-use crate::command::Command;
-use crate::config::{Config, Lookup, Mode};
+use crate::command::{Command, SettingArg};
+use crate::config::{
+    BASE_CORNER_RADIUS, CORNER_RADIUS_MAX, Config, FOCUS_RING_WIDTH_MAX, Lookup, Mode,
+    clamp_setting,
+};
 use crate::keys::{Key, KeyCode};
 use crate::layout::{Axis, Node, PaneId, Rect, neighbour};
 
@@ -2387,6 +2390,66 @@ impl App {
                 let state = if ui.equalize_on_close { "on" } else { "off" };
                 self.info(format!("equalize-on-close {state}"));
             }
+            FocusRingWidth(a) => {
+                let ui = &mut self.config.file.ui;
+                if let SettingArg::Set(n) = a {
+                    ui.focus_ring_width = clamp_setting(n, 0.0, FOCUS_RING_WIDTH_MAX, 2.0);
+                } else if a == SettingArg::Default {
+                    ui.focus_ring_width = 2.0;
+                }
+                let w = ui.focus_ring_width;
+                self.info(format!("focus-ring-width {w}"));
+            }
+            FocusRingColor(a) => {
+                let ui = &mut self.config.file.ui;
+                match a {
+                    SettingArg::Set(c) => ui.focus_ring_color = Some(c),
+                    SettingArg::Default => ui.focus_ring_color = None,
+                    SettingArg::Show => {}
+                }
+                let c = self.config.focus_ring_color(self.mode).hex();
+                let from = if self.config.file.ui.focus_ring_color.is_some() {
+                    ""
+                } else {
+                    " (the mode's color)"
+                };
+                self.info(format!("focus-ring-color {c}{from}"));
+            }
+            CornerRadius(a) => {
+                let ui = &mut self.config.file.ui;
+                match a {
+                    SettingArg::Set(n) => {
+                        ui.corner_radius =
+                            clamp_setting(n, 0.0, CORNER_RADIUS_MAX, BASE_CORNER_RADIUS)
+                    }
+                    SettingArg::Default => ui.corner_radius = BASE_CORNER_RADIUS,
+                    SettingArg::Show => {}
+                }
+                let r = ui.corner_radius;
+                self.info(format!("corner-radius {r}"));
+            }
+            PaneCornerRadius(a) => {
+                let ui = &mut self.config.file.ui;
+                match a {
+                    SettingArg::Set(n) => {
+                        ui.pane_corner_radius =
+                            Some(clamp_setting(n, 0.0, CORNER_RADIUS_MAX, BASE_CORNER_RADIUS))
+                    }
+                    SettingArg::Default => ui.pane_corner_radius = None,
+                    SettingArg::Show => {}
+                }
+                let msg = match ui.pane_corner_radius {
+                    Some(r) => format!("pane-corner-radius {r}"),
+                    None => format!("pane-corner-radius {} (corner-radius)", ui.corner_radius),
+                };
+                self.info(msg);
+            }
+            TablineWrap(on) => {
+                let t = &mut self.config.file.tabline;
+                t.wrap = on.unwrap_or(!t.wrap);
+                let state = if t.wrap { "on" } else { "off" };
+                self.info(format!("tabline-wrap {state}"));
+            }
             Fretboard(on) => self.set_tool(PaneKind::Fretboard, on),
             GlobalTool(name) => self.toggle_global_tool(&name),
             ProgressBar(on) => self.progress_bar = on.unwrap_or(!self.progress_bar),
@@ -4278,6 +4341,56 @@ pub(crate) mod tests {
             c.focus_ring_color(Mode::Normal),
             c.theme.mode_color(Mode::Normal)
         );
+    }
+
+    #[test]
+    fn appearance_commands_set_show_clamp_and_reject() {
+        let mut app = App::new(Config::default(), None);
+        let run = |app: &mut App, c: &str| app.run(Command::parse(c).unwrap());
+        run(&mut app, "focus-ring-width 4");
+        assert_eq!(app.config.file.ui.focus_ring_width, 4.0);
+        run(&mut app, "focus-ring-width 99");
+        assert_eq!(app.config.file.ui.focus_ring_width, 8.0);
+        run(&mut app, "focus-ring-width -1");
+        assert_eq!(app.config.file.ui.focus_ring_width, 0.0);
+        run(&mut app, "focus-ring-width");
+        assert_eq!(app.config.file.ui.focus_ring_width, 0.0);
+        run(&mut app, "focus-ring-width default");
+        assert_eq!(app.config.file.ui.focus_ring_width, 2.0);
+        assert!(Command::parse("focus-ring-width wide").is_err());
+        assert!(Command::parse("focus-ring-width NaN").is_err());
+
+        run(&mut app, "focus-ring-color #102030");
+        assert_eq!(
+            app.config.focus_ring_color(Mode::Normal),
+            crate::theme::Rgba::rgb(0x10, 0x20, 0x30)
+        );
+        run(&mut app, "focus-ring-color");
+        run(&mut app, "focus-ring-color default");
+        assert!(app.config.file.ui.focus_ring_color.is_none());
+        assert!(Command::parse("focus-ring-color red").is_err());
+
+        run(&mut app, "corner-radius 12");
+        assert_eq!(app.config.corner_scale(), 2.0);
+        run(&mut app, "corner-radius 100");
+        assert_eq!(app.config.file.ui.corner_radius, 24.0);
+        assert!(Command::parse("corner-radius round").is_err());
+        assert!(Command::parse("corner-radius default").is_err());
+        run(&mut app, "pane-corner-radius 0");
+        assert_eq!(app.config.pane_corner_scale(), 0.0);
+        run(&mut app, "pane-corner-radius 50");
+        assert_eq!(app.config.file.ui.pane_corner_radius, Some(24.0));
+        run(&mut app, "pane-corner-radius default");
+        assert_eq!(app.config.file.ui.pane_corner_radius, None);
+        assert!(Command::parse("pane-corner-radius x").is_err());
+
+        run(&mut app, "tabline-wrap");
+        assert!(!app.config.file.tabline.wrap);
+        run(&mut app, "tabline-wrap on");
+        assert!(app.config.file.tabline.wrap);
+        run(&mut app, "tabline-wrap off");
+        assert!(!app.config.file.tabline.wrap);
+        assert!(Command::parse("tabline-wrap maybe").is_err());
     }
 
     #[test]
