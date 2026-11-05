@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.26.0] - 2026-11-04
+
 ### Added
 
 - Dashboard: when no buffer is open (the last one closed, the only view closed, or a new, empty
