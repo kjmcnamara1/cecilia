@@ -6,6 +6,9 @@ Planned work. Finished items move to `CHANGELOG.md` under `[Unreleased]`.
 
 - [ ] Static site for documentation (Zensical)
 - [ ] Document all options in docs/OPTIONS.md
+  - Describe option types
+  - How to set/get options
+  - table of each option with type, default value, description, and example
 - [ ] Document all commands in docs/COMMANDS.md
 - [x] Document the specification for the .cc file in a section in docs/SPEC.md
 
