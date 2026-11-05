@@ -56,7 +56,6 @@ Planned work. Finished items move to `CHANGELOG.md` under `[Unreleased]`.
 
 ### TUI
 
-- [ ] Implement some sort of rudimentary engraving. Start with tab+.
 - [ ] Add chant notation to tui
 - [ ] FIX: foreground/background colors of progress bar in tui should be
       switched. background color should be slightly lighter than tui background if it

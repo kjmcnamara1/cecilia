@@ -1,6 +1,6 @@
 //! Text tablature rendering for one pane.
 
-use crate::{barline, rc};
+use crate::{barline, rc, rhythm};
 use cecilia_app::{App, Cursor};
 use cecilia_core::{Beat, DurationValue, Note, Score, Track, TrackKind};
 use ratatui::buffer::Buffer;
@@ -78,9 +78,9 @@ pub fn scroll_bars(
     }
 }
 
-/// Rows used by a system: header + strings + one row per lyric verse + spacer.
+/// Rows used by a system: header + strings + tab+ rhythm rows + one row per lyric verse + spacer.
 pub fn system_height(track: &Track) -> u16 {
-    track.strings.len().max(1) as u16 + 2 + verses(track)
+    track.strings.len().max(1) as u16 + 2 + rhythm::rows(track) + verses(track)
 }
 
 /// Number of lyric verses on a track's first voice.
@@ -554,6 +554,8 @@ impl Widget for TabView<'_> {
         let scale = self.app.config.file.ui.tab_width.clamp(1, 8) as u16;
         let sh = system_height(track);
         let rows = track.strings.len().max(1);
+        let rhythm_rows = rhythm::rows(track);
+        let icons = self.app.config.file.tabline.icons.as_str();
         let visible = (area.height / sh).max(1) as usize;
         // The page layout draws each page in a box: the score sits two columns inside it.
         let paged = pane.layout == "page" && self.page.is_some();
@@ -819,6 +821,27 @@ impl Widget for TabView<'_> {
                             );
                         }
                     }
+                    // Clicking the rhythm under the strings picks the beat too.
+                    for r in 0..rhythm_rows {
+                        self.hits.push(Hit {
+                            area: Rect {
+                                x: bx_beat,
+                                y: y0 + 1 + rows as u16 + r,
+                                width: w,
+                                height: 1,
+                            },
+                            pane: self.pane,
+                            cursor: Cursor {
+                                track: pane.cursor.track,
+                                bar: bl.bar,
+                                beat: i,
+                                string: pane.cursor.string.min(rows - 1),
+                                voice: 0,
+                                staff: Cursor::HOME,
+                                line: 0,
+                            },
+                        });
+                    }
                     // Lyrics under the staff, one row per verse.
                     for (li, syl) in beat
                         .map_or(&[][..], |b| &b.lyrics[..])
@@ -831,7 +854,7 @@ impl Widget for TabView<'_> {
                             let t: String = syl.chars().take(room).collect();
                             buf.set_string(
                                 bx_beat,
-                                y0 + 1 + rows as u16 + li as u16,
+                                y0 + 1 + rows as u16 + rhythm_rows + li as u16,
                                 t,
                                 Style::default().fg(rc(th.lyrics)),
                             );
@@ -861,6 +884,31 @@ impl Widget for TabView<'_> {
                         }
                     }
                     tick += len;
+                }
+                // Tab+ rhythm: one glyph per beat under the strings, beams under the glyphs.
+                if rhythm_rows > 0 {
+                    let cols: Vec<u16> = bl.beats.iter().map(|b| b.0).collect();
+                    buf.set_string(
+                        bx,
+                        y0 + 2 + rows as u16,
+                        rhythm::beams(beats, &cols, bl.width, icons),
+                        Style::default().fg(rc(th.chrome_text)),
+                    );
+                    let rstyle = Style::default().fg(rc(th.chrome_text));
+                    for (i, &(off, w)) in bl.beats.iter().enumerate() {
+                        if off + w > bl.width + 1 {
+                            break;
+                        }
+                        if let Some(b) = beats.get(i) {
+                            buf.set_stringn(
+                                bx + off,
+                                y0 + 1 + rows as u16,
+                                rhythm::glyph(b, icons),
+                                w as usize,
+                                rstyle,
+                            );
+                        }
+                    }
                 }
                 // Repeat count above the closing repeat line.
                 if let Some(n) = mb.repeat_end {
