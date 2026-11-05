@@ -3122,15 +3122,15 @@ fn beat_fallback<'a>(layout: &'a Layout, r: &BeatRef) -> Option<&'a cecilia_engr
     })
 }
 
-/// A soft gaussian drop shadow under a floating box (palette, pickers): offset a few px down,
-/// blurred over ~16 px, subtle.
+/// A soft gaussian drop shadow under a floating box (palette, pickers): offset 8 px down,
+/// blurred over ~24 px, so the box looks like it hovers a little above the page.
 fn popover_shadow(scene: &mut Scene, r: Rect, radius: f64) {
     scene.draw_blurred_rounded_rect(
         Affine::IDENTITY,
-        Rect::new(r.x0, r.y0 + 4.0, r.x1, r.y1 + 4.0),
-        Color::from_rgba8(0, 0, 0, 90),
+        Rect::new(r.x0, r.y0 + 8.0, r.x1, r.y1 + 8.0),
+        Color::from_rgba8(0, 0, 0, 150),
         radius,
-        8.0,
+        12.0,
     );
 }
 
