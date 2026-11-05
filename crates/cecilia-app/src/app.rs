@@ -575,6 +575,8 @@ pub struct App {
     /// The dashboard shows instead of the panes (no score pane open), and its focused button.
     pub(crate) dashboard: bool,
     pub(crate) dashboard_focus: usize,
+    /// Files closed lately, the most recent first (the dashboard's Open Recent).
+    pub(crate) recent: Vec<PathBuf>,
     /// Layout for panes opened without another to copy from (`ui.layout`); each pane keeps
     /// its own (`Pane::layout`).
     pub score_layout: String,
@@ -706,6 +708,7 @@ impl App {
             quit: false,
             dashboard: false,
             dashboard_focus: 0,
+            recent: Vec::new(),
             score_layout,
             chant_view: true,
             ed: Default::default(),
@@ -1708,6 +1711,10 @@ impl App {
                 }
             }
         }
+        if !in_other_views {
+            let path = self.buffers[buffer].path.clone();
+            self.remember_closed(path);
+        }
         for id in to_close {
             self.close_pane_id(id);
             if self.quit {
@@ -1758,6 +1765,45 @@ impl App {
         self.active_view += 1;
     }
 
+    /// Closing the only view closes all its buffers: what remains is one score pane showing an
+    /// empty score, behind the dashboard.
+    fn close_last_view(&mut self, orphans: &[usize]) {
+        if self.playing_buffer.is_some_and(|b| orphans.contains(&b))
+            && (self.playing || self.paused)
+        {
+            self.run(Command::Stop);
+        }
+        for &b in orphans {
+            self.forget_marks(b);
+            self.swap_release(b);
+            self.buffers[b] = Buffer {
+                name: "[closed]".into(),
+                ..Buffer::empty()
+            };
+        }
+        let keep = self.focused();
+        let equalize = self.config.file.ui.equalize_on_close;
+        let view = &mut self.views[self.active_view];
+        for id in view.root.panes() {
+            if id != keep {
+                view.root.remove_with(id, equalize);
+                self.panes.remove(&id);
+            }
+        }
+        view.maximized = None;
+        view.focus = keep;
+        self.buffers.push(Buffer::empty());
+        let empty = self.buffers.len() - 1;
+        let view = &mut self.views[self.active_view];
+        view.buffers = vec![empty];
+        let pane = self.panes.get_mut(&keep).unwrap();
+        pane.buffer = empty;
+        pane.cursor = Cursor::default();
+        pane.scroll = 0;
+        pane.recent.clear();
+        self.show_dashboard();
+    }
+
     /// Closes the active view. Buffers no other view has are unloaded; unsaved changes in
     /// them stop it unless `force`.
     fn close_view(&mut self, force: bool) {
@@ -1766,9 +1812,7 @@ impl App {
 
     /// [`App::close_view`], not asking about the buffers in `skip` (answered `n`).
     fn close_view_skipping(&mut self, force: bool, skip: Vec<usize>) {
-        if self.views.len() == 1 {
-            return self.error("cannot close the last view");
-        }
+        let last = self.views.len() == 1;
         let view = &self.views[self.active_view];
         let orphans: Vec<usize> = view
             .buffers
@@ -1789,6 +1833,14 @@ impl App {
             if let Some(&b) = unsaved {
                 return self.ask_save(Closing::View, b, skip);
             }
+        }
+        for &b in &orphans {
+            let path = self.buffers[b].path.clone();
+            self.remember_closed(path);
+        }
+        if last {
+            self.close_last_view(&orphans);
+            return;
         }
         let view = self.views.remove(self.active_view);
         for id in view.root.panes() {
@@ -2831,19 +2883,19 @@ impl App {
             .collect()
     }
 
-    /// `:pane-close` on the focused pane: closes it, its view with the last pane, and the last
-    /// view's last score pane gives way to the dashboard.
+    /// `:pane-close` on the focused pane: closes it, its view with the last pane. The last pane
+    /// of the last view stays (closing the last buffer is what shows the dashboard).
     fn close_pane(&mut self) {
         let focus = self.window_focus();
         // A tool pane, or one of several score panes, just closes; the last score pane closes
-        // the view (or shows the dashboard).
+        // the view.
         let tool = self.focused_kind() != PaneKind::Score;
         if tool || self.score_panes().len() > 1 {
             self.close_pane_id(focus);
         } else if self.views.len() > 1 {
             self.close_view(false);
         } else {
-            self.pane_to_dashboard(focus);
+            self.error("cannot close the last pane");
         }
     }
 

@@ -9,14 +9,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
-- Dashboard: when no score pane is open (the last one closed with `:pane-close`, or a workspace with
-  nothing in it) the window shows buttons Select Workspace, New Score and Open Score, in the window
-  and the terminal, under the lily icon (a flower glyph in the terminal), the name and a tagline.
-  `j`/`k`/`Tab`/`Shift-Tab`/arrows move, `Enter` or a click runs one.
+- Dashboard: when no buffer is open (the last one closed, the only view closed, or a new, empty
+  workspace) the window shows buttons Open Recent, Select Workspace, New Score and Open Score, in
+  the window and the terminal, under the lily icon (a flower glyph in the terminal), the name and a
+  tagline. `j`/`k`/`Tab`/`Shift-Tab`/arrows move, `Enter` or a click runs one.
+- Recently closed files are remembered (up to 20, kept between sessions) for the dashboard's Open
+  Recent button and `:pick recent`.
 
 ### Changed
 
-- `:pane-close` on the last score pane shows the dashboard instead of quitting (`:q` quits).
+- `:pane-close` on the last pane of the last view no longer quits: it says it cannot (`:q` quits).
+- `:view-close` on the only view closes its buffers and shows the dashboard instead of failing.
 - The Linux desktop icon is now the ivory lily alone (`assets/lily.svg`) instead of the full emblem.
 
 ## [0.25.0] - 2026-11-04

@@ -926,8 +926,11 @@ fn draw_dashboard(f: &mut Frame, app: &App, area: Rect, ui: &mut Ui) {
     for (i, b) in buttons.into_iter().enumerate() {
         let r = Rect::new(x, top + 5 + i as u16 * h, w, h);
         let focused = i == app.dashboard_focus();
+        let enabled = app.dashboard_enabled(i);
         let style = if focused {
             on(app, t.accent)
+        } else if !enabled {
+            Style::default().fg(rc(t.dim)).bg(rc(t.paper))
         } else {
             Style::default().fg(rc(t.text_on(t.paper))).bg(rc(t.paper))
         };

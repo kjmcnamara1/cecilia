@@ -185,14 +185,14 @@ view pickers also work while a song plays.
 | `:open {file}`                                                                                   | open a file in the focused pane, adding it to the view's tabs                                       |
 | `:open` (`:open-dialog`, `<C-o>`) | choose one or more files in the system file picker; they open as tabs and the first is shown |
 | `<leader>?` (`:keymaps`, `:pick-keymap`) | every key binding of every mode, found by keys, command or description; Enter runs a Normal-mode one |
-| `:pick-buffer` / `:pick-view` / `:pick-workspace` (`:pick buffer\|view\|workspace\|mark\|macro`) | open a picker                                                                                       |
+| `:pick-buffer` / `:pick-view` / `:pick-workspace` (`:pick buffer\|view\|workspace\|recent\|mark\|macro`) | open a picker                                                                                       |
 | `:marks` / `:macros` (`:registers`)                                                              | pick a mark to jump to / a macro to run                                                             |
 | `:mark x` (`:k x`) / `:delmarks xyz` / `:delmarks!`                                              | set a mark / delete marks / delete this file's lowercase marks                                      |
 | `:goto-mark x` / `:run-macro r`                                                                  | jump to a mark / run a macro (for bindings)                                                         |
 | `:bnext` / `:bprev` / `:buffer N`                                                                | next / previous / Nth buffer tab                                                                    |
 | `:bdelete [N]` / `:bdelete! [N]`                                                                 | close the focused (or Nth) buffer tab / discarding unsaved changes                                  |
 | `:view-new [file]`                                                                               | new view: a copy of the current view's tabs, just the current buffer, or empty (`tabline.new_view`) |
-| `:view-close` / `:view-close!`                                                                   | close the view (buffers only it had are unloaded)                                                   |
+| `:view-close` / `:view-close!`                                                                   | close the view (buffers only it had are unloaded); the only view: closes all its buffers and shows the [dashboard](#dashboard)                                                   |
 | `:view N` / `:view-next` / `:view-prev`                                                          | switch views                                                                                        |
 | `:view-rename [name]`                                                                            | name the view in the tabline (no name: its number)                                                  |
 
@@ -624,7 +624,7 @@ e.g. `"<C-g>" = "completion-ignore-case"`, `"<C-f>" = "completion-fuzzy"`.
 | -------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | `:open {file}` / `:w [file]` / `:q` (quit) / `:wq` (write all, quit) / `:q!`                  | _(M2)_ `:w file.ext` exports by extension                                                                                                                                                   |
 | `:focus-ring-width [N\|default]` / `:focus-ring-color [#hex\|default]` / `:tabline-wrap [on\|off]` | set (no argument: show; `:tabline-wrap` toggles) `ui.focus_ring_width`, `ui.focus_ring_color` and `tabline.wrap` for the session; the width clamps to the config range (ring 0 to 8) |
-| `:wa` (`:wall`) / `:pane-close` | write every changed file / close the focused pane (its view with the last pane; the last pane of the last view gives way to the [dashboard](#dashboard), it does not quit); the remaining panes of its split share the space equally again (`ui.equalize_on_close`; off: the neighbour takes it; `:equalize-on-close [on\|off]` sets or toggles it for the session) |
+| `:wa` (`:wall`) / `:pane-close` | write every changed file / close the focused pane (its view with the last pane); the last pane of the last view cannot be closed (a message says so; close its buffers to reach the [dashboard](#dashboard)); the remaining panes of its split share the space equally again (`ui.equalize_on_close`; off: the neighbour takes it; `:equalize-on-close [on\|off]` sets or toggles it for the session) |
 | `:split` / `:vsplit`                                                 | _(M1)_                                                                                                                                                                                      |
 | `:track {n}`                                                         | _(M1)_                                                                                                                                                                                      |
 | `:bar {n}` / `:{n}`                                                  | _(M1)_                                                                                                                                                                                      |
@@ -659,12 +659,18 @@ With the cursor on a note on any staff, the same note on the track's other stave
 
 ### Dashboard
 
-With no score pane open (the last one closed with `:pane-close`, or a new, empty workspace) the
-window shows the dashboard: **Select Workspace** (`:pick workspace`), **New Score** (`:new`) and
-**Open Score** (`:open`). `j` / `k` / `Down` / `Up` / `Tab` / `Shift-Tab` move the focus (`g` / `G` first
-and last), `Enter` or `Space` runs the focused button, a click runs the one under the mouse. `:` opens
-the command line as usual (`:q` quits); other keys do nothing. Showing a score ends it.
-Loaded files stay loaded; `:pick buffer` brings one back.
+With no buffer open (the last one closed with `:bd`, the only view closed with `:view-close`, or a
+new, empty workspace) the window shows the dashboard: **Open Recent** (`:pick recent`), **Select
+Workspace** (`:pick workspace`), **New Score** (`:new`) and **Open Score** (`:open`). Closing the
+last *pane* does not show it: that is refused with a message.
+
+Open Recent lists the files you closed lately (most recent first, up to 20, kept between sessions in
+`recent-files` in cecilia's data folder, files that no longer exist skipped); choosing one opens it.
+Without any the button is dimmed and does nothing, and the focus skips it.
+
+`j` / `k` / `Down` / `Up` / `Tab` / `Shift-Tab` move the focus (`g` / `G` first and last), `Enter` or
+`Space` runs the focused button, a click runs the one under the mouse. `:` opens the command line as
+usual (`:q` quits); other keys do nothing. Showing a score ends it.
 
 ### Workspaces
 

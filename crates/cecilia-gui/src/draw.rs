@@ -1214,7 +1214,8 @@ fn draw_dashboard(scene: &mut Scene, app: &App, views: &mut Views, main: Rect) {
         let y = top + 70.0 + i as f64 * (h + gap);
         let r = Rect::new(cx - w / 2.0, y, cx + w / 2.0, y + h);
         let focused = i == app.dashboard_focus();
-        let hovered = r.contains(views.hover);
+        let enabled = app.dashboard_enabled(i);
+        let hovered = enabled && r.contains(views.hover);
         let shape = RoundedRect::new(r.x0, r.y0, r.x1, r.y1, 8.0);
         let bg = if focused {
             accent()
@@ -1235,7 +1236,13 @@ fn draw_dashboard(scene: &mut Scene, app: &App, views: &mut Views, main: Rect) {
             r.center().y + 6.0,
             17.0,
             Align::Center,
-            if focused { text_on(bg) } else { chrome_text() },
+            if focused {
+                text_on(bg)
+            } else if enabled {
+                chrome_text()
+            } else {
+                dim()
+            },
             false,
         );
         views.dashboard.push((r, i));
