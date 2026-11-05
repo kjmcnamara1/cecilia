@@ -14,6 +14,13 @@ Planned work. Finished items move to `CHANGELOG.md` under `[Unreleased]`.
 
 - [ ] TODO: Deep dive on chant staff representation
 
+### Workspace
+
+- [ ] :workspace-open with no arg should open a dialogue like :open to select
+      a workspace file
+- [ ] create command : workspace-rename
+- [ ] create command : workspace-new
+
 ### File Save/Export
 
 - [ ] Converting/exporting to chant (.gabc) files
@@ -50,6 +57,10 @@ Planned work. Finished items move to `CHANGELOG.md` under `[Unreleased]`.
 ### TUI
 
 - [ ] Implement some sort of rudimentary engraving. Start with tab+.
+- [ ] Add chant notation to tui
+- [ ] FIX: foreground/background colors of progress bar in tui should be
+      switched. background color should be slightly lighter than tui background if it
+      is a dark theme and slightly darker if it is a light theme
 
 ### GUI
 
