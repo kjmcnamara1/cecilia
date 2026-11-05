@@ -1742,13 +1742,10 @@ fn draw_progress(
         return;
     };
     let t = &app.config.theme;
-    // The bar sits slightly off the score background (the page color): lighter on a dark theme,
-    // darker on a light one, since the ink is the opposite of the page. The sections take the
-    // page color itself.
-    let ground = t.page;
-    let label_ink = ground.mix(t.ink, 0.8);
-    let bar = ground.mix(t.ink, 0.12);
-    let base = Style::default().bg(rc(bar)).fg(rc(label_ink));
+    // Like the tabline and status line: the dark window color with light text, the sections
+    // told apart by gray vertical bars.
+    let base = Style::default().bg(rc(t.chrome)).fg(rc(t.chrome_text));
+    let divider = base.fg(rc(t.dim));
     let time = format!(
         " {} / {} ",
         cecilia_app::progress::clock(p.now),
@@ -1763,20 +1760,20 @@ fn draw_progress(
     buf.set_string(area.x + area.width - tw, area.y, &time, base);
     let w = (area.width - tw - 1) as f64;
     let col = |f: f64| area.x + (w * f.clamp(0.0, 1.0)).round() as u16;
-    let seg = Style::default().bg(rc(ground)).fg(rc(label_ink));
     for sec in &p.sections {
         let (x0, x1) = (col(sec.start), col(sec.end));
         if x1 <= x0 + 1 {
             continue;
         }
-        let width = (x1 - x0 - 1) as usize;
+        buf.set_string(x0, area.y, "│", divider);
+        let width = (x1 - x0 - 1) as usize - 1;
         let label = match (sec.letter.is_empty(), sec.title.is_empty()) {
             (false, false) => format!("[{}] {}", sec.letter, sec.title),
             (false, true) => format!("[{}]", sec.letter),
             (true, _) => sec.title.clone(),
         };
         let label: String = label.chars().take(width).collect();
-        buf.set_string(x0, area.y, format!("{label:<width$}"), seg);
+        buf.set_string(x0 + 1, area.y, format!("{label:<width$}"), base);
     }
     // The position: a red shade under whatever character is there.
     let x = col(p.at).min(area.x + w as u16);
@@ -3766,7 +3763,7 @@ mod page_tests {
     }
 
     #[test]
-    fn the_progress_bar_sits_slightly_off_the_page_color() {
+    fn the_progress_bar_is_dark_with_light_text() {
         let mut app = app_with_bars(4);
         app.progress_bar = true;
         let id = app.focused();
@@ -3774,10 +3771,19 @@ mod page_tests {
         let mut term = Terminal::new(TestBackend::new(60, 3)).unwrap();
         term.draw(|f| draw_progress(f, &app, id, Rect::new(0, 0, 60, 1), None))
             .unwrap();
-        let bar = rc(theme.page.mix(theme.ink, 0.12));
         let cell = &term.backend().buffer()[(59, 0)];
-        assert_eq!(cell.bg, bar);
-        assert_ne!(cell.bg, rc(theme.page));
+        assert_eq!(cell.bg, rc(theme.chrome));
+        assert_eq!(cell.fg, rc(theme.chrome_text));
+        // Section dividers (when there are sections) are gray bars on the same background.
+        let buf = term.backend().buffer();
+        // (Column 0 is under the playhead's red shade.)
+        for x in 1..60u16 {
+            let c = &buf[(x, 0)];
+            if c.symbol() == "│" {
+                assert_eq!(c.fg, rc(theme.dim));
+                assert_eq!(c.bg, rc(theme.chrome));
+            }
+        }
     }
 
     #[test]

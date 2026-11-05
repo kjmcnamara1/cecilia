@@ -9,7 +9,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
-- The terminal UI's progress bar has its colors switched: the bar is slightly lighter than the score background on a dark theme (slightly darker on a light one) and its sections take the background color.
+- The terminal UI's progress bar is dark like the tabline and status line, with light text, and its sections are told apart by gray vertical bars instead of shaded cells.
 
 ## [0.27.0] - 2026-11-04
 
