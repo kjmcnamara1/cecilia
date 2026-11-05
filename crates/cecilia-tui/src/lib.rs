@@ -1742,11 +1742,13 @@ fn draw_progress(
         return;
     };
     let t = &app.config.theme;
-    // Match the score background (the page color, since TUI is always vertical/horizontal).
+    // The bar sits slightly off the score background (the page color): lighter on a dark theme,
+    // darker on a light one, since the ink is the opposite of the page. The sections take the
+    // page color itself.
     let ground = t.page;
     let label_ink = ground.mix(t.ink, 0.8);
-    let segment = ground.mix(t.ink, 0.12);
-    let base = Style::default().bg(rc(ground)).fg(rc(label_ink));
+    let bar = ground.mix(t.ink, 0.12);
+    let base = Style::default().bg(rc(bar)).fg(rc(label_ink));
     let time = format!(
         " {} / {} ",
         cecilia_app::progress::clock(p.now),
@@ -1761,7 +1763,7 @@ fn draw_progress(
     buf.set_string(area.x + area.width - tw, area.y, &time, base);
     let w = (area.width - tw - 1) as f64;
     let col = |f: f64| area.x + (w * f.clamp(0.0, 1.0)).round() as u16;
-    let seg = Style::default().bg(rc(segment)).fg(rc(label_ink));
+    let seg = Style::default().bg(rc(ground)).fg(rc(label_ink));
     for sec in &p.sections {
         let (x0, x1) = (col(sec.start), col(sec.end));
         if x1 <= x0 + 1 {
@@ -3761,6 +3763,21 @@ mod page_tests {
         app.run(cecilia_app::Command::Layout(Some("horizontal".into())));
         let text = draw_once(&mut app, &mut term, &mut ui).join("\n");
         assert!(!text.contains("Page 1"));
+    }
+
+    #[test]
+    fn the_progress_bar_sits_slightly_off_the_page_color() {
+        let mut app = app_with_bars(4);
+        app.progress_bar = true;
+        let id = app.focused();
+        let theme = app.config.theme.clone();
+        let mut term = Terminal::new(TestBackend::new(60, 3)).unwrap();
+        term.draw(|f| draw_progress(f, &app, id, Rect::new(0, 0, 60, 1), None))
+            .unwrap();
+        let bar = rc(theme.page.mix(theme.ink, 0.12));
+        let cell = &term.backend().buffer()[(59, 0)];
+        assert_eq!(cell.bg, bar);
+        assert_ne!(cell.bg, rc(theme.page));
     }
 
     #[test]

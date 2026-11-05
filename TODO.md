@@ -57,9 +57,6 @@ Planned work. Finished items move to `CHANGELOG.md` under `[Unreleased]`.
 ### TUI
 
 - [ ] Add chant notation to tui
-- [ ] FIX: foreground/background colors of progress bar in tui should be
-      switched. background color should be slightly lighter than tui background if it
-      is a dark theme and slightly darker if it is a light theme
 
 ### GUI
 
