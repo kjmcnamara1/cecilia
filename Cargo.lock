@@ -560,6 +560,7 @@ dependencies = [
  "cecilia-app",
  "cecilia-audio",
  "cecilia-core",
+ "cecilia-engrave",
  "cecilia-formats",
  "ratatui",
 ]

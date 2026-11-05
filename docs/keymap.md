@@ -104,6 +104,13 @@ the two bars beside it (they trade width, the line stays as long as it was); cli
 down (each is one undo step; "-" is dimmed on a one-bar line, "+" on the last line); drag the
 **dots under the cursor bar's beats** to nudge them. The page re-flows live while dragging.
 
+In the terminal UI the page layout breaks lines and pages exactly where the GUI's does (the
+engraver's lines, scaled to the pane; manual line breaks and bar widths included) and draws each
+page in a box (`┌─ Page 1 ─┐`). With design mode on, each line shows `+` / `-` at its right
+edge (click: one bar more / fewer), a `↵` in the left margin marks a manual line break, and a
+bar line can be dragged sideways (a column is several points of page, so it is coarse; use `>` /
+`<` for fine control). Dragging a beat has no terminal equivalent: nudge it with `<A-l>` / `<A-h>`.
+
 Limits: only the page layout is affected (the vertical and horizontal layouts and square-notation
 chant staves ignore the adjustments); lyrics attached from another track do not follow a nudged
 beat; adjustments are keyed by bar number, so they follow bars through inserting, deleting and

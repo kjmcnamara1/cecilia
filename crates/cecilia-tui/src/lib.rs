@@ -101,6 +101,58 @@ struct Ui {
     last_view: std::collections::HashMap<u32, (usize, usize, usize, usize)>,
     tabline: Vec<(Rect, TablineHit)>,
     hover: Option<(u16, u16)>,
+    /// Each score pane's engraved page layout (for its lines and pages), by pane.
+    pages: std::collections::HashMap<u32, PageCache>,
+    /// Design-mode handles drawn last frame.
+    design: Vec<(Rect, tabview::DesignHit)>,
+}
+
+/// A page layout engraved for a pane, as long as its `key` (buffer, version, track, chant view)
+/// is current.
+struct PageCache {
+    key: (usize, u64, usize, bool, bool),
+    layout: cecilia_engrave::Layout,
+    rows: Vec<tabview::RowSpec>,
+}
+
+/// The pane's engraved page layout, engraving it again if the score changed.
+fn page_layout<'a>(
+    cache: &'a mut std::collections::HashMap<u32, PageCache>,
+    app: &App,
+    id: u32,
+) -> &'a PageCache {
+    let pane = &app.panes[&id];
+    let buffer = &app.buffers[pane.buffer];
+    let key = (
+        pane.buffer,
+        buffer.version,
+        pane.cursor.track,
+        app.chant_view,
+        app.every_bar_number,
+    );
+    let entry = cache.entry(id).or_insert_with(|| PageCache {
+        key: (usize::MAX, 0, 0, false, false),
+        layout: Default::default(),
+        rows: vec![],
+    });
+    if entry.key != key {
+        // As the GUI engraves the page layout: A4 with margins, so lines break the same.
+        let options = cecilia_engrave::Options {
+            mode: cecilia_engrave::Mode::Page {
+                width: 595.0,
+                height: 842.0,
+            },
+            margin: 40.0,
+            chant: app.chant_view,
+            chords: app.chord_policy(),
+            every_bar_number: app.every_bar_number,
+            ..Default::default()
+        };
+        entry.layout = cecilia_engrave::engrave(&buffer.score, pane.cursor.track, &options);
+        entry.rows = tabview::page_rows(&entry.layout);
+        entry.key = key;
+    }
+    entry
 }
 
 /// A mouse drag in progress.
@@ -120,6 +172,35 @@ enum Drag {
     Scrollbar(u32, u16),
     /// A press on a beat of a score pane, which may become a Visual selection.
     Select(u32),
+    /// A design-mode bar line being dragged: what it began on, the column pressed and the page
+    /// points a column is worth.
+    Design(Box<cecilia_engrave::design::Grab>, u16, f64),
+}
+
+/// A press on a design-mode handle: the line-end buttons are clicks (one more or fewer bar on
+/// the line, one undo step), a bar line starts a drag.
+fn design_press(app: &mut App, ui: &mut Ui, handle: tabview::DesignHit, column: u16) {
+    use tabview::DesignHit::*;
+    match handle {
+        Add { first, n } => app.design_line_bars(first, n + 1),
+        Remove { first, n } => app.design_line_bars(first, n.saturating_sub(1).max(1)),
+        BarLine { system, k, points } => {
+            let Some(cache) = ui.pages.get(&app.focused()) else {
+                return;
+            };
+            let handle = cecilia_engrave::design::Handle::BarLine { system, k };
+            let bars = app.buffer().score.master_bars.len();
+            let grab = cecilia_engrave::design::Grab::new(
+                &cache.layout,
+                handle,
+                0.0,
+                app.design_overrides(),
+                bars,
+            );
+            app.design_begin();
+            ui.drag = Some(Drag::Design(Box::new(grab), column, points));
+        }
+    }
 }
 
 /// A pane border under a cell: the divider and how far the cell is from its position.
@@ -214,6 +295,16 @@ fn event_loop(terminal: &mut DefaultTerminal, app: &mut App) -> Result<()> {
                                 app.drag_divider(&d, (along as i32 + off).max(0) as u16);
                             }
                             _ => {}
+                        }
+                    }
+                    // Dragging a design-mode bar line re-flows the page live (one undo step).
+                    MouseEventKind::Drag(MouseButton::Left)
+                        if matches!(ui.drag, Some(Drag::Design(..))) =>
+                    {
+                        if let Some(Drag::Design(grab, from, points)) = ui.drag.clone() {
+                            let dx = (m.column as f64 - from as f64) * points;
+                            let unit = cecilia_engrave::Options::default().sp / 10.0;
+                            app.design_preview(grab.apply(dx, unit));
                         }
                     }
                     // Dragging over beats of the pressed track selects them.
@@ -382,6 +473,7 @@ fn event_loop(terminal: &mut DefaultTerminal, app: &mut App) -> Result<()> {
                             Some(Drag::Volume) => app.group_edits(false),
                             Some(Drag::Text) => app.text_release(),
                             Some(Drag::Select(..)) => app.mouse_release(),
+                            Some(Drag::Design(..)) => app.design_end(),
                             Some(Drag::Prop(from, to, double)) if from == to => {
                                 app.click_property(from, double)
                             }
@@ -484,6 +576,13 @@ fn event_loop(terminal: &mut DefaultTerminal, app: &mut App) -> Result<()> {
                                 (TablineHit::View(n), _) => cecilia_app::Command::ViewGoto(n + 1),
                             });
                         } else if button == MouseButton::Middle {
+                        } else if let Some(handle) = ui
+                            .design
+                            .iter()
+                            .find(|(r, _)| contains(*r, m.column, m.row))
+                            .map(|(_, h)| *h)
+                        {
+                            design_press(app, &mut ui, handle, m.column);
                         } else if let Some(hit) =
                             ui.hits.iter().find(|h| contains(h.area, m.column, m.row))
                         {
@@ -621,6 +720,7 @@ fn key_with(code: KeyCode, m: KeyModifiers) -> Key {
 
 fn draw(f: &mut Frame, app: &mut App, play: Option<(usize, Location, f64, f64)>, ui: &mut Ui) {
     ui.hits.clear();
+    ui.design.clear();
     ui.scrollbars.clear();
     // The tracks peeking after a change of track (no tracks pane shown) take the bottom.
     let peek_h = if app.tracks_peeking() {
@@ -815,6 +915,8 @@ fn draw(f: &mut Frame, app: &mut App, play: Option<(usize, Location, f64, f64)>,
                 inner,
             );
         } else {
+            let page = (pane.layout == "page" && track.is_some())
+                .then(|| page_layout(&mut ui.pages, app, id).rows.clone());
             f.render_widget(
                 TabView {
                     app,
@@ -825,6 +927,8 @@ fn draw(f: &mut Frame, app: &mut App, play: Option<(usize, Location, f64, f64)>,
                     scroll: &mut scroll,
                     extent: &mut extent,
                     follow,
+                    page: page.as_deref(),
+                    design: &mut ui.design,
                 },
                 inner,
             );
@@ -836,7 +940,18 @@ fn draw(f: &mut Frame, app: &mut App, play: Option<(usize, Location, f64, f64)>,
         let info = (!chant && track.is_some()).then(|| {
             let scale = app.config.file.ui.tab_width.clamp(1, 8) as u16;
             let score = &app.buffers[pane.buffer].score;
-            tabview::view_info(score, pane.cursor.track, inner, scale, scroll)
+            let horizontal = pane.layout == "horizontal";
+            let page =
+                (pane.layout == "page").then(|| page_layout(&mut ui.pages, app, id).rows.clone());
+            tabview::view_info(
+                score,
+                pane.cursor.track,
+                inner,
+                scale,
+                scroll,
+                horizontal,
+                page.as_deref(),
+            )
         });
         view_infos.push((id, info));
         if let Some(col) = bar_col {
@@ -3547,5 +3662,131 @@ fn border_type(app: &App, focused: bool) -> BorderType {
         BorderType::Thick
     } else {
         BorderType::Rounded
+    }
+}
+
+#[cfg(test)]
+mod page_tests {
+    use super::*;
+    use ratatui::Terminal;
+    use ratatui::backend::TestBackend;
+
+    fn app_with_bars(bars: usize) -> App {
+        let mut app = App::new(cecilia_app::Config::default(), None);
+        app.run(cecilia_app::Command::New);
+        let at = app.pane().buffer;
+        let score = &mut app.buffers[at].score;
+        let beat = cecilia_core::Beat {
+            notes: vec![cecilia_core::Note::new(0, 3)],
+            ..Default::default()
+        };
+        let bar = cecilia_core::Bar {
+            voices: vec![cecilia_core::Voice {
+                beats: vec![beat; 4],
+            }],
+            ..Default::default()
+        };
+        let master = cecilia_core::MasterBar::default();
+        score.tracks = vec![cecilia_core::Track {
+            strings: vec![64, 59, 55, 50, 45, 40],
+            bars: vec![bar; bars],
+            ..Default::default()
+        }];
+        score.master_bars = vec![master; bars];
+        app.run(cecilia_app::Command::Layout(Some("page".into())));
+        app
+    }
+
+    fn screen(term: &Terminal<TestBackend>) -> Vec<String> {
+        let buf = term.backend().buffer();
+        (0..buf.area.height)
+            .map(|y| {
+                (0..buf.area.width)
+                    .map(|x| buf[(x, y)].symbol().to_string())
+                    .collect()
+            })
+            .collect()
+    }
+
+    fn draw_once(app: &mut App, term: &mut Terminal<TestBackend>, ui: &mut Ui) -> Vec<String> {
+        term.draw(|f| draw(f, app, None, ui)).unwrap();
+        screen(term)
+    }
+
+    #[test]
+    fn the_page_layout_draws_pages_in_boxes_with_the_engravers_lines() {
+        let mut app = app_with_bars(40);
+        let mut term = Terminal::new(TestBackend::new(110, 50)).unwrap();
+        let mut ui = Ui::default();
+        let rows = draw_once(&mut app, &mut term, &mut ui);
+        let text = rows.join("\n");
+        assert!(text.contains("┌─ Page 1 "), "{text}");
+        assert!(text.contains('└') && text.contains('┘'), "{text}");
+        assert!(rows.iter().any(|r| r.contains('│') && r.contains("0")));
+        // The cursor's line holds the bars the engraver puts on it.
+        let layout = &ui.pages[&app.focused()].layout;
+        let line = layout
+            .systems
+            .iter()
+            .find(|s| s.range().contains(&0))
+            .unwrap();
+        assert_eq!(app.design_line(), line.range());
+        // Horizontal drops the boxes.
+        app.run(cecilia_app::Command::Layout(Some("horizontal".into())));
+        let text = draw_once(&mut app, &mut term, &mut ui).join("\n");
+        assert!(!text.contains("Page 1"));
+    }
+
+    #[test]
+    fn design_mode_marks_breaks_and_has_line_buttons() {
+        let mut app = app_with_bars(30);
+        app.run(cecilia_app::Command::parse("design on").unwrap());
+        let mut term = Terminal::new(TestBackend::new(110, 50)).unwrap();
+        let mut ui = Ui::default();
+        draw_once(&mut app, &mut term, &mut ui);
+        let first = ui.pages[&app.focused()].rows[0].bars.len();
+        assert!(first >= 2, "{first} bars on the first line");
+        let handles = |ui: &Ui| ui.design.iter().map(|d| d.1).collect::<Vec<_>>();
+        assert!(
+            handles(&ui)
+                .iter()
+                .any(|h| matches!(h, tabview::DesignHit::Add { .. }))
+        );
+        assert!(
+            handles(&ui)
+                .iter()
+                .any(|h| matches!(h, tabview::DesignHit::BarLine { .. }))
+        );
+        // A click on "-" takes the line's last bar down: one bar fewer, one undo step.
+        let (area, hit) = *ui
+            .design
+            .iter()
+            .find(|d| matches!(d.1, tabview::DesignHit::Remove { .. }))
+            .unwrap();
+        design_press(&mut app, &mut ui, hit, area.x);
+        let rows = draw_once(&mut app, &mut term, &mut ui);
+        assert_eq!(ui.pages[&app.focused()].rows[0].bars.len(), first - 1);
+        assert!(rows.iter().any(|r| r.contains('↵')), "manual break marked");
+        // Dragging a bar line right widens the bar before it, live, and releasing keeps it as
+        // one undo step.
+        let before = app.buffer().score.design.clone();
+        let (area, hit) = *ui
+            .design
+            .iter()
+            .find(|d| matches!(d.1, tabview::DesignHit::BarLine { .. }))
+            .unwrap();
+        design_press(&mut app, &mut ui, hit, area.x);
+        let Some(Drag::Design(grab, _, points)) = ui.drag.clone() else {
+            panic!("a bar line starts a drag");
+        };
+        app.design_preview(grab.apply(3.0 * points, 0.5));
+        assert_ne!(app.buffer().score.design, before);
+        app.design_end();
+        app.run(cecilia_app::Command::Undo);
+        assert_eq!(app.buffer().score.design.bar_widths.len(), 0);
+        // Outside design mode there are no handles.
+        app.run(cecilia_app::Command::parse("design off").unwrap());
+        draw_once(&mut app, &mut term, &mut ui);
+        assert!(ui.design.is_empty());
     }
 }

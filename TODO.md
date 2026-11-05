@@ -49,7 +49,6 @@ Planned work. Finished items move to `CHANGELOG.md` under `[Unreleased]`.
 
 ### TUI
 
-- [ ] FIX: there is no difference between layouts. horizontal still scrolls vertically
 - [ ] Implement some sort of rudimentary engraving. Start with tab+.
 
 ### GUI
