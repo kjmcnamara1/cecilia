@@ -29,6 +29,50 @@ struct BarLayout {
 
 pub struct System {
     bars: Vec<BarLayout>,
+    /// Horizontal layout: the last bar does not fit whole.
+    clipped: bool,
+}
+
+/// The first bar to show in the horizontal layout so that `focus` is whole on screen: `scroll`
+/// if it already is, else the nearest change (`to` places it at the top or in the middle).
+pub fn scroll_bars(
+    score: &Score,
+    track: usize,
+    width: u16,
+    scale: u16,
+    scroll: usize,
+    focus: usize,
+    to: Option<cecilia_app::ScrollTo>,
+) -> usize {
+    let shown = |from: usize| {
+        let line = layout_line(score, track, width, scale, from);
+        let whole = line.bars.len() - usize::from(line.clipped && line.bars.len() > 1);
+        (from..from + whole).contains(&focus)
+    };
+    let count = |from: usize| layout_line(score, track, width, scale, from).bars.len();
+    match to {
+        Some(cecilia_app::ScrollTo::Top) => focus,
+        Some(cecilia_app::ScrollTo::Center) => {
+            focus.saturating_sub(count(focus).saturating_sub(1) / 2)
+        }
+        Some(cecilia_app::ScrollTo::Bottom) => {
+            let mut s = focus;
+            while s > 0 && shown(s - 1) {
+                s -= 1;
+            }
+            s
+        }
+        None if focus < scroll => focus,
+        None if shown(scroll) => scroll,
+        None => {
+            // Slide right until the bar is whole.
+            let mut s = scroll;
+            while s < focus && !shown(s) {
+                s += 1;
+            }
+            s
+        }
+    }
 }
 
 /// Rows used by a system: header + strings + one row per lyric verse + spacer.
@@ -85,14 +129,42 @@ fn beat_width(beat: &Beat, track: &Track, scale: u16) -> u16 {
 
 /// Breaks a track into systems that fit `width` columns.
 pub fn layout_systems(score: &Score, track: usize, width: u16, scale: u16) -> Vec<System> {
+    layout_from(score, track, width, scale, 0, false)
+}
+
+/// The horizontal layout: one system of the bars from `from` on, as many as `width` columns
+/// show (the last may be cut off, see [`System::clipped`]).
+pub fn layout_line(score: &Score, track: usize, width: u16, scale: u16, from: usize) -> System {
+    layout_from(score, track, width, scale, from, true)
+        .pop()
+        .unwrap_or(System {
+            bars: vec![],
+            clipped: false,
+        })
+}
+
+fn layout_from(
+    score: &Score,
+    track: usize,
+    width: u16,
+    scale: u16,
+    from: usize,
+    horizontal: bool,
+) -> Vec<System> {
     let Some(t) = score.tracks.get(track) else {
         return vec![];
     };
     let avail = width.saturating_sub(LABEL_WIDTH + 1).max(8);
     let mut systems = vec![];
-    let mut current = System { bars: vec![] };
+    let mut current = System {
+        bars: vec![],
+        clipped: false,
+    };
     let mut x = 0;
-    for (bi, bar) in t.bars.iter().enumerate() {
+    for (bi, bar) in t.bars.iter().enumerate().skip(from) {
+        if horizontal && x >= avail {
+            break;
+        }
         let beats = bar.voices.first().map_or(&[][..], |v| &v.beats[..]);
         // Beat offsets after `lead` columns of bar line.
         let place = |lead: u16| {
@@ -114,13 +186,24 @@ pub fn layout_systems(score: &Score, track: usize, width: u16, scale: u16) -> Ve
         let tail = barline::tail(score, bi).len() as u16 - 1;
         let mut lead = lead_of(current.bars.is_empty());
         let (mut offs, mut bx) = place(lead);
-        if x + bx.min(avail) + tail > avail && !current.bars.is_empty() {
-            systems.push(std::mem::replace(&mut current, System { bars: vec![] }));
+        if !horizontal && x + bx.min(avail) + tail > avail && !current.bars.is_empty() {
+            systems.push(std::mem::replace(
+                &mut current,
+                System {
+                    bars: vec![],
+                    clipped: false,
+                },
+            ));
             x = 0;
             lead = lead_of(true);
             (offs, bx) = place(lead);
         }
-        let bw = bx.min(avail);
+        let mut bw = bx.min(avail);
+        if horizontal && x + bx + tail > avail {
+            // Runs off the edge: keep what shows.
+            bw = (avail - x).min(bx);
+            current.clipped = true;
+        }
         current.bars.push(BarLayout {
             bar: bi,
             x,
@@ -129,6 +212,9 @@ pub fn layout_systems(score: &Score, track: usize, width: u16, scale: u16) -> Ve
             width: bw,
         });
         x += bw;
+        if current.clipped {
+            break;
+        }
     }
     if !current.bars.is_empty() {
         systems.push(current);
@@ -143,10 +229,19 @@ pub fn view_info(
     area: Rect,
     scale: u16,
     scroll: usize,
+    horizontal: bool,
 ) -> cecilia_app::ViewInfo {
     let Some(t) = score.tracks.get(track) else {
         return Default::default();
     };
+    if horizontal {
+        let line = layout_line(score, track, area.width, scale, scroll);
+        return cecilia_app::ViewInfo {
+            horizontal: true,
+            visible_bars: line.bars.len(),
+            ..Default::default()
+        };
+    }
     let systems = layout_systems(score, track, area.width, scale);
     let visible = (area.height / system_height(t)).max(1) as usize;
     let rows: Vec<std::ops::Range<usize>> = systems
@@ -262,7 +357,6 @@ impl Widget for TabView<'_> {
             return;
         };
         let scale = self.app.config.file.ui.tab_width.clamp(1, 8) as u16;
-        let systems = layout_systems(score, pane.cursor.track, area.width, scale);
         let sh = system_height(track);
         let rows = track.strings.len().max(1);
         let visible = (area.height / sh).max(1) as usize;
@@ -271,19 +365,34 @@ impl Widget for TabView<'_> {
             Some((bar, _)) => bar,
             None => pane.cursor.bar,
         };
-        let cursor_sys = system_of_bar(&systems, focus_bar);
-        let mut scroll = (*self.scroll).min(systems.len().saturating_sub(1));
-        if let Some(to) = pane.scroll_request {
-            scroll = scroll_for(to, cursor_sys, visible);
-        } else if !self.follow {
-            scroll = scroll.min(systems.len().saturating_sub(visible));
-        } else if cursor_sys < scroll {
-            scroll = cursor_sys;
-        } else if cursor_sys >= scroll + visible {
-            scroll = cursor_sys + 1 - visible;
-        }
+        let (systems, scroll, first_row) = if pane.layout == "horizontal" {
+            // One line of bars; the scroll is the first bar shown.
+            let last = track.bars.len().saturating_sub(1);
+            let mut scroll = (*self.scroll).min(last);
+            if self.follow || pane.scroll_request.is_some() {
+                let (tr, w, to) = (pane.cursor.track, area.width, pane.scroll_request);
+                scroll = scroll_bars(score, tr, w, scale, scroll, focus_bar.min(last), to);
+            }
+            let line = layout_line(score, pane.cursor.track, area.width, scale, scroll);
+            *self.extent = (0, 0);
+            (vec![line], scroll, 0)
+        } else {
+            let systems = layout_systems(score, pane.cursor.track, area.width, scale);
+            let cursor_sys = system_of_bar(&systems, focus_bar);
+            let mut scroll = (*self.scroll).min(systems.len().saturating_sub(1));
+            if let Some(to) = pane.scroll_request {
+                scroll = scroll_for(to, cursor_sys, visible);
+            } else if !self.follow {
+                scroll = scroll.min(systems.len().saturating_sub(visible));
+            } else if cursor_sys < scroll {
+                scroll = cursor_sys;
+            } else if cursor_sys >= scroll + visible {
+                scroll = cursor_sys + 1 - visible;
+            }
+            *self.extent = (systems.len(), visible);
+            (systems, scroll, scroll)
+        };
         *self.scroll = scroll;
-        *self.extent = (systems.len(), visible);
 
         let dim = Style::default().fg(rc(th.dim));
         let line_style = Style::default().fg(rc(th.chrome_text.mix(th.dim, 0.6)));
@@ -295,8 +404,8 @@ impl Widget for TabView<'_> {
         };
         let playhead_style = on(th.playhead);
 
-        for (row, system) in systems.iter().enumerate().skip(scroll).take(visible) {
-            let y0 = area.y + ((row - scroll) as u16) * sh;
+        for (row, system) in systems.iter().enumerate().skip(first_row).take(visible) {
+            let y0 = area.y + ((row - first_row) as u16) * sh;
             if y0 + sh > area.y + area.height + 1 {
                 break;
             }
@@ -603,6 +712,50 @@ mod tests {
         // The last bar ends with a two-column final line: it needs a column more to fit.
         let narrow = layout_systems(&score, 0, 4 + 4 * 5 + 2, 2);
         assert!(narrow.len() > 1);
+    }
+
+    fn ten_bars() -> Score {
+        let beat = Beat {
+            notes: vec![Note::new(0, 12)],
+            ..Beat::default()
+        };
+        let bar = Bar {
+            voices: vec![Voice {
+                beats: vec![beat; 4],
+            }],
+            ..Default::default()
+        };
+        let track = Track {
+            strings: vec![64; 6],
+            bars: vec![bar; 10],
+            ..Track::default()
+        };
+        Score {
+            master_bars: vec![MasterBar::default(); 10],
+            tracks: vec![track],
+            ..Score::default()
+        }
+    }
+
+    #[test]
+    fn horizontal_is_one_line_that_follows_the_cursor() {
+        let score = ten_bars();
+        // 17 columns a bar, 56 available: three whole bars, the fourth cut off.
+        let line = layout_line(&score, 0, 60, 2, 0);
+        assert_eq!(line.bars.len(), 4);
+        assert!(line.clipped);
+        assert_eq!(layout_systems(&score, 0, 60, 2).len(), 4);
+        let at = |scroll, focus, to| scroll_bars(&score, 0, 60, 2, scroll, focus, to);
+        assert_eq!(at(0, 2, None), 0);
+        assert_eq!(at(0, 3, None), 1);
+        assert_eq!(at(5, 2, None), 2);
+        assert_eq!(at(0, 9, None), 7);
+        assert_eq!(at(0, 5, Some(cecilia_app::ScrollTo::Top)), 5);
+        assert_eq!(at(0, 5, Some(cecilia_app::ScrollTo::Bottom)), 3);
+        let tail = layout_line(&score, 0, 60, 2, 7);
+        assert_eq!(tail.bars.len(), 3);
+        assert!(!tail.clipped);
+        assert!(view_info(&score, 0, Rect::new(0, 0, 60, 20), 2, 0, true).horizontal);
     }
 
     #[test]

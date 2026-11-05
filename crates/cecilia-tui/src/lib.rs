@@ -813,7 +813,8 @@ fn draw(f: &mut Frame, app: &mut App, play: Option<(usize, Location, f64, f64)>,
         let info = (!chant && track.is_some()).then(|| {
             let scale = app.config.file.ui.tab_width.clamp(1, 8) as u16;
             let score = &app.buffers[pane.buffer].score;
-            tabview::view_info(score, pane.cursor.track, inner, scale, scroll)
+            let horizontal = pane.layout == "horizontal";
+            tabview::view_info(score, pane.cursor.track, inner, scale, scroll, horizontal)
         });
         view_infos.push((id, info));
         if let Some(col) = bar_col {

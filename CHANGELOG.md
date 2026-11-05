@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+
+- The terminal UI honours the horizontal layout: one line of bars that scrolls sideways, following the cursor, instead of wrapped systems scrolling vertically.
+
 ### Changed
 
 - The Linux desktop icon is now the ivory lily alone (`assets/lily.svg`) instead of the full emblem.
