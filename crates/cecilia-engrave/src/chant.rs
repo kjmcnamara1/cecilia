@@ -841,13 +841,13 @@ impl Ctx<'_> {
             });
         }
         if n.ictus() {
-            let iy = y + self.h / 2.0 + 0.2 * sp;
-            page.items.push(Item::Line {
-                from: Point::new(x + w / 2.0, iy),
-                to: Point::new(x + w / 2.0, iy + 0.5 * sp),
-                width: 0.1 * sp,
-                color: Color::BLACK,
-            });
+            let lines: Vec<f64> = self.lines().iter().map(|&l| ymap(l)).collect();
+            let mut ts = Typeset {
+                page,
+                bottom: ymap(3),
+                g: sp,
+            };
+            ts.ictus(x + w / 2.0, crate::neume::digit(p), &lines);
         }
     }
 

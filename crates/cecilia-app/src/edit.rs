@@ -387,12 +387,13 @@ pub fn toggle_chant_mark(cx: &mut EditCx, policy: ChordPolicy, mark: &str) -> Re
     Ok(())
 }
 
-/// On a chant staff of an ordinary track: a division after the cursor beat (`:` on `:`
-/// makes `::`; the same sign again removes it).
+/// On a chant staff of an ordinary track: a division after the cursor beat (`:` cycles major,
+/// double, off; the same other sign again removes it).
 pub fn set_chant_division(cx: &mut EditCx, sign: &str) {
     let beat = cx.beat();
     beat.chant_division = match (beat.chant_division.as_deref(), sign) {
         (Some(":"), ":") => Some("::".into()),
+        (Some("::"), ":") => None,
         (Some(d), s) if d == s => None,
         _ => Some(sign.to_string()),
     };
@@ -424,9 +425,10 @@ pub fn append_chant_note(
 }
 
 /// On a chant staff of an ordinary track (Enter, as on a standard staff): a plain punctum at
-/// the cursor's staff position with `duration` in the cursor beat when that has no note (a
-/// beat with one is kept), then on to the next beat (see [`advance`]). Until the track has
-/// lyrics the punctum is its own neume.
+/// the cursor's staff position with `duration` in the cursor beat, then on to the next beat
+/// (see [`advance`]). Chant is monophonic: a note the beat already has moves to the cursor's
+/// position instead, keeping its signs. Until the track has lyrics a new punctum is its own
+/// neume.
 pub fn enter_chant_punctum(
     cx: &mut EditCx,
     policy: ChordPolicy,
@@ -434,16 +436,24 @@ pub fn enter_chant_punctum(
 ) -> Result<(), String> {
     let track = cx.track().clone();
     let position = cx.cursor.line.clamp(0, 13) as u8;
-    let empty = {
+    let existing = {
         let b = cx.beat();
-        b.empty || b.notes.is_empty()
+        melody::pick(&track, b, policy).map(|i| {
+            b.notes[i]
+                .chant
+                .as_ref()
+                .is_some_and(|marks| marks.inclinatum)
+        })
     };
-    if empty {
-        put_chant_note(cx, policy, position, false, duration)?;
-        let beat = cx.beat();
-        let picked = melody::pick(&track, beat, policy).unwrap_or(0);
-        if let Some(n) = beat.notes.get_mut(picked) {
-            n.chant.get_or_insert_with(Default::default).punctum = true;
+    match existing {
+        Some(inclinatum) => put_chant_note(cx, policy, position, inclinatum, duration)?,
+        None => {
+            put_chant_note(cx, policy, position, false, duration)?;
+            let beat = cx.beat();
+            let picked = melody::pick(&track, beat, policy).unwrap_or(0);
+            if let Some(n) = beat.notes.get_mut(picked) {
+                n.chant.get_or_insert_with(Default::default).punctum = true;
+            }
         }
     }
     advance(cx, duration);

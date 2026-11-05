@@ -13,6 +13,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- Removed `:chant-note` and the `a`–`m` / `A`–`M` keys of chant insert mode: a pitch is entered by moving the cursor to its position and pressing `<CR>`.
+- `<CR>` on a chant staff of an ordinary track moves a note the beat already has to the cursor's position (chant is monophonic), keeping its signs, and moves on to the next beat.
+- `:` on a chant staff cycles the major division, the double division and none (it only switched between the first two).
+- Normal mode: `w` `e` `b` on a chant staff of an ordinary track jump to the next / previous note at the cursor's position, as on a standard staff.
+- Chant engraving: the ictus never crosses a staff line; the mora sits a little further from its note, high when the note is on a line and low when it is in a space; a division is spaced midway between its beat and the next; the stropha (`s`) is now drawn on a chant staff of an ordinary track.
 - Insert mode on a chant staff: `h` `j` `k` `l` move the cursor as on a standard staff (they were the GABC pitches `h`–`l`; enter those by moving there and `<CR>`, or as `H`–`L`), and `<Space>` goes to the next beat (on a chant track it still adds a note to the neume).
 - The other staves of a track light the note under the cursor on a chant staff only while the cursor is on that note's position (they lit the beat's note wherever the cursor was).
 

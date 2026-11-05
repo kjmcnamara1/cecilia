@@ -2456,8 +2456,9 @@ mod tests {
         let mut a = app();
         a.run(Command::StaffAdd(Some("chant".into())));
         assert_eq!(a.pane().cursor.staff, 2);
-        // i under the c4 clef is B4 (ti, one step below do = C5); the guitar plays it.
-        keys(&mut a, "iiv");
+        // Position 8 under the c4 clef is B4 (ti, one step below do = C5); the guitar plays it.
+        a.pane_mut().cursor.line = 8;
+        keys(&mut a, "i<CR>hv");
         let t = a.buffer().score.tracks[0].clone();
         let beat =
             |a: &App, i: usize| a.buffer().score.tracks[0].bars[0].voices[0].beats[i].clone();
@@ -2465,8 +2466,9 @@ mod tests {
         assert_eq!(t.pitch_of(n), 71);
         assert_eq!(n.chant.as_ref().unwrap().mods, vec!["v".to_string()]);
         assert_eq!(a.pane().cursor.line, 8);
-        // A note after it, then one starting a new neume, a division after that.
-        keys(&mut a, "<Space>g/;<Esc>");
+        // A note two steps lower in the next beat, then one starting a new neume, a division
+        // after that.
+        keys(&mut a, "ljj<CR>h/;<Esc>");
         assert_eq!(t.pitch_of(&beat(&a, 1).notes[0]), 67);
         let third = beat(&a, 2);
         assert!(third.notes[0].chant.as_ref().unwrap().neume_start);
@@ -2491,38 +2493,84 @@ mod tests {
         };
         // Eighth notes: c, d (up), c, then Enter-created punctums.
         a.run(Command::Duration(8));
-        keys(&mut a, "ic");
-        let line = a.pane().cursor.line;
-        // The beat has its note: Enter only moves on.
-        keys(&mut a, "<CR>");
+        a.pane_mut().cursor.line = 2;
+        keys(&mut a, "i<CR>");
+        // A plain punctum in the first beat; the cursor moved on, keeping its position.
+        let first = track(&a).bars[0].voices[0].beats[0].clone();
+        assert_eq!(first.notes[0].chant.as_ref().map(|m| m.punctum), Some(true));
         assert_eq!(a.pane().cursor.beat, 1);
+        assert_eq!(a.pane().cursor.line, 2);
         assert_eq!(beats(&a), 1);
-        // An empty beat gets a plain punctum at the cursor's position, and the cursor moves on.
-        keys(&mut a, "k<CR>");
-        let second = track(&a).bars[0].voices[0].beats[1].clone();
-        assert_eq!(
-            second.notes[0].chant.as_ref().map(|m| m.punctum),
-            Some(true)
-        );
-        assert_eq!(a.pane().cursor.beat, 2);
-        assert_eq!(a.pane().cursor.line, line + 1);
-        assert_eq!(beats(&a), 2);
-        keys(&mut a, "c<Esc>"); // c d c
+        keys(&mut a, "k<CR>j<CR><Esc>"); // c d c
+        assert_eq!(beats(&a), 3);
         let view = |a: &App| {
             let t = track(a);
             ChantView::build(&a.buffer().score, &t, Default::default()).unwrap()
         };
-        // No lyrics: the Enter punctum (the second note) is its own neume.
-        assert!(view(&a).neumes.iter().any(|n| *n == vec![1]));
+        // No lyrics: every punctum is its own neume.
+        assert!(view(&a).neumes.iter().all(|n| n.len() == 1));
         // Lyrics: one syllable over the first three notes makes a torculus-shaped neume run,
         // the punctum flags no longer split it.
-        assert_eq!(beats(&a), 3);
         let mut s = a.buffer().score.clone();
         s.tracks[0].bars[0].voices[0].beats[0].lyrics = vec!["Ky".into()];
         let sc = s.clone();
         let v = ChantView::build(&sc, &s.tracks[0], Default::default()).unwrap();
         let first_neume = &v.neumes[0];
         assert_eq!(first_neume.len(), 3, "{:?}", v.neumes);
+    }
+
+    #[test]
+    fn enter_moves_the_note_a_chant_beat_already_has() {
+        let mut a = app();
+        a.run(Command::StaffAdd(Some("chant".into())));
+        a.pane_mut().cursor.line = 6;
+        keys(&mut a, "i<CR>h");
+        let beat = |a: &App| a.buffer().score.tracks[0].bars[0].voices[0].beats[0].clone();
+        let before = a.buffer().score.tracks[0].pitch_of(&beat(&a).notes[0]);
+        // Two positions up, Enter: the same note moves there (chant is monophonic).
+        keys(&mut a, "kk<CR>");
+        let t = &a.buffer().score.tracks[0];
+        let now = beat(&a);
+        assert_eq!(now.notes.len(), 1);
+        assert!(t.pitch_of(&now.notes[0]) > before);
+        assert!(now.notes[0].chant.as_ref().unwrap().punctum);
+        assert_eq!(a.pane().cursor.beat, 1);
+    }
+
+    #[test]
+    fn colon_cycles_the_major_and_double_division_and_off() {
+        let mut a = app();
+        a.run(Command::StaffAdd(Some("chant".into())));
+        let division = |a: &App| {
+            a.buffer().score.tracks[0].bars[0].voices[0].beats[0]
+                .chant_division
+                .clone()
+        };
+        keys(&mut a, "i<CR>h:");
+        assert_eq!(division(&a).as_deref(), Some(":"));
+        keys(&mut a, ":");
+        assert_eq!(division(&a).as_deref(), Some("::"));
+        keys(&mut a, ":");
+        assert_eq!(division(&a), None);
+    }
+
+    #[test]
+    fn w_e_b_jump_between_the_notes_on_the_chant_staffs_cursor_position() {
+        let mut a = app();
+        a.run(Command::StaffAdd(Some("chant".into())));
+        a.pane_mut().cursor.line = 6;
+        keys(&mut a, "i<CR>k<CR>j<CR><Esc>"); // positions 6, 7, 6
+        {
+            let c = &mut a.pane_mut().cursor;
+            c.beat = 0;
+            c.line = 6;
+        }
+        keys(&mut a, "w");
+        assert_eq!(a.pane().cursor.beat, 2);
+        keys(&mut a, "b");
+        assert_eq!(a.pane().cursor.beat, 0);
+        keys(&mut a, "e");
+        assert_eq!(a.pane().cursor.beat, 2);
     }
 
     #[test]
@@ -2540,8 +2588,9 @@ mod tests {
             }
             out
         };
-        // Quarter notes: the first Enter only leaves the typed note; four fill a 4/4 bar.
-        keys(&mut a, "ig<CR><CR><CR><CR>");
+        // Quarter notes: four fill a 4/4 bar.
+        a.pane_mut().cursor.line = 6;
+        keys(&mut a, "i<CR><CR><CR><CR>");
         assert_eq!(notes(&a), vec![(0, 0), (0, 1), (0, 2), (0, 3)]);
         assert_eq!(a.pane().cursor.bar, 1);
         // Up / down moves by staff position; Enter enters there.

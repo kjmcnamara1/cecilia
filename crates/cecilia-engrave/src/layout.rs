@@ -1526,6 +1526,7 @@ impl Ctx<'_> {
         (bi, vi, i): (usize, usize, usize),
         x: f64,
         bottom: f64,
+        bw: f64,
         at: BeatRef,
     ) -> Option<f64> {
         let g = self.chant_gap();
@@ -1544,6 +1545,8 @@ impl Ctx<'_> {
                     Kind::Inclinatum
                 } else if n.mods.iter().any(|m| m == "v") {
                     Kind::Virga
+                } else if n.mods.iter().any(|m| m == "s") {
+                    Kind::Stropha
                 } else {
                     Kind::Punctum
                 }
@@ -1573,7 +1576,12 @@ impl Ctx<'_> {
                     }
                     let first_item = ts.page.items.len();
                     let (width, centers) = if ns.len() == 1 {
-                        ts.single(left, ns[0], 1)
+                        let count = match view.notes[ei].shape() {
+                            cecilia_core::chant::Shape::Stropha(c)
+                            | cecilia_core::chant::Shape::Bivirga(c) => c,
+                            _ => 1,
+                        };
+                        ts.single(left, ns[0], count)
                     } else {
                         ts.neume(left, &ns)
                     };
@@ -1610,11 +1618,8 @@ impl Ctx<'_> {
                                 .line((c - 64.0 * u, ey), (c + 64.0 * u, ey), 0.07 * g);
                         }
                         if has("'") {
-                            ts.page.line(
-                                (c, y + 0.5 * neume::HEAD_H * u + 0.1 * g),
-                                (c, y + 0.5 * neume::HEAD_H * u + 0.45 * g),
-                                0.07 * g,
-                            );
+                            let lines: Vec<f64> = (0..4).map(|k| bottom - k as f64 * g).collect();
+                            ts.ictus(c, digit(note.pitch as i32), &lines);
                         }
                     }
                     let right = left + width;
@@ -1637,7 +1642,9 @@ impl Ctx<'_> {
                     .borrow()
                     .as_ref()
                     .map_or(0.0, |s| s.right + 0.7 * g);
-                let dx = (x + self.nh_width + 0.5 * g).max(after);
+                // Halfway between this beat's head and the next beat's.
+                let middle = x + (self.nh_width + bw) / 2.0;
+                let dx = middle.max(after);
                 self.draw_chant_division(page, d, dx, bottom);
             }
         }
@@ -2741,7 +2748,7 @@ impl Ctx<'_> {
                 let mut chord: Option<(Vec<f64>, bool)> = None;
                 if let Some(view) = self.chant.as_ref().and_then(|c| c.view.as_ref()) {
                     if let Some(hx) =
-                        self.draw_chant_beat(page, view, (bi, vi, i), bx, std_bottom, beat_ref)
+                        self.draw_chant_beat(page, view, (bi, vi, i), bx, std_bottom, bw, beat_ref)
                     {
                         if let Some(entry) = layout.beats.get_mut(&beat_ref) {
                             entry.head = hx;

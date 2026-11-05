@@ -2328,9 +2328,15 @@ impl App {
             }),
             NoteNext => self.move_cursor(|s, c| step_note(s, c, true)),
             NotePrev => self.move_cursor(|s, c| step_note(s, c, false)),
-            RowNext => self.move_cursor(row_next),
-            RowEnd => self.move_cursor(row_end),
-            RowPrev => self.move_cursor(row_prev),
+            RowNext | RowEnd | RowPrev => {
+                let rows = self.chant_rows();
+                let rows = rows.as_ref();
+                match cmd {
+                    RowNext => self.move_cursor(|s, c| row_next(s, c, rows)),
+                    RowEnd => self.move_cursor(|s, c| row_end(s, c, rows)),
+                    _ => self.move_cursor(|s, c| row_prev(s, c, rows)),
+                }
+            }
             BarFirstNote => self.move_cursor(|s, c| {
                 c.beat = beats(s, c)
                     .iter()
@@ -3542,14 +3548,53 @@ fn step_note(score: &Score, c: &mut Cursor, forward: bool) {
     *c = start;
 }
 
+/// Where a chant staff of an ordinary track shows each beat's note: the staff position and the
+/// note's string, by (bar, beat) of the first voice.
+pub(crate) struct ChantRows(HashMap<(usize, usize), (i32, u8)>);
+
+impl App {
+    /// The chant positions of the cursor track's notes, when the cursor is on a chant staff of
+    /// an ordinary track.
+    pub(crate) fn chant_rows(&self) -> Option<ChantRows> {
+        let c = self.pane().cursor;
+        let score = &self.buffer().score;
+        let track = score.tracks.get(c.track)?;
+        if track.chant.is_some() || !track.staves().get(staff_index(track, c.staff))?.is_chant() {
+            return None;
+        }
+        let policy = self.chord_policy();
+        let view = cecilia_core::melody::ChantView::build(score, track, policy)
+            .or_else(|_| cecilia_core::melody::ChantView::build(score, track, Default::default()))
+            .ok()?;
+        Some(ChantRows(
+            view.events
+                .iter()
+                .zip(&view.notes)
+                .map(|(e, n)| ((e.bar, e.beat), (n.pitch as i32, e.string)))
+                .collect(),
+        ))
+    }
+}
+
 /// The note of the beat at the cursor that sits on the cursor's row: its string on a tab, its
-/// line or space on a standard staff, the beat's first note on a slash or chant staff.
-pub(crate) fn row_note<'a>(score: &'a Score, c: &Cursor) -> Option<&'a Note> {
+/// line or space on a standard staff, the beat's first note on a slash staff, the note shown
+/// at the cursor's position on a chant staff.
+pub(crate) fn row_note<'a>(
+    score: &'a Score,
+    c: &Cursor,
+    chant: Option<&ChantRows>,
+) -> Option<&'a Note> {
     let track = score.tracks.get(c.track)?;
     let kind = *track.staves().get(staff_index(track, c.staff))?;
     let beat = beats(score, c).get(c.beat)?;
     if uses_strings(track, kind) {
         beat.notes.iter().find(|n| n.string as usize == c.string)
+    } else if let (true, Some(rows)) = (kind.is_chant(), chant) {
+        let &(pos, string) = rows.0.get(&(c.bar, c.beat))?;
+        if pos != c.line {
+            return None;
+        }
+        beat.notes.iter().find(|n| n.string == string)
     } else if matches!(kind, Staff::Slash) || kind.is_chant() {
         beat.notes.first()
     } else {
@@ -3565,16 +3610,16 @@ pub(crate) fn row_note<'a>(score: &'a Score, c: &Cursor) -> Option<&'a Note> {
 }
 
 /// Whether the note on the cursor's row is tied from the one before it.
-fn row_tied(score: &Score, c: &Cursor) -> bool {
-    row_note(score, c).is_some_and(|n| n.tie)
+fn row_tied(score: &Score, c: &Cursor, chant: Option<&ChantRows>) -> bool {
+    row_note(score, c, chant).is_some_and(|n| n.tie)
 }
 
 /// The last note of the tie the cursor's note starts or continues (the cursor stays when the
 /// note is not tied on).
-fn tie_end(score: &Score, c: &mut Cursor) {
+fn tie_end(score: &Score, c: &mut Cursor, chant: Option<&ChantRows>) {
     loop {
         let mut next = *c;
-        if !step_beat(score, &mut next, true) || !row_tied(score, &next) {
+        if !step_beat(score, &mut next, true) || !row_tied(score, &next, chant) {
             return;
         }
         *c = next;
@@ -3582,10 +3627,10 @@ fn tie_end(score: &Score, c: &mut Cursor) {
 }
 
 /// The first note of the tie the cursor's note continues.
-fn tie_start(score: &Score, c: &mut Cursor) {
-    while row_tied(score, c) {
+fn tie_start(score: &Score, c: &mut Cursor, chant: Option<&ChantRows>) {
+    while row_tied(score, c, chant) {
         let mut prev = *c;
-        if !step_beat(score, &mut prev, false) || row_note(score, &prev).is_none() {
+        if !step_beat(score, &mut prev, false) || row_note(score, &prev, chant).is_none() {
             return;
         }
         *c = prev;
@@ -3598,11 +3643,12 @@ fn find_row_note(
     score: &Score,
     c: &mut Cursor,
     forward: bool,
+    chant: Option<&ChantRows>,
     wanted: impl Fn(&Note) -> bool,
 ) -> bool {
     let mut at = *c;
     while step_beat(score, &mut at, forward) {
-        if row_note(score, &at).is_some_and(&wanted) {
+        if row_note(score, &at, chant).is_some_and(&wanted) {
             *c = at;
             return true;
         }
@@ -3611,25 +3657,25 @@ fn find_row_note(
 }
 
 /// `w`: the next note on the row that begins a tie (or is not tied at all).
-fn row_next(score: &Score, c: &mut Cursor) {
-    find_row_note(score, c, true, |n| !n.tie);
+fn row_next(score: &Score, c: &mut Cursor, chant: Option<&ChantRows>) {
+    find_row_note(score, c, true, chant, |n| !n.tie);
 }
 
 /// `e`: the end of the tie the cursor is in, else the end of the next note's tie.
-fn row_end(score: &Score, c: &mut Cursor) {
+fn row_end(score: &Score, c: &mut Cursor, chant: Option<&ChantRows>) {
     let here = *c;
-    tie_end(score, c);
-    if *c == here && find_row_note(score, c, true, |_| true) {
-        tie_end(score, c);
+    tie_end(score, c, chant);
+    if *c == here && find_row_note(score, c, true, chant, |_| true) {
+        tie_end(score, c, chant);
     }
 }
 
 /// `b`: the start of the tie the cursor is in, else the start of the previous note's tie.
-fn row_prev(score: &Score, c: &mut Cursor) {
+fn row_prev(score: &Score, c: &mut Cursor, chant: Option<&ChantRows>) {
     let here = *c;
-    tie_start(score, c);
-    if *c == here && find_row_note(score, c, false, |_| true) {
-        tie_start(score, c);
+    tie_start(score, c, chant);
+    if *c == here && find_row_note(score, c, false, chant, |_| true) {
+        tie_start(score, c, chant);
     }
 }
 

@@ -702,7 +702,10 @@ fn chant_insert_moves_like_standard_and_keeps_its_letters() {
         assert!(!chant.bindings.contains_key(&keys), "{k}");
     }
     let names = |k: &str| chant.names[&crate::keys::parse_keys(k, &[]).unwrap()].clone();
-    assert_eq!(names("a"), vec!["chant-note a".to_string()]);
+    // The pitch letters are gone: the cursor's position and Enter set the pitch.
+    let a_key = crate::keys::parse_keys("a", &[]).unwrap();
+    assert!(!chant.bindings.contains_key(&a_key));
+    assert_eq!(names("v"), vec!["chant-mod v".to_string()]);
     assert_eq!(names("<CR>"), vec!["chant-syllable".to_string()]);
     assert_eq!(names("<Space>"), vec!["insert-next".to_string()]);
 }
