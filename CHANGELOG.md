@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.30.0] - 2026-11-05
+
 ### Added
 
 - `:save-as [file]` saves the buffer under a new name: with no file it opens the system save dialog (filters for the formats cecilia writes, `.cc` first); with a file it writes there. The buffer is renamed, so later `:w` writes to it; `:w file` is the same as `:save-as file`. The dialog suggests the buffer's file name, else the kebab-case score title. A plain `:w` on a buffer with no file now runs `:save-as` instead of failing.
