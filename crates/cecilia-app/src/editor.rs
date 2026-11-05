@@ -448,6 +448,12 @@ impl App {
         let keys = std::mem::take(&mut self.ed.cmd_keys);
         let mut changed = false;
         for cmd in cmds {
+            // Nothing to edit behind the dashboard.
+            if self.dashboard_visible() && (cmd.is_change() || matches!(cmd, Command::Operator(_)))
+            {
+                self.ed.operator = None;
+                continue;
+            }
             // An operator waiting for its motion.
             if let Some((op, op_count)) = self.ed.operator.take() {
                 if cmd == Command::Operator(op) {

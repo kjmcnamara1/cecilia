@@ -13,6 +13,8 @@ pub enum PickerKind {
     Buffer,
     View,
     Workspace,
+    /// Files closed lately (the dashboard's Open Recent).
+    Recent,
     Mark,
     Macro,
     /// Every key binding of every mode, found by keys, command or description.
@@ -37,6 +39,7 @@ impl PickerKind {
             "buffer" | "buffers" => PickerKind::Buffer,
             "view" | "views" => PickerKind::View,
             "workspace" | "workspaces" => PickerKind::Workspace,
+            "recent" => PickerKind::Recent,
             "mark" | "marks" => PickerKind::Mark,
             "macro" | "macros" => PickerKind::Macro,
             "keymap" | "keymaps" | "keys" => PickerKind::Keymap,
@@ -50,6 +53,7 @@ impl PickerKind {
             PickerKind::Buffer => "Buffers",
             PickerKind::View => "Views",
             PickerKind::Workspace => "Workspaces",
+            PickerKind::Recent => "Recent files",
             PickerKind::Mark => "Marks",
             PickerKind::Macro => "Macros",
             PickerKind::Keymap => "Keymaps",
@@ -821,6 +825,22 @@ impl App {
                 }
                 out
             }
+            PickerKind::Recent => self
+                .recent_files()
+                .into_iter()
+                .map(|path| Entry {
+                    label: path.file_name().map_or_else(
+                        || path.display().to_string(),
+                        |n| n.to_string_lossy().into(),
+                    ),
+                    description: path.parent().map(tilde).unwrap_or_default(),
+                    search_description: true,
+                    action: Command::Edit(path),
+                    swatch: None,
+                    icon: None,
+                    current: false,
+                })
+                .collect(),
             PickerKind::Workspace => {
                 let active = self.workspace_name();
                 crate::workspace::workspace_names()

@@ -75,6 +75,9 @@ pub struct ViewState {
     pub buffers: Vec<usize>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub name: Option<String>,
+    /// The view shows the dashboard (it has no files).
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub dashboard: bool,
 }
 
 /// A pane split tree: a pane, or panes stacked / side by side.
@@ -311,6 +314,7 @@ impl App {
                 split: split_of(&v.root),
                 buffers,
                 name: v.name.clone(),
+                dashboard: v.dashboard,
             });
         }
         let mut ids: Vec<&PaneId> = self.panes.keys().collect();
@@ -443,7 +447,13 @@ impl App {
     pub fn use_workspace(&mut self, name: &str) {
         match workspace_path(name) {
             Some(path) if path.exists() => self.open_workspace(name, true),
-            Some(_) => self.save_workspace(Some(name)),
+            Some(_) => {
+                // A new workspace with nothing open starts on the dashboard.
+                if self.buffers.iter().all(|b| b.path.is_none() && !b.modified) {
+                    self.show_dashboard();
+                }
+                self.save_workspace(Some(name));
+            }
             None => self.error(format!("workspace {name}: no data folder to keep it in")),
         }
     }
@@ -467,6 +477,7 @@ impl App {
                 self.autosave_workspace();
                 let fresh = App::new(self.config.clone(), None).workspace();
                 self.restore(&fresh);
+                self.show_dashboard();
                 self.save_workspace(Some(DEFAULT_WORKSPACE));
             }
         }
@@ -520,6 +531,10 @@ impl App {
         // Save the workspace being left first.
         self.autosave_workspace();
         self.restore(&ws);
+        // A workspace with nothing open starts on the dashboard.
+        if ws.files.is_empty() {
+            self.show_dashboard();
+        }
         self.set_workspace_file(path.clone());
         self.workspace_saved = toml::to_string_pretty(&self.workspace()).ok();
         let missing = ws.files.iter().filter(|f| !f.exists()).count();
@@ -629,8 +644,9 @@ impl App {
                 .iter()
                 .filter_map(|f| buffer_of.get(f).copied())
                 .collect();
-            // Every buffer a pane shows is on the view's bufferline (version 1 had no list).
-            for id in &ids {
+            // Every buffer a pane shows is on the view's bufferline (version 1 had no list);
+            // a dashboard view has none.
+            for id in ids.iter().filter(|_| !v.dashboard) {
                 let b = self.panes[id].buffer;
                 if !buffers.contains(&b) {
                     buffers.push(b);
@@ -638,6 +654,7 @@ impl App {
             }
             self.views.push(View {
                 maximized: None,
+                dashboard: v.dashboard,
                 root,
                 focus,
                 score,
@@ -670,6 +687,7 @@ impl App {
             );
             self.views.push(View {
                 maximized: None,
+                dashboard: false,
                 root: Node::Leaf(1),
                 focus: 1,
                 score: 1,
@@ -742,6 +760,7 @@ impl App {
             }
         }
         self.normalize_layouts();
+        self.dashboard_focus = 0;
         self.waveform_height = ws.waveform_height.clamp(
             crate::app::MIN_WAVEFORM_HEIGHT,
             crate::app::MAX_WAVEFORM_HEIGHT,

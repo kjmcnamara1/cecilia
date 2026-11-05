@@ -149,6 +149,9 @@ fn main() -> Result<()> {
             // (Screenshots only use one when asked.)
             let interactive = cli.screenshot.is_none();
             app.remember_workspace = interactive;
+            if interactive {
+                app.load_recent();
+            }
             if (interactive && cli.files.is_empty()) || cli.workspace.is_some() {
                 let ws = cli
                     .workspace

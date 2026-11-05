@@ -10,6 +10,7 @@ rust-version.workspace = true
 cecilia-core.workspace = true
 cecilia-app = { workspace = true, features = ["dialog"] }
 cecilia-audio.workspace = true
+cecilia-engrave.workspace = true
 ratatui.workspace = true
 anyhow.workspace = true
 

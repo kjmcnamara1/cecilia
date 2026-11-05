@@ -1018,6 +1018,7 @@ impl Command {
             "pick-buffer" => Pick(crate::picker::PickerKind::Buffer),
             "pick-keymap" | "keymaps" | "maps" => Pick(crate::picker::PickerKind::Keymap),
             "pick-view" => Pick(crate::picker::PickerKind::View),
+            "pick-recent" => Pick(crate::picker::PickerKind::Recent),
             "pick-workspace" => Pick(crate::picker::PickerKind::Workspace),
             "pick" => Pick(
                 arg.and_then(crate::picker::PickerKind::parse)

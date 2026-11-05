@@ -200,6 +200,8 @@ pub struct UiConfig {
     /// Closing a pane gives the split it was in equal weights again, so the remaining panes
     /// share the space equally (off: the neighbour takes the closed pane's space).
     pub equalize_on_close: bool,
+    /// `:view-new` starts the new view with the current files (off: with the dashboard).
+    pub keep_files_in_new_view: bool,
     /// The toolbar of common commands at the top of the window.
     pub toolbar: bool,
     /// The fretboard and piano panels (notes at the cursor or playhead).
@@ -245,6 +247,7 @@ impl Default for UiConfig {
             tracks_peek: 1.0,
             auto_resize: true,
             equalize_on_close: true,
+            keep_files_in_new_view: true,
             toolbar: true,
             fretboard: false,
             piano: false,
