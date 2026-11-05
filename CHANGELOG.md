@@ -19,6 +19,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - The terminal tab view draws every voice on a shared time grid (columns where any voice has a beat), with the cursor in the voice being edited and the other voices dimmed.
 - Tab fret numbers of different voices that clash on one string at one moment are drawn side by side.
 
+## [0.30.0] - 2026-11-05
+
+### Added
+
+- `:save-as [file]` saves the buffer under a new name: with no file it opens the system save dialog (filters for the formats cecilia writes, `.cc` first); with a file it writes there. The buffer is renamed, so later `:w` writes to it; `:w file` is the same as `:save-as file`. The dialog suggests the buffer's file name, else the kebab-case score title. A plain `:w` on a buffer with no file now runs `:save-as` instead of failing.
+- A file open in a buffer that is changed outside the app flags the buffer modified and asks whether to load the changes (`y` reloads, `n` keeps your version); a deleted file flags the buffer modified (`:w` recreates it).
+- The chant clef can be moved to another staff line anywhere a chant staff is shown: `:clef c1`–`c4` / `f1`–`f4` now also work on a chant staff of an ordinary track (the notes keep their pitch and are re-placed at the new clef; stored as `Track.chant_line`, old files load as before), and the tracks pane's clef box steps through `c1`–`c4`, `f1`–`f4` (and shows the clef with its line).
+
 ## [0.29.0] - 2026-11-05
 
 ### Added
@@ -227,7 +235,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
-- `:clef` picks the clef of the cursor's staff by its notation: `treble`, `bass`, `grand [split]` or `neutral` (the percussion clef, now the clef of drum staves) for standard notation, `do` or `fa` for chant (a chant staff on an ordinary track fits its melody to a C or an F clef). Tab and slash staves have no clef. On a chant track it still takes `c1`–`c4`, `f1`–`f4` and `cb3`.
+- `:clef` picks the clef of the cursor's staff by its notation: `treble`, `bass`, `grand [split]` or `neutral` (the percussion clef, now the clef of drum staves) for standard notation, `c1`–`c4` or `f1`–`f4` for chant. Tab and slash staves have no clef. On a chant track it still takes `c1`–`c4`, `f1`–`f4` and `cb3`.
 - `:lyrics-attach above|below [TRACK]` (or `none`) attaches lyrics to the cursor's staff, above or below it, taken from any track (the staff's own by default) and aligned with the staff's beats by position in the bar. Lyrics above a staff sit just over the highest notation, stem, mark or chord name over them, and under a section marker. Lyrics below a staff (the track's own or attached) are placed under whatever hangs below it, including dynamics and hairpins, which now sit closest to the staff; syllables that fall on the same place or too close are set one after another, never overlapping.
 - `ui.bar_numbers = "every"` (and `:bar-numbers every|system|toggle`) numbers every bar in the engraved score, not just the first bar of each line.
 

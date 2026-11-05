@@ -1647,7 +1647,7 @@ fn draw_tool_icon(
             );
             line(scene, &path(&[(1.0, 8.0), (15.0, 8.0)], false));
         }
-        "write" | "w" | "wall" | "wa" => {
+        "write" | "w" | "wall" | "wa" | "save-as" | "saveas" => {
             line(scene, &rect(1.5, 1.5, 14.5, 14.5, 2.0));
             line(
                 scene,

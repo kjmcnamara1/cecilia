@@ -411,6 +411,7 @@ impl App {
                             modified: true,
                             history: Default::default(),
                             version: 0,
+                            disk: None,
                         });
                         let b = self.buffers.len() - 1;
                         self.show_buffer(b);
@@ -551,5 +552,39 @@ mod tests {
         app.run(Command::ModernToChant);
         assert_eq!(app.buffers.len(), 2);
         assert!(app.buffer().score.tracks[0].chant.is_some());
+    }
+
+    #[test]
+    fn modern_chant_staff_takes_a_clef_line() {
+        use cecilia_core::chant::ClefKind;
+        let mut app = app();
+        app.run(Command::ChantToModern);
+        app.run(Command::StaffAdd(Some("chant".into())));
+        app.run(Command::StaffNext);
+        let view = |app: &App| {
+            let b = app.buffer();
+            cecilia_core::melody::ChantView::build(&b.score, &b.score.tracks[0], Default::default())
+                .unwrap()
+        };
+        app.run(Command::Clef("c3".into()));
+        assert_eq!(app.buffer().score.tracks[0].chant_line, Some(3));
+        assert_eq!(
+            (view(&app).clef.kind, view(&app).clef.line),
+            (ClefKind::Do, 3)
+        );
+        let pitches = |app: &App| view(app).events.iter().map(|e| e.pitch).collect::<Vec<_>>();
+        let before = pitches(&app);
+        app.run(Command::Clef("f2".into()));
+        assert_eq!(
+            (view(&app).clef.kind, view(&app).clef.line),
+            (ClefKind::Fa, 2)
+        );
+        assert_eq!(pitches(&app), before, "same sounding pitches");
+        app.run(Command::Clef("do".into()));
+        assert_eq!(
+            (view(&app).clef.kind, view(&app).clef.line),
+            (ClefKind::Fa, 2),
+            "do is no longer a clef"
+        );
     }
 }

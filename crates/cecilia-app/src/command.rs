@@ -481,6 +481,9 @@ pub enum Command {
     OpenDialog,
     /// Write the buffer, to its own file or (exporting) to another path.
     Write(Option<PathBuf>),
+    /// Write the buffer to a new file and make that its file (`:save-as`); without a path, ask
+    /// in the system file dialog.
+    SaveAs(Option<PathBuf>),
     /// Write every changed file (`:wall`).
     WriteAll,
     /// Write every changed file, then quit (`:write-quit`).
@@ -646,6 +649,7 @@ impl Command {
             },
             "open-dialog" => OpenDialog,
             "write" | "w" => Write(arg.map(expand_tilde)),
+            "save-as" | "saveas" => SaveAs(arg.map(expand_tilde)),
             "wall" | "wa" => WriteAll,
             "write-quit" | "wq" | "x" | "wqall" | "wqa" | "xall" | "xa" => WriteQuit,
             "quit" | "q" | "quitall" | "qa" => Quit { force: false },
@@ -1041,7 +1045,7 @@ impl Command {
             "gabc" => Gabc(arg.map(String::from)),
             "interpretation" => Interpretation(arg.map(String::from)),
             "clef" => Clef(
-                arg.ok_or("clef: expected treble, bass, grand, neutral, do or fa")?
+                arg.ok_or("clef: expected treble, bass, grand, neutral, c1–c4 or f1–f4")?
                     .to_string(),
             ),
             "lyrics-attach" => LyricsAttach(
