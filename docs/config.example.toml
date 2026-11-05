@@ -38,7 +38,8 @@ tracks_peek = 1.0        # seconds the tracks show when the track changes, while
 new_view = "copy"        # a new view starts with: "copy" (this view's buffers), "current", "empty"
 icons = "nerd"           # terminal icons (file types, and the editing palette's buttons): "nerd" (Nerd Font
                          # glyphs, e.g. the music notes), "unicode" (plain music symbols) or "none" (the
-                         # palette shows short text labels like "1/8", "PM", "||")
+                         # palette shows short text labels like "1/8", "PM", "||"; chant notation then uses
+                         # ASCII note heads)
 hide_single_view = true  # no view indicator on the right while there is only one view
 wrap = true              # :buffer-next / :buffer-prev wrap around at the ends (off: stop at the last / first tab; :tabline-wrap [on|off])
 
