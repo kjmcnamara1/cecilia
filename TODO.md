@@ -93,6 +93,14 @@ Planned work. Finished items move to `CHANGELOG.md` under `[Unreleased]`.
   - can still start "cecilia --workspace NAME" to open a window in
     a new/different workspace
 
+### Voices
+
+- [ ] Dim the voices not being edited in the GUI engraving (the terminal tab view does)
+- [ ] Shortening or lengthening a beat in a voice should refill the rest of the bar with rests
+      (or eat following rests), as Guitar Pro does; today the bar goes incomplete
+- [ ] Voice-specific copy/paste of all voices of a selection at once (copy and paste work on the
+      active voice), and voice stem-direction overrides per beat
+
 ### TUI
 
 ### GUI

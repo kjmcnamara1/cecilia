@@ -7,6 +7,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- Voices (Guitar Pro's up to four independent rhythmic streams per track): `:voice-next` / `:voice-prev` (`]v` `[v`, `<A-v>` `<A-V>`) and `<A-F1>`…`<A-F4>` (`:voice N`) switch the voice being edited; a voice the bar doesn't have yet is created as a rest for the whole bar and the cursor keeps its time position. The status line shows `V2` … when the bar has several voices or voice 2–4 is being edited. `cc` clears only the cursor's voice (a bar rest in voices 2–4), deleting a voice's last beats gives a bar rest again, and typing into a voice that is one bar rest replaces the rest.
+- Saving to `.gp5` warns when voices beyond the two it stores hold notes.
+- The terminal tab view draws every voice on a shared time grid (columns where any voice has a beat), with the cursor in the voice being edited and the other voices dimmed.
+- Tab fret numbers of different voices that clash on one string at one moment are drawn side by side.
+
 ## [0.29.0] - 2026-11-05
 
 ### Added

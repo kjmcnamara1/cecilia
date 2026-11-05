@@ -842,10 +842,8 @@ impl Widget for TabView<'_> {
                     let tick = bl.ticks[i];
                     // The beat each voice starts in this column; the first voice's drives the
                     // text under and over the staff.
-                    let starts: Vec<Option<usize>> = bar_voices
-                        .iter()
-                        .map(|v| beat_starting(v, tick))
-                        .collect();
+                    let starts: Vec<Option<usize>> =
+                        bar_voices.iter().map(|v| beat_starting(v, tick)).collect();
                     let beat = starts.first().copied().flatten().and_then(|k| beats.get(k));
                     let bx_beat = bx + off;
                     let len = bar_voices
@@ -934,12 +932,12 @@ impl Widget for TabView<'_> {
                             }) else {
                                 continue;
                             };
-                            let style = if n.ghost || n.tie || (v != cur_voice && bar_voices.len() > 1)
-                            {
-                                dim
-                            } else {
-                                Style::default().fg(rc(th.chrome_text))
-                            };
+                            let style =
+                                if n.ghost || n.tie || (v != cur_voice && bar_voices.len() > 1) {
+                                    dim
+                                } else {
+                                    Style::default().fg(rc(th.chrome_text))
+                                };
                             buf.set_string(
                                 bx_beat,
                                 y,

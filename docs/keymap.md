@@ -52,12 +52,28 @@ only be used in the GUI there, and `<D-…>` bindings never fire.
 | `0` `<Home>` / `<End>`    | first / last beat of the bar, note or not (`:bar-start`, `:bar-end`)                                                                                      | _(M1)_ |
 | `gg` / `G`                | first bar / last bar (`[count]G` = bar _count_)                                                                                                          | _(M1)_ |
 | `J` / `K`                 | next / previous track                                                                                                                                    | _(M1)_ |
+| `]v` / `[v`, `<A-v>` / `<A-V>` (also insert mode) | edit the next / previous voice of the bar: voices go round through those with notes and one more, which is created as a rest for the whole bar (`:voice-next`, `:voice-prev`) | |
+| `<A-F1>`…`<A-F4>` (also insert mode) | edit voice 1…4 of the bar (`:voice N`); a voice the bar doesn't have yet is created as a rest for the whole bar. The cursor stays at the same time position, on the beat of that voice sounding there | |
 | `]s` / `[s`         | next / previous section (`[count]` sections away; `''` goes back) |        |
 | `<leader>S`         | sections picker: every section of the file with its bars; Enter jumps there (`:sections`) | |
 | `m{a-z}` / `m{A-Z}`       | set a mark in this file / a global mark (any file)                                                                                                       |        |
 | `'{mark}` / `` `{mark} `` | jump to the mark's bar / exact position (a popup lists the marks and where they are); a global mark reopens its file if it was closed. `''` jumps back to before the last jump (also after `gg`, `G`). `` `< `` / `` `> `` (or `'<` `'>`) are the start / end of the last Visual selection, `` `^ `` where Insert mode was last left |        |
 | `zz` / `zt` / `zb`        | scroll the view so the cursor is in the middle / at the top / at the bottom of the pane (the left / right in the horizontal layout; the cursor's own staff line when a system is taller than the pane); the cursor does not move, a count is ignored (`:scroll-center`, `:scroll-top`, `:scroll-bottom`) | |
 | `<C-d>` / `<C-u>`         | half a screen down / up: half the displayed bars in the horizontal layout, else half the displayed rows of bars (rounded up, at least one; in the page layout half the rows on a page, whatever the zoom) keeping the place in the bar and on the staff | _(M1)_ |
+
+### Voices
+
+A track holds up to four voices (Guitar Pro's): independent rhythmic streams that each fill the bar
+on their own, sharing the track's instrument, tuning and mixer settings. The status line shows
+`V2` … once the bar has more than one voice or another than the first is being edited (a click
+on it goes to the next voice). Beats, durations, ties, `d` `c` `y` `p` and the other edits act on the
+voice being edited only; transposing, `:retune` and the like act on all voices. `cc` clears only
+the voice being edited (to a bar rest in voices 2–4); typing into a voice that is still one bar
+rest replaces the rest. The staves draw voices 1 and 3 with stems up and 2 and 4 with stems down,
+their rests offset, beats at the same time on the same column and clashing tab frets side by side;
+the terminal tab shows every voice on a shared time grid (the voices not being edited dimmed).
+Writing `.gp5` keeps two voices per bar (the status line warns when more with notes are left out);
+`.gp`, `.gpx`, `.cc` and MusicXML keep all four.
 
 ### Playback
 
@@ -562,6 +578,7 @@ Shared keys:
 | `h` `l` / `j` `k`            | previous / next beat (no beat is added), row down / up. Not on chant, where they are pitches; on drum tracks `h` and `k` are the hi-hat and kick |
 | `<CR>`                       | finish the beat: on a tab the fret typed stays (an empty beat becomes a rest); on a standard staff a note is put at the cursor's line or space (in the key; nothing if the beat has a note there already); on a slash staff the slash. Then the cursor goes to the next beat, as `<Space>` (appending one while the bar has room for it, else to the start of the next bar, adding a bar at the end of the score). The beats get the insert duration: the duration tool of the palette, `+` `-` `<A-1>`…`<A-7>`. Chant keeps `<CR>` = a new syllable (`:insert-enter`) |
 | `<A-CR>`                     | new beat after the cursor, staying (`:beat-new`; the old `<CR>`) |
+| `<A-v>` / `<A-V>` / `<A-F1>`…`<A-F4>` | next / previous voice, voice 1…4 (see Voices) |
 | `<BS>` / `<Del>`             | delete the note                                                 |
 | `r` / `.` / `<C-t>`          | rest / dot / triplet                                            |
 | `+` / `-` / `<A-1>`…`<A-7>`  | longer / shorter / whole … 64th                                 |
@@ -647,7 +664,7 @@ e.g. `"<C-g>" = "completion-ignore-case"`, `"<C-f>" = "completion-fuzzy"`.
 | `:beams auto\|force\|break\|break-secondary` / `:stems auto\|up\|down` | beaming and stem direction of the cursor beat, or of every beat of the Visual selection (`force` joins a beat to the one before it, `break` starts a new group, `break-secondary` keeps the primary beam but breaks the shorter ones; `auto` clears the override) |
 | `:accidental double-sharp\|double-flat`                              | the cursor note on a standard staff, spelled with a double sharp / flat (also `sharp`, `flat`, `natural`)                                                                                   |
 | `:toggle {technique}`                                                | on the cursor note or beat: `accent` `heavy-accent` `staccato` `fermata` `let-ring` `palm-mute` `hammer` (legato) `bend` `half-bend` `vibrato` `vibrato-wide` `harmonic` `artificial-harmonic` `pinch-harmonic` `tremolo` `tap` `left-hand-tap` `slap` `pop` `slide` (shift) `slide-legato` `slide-in-above` `slide-in-below` `slide-out-down` `slide-out-up` `grace-before` `grace-on` `stroke-down` `stroke-up` `arpeggio-down` `arpeggio-up` `rasgueado` `pick-down` `pick-up` `crescendo` `decrescendo` `fade-in` `fade-out` `volume-swell` `tie` `dead` `ghost` |
-| `:note C#4` / `:voice 2`                                             | set the cursor note's pitch / edit another voice                                                                                                                                            |
+| `:note C#4` / `:voice 2`                                             | set the cursor note's pitch / edit voice N (1–4) of the bar, creating it as a bar rest if new                                                                                                                                            |
 | `:tuning drop-d` or `:tuning D2 A2 D3 G3 B3 E4` / `:capo 2`          | retune keeping pitches                                                                                                                                                                      |
 | `:refinger` / `:transpose 2`                                         | re-finger the track to minimise hand movement / transpose                                                                                                                                   |
 | `:track-add bass` / `:track-delete` / `:new`                         | tracks and new scores (`:track-add piano` gets a grand staff)                                                                                                                                 |

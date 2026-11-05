@@ -3436,9 +3436,17 @@ mod render_tests {
         // fifth eighth of the first voice.
         let low = screen.lines().find(|l| l.contains('7')).unwrap();
         assert!(low.contains('8'), "{screen}");
-        let high = screen.lines().find(|l| l.matches('3').count() >= 8).unwrap();
+        let high = screen
+            .lines()
+            .find(|l| l.matches('3').count() >= 8)
+            .unwrap();
         let col = |l: &str, c: char| l.chars().position(|x| x == c).unwrap();
-        let fifth = high.char_indices().filter(|(_, c)| *c == '3').nth(4).unwrap().0;
+        let fifth = high
+            .char_indices()
+            .filter(|(_, c)| *c == '3')
+            .nth(4)
+            .unwrap()
+            .0;
         assert_eq!(col(low, '8'), high[..fifth].chars().count());
     }
 

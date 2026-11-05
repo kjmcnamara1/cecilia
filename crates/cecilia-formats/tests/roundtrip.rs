@@ -602,7 +602,7 @@ fn four_voices() -> Score {
             beats: vec![
                 Beat {
                     duration: Duration::new(value),
-                    notes: vec![Note::new(fret as u8 % 6, fret)],
+                    notes: vec![Note::new(fret % 6, fret)],
                     ..Beat::default()
                 };
                 count
@@ -661,13 +661,4 @@ fn gp5_keeps_two_voices_and_the_loss_is_reported() {
     assert_eq!(cecilia_formats::voices_lost(&score, "gp5"), 2);
     assert_eq!(cecilia_formats::voices_lost(&score, "gpx"), 0);
     assert_eq!(cecilia_formats::voices_lost(&score, "cc"), 0);
-}
-
-#[test]
-fn zz_dump_four_voices() {
-    let mut s = four_voices();
-    s.master_bars.push(MasterBar::default());
-    let b = s.tracks[0].bars[0].clone();
-    s.tracks[0].bars.push(b);
-    std::fs::write("/tmp/four.cc", cecilia_formats::write_bytes(&s, "cc").unwrap()).unwrap();
 }

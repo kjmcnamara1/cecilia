@@ -6748,10 +6748,7 @@ mod tests {
                         beats: (0..8).map(|i| beat(i, e)).collect(),
                     },
                     Voice {
-                        beats: vec![
-                            beat(9, DurationValue::Half),
-                            beat(9, DurationValue::Half),
-                        ],
+                        beats: vec![beat(9, DurationValue::Half), beat(9, DurationValue::Half)],
                     },
                 ],
                 ..Default::default()
