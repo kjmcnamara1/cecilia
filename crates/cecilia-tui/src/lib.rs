@@ -886,10 +886,11 @@ fn draw(f: &mut Frame, app: &mut App, play: Option<(usize, Location, f64, f64)>,
 fn draw_dashboard(f: &mut Frame, app: &App, area: Rect, ui: &mut Ui) {
     use cecilia_app::dashboard::DashboardButton;
     let t = &app.config.theme;
-    f.render_widget(
-        Paragraph::new("").style(Style::default().bg(rc(t.paper))),
-        area,
-    );
+    // The window's background (as the tabline and status line sit on), under everything.
+    let ground = t.chrome;
+    f.render_widget(Clear, area);
+    f.buffer_mut()
+        .set_style(area, Style::default().bg(rc(ground)).fg(rc(t.chrome_text)));
     let buttons = DashboardButton::ALL;
     let (w, h) = (26.min(area.width), 3);
     let total = 5 + buttons.len() as u16 * h;
@@ -906,14 +907,14 @@ fn draw_dashboard(f: &mut Frame, app: &App, area: Rect, ui: &mut Ui) {
             Rect::new(area.x, top + row, area.width, 1),
         )
     };
-    let base = Style::default().bg(rc(t.paper));
+    let base = Style::default().bg(rc(ground));
     // A small flower stands for the lily of assets/lily.svg, which a terminal cannot show.
     let rows = [
         centred("\u{273f}", 0, base.fg(rc(t.accent))),
         centred(
             "cecilia",
             2,
-            base.fg(rc(t.text_on(t.paper)))
+            base.fg(rc(t.chrome_text))
                 .add_modifier(ratatui::style::Modifier::BOLD),
         ),
         centred(
@@ -933,9 +934,9 @@ fn draw_dashboard(f: &mut Frame, app: &App, area: Rect, ui: &mut Ui) {
         let style = if focused {
             on(app, t.accent)
         } else if !enabled {
-            Style::default().fg(rc(t.dim)).bg(rc(t.paper))
+            Style::default().fg(rc(t.dim)).bg(rc(ground))
         } else {
-            Style::default().fg(rc(t.text_on(t.paper))).bg(rc(t.paper))
+            Style::default().fg(rc(t.chrome_text)).bg(rc(ground))
         };
         let block = Block::bordered()
             .border_type(border_type(app, focused))
@@ -2784,6 +2785,48 @@ fn draw_help(f: &mut Frame, app: &App, main: Rect) {
 #[cfg(test)]
 mod render_tests {
     use super::*;
+
+    #[test]
+    fn the_dashboard_fills_its_area_with_the_theme_background() {
+        let mut app = App::new(cecilia_app::Config::default(), None);
+        app.run(cecilia_app::Command::New);
+        for _ in 0..5 {
+            app.run(cecilia_app::Command::BufferClose(None, true));
+        }
+        assert!(app.dashboard_visible());
+        let t = app.config.theme.clone();
+        for (w, h) in [(100, 40), (60, 30), (30, 10)] {
+            let mut terminal = Terminal::new(TestBackend::new(w, h)).unwrap();
+            let mut ui = Ui::default();
+            // Dirty the frame first: stale cells must not show through.
+            terminal
+                .draw(|f| {
+                    f.render_widget(
+                        Paragraph::new("x".repeat(usize::from(w) * usize::from(h)))
+                            .style(Style::default().bg(Color::Red)),
+                        f.area(),
+                    )
+                })
+                .unwrap();
+            terminal.draw(|f| draw(f, &mut app, None, &mut ui)).unwrap();
+            let view = app.viewport;
+            let buf = terminal.backend().buffer();
+            // The tabline is hidden: the dashboard starts right under the toolbar.
+            assert_eq!(view.y, u16::from(app.toolbar), "{w}x{h}");
+            let focused = ui
+                .dashboard
+                .iter()
+                .find(|(_, i)| *i == app.dashboard_focus());
+            for y in view.y..view.y + view.h {
+                for x in view.x..view.x + view.w {
+                    let bg = buf[(x, y)].bg;
+                    let on_focused = focused.is_some_and(|(r, _)| contains(*r, x, y));
+                    let want = if on_focused { t.accent } else { t.chrome };
+                    assert_eq!(bg, rc(want), "cell {x},{y} of {w}x{h}");
+                }
+            }
+        }
+    }
 
     #[test]
     fn scrollbar_thumb_spans_the_visible_share() {
