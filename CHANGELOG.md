@@ -11,7 +11,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - The terminal UI shows the rhythm of `tab+` staves as one row under the strings, a music note or
   rest glyph per beat (Nerd Font glyphs; `tabline.icons` `unicode`/`none` give symbols or letters).
-  Clicks on the row pick the beat.
+  Eighths and shorter notes in one quarter-note group are joined by a beam row (`─`, `═` for
+  sixteenths) below. Clicks on the rhythm rows pick the beat.
 
 ## [0.26.0] - 2026-11-04
 

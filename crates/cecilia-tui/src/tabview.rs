@@ -885,8 +885,15 @@ impl Widget for TabView<'_> {
                     }
                     tick += len;
                 }
-                // Tab+ rhythm: one glyph per beat under the strings.
+                // Tab+ rhythm: one glyph per beat under the strings, beams under the glyphs.
                 if rhythm_rows > 0 {
+                    let cols: Vec<u16> = bl.beats.iter().map(|b| b.0).collect();
+                    buf.set_string(
+                        bx,
+                        y0 + 2 + rows as u16,
+                        rhythm::beams(beats, &cols, bl.width, icons),
+                        Style::default().fg(rc(th.chrome_text)),
+                    );
                     let rstyle = Style::default().fg(rc(th.chrome_text));
                     for (i, &(off, w)) in bl.beats.iter().enumerate() {
                         if off + w > bl.width + 1 {

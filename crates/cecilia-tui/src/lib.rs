@@ -3402,9 +3402,11 @@ mod render_tests {
         let screen = render(&mut app, 60, 24);
         println!("{screen}");
         assert!(screen.contains("\u{f0387}"), "{screen}");
+        assert!(screen.contains("────  ────"), "{screen}");
         app.config.file.tabline.icons = "none".into();
         let screen = render(&mut app, 60, 24);
         assert!(screen.contains("│    e  e  e  e"), "{screen}");
+        assert!(screen.contains("│    ----  ----"), "{screen}");
     }
 
     #[test]

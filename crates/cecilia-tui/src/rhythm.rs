@@ -1,12 +1,64 @@
 //! The rhythm of a tab+ staff in terminal characters: one glyph per beat, in a row under the
 //! strings and aligned with the beat's fret column, chosen only from the beat's value, dots and
-//! whether it is a rest.
+//! whether it is a rest, and below it a row of beams joining eighths and shorter notes.
 
-use cecilia_core::{Beat, DurationValue, Staff, Track};
+use cecilia_core::{Beat, DurationValue, Staff, TICKS_PER_QUARTER, Track};
 
-/// Rows below the strings for the track's rhythm: one with a tab+ staff, else none.
+/// Rows below the strings for the track's rhythm: the glyph row and the beam row with a tab+
+/// staff, else none.
 pub fn rows(track: &Track) -> u16 {
-    track.staves().contains(&Staff::TabRhythm) as u16
+    if track.staves().contains(&Staff::TabRhythm) {
+        2
+    } else {
+        0
+    }
+}
+
+/// The beam row of one bar, `width` characters: under runs of eighths and shorter notes in one
+/// quarter-note group, a line from the first to the last glyph column (`─`, or `═` where both
+/// neighbours are sixteenths or shorter; `-` and `=` unless `style` is `nerd`). `cols[i]` is the
+/// column of beat `i`'s glyph. Rests, longer notes and a lone note break a run.
+pub fn beams(beats: &[Beat], cols: &[u16], width: u16, style: &str) -> String {
+    let (single, double) = if style == "nerd" {
+        ('─', '═')
+    } else {
+        ('-', '=')
+    };
+    let mut row = vec![' '; width as usize];
+    let mut tick = 0;
+    // The open run: its quarter-note group and its (column, shorter than an eighth) beats.
+    let mut run: (u32, Vec<(u16, bool)>) = (u32::MAX, vec![]);
+    let mut runs = vec![];
+    for (beat, &col) in beats.iter().zip(cols) {
+        let level = beat.duration.value;
+        let beamed = !beat.empty && !beat.is_rest() && level >= DurationValue::Eighth;
+        let group = tick / TICKS_PER_QUARTER;
+        if !beamed || run.0 != group {
+            runs.push(std::mem::replace(&mut run, (u32::MAX, vec![])).1);
+        }
+        if beamed {
+            run.0 = group;
+            run.1.push((col, level >= DurationValue::Sixteenth));
+        }
+        tick += beat.ticks();
+    }
+    runs.push(run.1);
+    for r in runs.iter().filter(|r| r.len() > 1) {
+        for pair in r.windows(2) {
+            let ((a, da), (b, db)) = (pair[0], pair[1]);
+            for x in a..b {
+                if let Some(c) = row.get_mut(x as usize) {
+                    *c = if da && db { double } else { single };
+                }
+            }
+        }
+        if let Some(&(x, d)) = r.last()
+            && let Some(c) = row.get_mut(x as usize)
+        {
+            *c = if d { double } else { single };
+        }
+    }
+    row.into_iter().collect()
 }
 
 /// The glyph of a beat's rhythm in the `tabline.icons` style: `nerd` (Material Design music
@@ -99,7 +151,27 @@ mod tests {
         };
         assert_eq!(rows(&t), 0);
         t.staves = vec![Staff::Tab, Staff::TabRhythm];
-        assert_eq!(rows(&t), 1);
+        assert_eq!(rows(&t), 2);
+    }
+
+    #[test]
+    fn beams_join_eighths_per_quarter() {
+        let e = || beat(DurationValue::Eighth, 0, false);
+        let s = || beat(DurationValue::Sixteenth, 0, false);
+        let q = || beat(DurationValue::Quarter, 0, false);
+        let r = || beat(DurationValue::Eighth, 0, true);
+        // Two pairs of eighths: one beam per quarter, not across.
+        let bs = [e(), e(), e(), e()];
+        assert_eq!(beams(&bs, &[0, 3, 6, 9], 10, "nerd"), "────  ────");
+        // Sixteenths double the beam between them; a mix is single.
+        let bs = [s(), s(), s(), s(), e(), e()];
+        assert_eq!(beams(&bs, &[0, 2, 4, 6, 8, 10], 12, "nerd"), "═══════ ─── ");
+        assert_eq!(beams(&[e(), s()], &[0, 2], 4, "nerd"), "──═ ");
+        // Rests, longer notes and lone notes break or get no beam.
+        let bs = [e(), r(), e(), q(), e()];
+        assert_eq!(beams(&bs, &[0, 2, 4, 6, 8], 9, "nerd"), " ".repeat(9));
+        assert_eq!(beams(&[e(), e()], &[0, 2], 4, "none"), "--- ");
+        assert_eq!(beams(&[s(), s()], &[0, 2], 4, "unicode"), "=== ");
     }
 
     #[test]
