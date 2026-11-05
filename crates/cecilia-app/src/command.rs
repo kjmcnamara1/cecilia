@@ -358,6 +358,10 @@ pub enum Command {
     WorkspaceOpen(String, bool),
     /// Stop saving the session to the active workspace.
     WorkspaceClose,
+    /// Rename the active workspace.
+    WorkspaceRename(String),
+    /// Start an empty session as a new workspace (`!` discards unsaved changes).
+    WorkspaceNew(Option<String>, bool),
     /// Set a mark: await its letter (`m`).
     SetMark,
     /// Jump to a mark: await its letter (`'` to its bar, `` ` `` exactly).
@@ -986,12 +990,21 @@ impl Command {
                 }
             }),
             "workspace-save" => WorkspaceSave(arg.map(String::from)),
-            "workspace-open" | "workspace-open!" => WorkspaceOpen(
-                arg.ok_or("workspace-open: expected a workspace name or path")?
-                    .to_string(),
-                name.ends_with('!'),
-            ),
+            "workspace-open" | "workspace-open!" => match arg {
+                Some(a) => WorkspaceOpen(a.to_string(), name.ends_with('!')),
+                None if name.ends_with('!') => {
+                    return Err("workspace-open!: expected a workspace name or path".into());
+                }
+                None => Pick(crate::picker::PickerKind::Workspace),
+            },
             "workspace-close" => WorkspaceClose,
+            "workspace-rename" => WorkspaceRename(
+                arg.ok_or("workspace-rename: expected a new name")?
+                    .to_string(),
+            ),
+            "workspace-new" | "workspace-new!" => {
+                WorkspaceNew(arg.map(String::from), name.ends_with('!'))
+            }
             "set-mark" => SetMark,
             "goto-mark" => GotoMark(
                 arg.and_then(|a| a.chars().next())

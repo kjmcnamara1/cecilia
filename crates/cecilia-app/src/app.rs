@@ -2605,6 +2605,8 @@ impl App {
             WorkspaceSave(target) => self.save_workspace(target.as_deref()),
             WorkspaceOpen(name, force) => self.open_workspace(&name, force),
             WorkspaceClose => self.close_workspace(),
+            WorkspaceRename(name) => self.rename_workspace(&name),
+            WorkspaceNew(name, force) => self.new_workspace(name.as_deref(), force),
             ViewNext => self.active_view = (self.active_view + 1) % self.views.len(),
             ViewPrev => {
                 self.active_view = (self.active_view + self.views.len() - 1) % self.views.len()

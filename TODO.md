@@ -14,13 +14,6 @@ Planned work. Finished items move to `CHANGELOG.md` under `[Unreleased]`.
 
 - [ ] TODO: Deep dive on chant staff representation
 
-### Workspace
-
-- [ ] :workspace-open with no arg should open a dialogue like :open to select
-      a workspace file
-- [ ] create command : workspace-rename
-- [ ] create command : workspace-new
-
 ### File Save/Export
 
 - [ ] Converting/exporting to chant (.gabc) files

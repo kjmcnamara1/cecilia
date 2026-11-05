@@ -703,7 +703,9 @@ session if you want it (with `--workspace` too, the files open in that workspace
 | command                  |                                                                                          |
 | ------------------------ | ---------------------------------------------------------------------------------------- |
 | `:workspace-save [name]` | save the session as a workspace and make it active (no name: the active one)             |
-| `:workspace-open name`   | replace the session with a saved workspace (`:workspace-open!` discards unsaved changes) |
+| `:workspace-open [name]` | replace the session with a saved workspace (no name: the picker; `:workspace-open!` discards unsaved changes) |
+| `:workspace-new [name]`  | start an empty session as a new workspace (no name: `untitled`; `:workspace-new!` discards unsaved changes) |
+| `:workspace-rename name` | rename the active workspace (not `default`)                                              |
 | `:workspace-close`       | save and leave the active workspace for `default`                                        |
 
 ### Swap files

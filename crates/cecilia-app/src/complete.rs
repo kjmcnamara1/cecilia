@@ -275,7 +275,10 @@ pub const COMMANDS: &[&str] = &[
     "waveform-strip",
     "workspace-close",
     "workspace-open",
+    "workspace-new",
+    "workspace-new!",
     "workspace-open!",
+    "workspace-rename",
     "workspace-save",
     "wq",
     "write",
@@ -572,9 +575,8 @@ pub fn complete(line: &str, cwd: &Path, score_dir: Option<&Path>, m: Matcher) ->
         "recover" | "recover!" => paths(arg, cwd, None, m),
         "open" | "view-new" => paths(arg, cwd, Some(SCORE_EXTENSIONS), m),
         "w" | "write" => paths(arg, cwd, Some(WRITE_EXTENSIONS), m),
-        "workspace-open" | "workspace-open!" | "workspace-save" => {
-            m.rank(crate::workspace::workspace_names(), arg)
-        }
+        "workspace-open" | "workspace-open!" | "workspace-save" | "workspace-new"
+        | "workspace-new!" => m.rank(crate::workspace::workspace_names(), arg),
         "audio" => {
             let mut v = paths(
                 arg,
@@ -1143,6 +1145,9 @@ pub fn describe(command: &str) -> Option<&'static str> {
         "workspace-save" => "Save the views, panes and open files as a workspace",
         "workspace-open" => "Open a saved workspace",
         "workspace-open!" => "Open a workspace, discarding unsaved changes",
+        "workspace-new" => "Start an empty session as a new workspace",
+        "workspace-new!" => "Start a new workspace, discarding unsaved changes",
+        "workspace-rename" => "Rename the active workspace",
         "workspace-close" => "Save and leave the active workspace for default",
         "yank" => "Yank operator",
         "scroll-bottom" => "Scroll so the cursor is at the bottom of the view",

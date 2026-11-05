@@ -483,6 +483,76 @@ impl App {
         }
     }
 
+    /// Renames the active workspace (its file stays in the same folder).
+    pub fn rename_workspace(&mut self, new: &str) {
+        let default = workspace_path(DEFAULT_WORKSPACE);
+        let Some(old) = self
+            .workspace_file
+            .clone()
+            .filter(|f| Some(f) != default.as_ref())
+        else {
+            return self.error("workspace-rename: the default workspace cannot be renamed");
+        };
+        let new = new.trim();
+        if !valid_workspace_name(new) || new == DEFAULT_WORKSPACE {
+            return self.error(format!("workspace-rename: \"{new}\" is not a valid name"));
+        }
+        let Some(target) = old.parent().map(|d| d.join(format!("{new}.toml"))) else {
+            return self.error("workspace-rename: no folder to keep it in");
+        };
+        if target.exists() {
+            return self.error(format!("workspace-rename: \"{new}\" already exists"));
+        }
+        // Write pending changes first, so the file to move is current.
+        self.autosave_workspace();
+        if let Err(e) = std::fs::rename(&old, &target) {
+            return self.error(format!("workspace-rename: {}: {e}", old.display()));
+        }
+        self.set_workspace_file(target.clone());
+        self.info(format!("workspace renamed: {}", workspace_label(&target)));
+    }
+
+    /// Starts an empty session as a new workspace, named `name` or `untitled`. Unsaved changes
+    /// stop it unless `force`.
+    pub fn new_workspace(&mut self, name: Option<&str>, force: bool) {
+        if !force {
+            if let Some(b) = self.buffers.iter().find(|b| b.modified) {
+                return self.error(format!(
+                    "workspace-new: \"{}\" has unsaved changes (:w, or :workspace-new! to discard)",
+                    b.name
+                ));
+            }
+        }
+        let name = match name.map(str::trim).filter(|n| !n.is_empty()) {
+            Some(n) => n.to_string(),
+            None => {
+                let taken = workspace_names();
+                std::iter::once("untitled".to_string())
+                    .chain((2..).map(|i| format!("untitled-{i}")))
+                    .find(|n| !taken.contains(n))
+                    .unwrap_or_default()
+            }
+        };
+        let is_path = name.contains('/') || name.ends_with(".toml");
+        if !is_path && !valid_workspace_name(&name) {
+            return self.error(format!("workspace-new: \"{name}\" is not a valid name"));
+        }
+        let Some(path) = workspace_path(&name) else {
+            return self.error("workspace-new: no data folder to keep it in");
+        };
+        if path.exists() {
+            return self.error(format!(
+                "workspace-new: \"{name}\" already exists (:workspace-open {name})"
+            ));
+        }
+        // Save the workspace being left first.
+        self.autosave_workspace();
+        let fresh = App::new(self.config.clone(), None).workspace();
+        self.restore(&fresh);
+        self.show_dashboard();
+        self.save_workspace(Some(&name));
+    }
+
     fn set_workspace_file(&mut self, path: PathBuf) {
         if self.remember_workspace {
             if let Some(marker) = last_workspace_marker() {
@@ -775,6 +845,14 @@ impl App {
     }
 }
 
+/// A plain workspace name: no path separators, not hidden, no extension.
+fn valid_workspace_name(name: &str) -> bool {
+    !name.is_empty()
+        && !name.starts_with('.')
+        && !name.contains(['/', '\\'])
+        && !name.ends_with(".toml")
+}
+
 fn workspace_label(path: &Path) -> String {
     match workspace_dir() {
         Some(d) if path.parent() == Some(d.as_path()) => path
@@ -965,6 +1043,72 @@ mod tests {
         other.use_workspace(&ws);
         assert_eq!(other.views[0].root.panes().len(), 2);
         std::fs::remove_dir_all(dir).ok();
+    }
+
+    #[test]
+    fn workspaces_are_renamed_and_started_new() {
+        let dir = std::env::temp_dir().join(format!("cecilia-ws-new-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let path = |n: &str| dir.join(format!("{n}.toml"));
+        let mut app = App::new(Config::default(), None);
+        // Without an active workspace there is nothing to rename.
+        app.run(Command::WorkspaceRename("x".into()));
+        assert!(app.workspace_name().is_none());
+        app.save_workspace(Some(&path("a").display().to_string()));
+        app.save_workspace(Some(&path("b").display().to_string()));
+        // Taken, invalid and default names are refused.
+        for bad in ["b", "a/b", "", "default"] {
+            app.run(Command::WorkspaceRename(bad.into()));
+            assert_eq!(
+                app.workspace_file.as_deref(),
+                Some(path("b").as_path()),
+                "{bad}"
+            );
+        }
+        app.run(Command::WorkspaceRename("c".into()));
+        assert_eq!(app.workspace_file.as_deref(), Some(path("c").as_path()));
+        assert!(path("c").exists() && !path("b").exists());
+        // A new workspace is empty and saved; an existing name is refused.
+        app.run(Command::Split);
+        app.run(Command::WorkspaceNew(
+            Some(path("d").display().to_string()),
+            false,
+        ));
+        assert_eq!(app.workspace_file.as_deref(), Some(path("d").as_path()));
+        assert!(path("d").exists());
+        assert_eq!(app.views[0].root.panes().len(), 1);
+        app.run(Command::WorkspaceNew(Some(".hidden".into()), false));
+        assert_eq!(app.workspace_file.as_deref(), Some(path("d").as_path()));
+        // Unsaved changes stop it unless forced.
+        app.buffers[0].modified = true;
+        app.run(Command::WorkspaceNew(
+            Some(path("e").display().to_string()),
+            false,
+        ));
+        assert_eq!(app.workspace_file.as_deref(), Some(path("d").as_path()));
+        app.run(Command::WorkspaceNew(
+            Some(path("e").display().to_string()),
+            true,
+        ));
+        assert_eq!(app.workspace_file.as_deref(), Some(path("e").as_path()));
+        std::fs::remove_dir_all(dir).ok();
+    }
+
+    #[test]
+    fn workspace_open_without_a_name_picks_one() {
+        assert_eq!(
+            Command::parse("workspace-open"),
+            Ok(Command::Pick(crate::picker::PickerKind::Workspace))
+        );
+        assert!(Command::parse("workspace-open!").is_err());
+        assert_eq!(
+            Command::parse("workspace-new"),
+            Ok(Command::WorkspaceNew(None, false))
+        );
+        assert_eq!(
+            Command::parse("workspace-new! x"),
+            Ok(Command::WorkspaceNew(Some("x".into()), true))
+        );
     }
 
     #[test]

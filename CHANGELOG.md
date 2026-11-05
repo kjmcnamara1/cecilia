@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- `:workspace-open` without a name opens the workspace picker. New `:workspace-rename NAME` renames the active workspace, and `:workspace-new [name]` (`!` discards unsaved changes) starts an empty session as a new workspace (`untitled`, `untitled-2`, … without a name).
+
 ## [0.28.0] - 2026-11-04
 
 ### Added
