@@ -8,6 +8,7 @@ pub mod clipboard;
 pub mod command;
 pub mod complete;
 pub mod config;
+pub mod dashboard;
 mod design;
 pub mod dialog;
 pub mod edit;

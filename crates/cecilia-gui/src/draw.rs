@@ -147,6 +147,8 @@ pub struct Views {
     /// black keys come first, as they lie over the white ones.
     frets: Vec<(Rect, usize, u8)>,
     keys: Vec<(Rect, u8)>,
+    /// The dashboard's buttons drawn last frame (area, index into `DashboardButton::ALL`).
+    dashboard: Vec<(Rect, usize)>,
     /// The status line's clickable sections drawn last frame, and what they run.
     status: Vec<(Rect, cecilia_app::Command)>,
     /// The toolbar's buttons drawn last frame (area, index into `App::toolbar_items`).
@@ -989,7 +991,8 @@ pub fn build(
     // Panes fill the window between the tab bar and the status line; tool panes are among
     // them.
     let bottom = height - STATUS - CMDLINE;
-    let top = TAB_BAR + if app.toolbar { TOOLBAR } else { 0.0 };
+    let tabline = app.tabline_visible();
+    let top = if tabline { TAB_BAR } else { 0.0 } + if app.toolbar { TOOLBAR } else { 0.0 };
     views.chrome_bottom = top;
     // The tracks peeking after a change of track (no tracks pane shown) take the bottom.
     let peek = if app.tracks_peeking() && height > 300.0 {
@@ -1036,14 +1039,22 @@ pub fn build(
         draw_toolbar(scene, app, views, width);
     }
     let tab_y = if app.toolbar { TOOLBAR } else { 0.0 };
-    let hover = views.hover;
-    views.hover.1 -= tab_y;
-    let mut tabs = Scene::new();
-    draw_tabs(&mut tabs, app, views, width);
-    views.hover = hover;
-    scene.append(&tabs, Some(Affine::translate((0.0, tab_y))));
-    for (r, _) in views.tabline.iter_mut() {
-        *r = *r + vello::kurbo::Vec2::new(0.0, tab_y);
+    // No tabline over the dashboard: its space goes to the dashboard.
+    views.tabline.clear();
+    if tabline {
+        let hover = views.hover;
+        views.hover.1 -= tab_y;
+        let mut tabs = Scene::new();
+        draw_tabs(&mut tabs, app, views, width);
+        views.hover = hover;
+        scene.append(&tabs, Some(Affine::translate((0.0, tab_y))));
+        for (r, _) in views.tabline.iter_mut() {
+            *r = *r + vello::kurbo::Vec2::new(0.0, tab_y);
+        }
+    }
+    views.dashboard.clear();
+    if app.dashboard_visible() {
+        draw_dashboard(scene, app, views, main);
     }
     views.geometry.clear();
     views.view_infos.clear();
@@ -1157,6 +1168,123 @@ pub fn build(
         draw_palette(scene, &p, width, height);
     }
     views.cache.retain(|id, _| app.panes.contains_key(id));
+}
+
+/// Width in pixels the dashboard's lily is rasterized at: three times its 96 logical px, so it
+/// is sharp up to 300% display scaling and merely smoothed below that.
+const LILY_PX: u32 = 288;
+
+thread_local! {
+    /// The dashboard's lily: `assets/lily.svg` (embedded) rendered once by resvg. A vector scene
+    /// from vello_svg drew the petals wrongly (its `<use>` transforms) and without the drop
+    /// shadows, so the picture is rasterized instead.
+    static LILY: Option<vello::peniko::Image> = lily_image();
+}
+
+fn lily_image() -> Option<vello::peniko::Image> {
+    let svg = include_str!("../../../assets/lily.svg");
+    let tree = resvg::usvg::Tree::from_str(svg, &resvg::usvg::Options::default()).ok()?;
+    let mut pixmap = resvg::tiny_skia::Pixmap::new(LILY_PX, LILY_PX)?;
+    let k = LILY_PX as f32 / tree.size().width();
+    resvg::render(
+        &tree,
+        resvg::tiny_skia::Transform::from_scale(k, k),
+        &mut pixmap.as_mut(),
+    );
+    // tiny-skia holds premultiplied colors; the scene takes straight alpha.
+    let data: Vec<u8> = pixmap
+        .pixels()
+        .iter()
+        .flat_map(|p| {
+            let c = p.demultiply();
+            [c.red(), c.green(), c.blue(), c.alpha()]
+        })
+        .collect();
+    Some(vello::peniko::Image::new(
+        data.into(),
+        vello::peniko::ImageFormat::Rgba8,
+        LILY_PX,
+        LILY_PX,
+    ))
+}
+
+/// The dashboard shown instead of the panes: the name and a column of buttons, centred in `main`
+/// (the focused or hovered one highlighted).
+fn draw_dashboard(scene: &mut Scene, app: &App, views: &mut Views, main: Rect) {
+    use cecilia_app::dashboard::DashboardButton;
+    let (w, h, gap) = (260.0, 48.0, 14.0);
+    let (icon, header) = (96.0, 96.0 + 24.0 + 44.0 + 22.0 + 36.0);
+    let n = DashboardButton::ALL.len() as f64;
+    let total = header + n * h + (n - 1.0) * gap;
+    let cx = main.center().x;
+    let top = (main.center().y - total / 2.0).max(main.y0 + 10.0);
+    // The lily (assets/lily.svg, 512 px wide as drawn), the name and the tagline under it.
+    LILY.with(|l| {
+        if let Some(lily) = l {
+            let k = icon / f64::from(LILY_PX);
+            let at = Affine::translate((cx - icon / 2.0, top)) * Affine::scale(k);
+            scene.draw_image(lily, at);
+        }
+    });
+    let name_y = top + icon + 24.0 + 24.0;
+    text(
+        scene,
+        "cecilia",
+        cx,
+        name_y,
+        34.0,
+        Align::Center,
+        chrome_text(),
+        true,
+    );
+    let tagline = "Tablature, notation and chant editor and player";
+    let path: BezPath = cecilia_engrave::fonts::fonts().text_path(
+        FontKind::Italic,
+        tagline,
+        cx,
+        name_y + 30.0,
+        15.0,
+        Align::Center,
+    );
+    scene.fill(Fill::NonZero, Affine::IDENTITY, dim(), None, &path);
+    let top = top + header - 70.0;
+    for (i, b) in DashboardButton::ALL.into_iter().enumerate() {
+        let y = top + 70.0 + i as f64 * (h + gap);
+        let r = Rect::new(cx - w / 2.0, y, cx + w / 2.0, y + h);
+        let focused = i == app.dashboard_focus();
+        let enabled = app.dashboard_enabled(i);
+        let hovered = enabled && r.contains(views.hover);
+        let shape = RoundedRect::new(r.x0, r.y0, r.x1, r.y1, 8.0);
+        let bg = if focused {
+            accent()
+        } else if hovered {
+            tc(|t| t.tab_hover)
+        } else {
+            tc(|t| t.toolbar)
+        };
+        scene.fill(Fill::NonZero, Affine::IDENTITY, bg, None, &shape);
+        if focused {
+            let ring = RoundedRect::new(r.x0 - 3.0, r.y0 - 3.0, r.x1 + 3.0, r.y1 + 3.0, 10.0);
+            scene.stroke(&Stroke::new(2.0), Affine::IDENTITY, accent(), None, &ring);
+        }
+        text(
+            scene,
+            b.label(),
+            cx,
+            r.center().y + 6.0,
+            17.0,
+            Align::Center,
+            if focused {
+                text_on(bg)
+            } else if enabled {
+                chrome_text()
+            } else {
+                dim()
+            },
+            false,
+        );
+        views.dashboard.push((r, i));
+    }
 }
 
 /// The tabline, as in bufferline.nvim: the active view's buffers as tabs on the left (file-type
@@ -5360,7 +5488,7 @@ impl Views {
     /// Whether a window position is over the tabline or toolbar (hovering there needs
     /// redraws).
     pub fn over_tabline(&self, y: f64) -> bool {
-        y < self.chrome_bottom.max(TAB_BAR)
+        y < self.chrome_bottom
     }
 
     /// A toolbar tooltip is waiting to show: redraw until it does.
@@ -5743,6 +5871,10 @@ impl Views {
     }
 
     pub fn click(&mut self, app: &mut App, x: f64, y: f64) {
+        if let Some(&(_, i)) = self.dashboard.iter().find(|(r, _)| r.contains((x, y))) {
+            app.dashboard_activate(i);
+            return;
+        }
         if let Some(&(_, i)) = self.toolbar.iter().find(|(r, _)| r.contains((x, y))) {
             app.run_toolbar(i);
             return;

@@ -30,6 +30,7 @@ auto_resize = true       # tracks panes fit their contents' height, until you re
 focus_ring_width = 4.0 # GUI: thickness in pixels of the ring around the focused pane (0 to 8; 0: none; the terminal UI uses a thick border above 4; :focus-ring-width N sets it for the session)
 # focus_ring_color = "#fabe28" # color of that ring (#rgb, #rrggbb or #rrggbbaa); unset: the current mode's color (:focus-ring-color #hex|default)
 equalize_on_close = true # closing a pane re-equalizes the split it was in (off: the neighbour takes its space; :equalize-on-close [on|off] changes it for the session)
+keep_files_in_new_view = true # :view-new starts the new view with the current files (as tabline.new_view says; off: with the dashboard, no files)
 tracks_peek = 1.0        # seconds the tracks show when the track changes, while no tracks pane is
                          # shown (0: never)
 

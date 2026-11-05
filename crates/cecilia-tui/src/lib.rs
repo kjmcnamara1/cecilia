@@ -91,6 +91,8 @@ struct Ui {
     /// A mouse drag in progress.
     drag: Option<Drag>,
     hits: Vec<Hit>,
+    /// The dashboard's buttons (area, index into `DashboardButton::ALL`).
+    dashboard: Vec<(Rect, usize)>,
     /// Score panes' scrollbars (column, pane, (lines in all, lines shown)).
     scrollbars: Vec<(Rect, u32, (usize, usize))>,
     /// Panes scrolled by hand, which stop following the cursor until it moves, and the
@@ -278,6 +280,20 @@ fn event_loop(terminal: &mut DefaultTerminal, app: &mut App) -> Result<()> {
                         };
                         ui.drag = Some(Drag::Scrollbar(pane, grab as u16));
                         scrollbar_to(app, &mut ui, pane, grab as u16, m.row);
+                    }
+                    MouseEventKind::Down(MouseButton::Left)
+                        if ui
+                            .dashboard
+                            .iter()
+                            .any(|(r, _)| contains(*r, m.column, m.row)) =>
+                    {
+                        if let Some(&(_, i)) = ui
+                            .dashboard
+                            .iter()
+                            .find(|(r, _)| contains(*r, m.column, m.row))
+                        {
+                            app.dashboard_activate(i);
+                        }
                     }
                     MouseEventKind::Down(MouseButton::Left)
                         if divider_at(app, m.column, m.row).is_some() =>
@@ -614,7 +630,7 @@ fn draw(f: &mut Frame, app: &mut App, play: Option<(usize, Location, f64, f64)>,
     };
     let [toolbar, tabline, main, peek, status, cmdline] = Layout::vertical([
         Constraint::Length(u16::from(app.toolbar)),
-        Constraint::Length(1),
+        Constraint::Length(u16::from(app.tabline_visible())),
         Constraint::Min(3),
         Constraint::Length(peek_h),
         Constraint::Length(1),
@@ -639,11 +655,18 @@ fn draw(f: &mut Frame, app: &mut App, play: Option<(usize, Location, f64, f64)>,
         w: main.width,
         h: main.height,
     });
-    draw_tabline(f, app, tabline, ui);
+    ui.tabline.clear();
+    if app.tabline_visible() {
+        draw_tabline(f, app, tabline, ui);
+    }
     ui.toolbar.clear();
     ui.tooltip = None;
     if app.toolbar {
         draw_toolbar(f, app, toolbar, ui);
+    }
+    ui.dashboard.clear();
+    if app.dashboard_visible() {
+        draw_dashboard(f, app, main, ui);
     }
     // Tool panes: a frame named after the tool around it.
     let focused = app.window_focus();
@@ -855,6 +878,81 @@ fn draw(f: &mut Frame, app: &mut App, play: Option<(usize, Location, f64, f64)>,
     }
     if let Some(p) = app.palette() {
         draw_palette(f, app, &p, f.area());
+    }
+}
+
+/// The dashboard shown instead of the panes: the name, and a column of buttons centred in `area`
+/// (the focused one highlighted).
+fn draw_dashboard(f: &mut Frame, app: &App, area: Rect, ui: &mut Ui) {
+    use cecilia_app::dashboard::DashboardButton;
+    let t = &app.config.theme;
+    // The window's background (as the tabline and status line sit on), under everything.
+    let ground = t.chrome;
+    f.render_widget(Clear, area);
+    f.buffer_mut()
+        .set_style(area, Style::default().bg(rc(ground)).fg(rc(t.chrome_text)));
+    let buttons = DashboardButton::ALL;
+    let (w, h) = (26.min(area.width), 3);
+    let total = 5 + buttons.len() as u16 * h;
+    if area.width < 8 || area.height < total {
+        return;
+    }
+    let top = area.y + (area.height - total) / 2;
+    let x = area.x + (area.width - w) / 2;
+    let centred = |text: &'static str, row: u16, style: Style| {
+        (
+            Paragraph::new(text)
+                .alignment(ratatui::layout::Alignment::Center)
+                .style(style),
+            Rect::new(area.x, top + row, area.width, 1),
+        )
+    };
+    let base = Style::default().bg(rc(ground));
+    // A small flower stands for the lily of assets/lily.svg, which a terminal cannot show.
+    let rows = [
+        centred("\u{273f}", 0, base.fg(rc(t.accent))),
+        centred(
+            "cecilia",
+            2,
+            base.fg(rc(t.chrome_text))
+                .add_modifier(ratatui::style::Modifier::BOLD),
+        ),
+        centred(
+            "Tablature, notation and chant editor and player",
+            3,
+            base.fg(rc(t.dim))
+                .add_modifier(ratatui::style::Modifier::ITALIC),
+        ),
+    ];
+    for (widget, r) in rows {
+        f.render_widget(widget, r);
+    }
+    for (i, b) in buttons.into_iter().enumerate() {
+        let r = Rect::new(x, top + 5 + i as u16 * h, w, h);
+        let focused = i == app.dashboard_focus();
+        let enabled = app.dashboard_enabled(i);
+        let style = if focused {
+            on(app, t.accent)
+        } else if !enabled {
+            Style::default().fg(rc(t.dim)).bg(rc(ground))
+        } else {
+            Style::default().fg(rc(t.chrome_text)).bg(rc(ground))
+        };
+        let block = Block::bordered()
+            .border_type(border_type(app, focused))
+            .border_style(if focused {
+                Style::default().fg(rc(app.config.focus_ring_color(app.mode)))
+            } else {
+                Style::default().fg(rc(t.dim))
+            })
+            .style(style);
+        f.render_widget(
+            Paragraph::new(b.label())
+                .alignment(ratatui::layout::Alignment::Center)
+                .block(block),
+            r,
+        );
+        ui.dashboard.push((r, i));
     }
 }
 
@@ -2687,6 +2785,48 @@ fn draw_help(f: &mut Frame, app: &App, main: Rect) {
 #[cfg(test)]
 mod render_tests {
     use super::*;
+
+    #[test]
+    fn the_dashboard_fills_its_area_with_the_theme_background() {
+        let mut app = App::new(cecilia_app::Config::default(), None);
+        app.run(cecilia_app::Command::New);
+        for _ in 0..5 {
+            app.run(cecilia_app::Command::BufferClose(None, true));
+        }
+        assert!(app.dashboard_visible());
+        let t = app.config.theme.clone();
+        for (w, h) in [(100, 40), (60, 30), (30, 10)] {
+            let mut terminal = Terminal::new(TestBackend::new(w, h)).unwrap();
+            let mut ui = Ui::default();
+            // Dirty the frame first: stale cells must not show through.
+            terminal
+                .draw(|f| {
+                    f.render_widget(
+                        Paragraph::new("x".repeat(usize::from(w) * usize::from(h)))
+                            .style(Style::default().bg(Color::Red)),
+                        f.area(),
+                    )
+                })
+                .unwrap();
+            terminal.draw(|f| draw(f, &mut app, None, &mut ui)).unwrap();
+            let view = app.viewport;
+            let buf = terminal.backend().buffer();
+            // The tabline is hidden: the dashboard starts right under the toolbar.
+            assert_eq!(view.y, u16::from(app.toolbar), "{w}x{h}");
+            let focused = ui
+                .dashboard
+                .iter()
+                .find(|(_, i)| *i == app.dashboard_focus());
+            for y in view.y..view.y + view.h {
+                for x in view.x..view.x + view.w {
+                    let bg = buf[(x, y)].bg;
+                    let on_focused = focused.is_some_and(|(r, _)| contains(*r, x, y));
+                    let want = if on_focused { t.accent } else { t.chrome };
+                    assert_eq!(bg, rc(want), "cell {x},{y} of {w}x{h}");
+                }
+            }
+        }
+    }
 
     #[test]
     fn scrollbar_thumb_spans_the_visible_share() {
