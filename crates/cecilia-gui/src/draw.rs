@@ -1165,9 +1165,42 @@ pub fn build(
     views.cache.retain(|id, _| app.panes.contains_key(id));
 }
 
+/// Width in pixels the dashboard's lily is rasterized at: three times its 96 logical px, so it
+/// is sharp up to 300% display scaling and merely smoothed below that.
+const LILY_PX: u32 = 288;
+
 thread_local! {
-    /// The dashboard's lily, parsed once from the embedded SVG.
-    static LILY: Option<Scene> = vello_svg::render(include_str!("../../../assets/lily.svg")).ok();
+    /// The dashboard's lily: `assets/lily.svg` (embedded) rendered once by resvg. A vector scene
+    /// from vello_svg drew the petals wrongly (its `<use>` transforms) and without the drop
+    /// shadows, so the picture is rasterized instead.
+    static LILY: Option<vello::peniko::Image> = lily_image();
+}
+
+fn lily_image() -> Option<vello::peniko::Image> {
+    let svg = include_str!("../../../assets/lily.svg");
+    let tree = resvg::usvg::Tree::from_str(svg, &resvg::usvg::Options::default()).ok()?;
+    let mut pixmap = resvg::tiny_skia::Pixmap::new(LILY_PX, LILY_PX)?;
+    let k = LILY_PX as f32 / tree.size().width();
+    resvg::render(
+        &tree,
+        resvg::tiny_skia::Transform::from_scale(k, k),
+        &mut pixmap.as_mut(),
+    );
+    // tiny-skia holds premultiplied colors; the scene takes straight alpha.
+    let data: Vec<u8> = pixmap
+        .pixels()
+        .iter()
+        .flat_map(|p| {
+            let c = p.demultiply();
+            [c.red(), c.green(), c.blue(), c.alpha()]
+        })
+        .collect();
+    Some(vello::peniko::Image::new(
+        data.into(),
+        vello::peniko::ImageFormat::Rgba8,
+        LILY_PX,
+        LILY_PX,
+    ))
 }
 
 /// The dashboard shown instead of the panes: the name and a column of buttons, centred in `main`
@@ -1183,9 +1216,9 @@ fn draw_dashboard(scene: &mut Scene, app: &App, views: &mut Views, main: Rect) {
     // The lily (assets/lily.svg, 512 px wide as drawn), the name and the tagline under it.
     LILY.with(|l| {
         if let Some(lily) = l {
-            let k = icon / 512.0;
+            let k = icon / f64::from(LILY_PX);
             let at = Affine::translate((cx - icon / 2.0, top)) * Affine::scale(k);
-            scene.append(lily, Some(at));
+            scene.draw_image(lily, at);
         }
     });
     let name_y = top + icon + 24.0 + 24.0;
