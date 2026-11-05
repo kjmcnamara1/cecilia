@@ -27,8 +27,11 @@ struct BarLayout {
     width: u16,
 }
 
+#[derive(Default)]
 pub struct System {
     bars: Vec<BarLayout>,
+    /// Page layout: the page this system is on.
+    page: usize,
     /// Horizontal layout: the last bar does not fit whole.
     clipped: bool,
 }
@@ -137,10 +140,7 @@ pub fn layout_systems(score: &Score, track: usize, width: u16, scale: u16) -> Ve
 pub fn layout_line(score: &Score, track: usize, width: u16, scale: u16, from: usize) -> System {
     layout_from(score, track, width, scale, from, true)
         .pop()
-        .unwrap_or(System {
-            bars: vec![],
-            clipped: false,
-        })
+        .unwrap_or_default()
 }
 
 fn layout_from(
@@ -156,10 +156,7 @@ fn layout_from(
     };
     let avail = width.saturating_sub(LABEL_WIDTH + 1).max(8);
     let mut systems = vec![];
-    let mut current = System {
-        bars: vec![],
-        clipped: false,
-    };
+    let mut current = System::default();
     let mut x = 0;
     for (bi, bar) in t.bars.iter().enumerate().skip(from) {
         if horizontal && x >= avail {
@@ -187,13 +184,7 @@ fn layout_from(
         let mut lead = lead_of(current.bars.is_empty());
         let (mut offs, mut bx) = place(lead);
         if !horizontal && x + bx.min(avail) + tail > avail && !current.bars.is_empty() {
-            systems.push(std::mem::replace(
-                &mut current,
-                System {
-                    bars: vec![],
-                    clipped: false,
-                },
-            ));
+            systems.push(std::mem::take(&mut current));
             x = 0;
             lead = lead_of(true);
             (offs, bx) = place(lead);
@@ -222,6 +213,186 @@ fn layout_from(
     systems
 }
 
+/// The beat columns of a bar at `scale`, after `lead` columns of bar line, and the bar's width.
+fn place_beats(beats: &[Beat], t: &Track, scale: u16, lead: u16) -> (Vec<(u16, u16)>, u16) {
+    let mut offs = vec![];
+    let mut bx = lead;
+    for b in beats {
+        let w = beat_width(b, t, scale);
+        offs.push((bx, w));
+        bx += w;
+    }
+    if beats.is_empty() {
+        offs.push((lead, 4 * scale / 2));
+        bx += 4 * scale / 2;
+    }
+    (offs, bx)
+}
+
+/// One line (system) of the page layout as the engraver breaks it: which bars, on which page,
+/// how wide each is and how much of the page width the line fills.
+#[derive(Debug, Clone, PartialEq)]
+pub struct RowSpec {
+    pub page: usize,
+    pub bars: std::ops::Range<usize>,
+    /// Each bar's width on the page (points).
+    pub widths: Vec<f64>,
+    /// The line's length over the longest line's.
+    pub fill: f64,
+    /// The line's length on the page (points).
+    pub span: f64,
+}
+
+/// A design-mode handle in the terminal: a cell (or column) the mouse can press.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub enum DesignHit {
+    /// The "+" at the end of the line starting at bar `first` with `n` bars.
+    Add { first: usize, n: usize },
+    /// The "-" at the end of that line.
+    Remove { first: usize, n: usize },
+    /// The bar line after bar `k` of line `system`, dragged `points` page points per column.
+    BarLine {
+        system: usize,
+        k: usize,
+        points: f64,
+    },
+}
+
+/// The bar-to-system assignment of an engraved page layout, so the TUI breaks lines (and pages)
+/// where the GUI does, manual line breaks and bar widths of design mode included.
+pub fn page_rows(layout: &cecilia_engrave::Layout) -> Vec<RowSpec> {
+    let widest = layout
+        .systems
+        .iter()
+        .map(|s| s.x1 - s.x0)
+        .fold(0.0, f64::max)
+        .max(1.0);
+    layout
+        .systems
+        .iter()
+        .map(|s| RowSpec {
+            page: s.page,
+            bars: s.range(),
+            widths: s
+                .range()
+                .map(|b| layout.bars.get(b).map_or(1.0, |r| (r.2 - r.1).max(1.0)))
+                .collect(),
+            fill: ((s.x1 - s.x0) / widest).clamp(0.1, 1.0),
+            span: (s.x1 - s.x0).max(1.0),
+        })
+        .collect()
+}
+
+/// Lays the track out in the given lines, scaled to `width` columns: each line's bars share
+/// its columns in the proportions of the engraved page, and a bar whose beats do not fit
+/// closes them up (down to `scale` 1) before it runs over.
+pub fn layout_rows(
+    score: &Score,
+    track: usize,
+    width: u16,
+    scale: u16,
+    rows: &[RowSpec],
+) -> Vec<System> {
+    let Some(t) = score.tracks.get(track) else {
+        return vec![];
+    };
+    let avail = width.saturating_sub(LABEL_WIDTH + 1).max(8);
+    rows.iter()
+        .filter(|r| !r.bars.is_empty() && r.bars.end <= t.bars.len())
+        .map(|row| {
+            let tail = barline::tail(score, row.bars.end - 1).len() as u16 - 1;
+            let line = (avail.saturating_sub(tail) as f64 * row.fill) as u16;
+            let total: f64 = row.widths.iter().sum::<f64>().max(1.0);
+            let mut x = 0u16;
+            let mut bars = vec![];
+            for (k, bi) in row.bars.clone().enumerate() {
+                let lead = barline::boundary(score, bi, k == 0).len() as u16;
+                let share = (line as f64 * row.widths[k] / total) as u16;
+                let beats = t.bars[bi].voices.first().map_or(&[][..], |v| &v.beats[..]);
+                let mut sc = scale;
+                let (mut offs, mut bx) = place_beats(beats, t, sc, lead);
+                while bx > share && sc > 1 {
+                    sc -= 1;
+                    (offs, bx) = place_beats(beats, t, sc, lead);
+                }
+                let width = share.max(bx).min(avail.saturating_sub(x)).max(1);
+                bars.push(BarLayout {
+                    bar: bi,
+                    x,
+                    lead,
+                    beats: offs,
+                    width,
+                });
+                x += width;
+            }
+            System {
+                bars,
+                page: row.page,
+                clipped: false,
+            }
+        })
+        .collect()
+}
+
+/// A page's top or bottom border across `outer` on row `y`, with `label` after the corner.
+fn page_edge(
+    buf: &mut Buffer,
+    outer: Rect,
+    y: u16,
+    (a, b): (char, char),
+    label: &str,
+    style: Style,
+) {
+    let mut line = format!("{a}─{label}");
+    let fill = (outer.width as usize).saturating_sub(line.chars().count() + 1);
+    line.push_str(&"─".repeat(fill));
+    line.push(b);
+    buf.set_string(outer.x, y, line, style);
+}
+
+/// The rows a system takes in the page layout besides its own: a page's top border above its
+/// first system, and its bottom border and a blank row below its last.
+fn page_pad(systems: &[System], i: usize) -> (u16, u16) {
+    let first = i == 0 || systems[i - 1].page != systems[i].page;
+    let last = systems.get(i + 1).is_none_or(|n| n.page != systems[i].page);
+    (u16::from(first), if last { 2 } else { 0 })
+}
+
+/// Systems from `from` that fit whole in `height` rows of the page layout (at least one).
+pub fn page_fit(systems: &[System], sh: u16, from: usize, height: u16) -> usize {
+    let mut used = 0;
+    let mut n = 0;
+    for i in from..systems.len() {
+        let (before, after) = page_pad(systems, i);
+        used += before + sh + after;
+        // The blank row after a page is not needed to count it as shown.
+        if used.saturating_sub(after.min(1)) > height && n > 0 {
+            break;
+        }
+        n += 1;
+    }
+    n.max(1)
+}
+
+/// The first system to show in the page layout so that `target` is whole on screen: `scroll`
+/// if it is already, else the nearest change.
+pub fn page_scroll(
+    systems: &[System],
+    sh: u16,
+    scroll: usize,
+    height: u16,
+    target: usize,
+) -> usize {
+    if target < scroll {
+        return target;
+    }
+    let mut s = scroll;
+    while s < target && target >= s + page_fit(systems, sh, s, height) {
+        s += 1;
+    }
+    s
+}
+
 /// The rows of bars a pane of `area` shows from system `scroll`, for half-page movement.
 pub fn view_info(
     score: &Score,
@@ -230,6 +401,7 @@ pub fn view_info(
     scale: u16,
     scroll: usize,
     horizontal: bool,
+    page: Option<&[RowSpec]>,
 ) -> cecilia_app::ViewInfo {
     let Some(t) = score.tracks.get(track) else {
         return Default::default();
@@ -242,19 +414,37 @@ pub fn view_info(
             ..Default::default()
         };
     }
-    let systems = layout_systems(score, track, area.width, scale);
-    let visible = (area.height / system_height(t)).max(1) as usize;
+    let sh = system_height(t);
+    let (systems, visible) = match page {
+        Some(page) => {
+            let systems = layout_rows(score, track, area.width.saturating_sub(4), scale, page);
+            let visible = page_fit(&systems, sh, scroll, area.height);
+            (systems, visible)
+        }
+        None => (
+            layout_systems(score, track, area.width, scale),
+            (area.height / sh).max(1) as usize,
+        ),
+    };
     let rows: Vec<std::ops::Range<usize>> = systems
         .iter()
         .map(|s| s.bars.first().map_or(0, |b| b.bar)..s.bars.last().map_or(0, |b| b.bar + 1))
         .collect();
     let shown = rows.iter().skip(scroll).take(visible);
+    // The most lines on one page: half-page movement counts these, not the lines on screen.
+    let page_rows = page.map_or(0, |_| {
+        let mut per = std::collections::HashMap::new();
+        systems
+            .iter()
+            .for_each(|s| *per.entry(s.page).or_insert(0) += 1);
+        per.into_values().max().unwrap_or(0)
+    });
     cecilia_app::ViewInfo {
         horizontal: false,
         visible_rows: shown.clone().count(),
         visible_bars: shown.map(|r| r.len()).sum(),
         rows,
-        page_rows: 0,
+        page_rows,
     }
 }
 
@@ -344,6 +534,11 @@ pub struct TabView<'a> {
     pub extent: &'a mut (usize, usize),
     /// Keep the cursor (or playhead) in view; off after the scrollbar moved the view by hand.
     pub follow: bool,
+    /// The page layout's lines as the engraver breaks them (see [`page_rows`]); none: the
+    /// pane's layout is not "page", or wraps to the width.
+    pub page: Option<&'a [RowSpec]>,
+    /// Design-mode handles drawn this frame.
+    pub design: &'a mut Vec<(Rect, DesignHit)>,
 }
 
 impl Widget for TabView<'_> {
@@ -360,6 +555,18 @@ impl Widget for TabView<'_> {
         let sh = system_height(track);
         let rows = track.strings.len().max(1);
         let visible = (area.height / sh).max(1) as usize;
+        // The page layout draws each page in a box: the score sits two columns inside it.
+        let paged = pane.layout == "page" && self.page.is_some();
+        let outer = area;
+        let area = if paged {
+            Rect {
+                x: area.x + 2,
+                width: area.width.saturating_sub(4),
+                ..area
+            }
+        } else {
+            area
+        };
         // Follow the playhead while playing (if following), otherwise the cursor.
         let focus_bar = match self.play.filter(|_| self.app.follow) {
             Some((bar, _)) => bar,
@@ -376,6 +583,21 @@ impl Widget for TabView<'_> {
             let line = layout_line(score, pane.cursor.track, area.width, scale, scroll);
             *self.extent = (0, 0);
             (vec![line], scroll, 0)
+        } else if let Some(page) = self.page.filter(|_| paged) {
+            let systems = layout_rows(score, pane.cursor.track, area.width, scale, page);
+            let cursor_sys = system_of_bar(&systems, focus_bar);
+            let mut scroll = (*self.scroll).min(systems.len().saturating_sub(1));
+            if let Some(to) = pane.scroll_request {
+                scroll = scroll_for(
+                    to,
+                    cursor_sys,
+                    page_fit(&systems, sh, cursor_sys, area.height),
+                );
+            } else if self.follow {
+                scroll = page_scroll(&systems, sh, scroll, area.height, cursor_sys);
+            }
+            *self.extent = (systems.len(), page_fit(&systems, sh, scroll, area.height));
+            (systems, scroll, scroll)
         } else {
             let systems = layout_systems(score, pane.cursor.track, area.width, scale);
             let cursor_sys = system_of_bar(&systems, focus_bar);
@@ -404,10 +626,46 @@ impl Widget for TabView<'_> {
         };
         let playhead_style = on(th.playhead);
 
-        for (row, system) in systems.iter().enumerate().skip(first_row).take(visible) {
-            let y0 = area.y + ((row - first_row) as u16) * sh;
+        // Where each shown system starts (relative to the pane): stacked, with the page layout's
+        // borders between pages.
+        let mut placed = vec![];
+        let mut dy = 0;
+        for row in first_row..systems.len() {
+            let (before, after) = if paged {
+                page_pad(&systems, row)
+            } else {
+                (0, 0)
+            };
+            if row > first_row
+                && (placed.len() >= visible && !paged || dy + before + sh > area.height + 1)
+            {
+                break;
+            }
+            placed.push((row, dy + before, before > 0, after > 0));
+            dy += before + sh + after;
+        }
+        let design_on = paged && self.focused && self.app.design_active();
+        let page_style = Style::default().fg(rc(th.chrome_text.mix(th.dim, 0.5)));
+        let width_of = |r: Rect| r.x + r.width;
+        for (row, dy, top, bottom) in placed {
+            let system = &systems[row];
+            let y0 = area.y + dy;
             if y0 + sh > area.y + area.height + 1 {
                 break;
+            }
+            if paged {
+                let (l, r) = (outer.x, width_of(outer).saturating_sub(1));
+                if top {
+                    let label = format!(" Page {} ", system.page + 1);
+                    page_edge(buf, outer, y0 - 1, ('┌', '┐'), &label, page_style);
+                }
+                for y in y0..(y0 + sh).min(outer.y + outer.height) {
+                    buf.set_string(l, y, "│", page_style);
+                    buf.set_string(r, y, "│", page_style);
+                }
+                if bottom && y0 + sh < outer.y + outer.height {
+                    page_edge(buf, outer, y0 + sh, ('└', '┘'), "", page_style);
+                }
             }
             // String labels.
             for (s, &open) in track.strings.iter().enumerate() {
@@ -614,6 +872,43 @@ impl Widget for TabView<'_> {
                     );
                 }
             }
+            // Design mode: the handles over the line, as in the GUI. Bar lines drag, the "+" and
+            // "-" at the line's end pull a bar up or push one down, and a manual line break is
+            // marked in the margin.
+            if design_on {
+                let first = system.bars.first().map_or(0, |b| b.bar);
+                let n = system.bars.len();
+                let cols = system.bars.last().map_or(1, |b| b.x + b.width).max(1);
+                let points =
+                    self.page.and_then(|p| p.get(row)).map_or(1.0, |r| r.span) / cols as f64;
+                if score.design.line_start(first).is_some() {
+                    buf.set_string(outer.x + 1, y0, "↵", on(th.marker));
+                }
+                for (k, bl) in system.bars.iter().enumerate().skip(1) {
+                    self.design.push((
+                        Rect::new(x0 + bl.x, y0 + 1, 1, rows as u16),
+                        DesignHit::BarLine {
+                            system: row,
+                            k: k - 1,
+                            points,
+                        },
+                    ));
+                }
+                let (add, remove) = (first + n < track.bars.len(), n > 1);
+                let bx = area.x + area.width;
+                let lit = on(th.mode_color(self.app.mode));
+                let y_minus = y0 + 1 + u16::from(rows > 1);
+                buf.set_string(bx, y0 + 1, "+", if add { lit } else { dim });
+                buf.set_string(bx, y_minus, "-", if remove { lit } else { dim });
+                if add {
+                    let hit = DesignHit::Add { first, n };
+                    self.design.push((Rect::new(bx, y0 + 1, 1, 1), hit));
+                }
+                if remove {
+                    let hit = DesignHit::Remove { first, n };
+                    self.design.push((Rect::new(bx, y_minus, 1, 1), hit));
+                }
+            }
             // Bar line closing the system.
             if let Some(last) = system.bars.last() {
                 let x = x0 + last.x + last.width;
@@ -755,7 +1050,69 @@ mod tests {
         let tail = layout_line(&score, 0, 60, 2, 7);
         assert_eq!(tail.bars.len(), 3);
         assert!(!tail.clipped);
-        assert!(view_info(&score, 0, Rect::new(0, 0, 60, 20), 2, 0, true).horizontal);
+        assert!(view_info(&score, 0, Rect::new(0, 0, 60, 20), 2, 0, true, None).horizontal);
+    }
+
+    #[test]
+    fn page_lines_follow_the_engraver_and_scale_to_the_width() {
+        let mut score = ten_bars();
+        let layout = cecilia_engrave::engrave(&score, 0, &cecilia_engrave::Options::default());
+        let rows = page_rows(&layout);
+        // Every bar is on exactly one line, in order, as the engraver has it.
+        let ranges: Vec<_> = rows.iter().map(|r| r.bars.clone()).collect();
+        let engraved: Vec<_> = layout.systems.iter().map(|s| s.range()).collect();
+        assert_eq!(ranges, engraved);
+        assert_eq!(ranges.iter().map(|r| r.len()).sum::<usize>(), 10);
+        // A manual line start splits the line where the engraver does.
+        score.design.set_line_start(2, Some(None));
+        let layout = cecilia_engrave::engrave(&score, 0, &cecilia_engrave::Options::default());
+        let rows = page_rows(&layout);
+        assert!(rows.iter().any(|r| r.bars.start == 2));
+        // Laid out in columns: the same bars per line, none wider than the pane.
+        for width in [60u16, 100, 160] {
+            let systems = layout_rows(&score, 0, width, 2, &rows);
+            assert_eq!(systems.len(), rows.len());
+            for (s, r) in systems.iter().zip(&rows) {
+                let bars: Vec<_> = s.bars.iter().map(|b| b.bar).collect();
+                assert_eq!(bars, r.bars.clone().collect::<Vec<_>>());
+                let last = s.bars.last().unwrap();
+                assert!(
+                    last.x + last.width < width,
+                    "{width}: {}",
+                    last.x + last.width
+                );
+            }
+        }
+        // Wider bars on the page get more columns.
+        let mut wide = rows.clone();
+        wide[0].widths[0] *= 3.0;
+        let s = layout_rows(&score, 0, 160, 2, &wide);
+        assert!(s[0].bars[0].width > s[0].bars[1].width);
+    }
+
+    #[test]
+    fn page_scrolling_counts_the_borders() {
+        let mk = |pages: &[usize]| -> Vec<System> {
+            pages
+                .iter()
+                .map(|&p| System {
+                    page: p,
+                    ..Default::default()
+                })
+                .collect()
+        };
+        let systems = mk(&[0, 0, 1, 1, 1, 2]);
+        // A system of 8 rows: page 0 takes 1 + 8 + 8 + 2 rows, so 19 rows show both of its
+        // lines and 18 only the first (the bottom border and blank row come after).
+        assert_eq!(page_fit(&systems, 8, 0, 19), 2);
+        assert_eq!(page_fit(&systems, 8, 0, 9), 1);
+        assert_eq!(page_fit(&systems, 8, 0, 1), 1);
+        // The cursor line scrolls into view, and back.
+        assert_eq!(page_scroll(&systems, 8, 0, 19, 1), 0);
+        assert!(page_scroll(&systems, 8, 0, 19, 4) > 0);
+        assert_eq!(page_scroll(&systems, 8, 3, 19, 1), 1);
+        let s = page_scroll(&systems, 8, 0, 19, 5);
+        assert!(s <= 5 && 5 < s + page_fit(&systems, 8, s, 19));
     }
 
     #[test]

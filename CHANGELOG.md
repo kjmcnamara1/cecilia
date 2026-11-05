@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- Terminal UI page layout: lines and pages break where the GUI's page layout puts them (taken from the engraver, so manual line breaks and bar widths count), each page is drawn in a box with a "Page N" title, and design mode works there: the same keys, `+` / `-` buttons and draggable bar lines at each line, `↵` marking manual breaks. The engraver's design handle geometry (`Handle`, `Grab`) moved from `cecilia-gui` to `cecilia-engrave::design`.
+
 ### Fixed
 
 - The terminal UI honours the horizontal layout: one line of bars that scrolls sideways, following the cursor, instead of wrapped systems scrolling vertically.

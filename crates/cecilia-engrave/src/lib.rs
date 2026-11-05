@@ -2,6 +2,7 @@
 //! ([`display::Page`]), which [`output`] renders to SVG, PNG and PDF and the GUI draws with vello.
 
 pub mod chant;
+pub mod design;
 pub mod display;
 pub mod fonts;
 pub mod layout;
