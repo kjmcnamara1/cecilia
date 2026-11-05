@@ -1,6 +1,6 @@
 //! Text tablature rendering for one pane.
 
-use crate::{barline, rc};
+use crate::{barline, rc, rhythm};
 use cecilia_app::{App, Cursor};
 use cecilia_core::{Beat, DurationValue, Note, Score, Track, TrackKind};
 use ratatui::buffer::Buffer;
@@ -31,9 +31,9 @@ pub struct System {
     bars: Vec<BarLayout>,
 }
 
-/// Rows used by a system: header + strings + one row per lyric verse + spacer.
+/// Rows used by a system: header + strings + tab+ rhythm rows + one row per lyric verse + spacer.
 pub fn system_height(track: &Track) -> u16 {
-    track.strings.len().max(1) as u16 + 2 + verses(track)
+    track.strings.len().max(1) as u16 + 2 + rhythm::rows(track) + verses(track)
 }
 
 /// Number of lyric verses on a track's first voice.
@@ -265,6 +265,7 @@ impl Widget for TabView<'_> {
         let systems = layout_systems(score, pane.cursor.track, area.width, scale);
         let sh = system_height(track);
         let rows = track.strings.len().max(1);
+        let rhythm_rows = rhythm::rows(track);
         let visible = (area.height / sh).max(1) as usize;
         // Follow the playhead while playing (if following), otherwise the cursor.
         let focus_bar = match self.play.filter(|_| self.app.follow) {
@@ -452,6 +453,27 @@ impl Widget for TabView<'_> {
                             );
                         }
                     }
+                    // Clicking the rhythm under the strings picks the beat too.
+                    for r in 0..rhythm_rows {
+                        self.hits.push(Hit {
+                            area: Rect {
+                                x: bx_beat,
+                                y: y0 + 1 + rows as u16 + r,
+                                width: w,
+                                height: 1,
+                            },
+                            pane: self.pane,
+                            cursor: Cursor {
+                                track: pane.cursor.track,
+                                bar: bl.bar,
+                                beat: i,
+                                string: pane.cursor.string.min(rows - 1),
+                                voice: 0,
+                                staff: Cursor::HOME,
+                                line: 0,
+                            },
+                        });
+                    }
                     // Lyrics under the staff, one row per verse.
                     for (li, syl) in beat
                         .map_or(&[][..], |b| &b.lyrics[..])
@@ -464,7 +486,7 @@ impl Widget for TabView<'_> {
                             let t: String = syl.chars().take(room).collect();
                             buf.set_string(
                                 bx_beat,
-                                y0 + 1 + rows as u16 + li as u16,
+                                y0 + 1 + rows as u16 + rhythm_rows + li as u16,
                                 t,
                                 Style::default().fg(rc(th.lyrics)),
                             );
@@ -494,6 +516,26 @@ impl Widget for TabView<'_> {
                         }
                     }
                     tick += len;
+                }
+                // Tab+ rhythm: stems, beams, dots and rests under the strings.
+                if rhythm_rows > 0 {
+                    let cols: Vec<u16> = bl.beats.iter().map(|b| b.0).collect();
+                    let grid = rhythm::render_bar(beats, &cols, bl.width, rhythm_rows);
+                    for (r, line) in grid.iter().enumerate() {
+                        for (dx, &c) in line.iter().enumerate() {
+                            if c != ' ' {
+                                let x = bx + dx as u16;
+                                if x < area.x + area.width {
+                                    buf.set_string(
+                                        x,
+                                        y0 + 1 + rows as u16 + r as u16,
+                                        c.to_string(),
+                                        Style::default().fg(rc(th.chrome_text)),
+                                    );
+                                }
+                            }
+                        }
+                    }
                 }
                 // Repeat count above the closing repeat line.
                 if let Some(n) = mb.repeat_end {

@@ -7,6 +7,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- The terminal UI draws the rhythm of `tab+` staves under the strings: stems, beams per quarter
+  note, flags, dots, and rests; clicks on the rhythm rows pick the beat.
+
 ### Changed
 
 - The Linux desktop icon is now the ivory lily alone (`assets/lily.svg`) instead of the full emblem.

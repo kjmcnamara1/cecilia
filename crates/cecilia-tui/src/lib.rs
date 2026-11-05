@@ -2,6 +2,7 @@
 
 mod barline;
 mod chantview;
+mod rhythm;
 mod tabview;
 
 use std::time::{Duration, Instant};
@@ -3126,6 +3127,26 @@ mod render_tests {
             .chars()
             .position(|c| "┌┎╓┬┆┃".contains(c))
             .unwrap_or(0)
+    }
+
+    #[test]
+    fn tab_plus_draws_rhythm_rows_under_the_strings() {
+        let mut score = barline_score(1, |_| {});
+        let eighth = cecilia_core::Beat {
+            duration: cecilia_core::Duration::new(cecilia_core::DurationValue::Eighth),
+            notes: vec![cecilia_core::Note::new(0, 3)],
+            ..Default::default()
+        };
+        score.tracks[0].bars[0].voices[0].beats = vec![eighth; 4];
+        let mut app = App::new(cecilia_app::Config::default(), None);
+        app.set_tool(PaneKind::Properties, Some(false));
+        app.buffers[0].score = score;
+        let plain = render(&mut app, 60, 24);
+        assert!(!plain.contains("└──┘"), "{plain}");
+        app.buffers[0].score.tracks[0].staves = vec![cecilia_core::Staff::TabRhythm];
+        let screen = render(&mut app, 60, 24);
+        println!("{screen}");
+        assert!(screen.contains("└──┘"), "{screen}");
     }
 
     #[test]
