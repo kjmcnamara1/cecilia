@@ -266,6 +266,7 @@ impl Widget for TabView<'_> {
         let sh = system_height(track);
         let rows = track.strings.len().max(1);
         let rhythm_rows = rhythm::rows(track);
+        let icons = self.app.config.file.tabline.icons.as_str();
         let visible = (area.height / sh).max(1) as usize;
         // Follow the playhead while playing (if following), otherwise the cursor.
         let focus_bar = match self.play.filter(|_| self.app.follow) {
@@ -517,23 +518,21 @@ impl Widget for TabView<'_> {
                     }
                     tick += len;
                 }
-                // Tab+ rhythm: stems, beams, dots and rests under the strings.
+                // Tab+ rhythm: one glyph per beat under the strings.
                 if rhythm_rows > 0 {
-                    let cols: Vec<u16> = bl.beats.iter().map(|b| b.0).collect();
-                    let grid = rhythm::render_bar(beats, &cols, bl.width, rhythm_rows);
-                    for (r, line) in grid.iter().enumerate() {
-                        for (dx, &c) in line.iter().enumerate() {
-                            if c != ' ' {
-                                let x = bx + dx as u16;
-                                if x < area.x + area.width {
-                                    buf.set_string(
-                                        x,
-                                        y0 + 1 + rows as u16 + r as u16,
-                                        c.to_string(),
-                                        Style::default().fg(rc(th.chrome_text)),
-                                    );
-                                }
-                            }
+                    let rstyle = Style::default().fg(rc(th.chrome_text));
+                    for (i, &(off, w)) in bl.beats.iter().enumerate() {
+                        if off + w > bl.width + 1 {
+                            break;
+                        }
+                        if let Some(b) = beats.get(i) {
+                            buf.set_stringn(
+                                bx + off,
+                                y0 + 1 + rows as u16,
+                                rhythm::glyph(b, icons),
+                                w as usize,
+                                rstyle,
+                            );
                         }
                     }
                 }

@@ -9,8 +9,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
-- The terminal UI draws the rhythm of `tab+` staves under the strings: stems, beams per quarter
-  note, flags, dots, and rests; clicks on the rhythm rows pick the beat.
+- The terminal UI shows the rhythm of `tab+` staves as one row under the strings, a music note or
+  rest glyph per beat (Nerd Font glyphs; `tabline.icons` `unicode`/`none` give symbols or letters).
+  Clicks on the row pick the beat.
 
 ### Changed
 

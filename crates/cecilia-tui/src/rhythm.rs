@@ -1,235 +1,134 @@
-//! The rhythm of a tab+ staff in terminal characters: a stem hanging below each beat's tab
-//! column, beams joining the stems of a beat group, dots and rests.
-//!
-//! ```text
-//! e|--3---5---3-5-|
-//! B|--------------|
-//!    │   │   │ │ ·
-//!    └───┘   └─┘     (eighths beamed in pairs)
-//! ```
-//!
-//! Everything here is pure: [`rows`] allocates the rows, [`render_bar`] builds the character
-//! grid of one bar from beat columns, and [`stem_glyph`] / [`beam_level`] pick the glyphs.
+//! The rhythm of a tab+ staff in terminal characters: one glyph per beat, in a row under the
+//! strings and aligned with the beat's fret column, chosen only from the beat's value, dots and
+//! whether it is a rest.
 
-use cecilia_core::{Beat, DurationValue, Staff, TICKS_PER_QUARTER, Track};
+use cecilia_core::{Beat, DurationValue, Staff, Track};
 
-/// Rows below the strings for the track's rhythm: 0 without a tab+ staff, otherwise a stem row
-/// and a beam row, plus a second beam row when anything is shorter than an eighth.
+/// Rows below the strings for the track's rhythm: one with a tab+ staff, else none.
 pub fn rows(track: &Track) -> u16 {
-    if !track.staves().contains(&Staff::TabRhythm) {
-        return 0;
-    }
-    let sixteenths = track
-        .bars
-        .iter()
-        .flat_map(|b| &b.voices)
-        .flat_map(|v| &v.beats)
-        .any(|b| beam_level(b.duration.value) >= 2);
-    2 + sixteenths as u16
+    track.staves().contains(&Staff::TabRhythm) as u16
 }
 
-/// Number of beams (or flags) a value carries: 0 up to a quarter, 1 for an eighth, 2 for a
-/// sixteenth and so on.
-pub fn beam_level(value: DurationValue) -> u8 {
-    match value {
-        DurationValue::Whole | DurationValue::Half | DurationValue::Quarter => 0,
-        DurationValue::Eighth => 1,
-        DurationValue::Sixteenth => 2,
-        DurationValue::ThirtySecond => 3,
-        DurationValue::SixtyFourth => 4,
-        DurationValue::HundredTwentyEighth => 5,
+/// The glyph of a beat's rhythm in the `tabline.icons` style: `nerd` (Material Design music
+/// notes and rests), `unicode` (note symbols; rests are letters) or `none` (letters: `w h q e s`
+/// for notes, `W H Q E S` for rests, a `.` per dot). Values shorter than a sixteenth use the
+/// sixteenth's glyph. An empty beat has none.
+pub fn glyph(beat: &Beat, style: &str) -> String {
+    if beat.empty {
+        return String::new();
+    }
+    let value = beat.duration.value;
+    let dots = beat.duration.dots as usize;
+    let rest = beat.is_rest();
+    let v = value
+        .min(DurationValue::Sixteenth)
+        .max(DurationValue::Whole);
+    // Index into the tables below: whole, half, quarter, eighth, sixteenth.
+    let i = v as usize;
+    let letter = ["w", "h", "q", "e", "s"][i];
+    match style {
+        "nerd" => {
+            // A rest has no dotted glyph: its dots follow it.
+            let (plain, dotted) = if rest {
+                (REST[i], None)
+            } else {
+                (NOTE[i], Some(NOTE_DOTTED[i]))
+            };
+            match dotted.filter(|_| dots > 0) {
+                Some(d) => format!("{d}{}", "·".repeat(dots - 1)),
+                None => format!("{plain}{}", "·".repeat(dots)),
+            }
+        }
+        "unicode" if !rest => format!("{}{}", ["○", "◐", "♩", "♪", "♬"][i], "·".repeat(dots)),
+        _ => {
+            let l = if rest {
+                letter.to_uppercase()
+            } else {
+                letter.into()
+            };
+            format!("{l}{}", ".".repeat(dots))
+        }
     }
 }
 
-/// The glyph on the stem row for a beat: a stem (hollow for half notes, none for a whole note,
-/// which gets a ring) or, for a rest, a mark of its value.
-pub fn stem_glyph(value: DurationValue, rest: bool) -> char {
-    match (rest, value) {
-        (true, DurationValue::Whole) => '▀',
-        (true, DurationValue::Half) => '▄',
-        (true, _) => 'z',
-        (false, DurationValue::Whole) => 'o',
-        (false, DurationValue::Half) => '¦',
-        (false, _) => '│',
-    }
-}
+/// Notes (whole … sixteenth).
+const NOTE: [char; 5] = [
+    '\u{f038d}', // nf-md-music_note_whole
+    '\u{f0389}', // nf-md-music_note_half
+    '\u{f038b}', // nf-md-music_note_quarter
+    '\u{f0387}', // nf-md-music_note (an eighth note: Material has no plain `_eighth`)
+    '\u{f038c}', // nf-md-music_note_sixteenth
+];
 
-/// One bar's rhythm as `height` rows of `width` characters (spaces where nothing is drawn).
-/// `cols` is the column of each beat's stem (index = beat); beats are beamed per quarter note
-/// of the bar, the way the engraver groups them. Rests and long notes break a beam.
-pub fn render_bar(beats: &[Beat], cols: &[u16], width: u16, height: u16) -> Vec<Vec<char>> {
-    let mut grid = vec![vec![' '; width as usize]; height as usize];
-    if height == 0 {
-        return grid;
-    }
-    let mut put = |row: u16, x: u16, c: char| {
-        if row < height
-            && let Some(cell) = grid[row as usize].get_mut(x as usize)
-        {
-            *cell = c;
-        }
-    };
-    // Beams: runs of beamed beats in one quarter-note group.
-    let mut tick = 0;
-    let mut groups: Vec<Vec<(u16, u8)>> = vec![];
-    let mut open: Option<u32> = None;
-    for (beat, &x) in beats.iter().zip(cols) {
-        let level = beam_level(beat.duration.value);
-        let glyph = stem_glyph(beat.duration.value, beat.is_rest());
-        if !beat.empty {
-            put(0, x, glyph);
-            for d in 0..beat.duration.dots as u16 {
-                put(0, x + 1 + d, '·');
-            }
-        }
-        let group = tick / TICKS_PER_QUARTER;
-        if level > 0 && !beat.is_rest() && !beat.empty {
-            if open != Some(group) {
-                groups.push(vec![]);
-                open = Some(group);
-            }
-            if let Some(g) = groups.last_mut() {
-                g.push((x, level));
-            }
-        } else {
-            open = None;
-        }
-        tick += beat.ticks();
-    }
-    for g in &groups {
-        beam_group(g, height, &mut put);
-    }
-    grid
-}
+const NOTE_DOTTED: [char; 5] = [
+    '\u{f0f77}', // nf-md-music_note_whole_dotted
+    '\u{f0f72}', // nf-md-music_note_half_dotted
+    '\u{f0f75}', // nf-md-music_note_quarter_dotted
+    '\u{f0f71}', // nf-md-music_note_eighth_dotted
+    '\u{f0f76}', // nf-md-music_note_sixteenth_dotted
+];
 
-/// Draws one run of `(stem column, level)` stems: a primary beam on row 1 and, for each level
-/// above one, a partial beam on the rows below (a stub towards the neighbour when it has
-/// fewer beams). A lone stem gets a flag.
-fn beam_group(group: &[(u16, u8)], height: u16, put: &mut impl FnMut(u16, u16, char)) {
-    let (Some(&(first, _)), Some(&(last, _))) = (group.first(), group.last()) else {
-        return;
-    };
-    if group.len() == 1 {
-        put(1, first, '╰');
-        for row in 2..height.min(1 + group[0].1 as u16) {
-            put(row, first, '╰');
-        }
-        return;
-    }
-    for x in first..=last {
-        put(1, x, '─');
-    }
-    for (i, &(x, _)) in group.iter().enumerate() {
-        let c = match i {
-            0 => '└',
-            n if n == group.len() - 1 => '┘',
-            _ => '┴',
-        };
-        put(1, x, c);
-    }
-    // Secondary beams: row `r` joins neighbouring stems that both have level > r.
-    for row in 2..height {
-        let level = row as u8 - 1;
-        for (i, &(x, l)) in group.iter().enumerate() {
-            if l <= level {
-                continue;
-            }
-            let next = group.get(i + 1).filter(|n| n.1 > level);
-            let prev = i
-                .checked_sub(1)
-                .and_then(|p| group.get(p))
-                .filter(|p| p.1 > level);
-            match next {
-                Some(&(nx, _)) => {
-                    put(row, x, '═');
-                    for k in x + 1..nx {
-                        put(row, k, '═');
-                    }
-                }
-                None if prev.is_some() => put(row, x, '═'),
-                // A stub towards the neighbour on the side that has room.
-                None => put(row, x, if i + 1 < group.len() { '╒' } else { '╕' }),
-            }
-        }
-    }
-}
+const REST: [char; 5] = [
+    '\u{f0f7c}', // nf-md-music_rest_whole
+    '\u{f0f79}', // nf-md-music_rest_half
+    '\u{f0f7a}', // nf-md-music_rest_quarter
+    '\u{f0f78}', // nf-md-music_rest_eighth
+    '\u{f0f7b}', // nf-md-music_rest_sixteenth
+];
 
 #[cfg(test)]
 mod tests {
     use super::*;
-    use cecilia_core::{Bar, Duration, Note, Voice};
+    use cecilia_core::{Duration, Note};
 
-    fn beat(value: DurationValue, rest: bool) -> Beat {
+    fn beat(value: DurationValue, dots: u8, rest: bool) -> Beat {
+        let mut duration = Duration::new(value);
+        duration.dots = dots;
         Beat {
-            duration: Duration::new(value),
+            duration,
             notes: if rest { vec![] } else { vec![Note::new(0, 3)] },
             ..Beat::default()
         }
-    }
-
-    fn text(grid: &[Vec<char>]) -> Vec<String> {
-        grid.iter().map(|r| r.iter().collect()).collect()
     }
 
     #[test]
     fn rows_need_a_tab_rhythm_staff() {
         let mut t = Track {
             strings: vec![64; 6],
-            bars: vec![Bar {
-                voices: vec![Voice {
-                    beats: vec![beat(DurationValue::Eighth, false)],
-                }],
-                ..Bar::default()
-            }],
             ..Track::default()
         };
         assert_eq!(rows(&t), 0);
         t.staves = vec![Staff::Tab, Staff::TabRhythm];
-        assert_eq!(rows(&t), 2);
-        t.bars[0].voices[0]
-            .beats
-            .push(beat(DurationValue::Sixteenth, false));
-        assert_eq!(rows(&t), 3);
+        assert_eq!(rows(&t), 1);
     }
 
     #[test]
-    fn glyphs_by_value() {
-        assert_eq!(stem_glyph(DurationValue::Quarter, false), '│');
-        assert_eq!(stem_glyph(DurationValue::Half, false), '¦');
-        assert_eq!(stem_glyph(DurationValue::Whole, false), 'o');
-        assert_eq!(stem_glyph(DurationValue::Eighth, true), 'z');
-        assert_eq!(beam_level(DurationValue::Quarter), 0);
-        assert_eq!(beam_level(DurationValue::ThirtySecond), 3);
+    fn nerd_glyphs_by_value() {
+        let g = |v, d, r| glyph(&beat(v, d, r), "nerd");
+        assert_eq!(g(DurationValue::Whole, 0, false), "\u{f038d}");
+        assert_eq!(g(DurationValue::Quarter, 0, false), "\u{f038b}");
+        assert_eq!(g(DurationValue::Eighth, 0, false), "\u{f0387}");
+        assert_eq!(g(DurationValue::Half, 1, false), "\u{f0f72}");
+        assert_eq!(g(DurationValue::Quarter, 2, false), "\u{f0f75}·");
+        assert_eq!(g(DurationValue::Quarter, 0, true), "\u{f0f7a}");
+        assert_eq!(g(DurationValue::Half, 1, true), "\u{f0f79}·");
+        // Shorter than a sixteenth: the sixteenth's glyph.
+        assert_eq!(g(DurationValue::SixtyFourth, 0, false), "\u{f038c}");
+        assert_eq!(g(DurationValue::ThirtySecond, 0, true), "\u{f0f7b}");
     }
 
     #[test]
-    fn eighths_are_beamed_per_quarter() {
-        let beats = vec![beat(DurationValue::Eighth, false); 4];
-        let g = render_bar(&beats, &[0, 2, 4, 6], 8, 2);
-        assert_eq!(text(&g), ["│ │ │ │ ", "└─┘ └─┘ "]);
-    }
-
-    #[test]
-    fn rests_break_beams_and_lone_notes_flag() {
-        let beats = vec![
-            beat(DurationValue::Eighth, false),
-            beat(DurationValue::Eighth, true),
-            beat(DurationValue::Quarter, false),
-        ];
-        let g = render_bar(&beats, &[0, 2, 4], 6, 2);
-        assert_eq!(text(&g), ["│ z │ ", "╰     "]);
-    }
-
-    #[test]
-    fn sixteenths_get_a_second_beam_and_dots_follow_stems() {
-        let mut dotted = beat(DurationValue::Eighth, false);
-        dotted.duration.dots = 1;
-        let beats = vec![
-            dotted,
-            beat(DurationValue::Sixteenth, false),
-            beat(DurationValue::Quarter, false),
-        ];
-        let g = render_bar(&beats, &[0, 3, 6], 8, 3);
-        assert_eq!(text(&g), ["│· │  │ ", "└──┘    ", "   ╕    "]);
+    fn fallbacks_without_nerd_fonts() {
+        let g = |s, v, d, r| glyph(&beat(v, d, r), s);
+        assert_eq!(g("unicode", DurationValue::Eighth, 0, false), "♪");
+        assert_eq!(g("unicode", DurationValue::Quarter, 1, false), "♩·");
+        assert_eq!(g("unicode", DurationValue::Quarter, 0, true), "Q");
+        assert_eq!(g("none", DurationValue::Half, 1, false), "h.");
+        assert_eq!(g("none", DurationValue::Sixteenth, 0, true), "S");
+        let empty = Beat {
+            empty: true,
+            ..Beat::default()
+        };
+        assert_eq!(glyph(&empty, "nerd"), "");
     }
 }

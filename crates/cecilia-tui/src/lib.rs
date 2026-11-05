@@ -3142,11 +3142,14 @@ mod render_tests {
         app.set_tool(PaneKind::Properties, Some(false));
         app.buffers[0].score = score;
         let plain = render(&mut app, 60, 24);
-        assert!(!plain.contains("└──┘"), "{plain}");
+        assert!(!plain.contains("\u{f0387}"), "{plain}");
         app.buffers[0].score.tracks[0].staves = vec![cecilia_core::Staff::TabRhythm];
         let screen = render(&mut app, 60, 24);
         println!("{screen}");
-        assert!(screen.contains("└──┘"), "{screen}");
+        assert!(screen.contains("\u{f0387}"), "{screen}");
+        app.config.file.tabline.icons = "none".into();
+        let screen = render(&mut app, 60, 24);
+        assert!(screen.contains("│    e  e  e  e"), "{screen}");
     }
 
     #[test]
