@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- Chant notation in the terminal UI: a four-line text staff with the clef, neumes as note glyphs (punctum, virga, inclinatum, quilisma, oriscus, stropha, cavum, liquescents; `tabline.icons = "none"` uses ASCII), ligatures joined by a stroke, ledger lines, flats, naturals and sharps, divisions (virgula, minima, minor, maior, finalis) crossing the staff lines, custodes at the line ends, and the lyrics under their neumes with hyphens and extenders through melismas. It follows the pane's layout like tab does: wrapped systems (spread to the full width, each with its clef), page boxes of A4 proportions, or one horizontal line scrolled by syllable; the cursor, selection, playhead and `zz`/`zt`/`zb` work on it, and clicking a note or a syllable's text puts the cursor there.
+
 ### Fixed
 
 - The terminal UI's progress bar has its colors switched: the bar is slightly lighter than the score background on a dark theme (slightly darker on a light one) and its sections take the background color.

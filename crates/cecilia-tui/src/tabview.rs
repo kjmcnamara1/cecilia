@@ -36,6 +36,20 @@ pub struct System {
     clipped: bool,
 }
 
+impl System {
+    /// An empty system on `page` (the chant view's lines, which page like bars do).
+    pub(crate) fn on_page(page: usize) -> Self {
+        System {
+            page,
+            ..Default::default()
+        }
+    }
+
+    pub(crate) fn page(&self) -> usize {
+        self.page
+    }
+}
+
 /// The first bar to show in the horizontal layout so that `focus` is whole on screen: `scroll`
 /// if it already is, else the nearest change (`to` places it at the top or in the middle).
 pub fn scroll_bars(
@@ -335,7 +349,7 @@ pub fn layout_rows(
 }
 
 /// A page's top or bottom border across `outer` on row `y`, with `label` after the corner.
-fn page_edge(
+pub(crate) fn page_edge(
     buf: &mut Buffer,
     outer: Rect,
     y: u16,
@@ -352,7 +366,7 @@ fn page_edge(
 
 /// The rows a system takes in the page layout besides its own: a page's top border above its
 /// first system, and its bottom border and a blank row below its last.
-fn page_pad(systems: &[System], i: usize) -> (u16, u16) {
+pub(crate) fn page_pad(systems: &[System], i: usize) -> (u16, u16) {
     let first = i == 0 || systems[i - 1].page != systems[i].page;
     let last = systems.get(i + 1).is_none_or(|n| n.page != systems[i].page);
     (u16::from(first), if last { 2 } else { 0 })

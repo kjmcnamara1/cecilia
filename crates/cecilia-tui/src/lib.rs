@@ -1199,7 +1199,7 @@ fn draw_palette(f: &mut Frame, app: &App, p: &cecilia_app::Palette, screen: Rect
 /// Bars paged when a pane's view is not known (chant): two per system row.
 fn page_bars(area: Rect, track: &cecilia_core::Track) -> usize {
     let height = if track.chant.is_some() {
-        chantview::system_height()
+        track.chant.as_deref().map_or(1, chantview::system_height)
     } else {
         tabview::system_height(track)
     };
@@ -3507,7 +3507,7 @@ mod render_tests {
         let screen = render(&mut app, 60, 24);
         assert!(screen.contains("Al- le lu- ia."), "{screen}");
         assert!(
-            screen.contains('■') && screen.contains('♭') && screen.contains('‖'),
+            screen.contains('■') && screen.contains('♭') && screen.contains('║'),
             "{screen}"
         );
         assert!(screen.contains("C─"), "{screen}");
@@ -3515,6 +3515,107 @@ mod render_tests {
         app.run(cecilia_app::Command::ChantView);
         let screen = render(&mut app, 60, 24);
         assert!(screen.contains("F4"), "{screen}");
+    }
+
+    /// A real chant from the corpus open in an app (the Properties pane closed).
+    fn corpus_chant(file: &str) -> App {
+        let path = format!(
+            "{}/../../test-corpus/gabc/{file}",
+            env!("CARGO_MANIFEST_DIR")
+        );
+        let mut app = App::new(cecilia_app::Config::default(), None);
+        app.set_tool(PaneKind::Properties, Some(false));
+        app.run(cecilia_app::Command::Edit(path.into()));
+        app
+    }
+
+    fn draw_buffer(app: &mut App, w: u16, h: u16, ui: &mut Ui) -> ratatui::buffer::Buffer {
+        let mut terminal = Terminal::new(TestBackend::new(w, h)).unwrap();
+        terminal.draw(|f| draw(f, app, None, ui)).unwrap();
+        terminal.backend().buffer().clone()
+    }
+
+    #[test]
+    fn chant_wraps_to_the_pane_width_in_systems_with_clefs_and_custodes() {
+        let mut app = corpus_chant("2715.gabc");
+        let wide = render(&mut app, 160, 200);
+        let narrow = render(&mut app, 60, 200);
+        let count = |s: &str, p: &str| s.lines().filter(|l| l.contains(p)).count();
+        // Each system opens with the clef; narrower panes have more of them, and custodes.
+        assert!(
+            count(&narrow, "│C─") > count(&wide, "│C─"),
+            "{} {}\n{wide}",
+            count(&narrow, "│C─"),
+            count(&wide, "│C─")
+        );
+        assert!(narrow.contains('∨'), "{narrow}");
+        // Staff lines, ligature strokes, divisions and the text underlay.
+        for s in ["■", "┃", "─", "┼", "Ad te", "mi-"] {
+            assert!(narrow.contains(s), "{s}\n{narrow}");
+        }
+    }
+
+    #[test]
+    fn chant_page_layout_boxes_pages_and_horizontal_scrolls_with_the_cursor() {
+        let mut app = corpus_chant("2715.gabc");
+        app.run(cecilia_app::Command::parse("layout page").unwrap());
+        let paged = render(&mut app, 100, 200);
+        assert!(
+            paged.contains("Page 1") && paged.contains('┌') && paged.contains('└'),
+            "{paged}"
+        );
+
+        app.run(cecilia_app::Command::parse("layout horizontal").unwrap());
+        let first = render(&mut app, 80, 20);
+        assert!(first.contains("Sal") || first.contains("Al"), "{first}");
+        assert_eq!(first.matches("│C─").count(), 1, "{first}");
+        // The last bar: the view slides along to the end of the line and keeps the cursor on
+        // screen.
+        app.handle_key(Key::char('G'));
+        let last = render(&mut app, 80, 20);
+        assert!(!last.contains("Sal"), "{last}");
+        assert!(last.contains("pi- a") && last.contains("_____"), "{last}");
+        assert!(app.panes[&app.focused()].scroll > 0);
+    }
+
+    #[test]
+    fn chant_notes_are_clickable_and_the_cursor_marks_the_note() {
+        let mut app = corpus_chant("10027.gabc");
+        let mut ui = Ui::default();
+        let buf = draw_buffer(&mut app, 100, 30, &mut ui);
+        let notes: Vec<&tabview::Hit> = ui
+            .hits
+            .iter()
+            .filter(|h| h.area.width == 1 && h.area.height > 1)
+            .collect();
+        assert!(notes.len() > 20, "{}", notes.len());
+        // A hit per note column: the beat in the transcription and the note's staff position.
+        let h = notes[3];
+        assert_eq!(h.cursor.beat, 3);
+        assert!(h.cursor.line > 0);
+        // The cursor's note (the first) is highlighted: its cell has a background.
+        let cur = ui.hits.iter().find(|h| h.cursor.beat == 0).unwrap();
+        let note_cell = (cur.area.y..cur.area.y + cur.area.height)
+            .map(|y| &buf[(cur.area.x, y)])
+            .find(|c| c.symbol() == "■")
+            .unwrap();
+        assert_ne!(note_cell.bg, ratatui::style::Color::Reset);
+        // Clicking another note moves the cursor to it.
+        let target = *notes[5];
+        let id = app.focused();
+        app.mouse_press(id, target.cursor, Default::default());
+        assert_eq!(app.panes[&id].cursor.beat, target.cursor.beat);
+        // A click on the lyrics under a syllable picks its first note.
+        let word = ui
+            .hits
+            .iter()
+            .find(|h| h.area.height == 1 && h.area.width >= 2)
+            .unwrap();
+        assert!(word.cursor.beat <= 1, "{word:?}");
+        let text: String = (word.area.x..word.area.x + word.area.width)
+            .map(|x| buf[(x, word.area.y)].symbol())
+            .collect();
+        assert!(text.starts_with("Si"), "{text}");
     }
 
     #[test]

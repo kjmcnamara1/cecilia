@@ -284,7 +284,8 @@ select, drag pane borders, click tabs, scroll/zoom, context menus that invoke th
 
   Special lines outrank the dashed one. A wider line takes its columns from the start of the
   bar (or after the last bar of a system), and the beats are placed after it.
-- **TUI** (`cecilia-tui`): chant tracks show as a text staff with neume marks and syllables; read,
+- **TUI** (`cecilia-tui`): chant tracks show as a four-line text staff with clefs, neume glyphs and ligatures, divisions,
+  custodes and the syllables underneath, in the horizontal, vertical and page layouts; read,
   play and basic editing of tablature (frets, durations, ties, rests,
   basic techniques) rendered as text tab. Same keymaps, config and commands as the GUI; commands not
   available in the TUI report an error instead of failing silently.

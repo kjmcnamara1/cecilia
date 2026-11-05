@@ -56,7 +56,6 @@ Planned work. Finished items move to `CHANGELOG.md` under `[Unreleased]`.
 
 ### TUI
 
-- [ ] Add chant notation to tui
 
 ### GUI
 
