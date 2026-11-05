@@ -91,6 +91,8 @@ struct Ui {
     /// A mouse drag in progress.
     drag: Option<Drag>,
     hits: Vec<Hit>,
+    /// The dashboard's buttons (area, index into `DashboardButton::ALL`).
+    dashboard: Vec<(Rect, usize)>,
     /// Score panes' scrollbars (column, pane, (lines in all, lines shown)).
     scrollbars: Vec<(Rect, u32, (usize, usize))>,
     /// Panes scrolled by hand, which stop following the cursor until it moves, and the
@@ -278,6 +280,20 @@ fn event_loop(terminal: &mut DefaultTerminal, app: &mut App) -> Result<()> {
                         };
                         ui.drag = Some(Drag::Scrollbar(pane, grab as u16));
                         scrollbar_to(app, &mut ui, pane, grab as u16, m.row);
+                    }
+                    MouseEventKind::Down(MouseButton::Left)
+                        if ui
+                            .dashboard
+                            .iter()
+                            .any(|(r, _)| contains(*r, m.column, m.row)) =>
+                    {
+                        if let Some(&(_, i)) = ui
+                            .dashboard
+                            .iter()
+                            .find(|(r, _)| contains(*r, m.column, m.row))
+                        {
+                            app.dashboard_activate(i);
+                        }
                     }
                     MouseEventKind::Down(MouseButton::Left)
                         if divider_at(app, m.column, m.row).is_some() =>
@@ -645,6 +661,10 @@ fn draw(f: &mut Frame, app: &mut App, play: Option<(usize, Location, f64, f64)>,
     if app.toolbar {
         draw_toolbar(f, app, toolbar, ui);
     }
+    ui.dashboard.clear();
+    if app.dashboard_visible() {
+        draw_dashboard(f, app, main, ui);
+    }
     // Tool panes: a frame named after the tool around it.
     let focused = app.window_focus();
     for (id, r) in app.layout() {
@@ -855,6 +875,60 @@ fn draw(f: &mut Frame, app: &mut App, play: Option<(usize, Location, f64, f64)>,
     }
     if let Some(p) = app.palette() {
         draw_palette(f, app, &p, f.area());
+    }
+}
+
+/// The dashboard shown instead of the panes: the name, and a column of buttons centred in `area`
+/// (the focused one highlighted).
+fn draw_dashboard(f: &mut Frame, app: &App, area: Rect, ui: &mut Ui) {
+    use cecilia_app::dashboard::DashboardButton;
+    let t = &app.config.theme;
+    f.render_widget(
+        Paragraph::new("").style(Style::default().bg(rc(t.paper))),
+        area,
+    );
+    let buttons = DashboardButton::ALL;
+    let (w, h) = (26.min(area.width), 3);
+    let total = 3 + buttons.len() as u16 * h;
+    if area.width < 8 || area.height < total {
+        return;
+    }
+    let top = area.y + (area.height - total) / 2;
+    let x = area.x + (area.width - w) / 2;
+    f.render_widget(
+        Paragraph::new("cecilia")
+            .alignment(ratatui::layout::Alignment::Center)
+            .style(
+                Style::default()
+                    .fg(rc(t.text_on(t.paper)))
+                    .bg(rc(t.paper))
+                    .add_modifier(ratatui::style::Modifier::BOLD),
+            ),
+        Rect::new(area.x, top, area.width, 1),
+    );
+    for (i, b) in buttons.into_iter().enumerate() {
+        let r = Rect::new(x, top + 3 + i as u16 * h, w, h);
+        let focused = i == app.dashboard_focus();
+        let style = if focused {
+            on(app, t.accent)
+        } else {
+            Style::default().fg(rc(t.text_on(t.paper))).bg(rc(t.paper))
+        };
+        let block = Block::bordered()
+            .border_type(border_type(app, focused))
+            .border_style(if focused {
+                Style::default().fg(rc(app.config.focus_ring_color(app.mode)))
+            } else {
+                Style::default().fg(rc(t.dim))
+            })
+            .style(style);
+        f.render_widget(
+            Paragraph::new(b.label())
+                .alignment(ratatui::layout::Alignment::Center)
+                .block(block),
+            r,
+        );
+        ui.dashboard.push((r, i));
     }
 }
 

@@ -624,7 +624,7 @@ e.g. `"<C-g>" = "completion-ignore-case"`, `"<C-f>" = "completion-fuzzy"`.
 | -------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | `:open {file}` / `:w [file]` / `:q` (quit) / `:wq` (write all, quit) / `:q!`                  | _(M2)_ `:w file.ext` exports by extension                                                                                                                                                   |
 | `:focus-ring-width [N\|default]` / `:focus-ring-color [#hex\|default]` / `:tabline-wrap [on\|off]` | set (no argument: show; `:tabline-wrap` toggles) `ui.focus_ring_width`, `ui.focus_ring_color` and `tabline.wrap` for the session; the width clamps to the config range (ring 0 to 8) |
-| `:wa` (`:wall`) / `:pane-close` | write every changed file / close the focused pane (its view with the last pane); the remaining panes of its split share the space equally again (`ui.equalize_on_close`; off: the neighbour takes it; `:equalize-on-close [on\|off]` sets or toggles it for the session) |
+| `:wa` (`:wall`) / `:pane-close` | write every changed file / close the focused pane (its view with the last pane; the last pane of the last view gives way to the [dashboard](#dashboard), it does not quit); the remaining panes of its split share the space equally again (`ui.equalize_on_close`; off: the neighbour takes it; `:equalize-on-close [on\|off]` sets or toggles it for the session) |
 | `:split` / `:vsplit`                                                 | _(M1)_                                                                                                                                                                                      |
 | `:track {n}`                                                         | _(M1)_                                                                                                                                                                                      |
 | `:bar {n}` / `:{n}`                                                  | _(M1)_                                                                                                                                                                                      |
@@ -656,6 +656,15 @@ e.g. `"<C-g>" = "completion-ignore-case"`, `"<C-f>" = "completion-fuzzy"`.
 | `:speed 75`                                                          | playback speed in percent                                                                                                                                                                   |
 
 With the cursor on a note on any staff, the same note on the track's other staves is drawn in the current mode's color (GUI): the notehead, slash or square note on staves of lines, the fret number in bold on other tabs. A chord lights only the note under the cursor; nothing is lit on a rest or an empty position.
+
+### Dashboard
+
+With no score pane open (the last one closed with `:pane-close`, or a new, empty workspace) the
+window shows the dashboard: **Select Workspace** (`:pick workspace`), **New Score** (`:new`) and
+**Open Score** (`:open`). `j` / `k` / `Down` / `Up` / `Tab` / `Shift-Tab` move the focus (`g` / `G` first
+and last), `Enter` or `Space` runs the focused button, a click runs the one under the mouse. `:` opens
+the command line as usual (`:q` quits); other keys do nothing. Showing a score ends it.
+Loaded files stay loaded; `:pick buffer` brings one back.
 
 ### Workspaces
 

@@ -41,6 +41,9 @@ pub struct Workspace {
     /// Height of waveform strips and bar (GUI, logical pixels).
     #[serde(default = "default_waveform_height")]
     pub waveform_height: u16,
+    /// The dashboard shows instead of the panes.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub dashboard: bool,
     /// Tab of the properties pane.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub properties_tab: Option<String>,
@@ -405,6 +408,7 @@ impl App {
             piano: false,
             tracks_rows: default_tracks_rows(),
             waveform_height: self.waveform_height,
+            dashboard: self.dashboard,
             properties_tab: Some(self.props.tab.name().to_string()),
         }
     }
@@ -443,7 +447,13 @@ impl App {
     pub fn use_workspace(&mut self, name: &str) {
         match workspace_path(name) {
             Some(path) if path.exists() => self.open_workspace(name, true),
-            Some(_) => self.save_workspace(Some(name)),
+            Some(_) => {
+                // A new workspace with nothing open starts on the dashboard.
+                if self.buffers.iter().all(|b| b.path.is_none()) {
+                    self.show_dashboard();
+                }
+                self.save_workspace(Some(name));
+            }
             None => self.error(format!("workspace {name}: no data folder to keep it in")),
         }
     }
@@ -467,6 +477,7 @@ impl App {
                 self.autosave_workspace();
                 let fresh = App::new(self.config.clone(), None).workspace();
                 self.restore(&fresh);
+                self.show_dashboard();
                 self.save_workspace(Some(DEFAULT_WORKSPACE));
             }
         }
@@ -520,6 +531,10 @@ impl App {
         // Save the workspace being left first.
         self.autosave_workspace();
         self.restore(&ws);
+        // A workspace with nothing open starts on the dashboard.
+        if ws.files.is_empty() {
+            self.show_dashboard();
+        }
         self.set_workspace_file(path.clone());
         self.workspace_saved = toml::to_string_pretty(&self.workspace()).ok();
         let missing = ws.files.iter().filter(|f| !f.exists()).count();
@@ -742,6 +757,8 @@ impl App {
             }
         }
         self.normalize_layouts();
+        self.dashboard = ws.dashboard;
+        self.dashboard_focus = 0;
         self.waveform_height = ws.waveform_height.clamp(
             crate::app::MIN_WAVEFORM_HEIGHT,
             crate::app::MAX_WAVEFORM_HEIGHT,

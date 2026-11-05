@@ -147,6 +147,8 @@ pub struct Views {
     /// black keys come first, as they lie over the white ones.
     frets: Vec<(Rect, usize, u8)>,
     keys: Vec<(Rect, u8)>,
+    /// The dashboard's buttons drawn last frame (area, index into `DashboardButton::ALL`).
+    dashboard: Vec<(Rect, usize)>,
     /// The status line's clickable sections drawn last frame, and what they run.
     status: Vec<(Rect, cecilia_app::Command)>,
     /// The toolbar's buttons drawn last frame (area, index into `App::toolbar_items`).
@@ -1045,6 +1047,10 @@ pub fn build(
     for (r, _) in views.tabline.iter_mut() {
         *r = *r + vello::kurbo::Vec2::new(0.0, tab_y);
     }
+    views.dashboard.clear();
+    if app.dashboard_visible() {
+        draw_dashboard(scene, app, views, main);
+    }
     views.geometry.clear();
     views.view_infos.clear();
     views.scroll_taken.clear();
@@ -1157,6 +1163,57 @@ pub fn build(
         draw_palette(scene, &p, width, height);
     }
     views.cache.retain(|id, _| app.panes.contains_key(id));
+}
+
+/// The dashboard shown instead of the panes: the name and a column of buttons, centred in `main`
+/// (the focused or hovered one highlighted).
+fn draw_dashboard(scene: &mut Scene, app: &App, views: &mut Views, main: Rect) {
+    use cecilia_app::dashboard::DashboardButton;
+    let (w, h, gap) = (260.0, 48.0, 14.0);
+    let n = DashboardButton::ALL.len() as f64;
+    let total = 70.0 + n * h + (n - 1.0) * gap;
+    let cx = main.center().x;
+    let top = (main.center().y - total / 2.0).max(main.y0 + 10.0);
+    text(
+        scene,
+        "cecilia",
+        cx,
+        top + 36.0,
+        34.0,
+        Align::Center,
+        chrome_text(),
+        true,
+    );
+    for (i, b) in DashboardButton::ALL.into_iter().enumerate() {
+        let y = top + 70.0 + i as f64 * (h + gap);
+        let r = Rect::new(cx - w / 2.0, y, cx + w / 2.0, y + h);
+        let focused = i == app.dashboard_focus();
+        let hovered = r.contains(views.hover);
+        let shape = RoundedRect::new(r.x0, r.y0, r.x1, r.y1, 8.0);
+        let bg = if focused {
+            accent()
+        } else if hovered {
+            tc(|t| t.tab_hover)
+        } else {
+            tc(|t| t.toolbar)
+        };
+        scene.fill(Fill::NonZero, Affine::IDENTITY, bg, None, &shape);
+        if focused {
+            let ring = RoundedRect::new(r.x0 - 3.0, r.y0 - 3.0, r.x1 + 3.0, r.y1 + 3.0, 10.0);
+            scene.stroke(&Stroke::new(2.0), Affine::IDENTITY, accent(), None, &ring);
+        }
+        text(
+            scene,
+            b.label(),
+            cx,
+            r.center().y + 6.0,
+            17.0,
+            Align::Center,
+            if focused { text_on(bg) } else { chrome_text() },
+            false,
+        );
+        views.dashboard.push((r, i));
+    }
 }
 
 /// The tabline, as in bufferline.nvim: the active view's buffers as tabs on the left (file-type
@@ -5743,6 +5800,10 @@ impl Views {
     }
 
     pub fn click(&mut self, app: &mut App, x: f64, y: f64) {
+        if let Some(&(_, i)) = self.dashboard.iter().find(|(r, _)| r.contains((x, y))) {
+            app.dashboard_activate(i);
+            return;
+        }
         if let Some(&(_, i)) = self.toolbar.iter().find(|(r, _)| r.contains((x, y))) {
             app.run_toolbar(i);
             return;

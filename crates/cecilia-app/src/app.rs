@@ -572,6 +572,9 @@ pub struct App {
     pub(crate) view_info: HashMap<PaneId, ViewInfo>,
     pub(crate) effects: Vec<Effect>,
     pub quit: bool,
+    /// The dashboard shows instead of the panes (no score pane open), and its focused button.
+    pub(crate) dashboard: bool,
+    pub(crate) dashboard_focus: usize,
     /// Layout for panes opened without another to copy from (`ui.layout`); each pane keeps
     /// its own (`Pane::layout`).
     pub score_layout: String,
@@ -701,6 +704,8 @@ impl App {
             view_info: HashMap::new(),
             effects: Vec::new(),
             quit: false,
+            dashboard: false,
+            dashboard_focus: 0,
             score_layout,
             chant_view: true,
             ed: Default::default(),
@@ -1272,6 +1277,9 @@ impl App {
     }
 
     pub fn layout(&self) -> Vec<(PaneId, Rect)> {
+        if self.dashboard {
+            return Vec::new();
+        }
         if let Some(id) = self.maximized() {
             return vec![(id, self.viewport)];
         }
@@ -1545,6 +1553,7 @@ impl App {
     /// Shows a buffer in the focused pane, adding it to the view's bufferline if needed. The
     /// pane remembers the buffer it showed (and its cursor) to come back to.
     pub(crate) fn show_buffer(&mut self, buffer: usize) {
+        self.dashboard = false;
         let view = &mut self.views[self.active_view];
         if !view.buffers.contains(&buffer) {
             view.buffers.push(buffer);
@@ -1849,6 +1858,9 @@ impl App {
     pub fn handle_key(&mut self, key: Key) {
         if let Some(buffer) = self.confirm_close.take() {
             return self.answer_close(buffer, key);
+        }
+        if self.dashboard_key(key) {
+            return;
         }
         self.dispatch_key(key);
         self.chant_staff_notice();
@@ -2504,7 +2516,7 @@ impl App {
                     self.info("only one pane in this view");
                 }
             }
-            ClosePane => self.close_pane(false),
+            ClosePane => self.close_pane(),
             Quit { force } => self.try_quit(force),
             WriteAll => {
                 self.write_all();
@@ -2819,18 +2831,19 @@ impl App {
             .collect()
     }
 
-    /// `:q` on the focused pane: closes it, its view with the last pane, cecilia with the last view.
-    fn close_pane(&mut self, force: bool) {
+    /// `:pane-close` on the focused pane: closes it, its view with the last pane, and the last
+    /// view's last score pane gives way to the dashboard.
+    fn close_pane(&mut self) {
         let focus = self.window_focus();
         // A tool pane, or one of several score panes, just closes; the last score pane closes
-        // the view (or cecilia).
+        // the view (or shows the dashboard).
         let tool = self.focused_kind() != PaneKind::Score;
         if tool || self.score_panes().len() > 1 {
             self.close_pane_id(focus);
         } else if self.views.len() > 1 {
             self.close_view(false);
         } else {
-            self.try_quit(force);
+            self.pane_to_dashboard(focus);
         }
     }
 
@@ -2846,6 +2859,7 @@ impl App {
             if self.views.len() > 1 {
                 self.close_view(true);
             } else {
+                self.show_dashboard();
                 self.buffers.push(Buffer::empty());
                 let empty = self.buffers.len() - 1;
                 let view = &mut self.views[self.active_view];
