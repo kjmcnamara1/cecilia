@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed
+
+- The Linux desktop icon is now the ivory lily alone (`assets/lily.svg`) instead of the full emblem.
+
 ## [0.25.0] - 2026-11-04
 
 ### Changed
