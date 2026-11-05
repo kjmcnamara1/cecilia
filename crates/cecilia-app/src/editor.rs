@@ -717,7 +717,7 @@ impl App {
         }
     }
 
-    /// Edits another voice of the cursor's bar, creating it (as a bar rest) when it is new.
+    /// Edits another voice of the cursor's bar, creating it (empty) when it is new.
     fn switch_voice(&mut self, pick: impl FnOnce(&Score, &Cursor) -> usize) {
         let c = self.pane().cursor;
         let v = pick(&self.buffer().score, &c);
@@ -753,18 +753,12 @@ impl App {
                     let t = cx.cursor.track;
                     let v = cx.cursor.voice;
                     for b in from..=to {
-                        // Only the voice being edited is cleared: a bar rest in a further
-                        // voice, an empty first voice.
-                        let full = cx.score.played_ticks(b);
+                        // Only the voice being edited is cleared, to an empty placeholder.
                         let bar = cx.bar(t, b);
-                        let beats = if v == 0 {
-                            vec![Beat {
-                                empty: true,
-                                ..Beat::default()
-                            }]
-                        } else {
-                            cecilia_core::rest_beats(full)
-                        };
+                        let beats = vec![Beat {
+                            empty: true,
+                            ..Beat::default()
+                        }];
                         if v < bar.voices.len() {
                             bar.voices[v].beats = beats;
                         } else {
@@ -949,6 +943,13 @@ impl App {
             DeleteNote => {
                 self.edit(|cx| {
                     edit::delete_note(cx);
+                    Ok(())
+                });
+            }
+            DeleteBeat => {
+                self.edit(|cx| {
+                    let at = (cx.cursor.bar, cx.cursor.beat);
+                    edit::delete_range(cx, at, at);
                     Ok(())
                 });
             }
@@ -2715,10 +2716,10 @@ mod tests {
         assert_eq!(a.pane().cursor, left);
         keys(&mut a, "<Esc>gg`^");
         assert_eq!(a.pane().cursor, left);
-        // The old behaviour is on <leader>i, and adds nothing.
+        // The old behaviour is on <CR>, and adds nothing.
         keys(&mut a, "gg");
         let beats = a.buffer().score.tracks[0].bars[0].voices[0].beats.len();
-        keys(&mut a, "<Space>i");
+        keys(&mut a, "<CR>");
         assert_eq!(a.mode, Mode::Insert);
         assert_eq!(a.pane().cursor.bar, 0);
         assert_eq!(
@@ -2741,7 +2742,7 @@ mod tests {
         keys(&mut a, "<C-u>insert-last");
         assert_eq!(a.palette().unwrap().items[0].text, "gi");
         keys(&mut a, "<C-u>insert-here");
-        assert_eq!(a.palette().unwrap().items[0].text, "<Space>i");
+        assert_eq!(a.palette().unwrap().items[0].text, "<CR>");
     }
 
     #[test]

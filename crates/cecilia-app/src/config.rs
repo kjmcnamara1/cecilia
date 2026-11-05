@@ -470,7 +470,7 @@ const DEFAULT_NORMAL: &[(&str, &str)] = &[
     ("A", "append-bar-end"),
     ("gi", "insert-last"),
     ("gv", "visual-reselect"),
-    ("<leader>i", "insert-here"),
+    ("<CR>", "insert-here"),
     ("x", "delete-note"),
     ("d", "delete"),
     ("y", "yank"),
@@ -551,12 +551,12 @@ const DEFAULT_NORMAL_CHANT: &[(&str, &str)] = &[];
 const DEFAULT_INSERT: &[(&str, &str)] = &[
     ("<Esc>", "normal"),
     ("<Left>", "beat-prev"),
-    ("<Right>", "insert-next"),
+    ("<Right>", "beat-next"),
     ("<Space>", "insert-next"),
     ("<Up>", "string-up"),
     ("<Down>", "string-down"),
     ("<BS>", "delete-note"),
-    ("<Del>", "delete-note"),
+    ("<Del>", "delete-beat"),
     ("<CR>", "insert-enter"),
     ("<A-CR>", "beat-new"),
     ("<A-v>", "voice-next"),
@@ -670,6 +670,7 @@ const DEFAULT_INSERT_CHANT: &[(&str, &str)] = &[
     ("<Right>", "beat-next"),
     ("/", "chant-break"),
     ("<CR>", "chant-syllable"),
+    ("<Del>", "delete-note"),
 ];
 
 /// The tracks panel, while it has the focus.

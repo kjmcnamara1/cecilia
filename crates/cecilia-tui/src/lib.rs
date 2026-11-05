@@ -1952,9 +1952,16 @@ fn draw_edit_palette(f: &mut Frame, app: &App, area: Rect, ui: &mut Ui) {
                 ));
             }
             PaletteLine::Cells(cells) => {
+                // The voice buttons are centred in the pane.
+                let x0 = if cells.first().is_some_and(|&i| rows[i].is_voice()) {
+                    let total = (cells.len() as u16 * CELL).saturating_sub(1);
+                    area.x + area.width.saturating_sub(total) / 2
+                } else {
+                    area.x + 1
+                };
                 for (k, &i) in cells.iter().enumerate() {
                     let row = &rows[i];
-                    let x = area.x + 1 + k as u16 * CELL;
+                    let x = x0 + k as u16 * CELL;
                     let style = if i == sel && focused {
                         // A neutral gray, apart from the accent of buttons in force.
                         Style::default()
@@ -3107,7 +3114,12 @@ mod render_tests {
         let mut terminal = Terminal::new(TestBackend::new(100, 40)).unwrap();
         let mut ui = Ui::default();
         terminal.draw(|f| draw(f, &mut app, None, &mut ui)).unwrap();
-        let (r, i) = *ui.palette.iter().find(|(_, i)| *i == 4).unwrap();
+        let eighth = app
+            .palette_rows()
+            .iter()
+            .position(|r| r.command == "duration 8")
+            .unwrap();
+        let (r, i) = *ui.palette.iter().find(|(_, i)| *i == eighth).unwrap();
         assert!(r.width < 8, "a button, not a line");
         app.click_palette(i);
         assert_eq!(app.insert_duration().value.denominator(), 8);

@@ -104,6 +104,16 @@ pub struct Page {
     pub hits: Vec<Hit>,
     /// The items that draw a note's body or tab number, to recolour one note on every staff.
     pub marks: Vec<NoteMark>,
+    /// Which items belong to which voice of a bar with several (for dimming the inactive ones).
+    pub voice_spans: Vec<VoiceSpan>,
+}
+
+/// The items `start..end` of a page draw one voice of a bar that has several.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct VoiceSpan {
+    pub voice: usize,
+    pub start: usize,
+    pub end: usize,
 }
 
 /// What a marked item of a page is for a note.
@@ -138,6 +148,26 @@ impl Page {
                 staff,
             });
         }
+    }
+
+    /// This page with every voice but `active` faded (`alpha` out of 255 of its ink), in the
+    /// bars that have several voices. `None` when there are none to fade.
+    pub fn with_voices_dimmed(&self, active: usize, alpha: u8) -> Option<Page> {
+        if self.voice_spans.iter().all(|s| s.voice == active) {
+            return None;
+        }
+        let mut page = self.clone();
+        for s in self.voice_spans.iter().filter(|s| s.voice != active) {
+            for item in &mut page.items[s.start..s.end] {
+                let (Item::Line { color, .. }
+                | Item::Rect { color, .. }
+                | Item::Path { color, .. }
+                | Item::Glyph { color, .. }
+                | Item::Text { color, .. }) = item;
+                color.a = (color.a as u16 * alpha as u16 / 255) as u8;
+            }
+        }
+        Some(page)
     }
 
     /// This page with the note on `string` of `beat` drawn in `color` on every staff but

@@ -797,11 +797,11 @@ fn the_palette_lists_the_tools_of_the_notation_and_mode() {
 #[test]
 fn folding_survives_a_notation_that_hides_sections() {
     let mut a = app();
-    a.palette.selected = 0;
-    a.run(Command::parse("palette-fold close").unwrap());
+    // Section 1 is Duration (0 is the voice selector).
+    a.palette.folded.insert(1);
     a.pane_mut().cursor.staff = 0;
     a.run(Command::StaffAdd(Some("chant".into())));
-    // Only the Duration and Bar sections are left, and Duration is still folded.
+    // Only the Duration and Bar sections are left (no voices), and Duration is still folded.
     let rows = a.palette_rows();
     assert_eq!(rows.len(), 3);
     a.run(Command::parse("palette-fold open").unwrap());
@@ -859,7 +859,7 @@ fn voices_of(a: &App, bar: usize) -> &[Voice] {
 }
 
 #[test]
-fn a_new_voice_is_a_bar_rest_at_the_same_time_position() {
+fn a_new_voice_is_empty_at_the_same_time_position() {
     let mut a = app();
     set_bar(&mut a, 0, &[&[(2, 5, false)], &[(2, 7, false)], &[], &[]]);
     keys(&mut a, "l");
@@ -869,8 +869,8 @@ fn a_new_voice_is_a_bar_rest_at_the_same_time_position() {
     assert_eq!((c.voice, c.beat), (1, 0));
     let v = &voices_of(&a, 0)[1];
     assert_eq!(v.beats.len(), 1);
-    assert!(v.beats[0].is_rest());
-    assert_eq!(v.ticks(), a.buffer().score.master_bars[0].ticks());
+    assert!(v.beats[0].empty, "no rest is created");
+    assert_eq!(v.ticks(), 0);
     // Back to the first voice: the cursor is on the beat sounding at the same time (the start).
     a.run(Command::parse("voice 1").unwrap());
     assert_eq!((a.pane().cursor.voice, a.pane().cursor.beat), (0, 0));
@@ -917,7 +917,7 @@ fn voice_next_goes_round_through_the_bar_voices_and_one_more() {
 }
 
 #[test]
-fn deleting_a_voice_content_gives_back_a_bar_rest() {
+fn deleting_a_voice_content_gives_back_an_empty_voice() {
     let mut a = app();
     set_bar(&mut a, 0, &[&[(2, 5, false)], &[], &[], &[]]);
     a.run(Command::parse("voice 2").unwrap());
@@ -927,9 +927,22 @@ fn deleting_a_voice_content_gives_back_a_bar_rest() {
     keys(&mut a, "cc");
     keys(&mut a, "<Esc>");
     let v = &voices_of(&a, 0)[1];
-    assert_eq!(v.ticks(), a.buffer().score.master_bars[0].ticks());
-    assert!(v.beats.iter().all(Beat::is_rest));
+    assert!(v.is_empty());
     assert_eq!(voices_of(&a, 0)[0].beats.len(), 4);
+}
+
+#[test]
+fn del_in_insert_mode_deletes_the_whole_beat() {
+    let mut a = app();
+    set_bar(&mut a, 0, &[&[(2, 5, false)], &[], &[], &[]]);
+    let before = voices_of(&a, 0)[0].beats.len();
+    keys(&mut a, "<CR>");
+    keys(&mut a, "<Del>");
+    assert_eq!(voices_of(&a, 0)[0].beats.len(), before - 1);
+    assert!(
+        voices_of(&a, 0)[0].beats[0].notes.is_empty(),
+        "the noted beat is gone"
+    );
 }
 
 #[test]
@@ -961,7 +974,7 @@ fn rest_beats_fill_any_length() {
 }
 
 #[test]
-fn typing_into_a_new_voice_replaces_its_bar_rest() {
+fn typing_into_a_new_voice_fills_it() {
     let mut a = app();
     set_bar(&mut a, 0, &[&[(2, 5, false)], &[], &[], &[]]);
     a.run(Command::parse("voice 2").unwrap());

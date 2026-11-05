@@ -120,17 +120,10 @@ impl<'a> EditCx<'a> {
     /// The cursor's voice, created (with an empty placeholder beat) if missing.
     pub fn voice(&mut self) -> &mut Vec<Beat> {
         let (t, b, v) = (self.cursor.track, self.cursor.bar, self.cursor.voice);
-        let rest = self.score.played_ticks(b);
         let bar = self.bar(t, b);
         bar.simile = None;
         while bar.voices.len() <= v {
-            // A further voice starts as a rest for the whole bar, so it is usable at once.
-            let beats = if bar.voices.len() == v && v > 0 {
-                cecilia_core::rest_beats(rest)
-            } else {
-                Vec::new()
-            };
-            bar.voices.push(Voice { beats });
+            bar.voices.push(Voice { beats: Vec::new() });
         }
         if bar.voices[v].beats.is_empty() {
             bar.voices[v].beats.push(Beat {
@@ -1162,7 +1155,6 @@ pub fn delete_range(cx: &mut EditCx, from: Pos, to: Pos) {
         if cx.score.tracks[t].bars[b].voices.get(v).is_none() {
             continue;
         }
-        let full = cx.score.played_ticks(b);
         let bar = cx.bar(t, b);
         let beats = &mut bar.voices[v].beats;
         let mut i = 0;
@@ -1172,15 +1164,10 @@ pub fn delete_range(cx: &mut EditCx, from: Pos, to: Pos) {
             keep
         });
         if beats.is_empty() {
-            if v > 0 {
-                // A further voice with nothing left is a rest for the whole bar again.
-                *beats = cecilia_core::rest_beats(full);
-            } else {
-                beats.push(Beat {
-                    empty: true,
-                    ..Beat::default()
-                });
-            }
+            beats.push(Beat {
+                empty: true,
+                ..Beat::default()
+            });
         }
     }
     cx.cursor.bar = from.0;
@@ -1214,8 +1201,8 @@ pub fn adjacent_voice(score: &Score, c: &Cursor, forward: bool) -> usize {
     }
 }
 
-/// Makes `voice` (0-based) the voice being edited, creating it in the cursor's bar as a rest for
-/// the whole bar when the bar doesn't have it yet. The cursor keeps its time position: it goes
+/// Makes `voice` (0-based) the voice being edited, creating it in the cursor's bar as an empty
+/// placeholder when the bar doesn't have it yet. The cursor keeps its time position: it goes
 /// to the beat of the new voice sounding where it was.
 pub fn set_voice(cx: &mut EditCx, voice: usize) {
     let voice = voice.min(cecilia_core::MAX_VOICES - 1);
@@ -1237,12 +1224,8 @@ pub fn set_voice(cx: &mut EditCx, voice: usize) {
     };
     cx.cursor.voice = voice;
     if missing {
+        // A new voice stays an empty placeholder (no rest, no time filled) until typed into.
         let _ = cx.voice();
-        // An unused placeholder voice becomes a bar rest too.
-        if cx.score.tracks[t].bars[b].voices[voice].is_empty() {
-            let rest = cecilia_core::rest_beats(cx.score.played_ticks(b));
-            cx.bar(t, b).voices[voice].beats = rest;
-        }
     }
     let beats = &cx.score.tracks[t].bars[b].voices[voice].beats;
     let mut start = 0;

@@ -99,6 +99,8 @@ pub enum Command {
     /// Insert mode: put a note at the cursor (a fret is already in) and move to the next beat.
     InsertEnter,
     DeleteNote,
+    /// Delete the whole beat under the cursor (no rest left behind).
+    DeleteBeat,
     Operator(Operator),
     Put {
         before: bool,
@@ -682,6 +684,7 @@ impl Command {
             "visual-append" => VisualInsert { after: true },
             "insert-enter" => InsertEnter,
             "delete-note" => DeleteNote,
+            "delete-beat" => DeleteBeat,
             "delete" => Operator(self::Operator::Delete),
             "yank" => Operator(self::Operator::Yank),
             "change" => Operator(self::Operator::Change),
@@ -1230,6 +1233,7 @@ impl Command {
                 | DurationShorter
                 | InsertNext
                 | DeleteNote
+                | DeleteBeat
         )
     }
 
@@ -1268,6 +1272,7 @@ impl Command {
                 | InsertBeat(_)
                 | InsertEnter
                 | DeleteNote
+                | DeleteBeat
                 | Operator(_)
                 | Put { .. }
                 | BarInsert { .. }

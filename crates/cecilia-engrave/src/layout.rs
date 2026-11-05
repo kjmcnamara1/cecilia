@@ -2592,7 +2592,6 @@ impl Ctx<'_> {
             .iter()
             .filter(|v| !v.beats.iter().all(|b| b.empty))
             .count();
-        let bar_blank = bar.voices.iter().all(|v| v.beats.iter().all(|b| b.empty));
         let key_alter = key_alters(mb.key_signature.accidentals);
         let mut alters: HashMap<i32, i32> = HashMap::new();
         let mut shown = false;
@@ -2619,8 +2618,11 @@ impl Ctx<'_> {
                 }
             }
         }
+        let mut voice_starts: Vec<usize> = Vec::new();
         for (vi, voice) in bar.voices.iter().enumerate() {
+            voice_starts.push(page.items.len());
             let mut t = 0;
+            let voice_blank = voice.beats.iter().all(|b| b.empty);
             let mut beamable: Vec<(usize, f64, Vec<f64>, DurationValue, u32)> = Vec::new();
             // Beats of a tab+ staff waiting for their beam: start tick, stem x, value, dots.
             let mut rhythm: Vec<RhythmBeat> = Vec::new();
@@ -2639,7 +2641,9 @@ impl Ctx<'_> {
                 t += beat.ticks();
                 // The first beat of a bar with nothing in it gets a position (for the cursor and
                 // clicks) but draws nothing.
-                let placeholder = beat.empty && vi == 0 && i == 0 && bar_blank;
+                // A voice with nothing in it keeps its place even when another voice has music,
+                // so the cursor still shows there.
+                let placeholder = beat.empty && i == 0 && voice_blank;
                 if beat.empty && !placeholder {
                     continue;
                 }
@@ -3086,6 +3090,17 @@ impl Ctx<'_> {
             tuplets.push((std::mem::take(&mut tuplet_group), tuplet_ratio));
             for (group, ratio) in tuplets {
                 self.draw_tuplet(page, &group, ratio, std_top);
+            }
+        }
+        voice_starts.push(page.items.len());
+        if bar.voices.len() > 1 {
+            // Where each voice's items lie on the page, so a frontend can dim the inactive ones.
+            for (vi, w) in voice_starts.windows(2).enumerate() {
+                page.voice_spans.push(crate::display::VoiceSpan {
+                    voice: vi,
+                    start: w[0],
+                    end: w[1],
+                });
             }
         }
         // A bar repeat sign takes the place of the notes.
@@ -4623,6 +4638,44 @@ mod tests {
         let layout = engrave(&mixed, 0, &Options::default());
         assert!(layout.beats.contains_key(&at));
         assert!(!layout.beats.contains_key(&BeatRef { beat: 1, ..at }));
+
+        // An empty first voice keeps its position when a second voice holds a bar rest, and
+        // the voices' items can be told apart to dim the inactive one.
+        let mut two = score.clone();
+        two.tracks[0].bars[0].voices.push(Voice {
+            beats: vec![Beat::default()],
+        });
+        let layout = engrave(&two, 0, &Options::default());
+        assert!(
+            layout.beats.contains_key(&at),
+            "voice 1 keeps its cursor place"
+        );
+        assert!(layout.beats.contains_key(&BeatRef { voice: 1, ..at }));
+        // A second voice that is empty too has a place for its cursor.
+        let mut blank_two = score.clone();
+        blank_two.tracks[0].bars[0].voices.push(Voice {
+            beats: vec![empty()],
+        });
+        let layout2 = engrave(&blank_two, 0, &Options::default());
+        assert!(layout2.beats.contains_key(&BeatRef { voice: 1, ..at }));
+        let page = &layout.pages[0];
+        // A span per voice on each of the two staves.
+        assert_eq!(page.voice_spans.len(), 4);
+        let dimmed = page.with_voices_dimmed(0, 90).expect("voice 2 is dimmed");
+        let second: Vec<_> = page.voice_spans.iter().filter(|s| s.voice == 1).collect();
+        assert!(
+            second.iter().any(|s| s.end > s.start),
+            "voice 2 draws its rest"
+        );
+        for s in second {
+            assert!(dimmed.items[s.start..s.end].iter().all(|i| match i {
+                Item::Line { color, .. }
+                | Item::Rect { color, .. }
+                | Item::Path { color, .. }
+                | Item::Glyph { color, .. }
+                | Item::Text { color, .. } => color.a < 255,
+            }));
+        }
     }
 
     #[test]
