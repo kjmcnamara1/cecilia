@@ -49,7 +49,6 @@ Planned work. Finished items move to `CHANGELOG.md` under `[Unreleased]`.
 
 ### TUI
 
-
 ### GUI
 
 - [ ] Try to more closely emulate a GTK4 style
