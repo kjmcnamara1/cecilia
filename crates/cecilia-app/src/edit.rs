@@ -659,10 +659,16 @@ pub fn set_duration(cx: &mut EditCx, f: impl Fn(Duration) -> Duration) -> Durati
 /// Inserts a rest beat before or after the cursor and moves onto it.
 pub fn insert_beat(cx: &mut EditCx, after: bool, duration: Duration) {
     let i = cx.cursor.beat;
+    let (v, full) = (cx.cursor.voice, cx.score.played_ticks(cx.cursor.bar));
     let beats = cx.voice();
-    // An empty placeholder becomes the new beat itself.
-    if beats.len() == 1 && beats[0].empty {
-        beats[0] = Beat::rest(duration);
+    // An empty placeholder, or a further voice that is still a rest for the whole bar, becomes
+    // the new beat itself (the voice then grows beat by beat, as the first one does).
+    let bar_rest = v > 0
+        && beats.iter().all(Beat::is_rest)
+        && beats.iter().map(Beat::ticks).sum::<u32>() == full;
+    if (beats.len() == 1 && beats[0].empty) || bar_rest {
+        beats.clear();
+        beats.push(Beat::rest(duration));
         cx.cursor.beat = 0;
         return;
     }

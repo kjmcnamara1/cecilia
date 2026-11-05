@@ -959,3 +959,14 @@ fn rest_beats_fill_any_length() {
     }
     assert_eq!(rest_beats(1920).len(), 1);
 }
+
+#[test]
+fn typing_into_a_new_voice_replaces_its_bar_rest() {
+    let mut a = app();
+    set_bar(&mut a, 0, &[&[(2, 5, false)], &[], &[], &[]]);
+    a.run(Command::parse("voice 2").unwrap());
+    keys(&mut a, "i3<Esc>");
+    let v = &voices_of(&a, 0)[1];
+    assert_eq!(v.beats.len(), 1);
+    assert_eq!(v.beats[0].notes[0].fret, 3);
+}
