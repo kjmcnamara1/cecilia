@@ -119,7 +119,7 @@ clef = "treble"          # clef of a standard staff added without one: treble, b
 # "<leader>p" = "play-toggle"
 # "gb" = ["goto-first", "play"]
 # "<C-S-q>" = "quit!"     # Ctrl+Shift+Q, distinct from <C-q> (GUI, kitty-protocol terminals)
-# "<D-s>" = "write"       # Super/Windows/Cmd+S
+# "<D-s>" = "write"       # Super/Windows/Cmd+S (a buffer with no file opens :save-as)
 # <F1> shows the key help of the current mode in every mode; binding it here overrides that in the Normal modes.
 
 # Normal-mode keys for the notation under the cursor, looked up before [keymap.normal]:

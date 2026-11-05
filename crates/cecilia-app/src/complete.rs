@@ -939,6 +939,9 @@ pub fn describe(command: &str) -> Option<&'static str> {
         "octave-down" => "Note down an octave",
         "octave-up" => "Note up an octave",
         "open" => "Open a file (no file: the system file picker)",
+        "save-as" => {
+            "Write to a new file and make it the buffer's file (no file: the system dialog)"
+        }
         "open-dialog" => "Choose files to open in the system file picker",
         "page-down" => "Move the cursor half a screen forward",
         "page-up" => "Move the cursor half a screen back",

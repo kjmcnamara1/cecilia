@@ -451,6 +451,12 @@ pub enum Effect {
     OpenDialog {
         dir: Option<PathBuf>,
     },
+    /// Show the system save dialog (starting in `dir`, suggesting `name`) and save the buffer
+    /// under the path chosen (see `App::save_as`).
+    SaveDialog {
+        dir: Option<PathBuf>,
+        name: String,
+    },
     /// Start (true) or stop listening for the tuner.
     Tuner(bool),
     /// Mixer, loop, metronome, speed or pitch settings changed.
@@ -2681,6 +2687,8 @@ impl App {
                 self.effects.push(Effect::OpenDialog { dir });
             }
             Write(path) => self.write(path),
+            SaveAs(Some(path)) => self.save_as(path),
+            SaveAs(None) => self.request_save_dialog(),
             Source => self.reload_config(),
             CommandMode => self.open_command_line(""),
             Normal => {
@@ -2726,7 +2734,63 @@ impl App {
     /// when there are changes, so opening and saving never rewrites an untouched original.
     fn write(&mut self, path: Option<PathBuf>) {
         let index = self.pane().buffer;
+        // A buffer with no file has nowhere to be written back to: ask for one.
+        if path.is_none() && self.buffers[index].path.is_none() {
+            return self.request_save_dialog();
+        }
+        // Writing a new (unnamed) buffer to a path names it, like `:save-as`.
+        if let Some(path) = path.as_ref().filter(|_| self.buffers[index].path.is_none()) {
+            return self.save_as(path.clone());
+        }
         self.write_buffer(index, path);
+    }
+
+    /// Asks the frontend for a file to save the focused buffer as (see [`Effect::SaveDialog`]).
+    fn request_save_dialog(&mut self) {
+        let buffer = self.buffer();
+        let dir = buffer
+            .path
+            .as_deref()
+            .and_then(Path::parent)
+            .map(Path::to_path_buf);
+        let name = if buffer.path.is_some() || buffer.name.ends_with(".cc") {
+            buffer.name.clone()
+        } else {
+            "untitled.cc".to_string()
+        };
+        self.effects.push(Effect::SaveDialog { dir, name });
+    }
+
+    /// `:save-as`: writes the focused buffer to `path` (format by extension) and makes that its
+    /// file, so a later `:w` writes there. The buffer counts as saved. Nothing changes if the
+    /// write fails or another buffer already has that file.
+    pub fn save_as(&mut self, mut path: PathBuf) {
+        // A name without an extension is a native file.
+        if path.extension().is_none() {
+            path.set_extension("cc");
+        }
+        let index = self.pane().buffer;
+        let canonical = path.canonicalize().ok();
+        if let Some(other) = self.buffers.iter().enumerate().position(|(i, b)| {
+            i != index && b.path.is_some() && b.path.as_deref() == canonical.as_deref()
+        }) {
+            let name = self.buffers[other].name.clone();
+            return self.error(format!("\"{name}\" is already open in another buffer tab"));
+        }
+        if !self.write_buffer(index, Some(path.clone())) {
+            return;
+        }
+        let canonical = path.canonicalize().unwrap_or(path.clone());
+        // The old swap file (named by the old path or slot) goes before the name changes.
+        self.swap_release(index);
+        let buffer = &mut self.buffers[index];
+        buffer.name = path.file_name().map_or_else(
+            || path.display().to_string(),
+            |n| n.to_string_lossy().into(),
+        );
+        buffer.path = Some(canonical);
+        buffer.modified = false;
+        buffer.history.mark_saved();
     }
 
     /// `:wall`: writes every changed file. False if one could not be written (or has no name).
@@ -2780,16 +2844,19 @@ impl App {
         }
     }
 
-    fn write_buffer(&mut self, index: usize, path: Option<PathBuf>) {
+    /// Writes buffer `index`; false if nothing was written (an error was reported).
+    fn write_buffer(&mut self, index: usize, path: Option<PathBuf>) -> bool {
         let buffer = &self.buffers[index];
         let target = match path {
             Some(p) => p,
             None => {
                 let Some(p) = buffer.path.clone() else {
-                    return self.error("no file name (use :w <file>)");
+                    self.error("no file name (use :w <file>)");
+                    return false;
                 };
                 if !buffer.modified {
-                    return self.info("no changes to write");
+                    self.info("no changes to write");
+                    return true;
                 }
                 p
             }
@@ -2817,7 +2884,10 @@ impl App {
                     embedded.audio.as_mut().unwrap().embedded = Some(std::sync::Arc::new(bytes));
                     score = &embedded;
                 }
-                Err(e) => return self.error(format!("{}: {e}", file.display())),
+                Err(e) => {
+                    self.error(format!("{}: {e}", file.display()));
+                    return false;
+                }
             }
         }
         match cecilia_formats::write_file(score, &target) {
@@ -2829,8 +2899,12 @@ impl App {
                     self.swap_release(index);
                 }
                 self.info(format!("\"{}\" written, {size} bytes", target.display()));
+                true
             }
-            Err(e) => self.error(format!("{}: {e}", target.display())),
+            Err(e) => {
+                self.error(format!("{}: {e}", target.display()));
+                false
+            }
         }
     }
 
