@@ -6,11 +6,12 @@ Planned work. Finished items move to `CHANGELOG.md` under `[Unreleased]`.
 
 - [ ] Rename project to Cecilia (Ceci)
 - [ ] Use .cc as file extension?
-- [ ] Change icon
+- [ ] Change icon to have portable pipe organ, palm branches, and floral crown
+      of ivory lilies and muted coral roses
 
-### Engraving
+### Docs
 
-- [ ] TODO: Clean up engraving bugs
+- [ ] Static site for documentation (Zensical)
 
 ### Tool Panes
 
@@ -30,19 +31,15 @@ Planned work. Finished items move to `CHANGELOG.md` under `[Unreleased]`.
 
 - [ ] Add ability to read/open a pdf or image of a score/tab/chant
 
-### Editing
+### Audio
 
-- Text Editor Analogy
-  - character = beat
-  - word = note/sound
-  - line = bar
-  - paragraph = bar
+- [ ] Add additional more realistic instrument sounds
+- [ ] Add AI singing voice that can sing lyrics?
 
 ### Keymaps
 
 - [ ] TODO: Deep dive on keymap architecture and how to define (config.toml seems lacking)
-  - Should be dependent on mode and currently focused window/pane/staf
-- [x] FIX: ctrl-c in any pane (score,tool,properties,etc.) should close that pane.
+  - Should be dependent on mode and currently focused window/pane/staff
 
 ### UI
 
@@ -58,13 +55,6 @@ Planned work. Finished items move to `CHANGELOG.md` under `[Unreleased]`.
     workspace by default
   - can still start "muse --workspace NAME" to open a window in
     a new/different workspace
-- [ ] Pane Resizing
-  - Config setting for auto-resize
-  - able to change via command
-  - every pane should have a default w/h and current w/h
-  - values for width/height can be fixed or dynamic (%)
-  - :resize-default will set current w/h of the focused pane back to the default values
-  - auto-resize should essentially run :resize-equal after opening or closing panes
 
 ### TUI
 
@@ -79,7 +69,6 @@ Planned work. Finished items move to `CHANGELOG.md` under `[Unreleased]`.
 
 - [ ] Allow setting size and color of focus-ring
 - [ ] Setting to enable/disable cycle/wrap focus of buffers in the tabline
-- [ ] Ability to customize toolbars
 - [ ] Ability to set corner radii
 
 ### Scripting
