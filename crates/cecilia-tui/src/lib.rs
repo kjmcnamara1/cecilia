@@ -900,7 +900,7 @@ fn draw(f: &mut Frame, app: &mut App, play: Option<(usize, Location, f64, f64)>,
         let requested = pane.scroll_request.is_some();
         let follow = !ui.scrolled.contains(&id);
         let mut extent = (0, 0);
-        let chant = app.chant_view && track.is_some_and(|t| t.chant.is_some());
+        let chant = track.is_some_and(|t| chantview::shows(app, t));
         if chant {
             f.render_widget(
                 chantview::ChantView {
@@ -1198,10 +1198,12 @@ fn draw_palette(f: &mut Frame, app: &App, p: &cecilia_app::Palette, screen: Rect
 
 /// Bars paged when a pane's view is not known (chant): two per system row.
 fn page_bars(area: Rect, track: &cecilia_core::Track) -> usize {
-    let height = if track.chant.is_some() {
-        chantview::system_height()
-    } else {
-        tabview::system_height(track)
+    let all_chant =
+        !track.staves().is_empty() && track.staves().iter().all(|s| s.chant_family().is_some());
+    let height = match track.chant.as_deref() {
+        Some(chant) => chantview::system_height(chant),
+        None if all_chant => chantview::MIXED_ROWS + 2,
+        None => tabview::system_height(track),
     };
     let rows = (area.height / height).max(1) as usize;
     rows * 2
@@ -3504,7 +3506,7 @@ mod render_tests {
         let screen = render(&mut app, 60, 24);
         assert!(screen.contains("Al- le lu- ia."), "{screen}");
         assert!(
-            screen.contains('■') && screen.contains('♭') && screen.contains('‖'),
+            screen.contains('■') && screen.contains('♭') && screen.contains('║'),
             "{screen}"
         );
         assert!(screen.contains("C─"), "{screen}");
@@ -3512,6 +3514,282 @@ mod render_tests {
         app.run(cecilia_app::Command::ChantView);
         let screen = render(&mut app, 60, 24);
         assert!(screen.contains("F4"), "{screen}");
+    }
+
+    /// A real chant from the corpus open in an app (the Properties pane closed).
+    fn corpus_chant(file: &str) -> App {
+        let path = format!(
+            "{}/../../test-corpus/gabc/{file}",
+            env!("CARGO_MANIFEST_DIR")
+        );
+        let mut app = App::new(cecilia_app::Config::default(), None);
+        app.set_tool(PaneKind::Properties, Some(false));
+        app.run(cecilia_app::Command::Edit(path.into()));
+        app
+    }
+
+    fn draw_buffer(app: &mut App, w: u16, h: u16, ui: &mut Ui) -> ratatui::buffer::Buffer {
+        let mut terminal = Terminal::new(TestBackend::new(w, h)).unwrap();
+        terminal.draw(|f| draw(f, app, None, ui)).unwrap();
+        terminal.backend().buffer().clone()
+    }
+
+    #[test]
+    fn chant_wraps_to_the_pane_width_in_systems_with_clefs_and_custodes() {
+        let mut app = corpus_chant("2715.gabc");
+        let wide = render(&mut app, 160, 200);
+        let narrow = render(&mut app, 60, 200);
+        let count = |s: &str, p: &str| s.lines().filter(|l| l.contains(p)).count();
+        // Each system opens with the clef; narrower panes have more of them, and custodes.
+        assert!(
+            count(&narrow, "│C─") > count(&wide, "│C─"),
+            "{} {}\n{wide}",
+            count(&narrow, "│C─"),
+            count(&wide, "│C─")
+        );
+        assert!(narrow.contains('∨'), "{narrow}");
+        // Staff lines, ligature strokes, divisions and the text underlay.
+        for s in ["■", "┃", "─", "┼", "Ad te", "mi-"] {
+            assert!(narrow.contains(s), "{s}\n{narrow}");
+        }
+    }
+
+    #[test]
+    fn chant_page_layout_boxes_pages_and_horizontal_scrolls_with_the_cursor() {
+        let mut app = corpus_chant("2715.gabc");
+        app.run(cecilia_app::Command::parse("layout page").unwrap());
+        let paged = render(&mut app, 100, 200);
+        assert!(
+            paged.contains("Page 1") && paged.contains('┌') && paged.contains('└'),
+            "{paged}"
+        );
+
+        app.run(cecilia_app::Command::parse("layout horizontal").unwrap());
+        let first = render(&mut app, 80, 20);
+        assert!(first.contains("Sal") || first.contains("Al"), "{first}");
+        assert_eq!(first.matches("│C─").count(), 1, "{first}");
+        // The last bar: the view slides along to the end of the line and keeps the cursor on
+        // screen.
+        app.handle_key(Key::char('G'));
+        let last = render(&mut app, 80, 20);
+        assert!(!last.contains("Sal"), "{last}");
+        assert!(last.contains("pi- a") && last.contains("_____"), "{last}");
+        assert!(app.panes[&app.focused()].scroll > 0);
+    }
+
+    #[test]
+    fn chant_notes_are_clickable_and_the_cursor_marks_the_note() {
+        let mut app = corpus_chant("10027.gabc");
+        let mut ui = Ui::default();
+        let buf = draw_buffer(&mut app, 100, 30, &mut ui);
+        let notes: Vec<&tabview::Hit> = ui
+            .hits
+            .iter()
+            .filter(|h| h.area.width == 1 && h.area.height > 1)
+            .collect();
+        assert!(notes.len() > 20, "{}", notes.len());
+        // A hit per note column: the beat in the transcription and the note's staff position.
+        let h = notes[3];
+        assert_eq!(h.cursor.beat, 3);
+        assert!(h.cursor.line > 0);
+        // The cursor's note (the first) is highlighted: its cell has a background.
+        let cur = ui.hits.iter().find(|h| h.cursor.beat == 0).unwrap();
+        let note_cell = (cur.area.y..cur.area.y + cur.area.height)
+            .map(|y| &buf[(cur.area.x, y)])
+            .find(|c| c.symbol() == "■")
+            .unwrap();
+        assert_ne!(note_cell.bg, ratatui::style::Color::Reset);
+        // Clicking another note moves the cursor to it.
+        let target = *notes[5];
+        let id = app.focused();
+        app.mouse_press(id, target.cursor, Default::default());
+        assert_eq!(app.panes[&id].cursor.beat, target.cursor.beat);
+        // A click on the lyrics under a syllable picks its first note.
+        let word = ui
+            .hits
+            .iter()
+            .find(|h| h.area.height == 1 && h.area.width >= 2)
+            .unwrap();
+        assert!(word.cursor.beat <= 1, "{word:?}");
+        let text: String = (word.area.x..word.area.x + word.area.width)
+            .map(|x| buf[(x, word.area.y)].symbol())
+            .collect();
+        assert!(text.starts_with("Si"), "{text}");
+    }
+
+    /// A guitar track of two bars with lyrics, open in an app.
+    fn guitar_app() -> App {
+        use cecilia_core::*;
+        let beat = |fret, lyric: &str| Beat {
+            duration: Duration::new(DurationValue::Quarter),
+            notes: vec![Note::new(1, fret)],
+            lyrics: if lyric.is_empty() {
+                vec![]
+            } else {
+                vec![lyric.into()]
+            },
+            ..Beat::default()
+        };
+        let bar = Bar {
+            voices: vec![Voice {
+                beats: vec![beat(3, "Ky-"), beat(5, ""), beat(1, "ri-"), beat(3, "e")],
+            }],
+            ..Default::default()
+        };
+        let track = Track {
+            name: "Lead".into(),
+            strings: vec![64, 59, 55, 50, 45, 40],
+            bars: vec![bar; 2],
+            ..Track::default()
+        };
+        let score = Score {
+            tempo: 90,
+            master_bars: vec![MasterBar::default(); 2],
+            tracks: vec![track],
+            ..Score::default()
+        };
+        let mut app = App::new(cecilia_app::Config::default(), None);
+        app.set_tool(PaneKind::Properties, Some(false));
+        app.buffers[0].score = score;
+        app
+    }
+
+    fn text_of(buf: &ratatui::buffer::Buffer) -> String {
+        let a = buf.area;
+        (0..a.height)
+            .map(|y| {
+                (0..a.width)
+                    .map(|x| buf[(x, y)].symbol())
+                    .collect::<String>()
+            })
+            .collect::<Vec<_>>()
+            .join("\n")
+    }
+
+    #[test]
+    fn notation_chant_switches_a_modern_track_to_the_chant_staff_and_back() {
+        let mut app = guitar_app();
+        app.buffers[0].score.tracks[0].staves = vec![cecilia_core::Staff::Tab];
+        let tab = render(&mut app, 80, 24);
+        assert!(!tab.contains('■') && !tab.contains("C─"), "{tab}");
+        app.run(cecilia_app::Command::Notation("chant".into()));
+        let chant = render(&mut app, 80, 24);
+        // The melody as square notation with the lyrics' syllables under its neumes.
+        assert!(chant.contains('■') && chant.contains("C─"), "{chant}");
+        assert!(chant.contains("Ky- ri- e"), "{chant}");
+        assert!(chant.contains('║'), "{chant}");
+        // Back to tab (and standard, which the terminal shows as tab): at once.
+        app.run(cecilia_app::Command::Notation("tab".into()));
+        let back = render(&mut app, 80, 24);
+        assert!(!back.contains('■') && back.contains("Ky-"), "{back}");
+        app.run(cecilia_app::Command::Notation("chant".into()));
+        assert!(render(&mut app, 80, 24).contains('■'));
+        app.run(cecilia_app::Command::Notation("standard".into()));
+        assert!(!render(&mut app, 80, 24).contains('■'));
+    }
+
+    #[test]
+    fn chant_among_other_staves_draws_in_the_tab_systems() {
+        use cecilia_core::Staff;
+        let mut app = guitar_app();
+        let plain = render(&mut app, 80, 30);
+        app.buffers[0].score.tracks[0].staves = vec![Staff::Chant, Staff::Tab];
+        let mut ui = Ui::default();
+        let buf = draw_buffer(&mut app, 80, 30, &mut ui);
+        let mixed = text_of(&buf);
+        // The tab is still there, under the chant staff with its clef and the heads.
+        assert!(mixed.contains('■') && mixed.contains("C─"), "{mixed}");
+        assert!(mixed.contains('3') && mixed.contains("Ky-"), "{mixed}");
+        let row = |s: &str, p: &str| s.lines().position(|l| l.contains(p)).unwrap();
+        assert!(row(&mixed, "■") < row(&mixed, "Ky-"));
+        assert!(plain.contains('3') && !plain.contains('■'));
+        // Clicks: the chant rows pick a beat on the chant staff at that position, the tab rows
+        // one on the tab staff.
+        let head = *ui
+            .hits
+            .iter()
+            .find(|h| buf[(h.area.x, h.area.y)].symbol() == "■")
+            .unwrap();
+        assert_eq!(head.cursor.staff, 0);
+        assert_eq!((head.cursor.bar, head.cursor.beat), (0, 0));
+        assert!(head.cursor.line > 0);
+        let tab_hit = ui
+            .hits
+            .iter()
+            .find(|h| buf[(h.area.x, h.area.y)].symbol() == "3")
+            .unwrap();
+        assert_eq!(tab_hit.cursor.staff, 1);
+        // The cursor on the chant staff marks the head, not a tab string.
+        let id = app.focused();
+        app.mouse_press(id, head.cursor, Default::default());
+        let mut ui = Ui::default();
+        let buf = draw_buffer(&mut app, 80, 30, &mut ui);
+        let on_head = ui
+            .hits
+            .iter()
+            .find(|h| h.cursor.staff == 0 && buf[(h.area.x, h.area.y)].symbol() == "■")
+            .unwrap();
+        let reset = ratatui::style::Color::Reset;
+        assert_ne!(buf[(on_head.area.x, on_head.area.y)].bg, reset);
+        let tab_cell = ui
+            .hits
+            .iter()
+            .find(|h| h.cursor.staff == 1 && buf[(h.area.x, h.area.y)].symbol() == "3")
+            .unwrap();
+        assert_eq!(buf[(tab_cell.area.x, tab_cell.area.y)].bg, reset);
+        // A chant staff below the tab; and other staves only: no chant.
+        app.buffers[0].score.tracks[0].staves = vec![Staff::Tab, Staff::Chant];
+        let below = render(&mut app, 80, 30);
+        assert!(row(&below, "■") > row(&below, "Ky-"), "{below}");
+        app.buffers[0].score.tracks[0].staves = vec![Staff::Tab, Staff::Slash];
+        assert!(!render(&mut app, 80, 30).contains('■'));
+    }
+
+    #[test]
+    fn a_corpus_score_shows_as_chant_with_notation_chant() {
+        let path = format!(
+            "{}/../../test-corpus/Sacred/100 - Let All Mortal Flesh Keep Silence.gp",
+            env!("CARGO_MANIFEST_DIR")
+        );
+        let mut app = App::new(cecilia_app::Config::default(), None);
+        app.set_tool(PaneKind::Properties, Some(false));
+        app.run(cecilia_app::Command::Edit(path.into()));
+        app.run(cecilia_app::Command::Notation("chant".into()));
+        let screen = render(&mut app, 100, 40);
+        println!("{screen}");
+        assert!(screen.contains('■') && screen.contains("C─"), "{screen}");
+    }
+
+    #[test]
+    fn the_playhead_marks_the_chant_staff_in_both_renderers() {
+        use cecilia_core::Staff;
+        for staves in [vec![Staff::Chant], vec![Staff::Chant, Staff::Tab]] {
+            let mut app = guitar_app();
+            app.buffers[0].score.tracks[0].staves = staves.clone();
+            app.playing = true;
+            // The third beat of the first bar.
+            let play = Some((0, cecilia_audio::Location { bar: 0, tick: 1920 }, 2.0, 6.0));
+            let mut terminal = Terminal::new(TestBackend::new(80, 30)).unwrap();
+            let mut ui = Ui::default();
+            terminal.draw(|f| draw(f, &mut app, play, &mut ui)).unwrap();
+            let buf = terminal.backend().buffer().clone();
+            let lit = rc(app.config.theme.playhead);
+            // The head of beat `n` (a hit's column may span the staff).
+            let head_of = |n: usize| {
+                ui.hits
+                    .iter()
+                    .filter(|h| h.cursor.bar == 0 && h.cursor.beat == n && h.cursor.staff != 1)
+                    .find_map(|h| {
+                        (h.area.y..h.area.y + h.area.height)
+                            .find(|&y| buf[(h.area.x, y)].symbol() == "■")
+                            .map(|y| (h.area.x, y))
+                    })
+                    .unwrap()
+            };
+            // The playing note's column is lit; the note before it is not.
+            assert_eq!(buf[head_of(2)].bg, lit, "{staves:?}\n{}", text_of(&buf));
+            assert_ne!(buf[head_of(1)].bg, lit, "{staves:?}");
+        }
     }
 
     #[test]
