@@ -131,9 +131,7 @@ impl App {
                 return true;
             }
             ChantSyllable if ordinary => {
-                self.error(
-                    "chant-syllable: on this track, syllables come from its lyrics (:lyrics)",
-                );
+                self.edit(|cx| crate::edit::enter_chant_punctum(cx, policy, duration));
                 return true;
             }
             _ => {}

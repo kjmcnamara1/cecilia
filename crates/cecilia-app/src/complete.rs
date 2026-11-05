@@ -1109,7 +1109,9 @@ pub fn describe(command: &str) -> Option<&'static str> {
         "chant-bar" => "Add a division after the cursor syllable",
         "chant-append" => "Add a chant note after the cursor note",
         "chant-break" => "Add a chant note after the cursor note, starting a new neume",
-        "chant-syllable" => "Add a chant syllable after the cursor syllable",
+        "chant-syllable" => {
+            "Chant: a new syllable after the cursor syllable; on a chant staff of an ordinary track, a punctum at the cursor position and insert duration"
+        }
         "track-next" => "Next track",
         "track-prev" => "Previous track",
         "trainer" => "Speed trainer: start, target, step",

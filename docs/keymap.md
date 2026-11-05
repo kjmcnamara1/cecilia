@@ -592,7 +592,7 @@ On a **slash** staff: `/` puts a slash on the beat (`:slash`; `<CR>` does as wel
 
 On **chant**, the cursor is on a note: a single square on that position of the chant staff. On a chant track (opened from GABC) these edit the chant
 itself; on any other track they edit the track's notes (shown on its other staves too) and keep
-the chant signs with them, the syllables coming from its lyrics. Chant is monophonic, so with a
+the chant signs with them, the syllables coming from its lyrics. A punctum entered with `<CR>` is its own neume while the track has no lyrics; once lyrics exist, each syllable's notes condense into neumes by contour (pes, clivis, torculus …) and `<CR>` punctums no longer split them (`/` neume breaks still do). Chant is monophonic, so with a
 chord the staff shows and edits one note of it (`ui.chant_chords`: the top note by default, or the
 bottom one; `error` refuses chords and the status line names the first one):
 
@@ -600,7 +600,7 @@ bottom one; `error` refuses chords and the status line names the first one):
 | ----------------------------------------- | ------------------------------------------------------------------------------- |
 | `a`–`m` / `A`–`M`                         | the cursor note's GABC pitch / as a punctum inclinatum (`:chant-note`)           |
 | `<Space>` / `/`                           | a new note after the cursor note, in the same neume / starting a new neume      |
-| `<CR>`                                    | a new syllable after the cursor syllable                                        |
+| `<CR>`                                    | chant track: a new syllable after the cursor syllable. Other tracks: a plain punctum at the cursor's staff position with the insert duration, in a new beat after the cursor beat (a full bar goes on in the next, added at the end), the cursor moving onto it (`:chant-syllable`) |
 | `v` `s` `o` `q` `w` `~`                   | virga, stropha, oriscus, quadratum, quilisma, liquescent (toggles, `:chant-mod`) |
 | `.` `_` `'` `-`                           | mora, episema, ictus, initio debilis                                            |
 | `,` `;` `:`                               | a division after the syllable (`:` again makes `::`; `:chant-bar`)              |

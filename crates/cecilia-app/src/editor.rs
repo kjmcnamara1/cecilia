@@ -2431,6 +2431,83 @@ mod tests {
     }
 
     #[test]
+    fn enter_on_a_chant_staff_enters_punctums_and_lyrics_condense_them() {
+        use cecilia_core::melody::ChantView;
+        let mut a = app();
+        a.run(Command::StaffAdd(Some("chant".into())));
+        let track = |a: &App| a.buffer().score.tracks[0].clone();
+        let beats = |a: &App| -> usize {
+            track(a)
+                .bars
+                .iter()
+                .flat_map(|b| &b.voices[0].beats)
+                .filter(|b| !b.notes.is_empty())
+                .count()
+        };
+        // Eighth notes: c, d (up), c, then Enter-created punctums.
+        a.run(Command::Duration(8));
+        keys(&mut a, "ic");
+        let line = a.pane().cursor.line;
+        keys(&mut a, "<CR>");
+        // A second beat, same position, a plain punctum; the cursor moved on; no refusal.
+        let second = track(&a).bars[0].voices[0].beats[1].clone();
+        assert_eq!(
+            second.notes[0].chant.as_ref().map(|m| m.punctum),
+            Some(true)
+        );
+        assert_eq!(a.pane().cursor.beat, 1);
+        assert_eq!(a.pane().cursor.line, line);
+        assert_eq!(beats(&a), 2);
+        keys(&mut a, "d<CR>c<Esc>"); // c d c
+        let view = |a: &App| {
+            let t = track(a);
+            ChantView::build(&a.buffer().score, &t, Default::default()).unwrap()
+        };
+        // No lyrics: every punctum is its own neume.
+        assert!(view(&a).neumes.iter().all(|n| n.len() == 1));
+        // Lyrics: one syllable over the first three notes makes a torculus-shaped neume run,
+        // the punctum flags no longer split it.
+        assert_eq!(beats(&a), 3);
+        let mut s = a.buffer().score.clone();
+        s.tracks[0].bars[0].voices[0].beats[0].lyrics = vec!["Ky".into()];
+        let sc = s.clone();
+        let v = ChantView::build(&sc, &s.tracks[0], Default::default()).unwrap();
+        let first_neume = &v.neumes[0];
+        assert_eq!(first_neume.len(), 3, "{:?}", v.neumes);
+    }
+
+    #[test]
+    fn a_melody_is_built_on_a_chant_staff_alone() {
+        let mut a = app();
+        a.run(Command::StaffAdd(Some("chant".into())));
+        let notes = |a: &App| -> Vec<(usize, usize)> {
+            let mut out = Vec::new();
+            for (bi, b) in a.buffer().score.tracks[0].bars.iter().enumerate() {
+                for (i, beat) in b.voices[0].beats.iter().enumerate() {
+                    if !beat.notes.is_empty() {
+                        out.push((bi, i));
+                    }
+                }
+            }
+            out
+        };
+        // Quarter notes: five of them fill a 4/4 bar and go on into the next.
+        keys(&mut a, "ig<CR><CR><CR><CR>");
+        assert_eq!(notes(&a), vec![(0, 0), (0, 1), (0, 2), (0, 3), (1, 0)]);
+        assert_eq!(a.pane().cursor.bar, 1);
+        // Up / down moves by staff position; Enter enters there.
+        let line = a.pane().cursor.line;
+        keys(&mut a, "<Up><CR>");
+        assert_eq!(a.pane().cursor.line, line + 1);
+        assert_eq!(notes(&a).len(), 6);
+        // Backspace deletes the note; undo takes back the whole insert session.
+        keys(&mut a, "<BS>");
+        assert_eq!(notes(&a).len(), 5);
+        keys(&mut a, "<Esc>u");
+        assert!(notes(&a).is_empty());
+    }
+
+    #[test]
     fn default_clef_from_config() {
         let (cfg, errors) = Config::parse("[score]\nclef = \"bass\"\n").unwrap();
         assert!(errors.is_empty());

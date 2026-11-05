@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- `<CR>` (`:chant-syllable`) on a chant staff of an ordinary track enters a plain punctum at the cursor's position with the insert duration and moves on (it used to be refused). Each such punctum is its own neume until the track has lyrics; then the syllables condense the notes into pes, clivis, torculus etc.
+
 ## [0.29.0] - 2026-11-05
 
 ### Added
