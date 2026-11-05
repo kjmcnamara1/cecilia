@@ -829,6 +829,33 @@ pub enum Simile {
     TwoBarsSecond,
 }
 
+/// Voices a track's bar can hold (Guitar Pro files store two or four of them).
+pub const MAX_VOICES: usize = 4;
+
+/// Rests that add up to `ticks`: the longest plain or dotted values that fit, longest first
+/// (a bar of 4/4 is one whole rest, 6/8 a dotted half, 5/4 a whole and a quarter).
+pub fn rest_beats(ticks: u32) -> Vec<Beat> {
+    let mut left = ticks;
+    let mut out = Vec::new();
+    while left > 0 {
+        let fit = DurationValue::ALL
+            .into_iter()
+            .flat_map(|value| {
+                (0..=2u8).map(move |dots| Duration {
+                    value,
+                    dots,
+                    tuplet: None,
+                })
+            })
+            .filter(|d| d.ticks() <= left)
+            .max_by_key(Duration::ticks);
+        let Some(d) = fit else { break };
+        left -= d.ticks();
+        out.push(Beat::rest(d));
+    }
+    out
+}
+
 #[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
 pub struct Voice {
     pub beats: Vec<Beat>,

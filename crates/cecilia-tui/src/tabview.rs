@@ -2,7 +2,7 @@
 
 use crate::{barline, chantview, rc, rhythm};
 use cecilia_app::{App, Cursor};
-use cecilia_core::{Beat, DurationValue, Note, Score, Track, TrackKind};
+use cecilia_core::{Bar, Beat, DurationValue, Note, Score, Track, TrackKind, Voice};
 use ratatui::buffer::Buffer;
 use ratatui::layout::Rect;
 use ratatui::style::{Modifier, Style};
@@ -22,8 +22,11 @@ struct BarLayout {
     x: u16,
     /// Columns of the bar line opening the bar (see [`barline::boundary`]).
     lead: u16,
-    /// (x offset from bar start, width) per beat
+    /// (x offset from bar start, width) per column: a column is a moment where a beat of any
+    /// voice starts, so the voices line up by time.
     beats: Vec<(u16, u16)>,
+    /// The start tick of each column.
+    ticks: Vec<u32>,
     width: u16,
 }
 
@@ -182,32 +185,18 @@ fn layout_from(
         if horizontal && x >= avail {
             break;
         }
-        let beats = bar.voices.first().map_or(&[][..], |v| &v.beats[..]);
-        // Beat offsets after `lead` columns of bar line.
-        let place = |lead: u16| {
-            let mut offs = vec![];
-            let mut bx = lead;
-            for b in beats {
-                let w = beat_width(b, t, scale);
-                offs.push((bx, w));
-                bx += w;
-            }
-            if beats.is_empty() {
-                offs.push((lead, 4 * scale / 2));
-                bx += 4 * scale / 2;
-            }
-            (offs, bx)
-        };
+        // Column offsets after `lead` columns of bar line.
+        let place = |lead: u16| place_bar(bar, t, scale, lead);
         let lead_of = |first| barline::boundary(score, bi, first).len() as u16;
         // The line after the bar if it ends the system (one column is already reserved).
         let tail = barline::tail(score, bi).len() as u16 - 1;
         let mut lead = lead_of(current.bars.is_empty());
-        let (mut offs, mut bx) = place(lead);
+        let (mut offs, mut ticks, mut bx) = place(lead);
         if !horizontal && x + bx.min(avail) + tail > avail && !current.bars.is_empty() {
             systems.push(std::mem::take(&mut current));
             x = 0;
             lead = lead_of(true);
-            (offs, bx) = place(lead);
+            (offs, ticks, bx) = place(lead);
         }
         let mut bw = bx.min(avail);
         if horizontal && x + bx + tail > avail {
@@ -220,6 +209,7 @@ fn layout_from(
             x,
             lead,
             beats: offs,
+            ticks,
             width: bw,
         });
         x += bw;
@@ -233,20 +223,57 @@ fn layout_from(
     systems
 }
 
-/// The beat columns of a bar at `scale`, after `lead` columns of bar line, and the bar's width.
-fn place_beats(beats: &[Beat], t: &Track, scale: u16, lead: u16) -> (Vec<(u16, u16)>, u16) {
+/// The columns of a bar at `scale`, after `lead` columns of bar line: (offset, width) and start
+/// tick of each, and the bar's width. A column is where a beat of any voice starts.
+fn place_bar(bar: &Bar, t: &Track, scale: u16, lead: u16) -> (Vec<(u16, u16)>, Vec<u32>, u16) {
+    let mut cols: std::collections::BTreeMap<u32, u16> = Default::default();
+    for (vi, voice) in bar.voices.iter().enumerate() {
+        let mut tick = 0;
+        for b in &voice.beats {
+            // An unused voice's placeholder takes no room.
+            if !(b.empty && vi > 0) {
+                let w = cols.entry(tick).or_insert(0);
+                *w = (*w).max(beat_width(b, t, scale));
+            }
+            tick += b.ticks();
+        }
+    }
     let mut offs = vec![];
+    let mut ticks = vec![];
     let mut bx = lead;
-    for b in beats {
-        let w = beat_width(b, t, scale);
+    for (&tick, &w) in &cols {
         offs.push((bx, w));
+        ticks.push(tick);
         bx += w;
     }
-    if beats.is_empty() {
+    if offs.is_empty() {
         offs.push((lead, 4 * scale / 2));
+        ticks.push(0);
         bx += 4 * scale / 2;
     }
-    (offs, bx)
+    (offs, ticks, bx)
+}
+
+/// The beat of `voice` starting at `tick`.
+fn beat_starting(voice: &Voice, tick: u32) -> Option<usize> {
+    let mut t = 0;
+    voice.beats.iter().position(|b| {
+        let hit = t == tick;
+        t += b.ticks();
+        hit
+    })
+}
+
+/// The beat of `voice` sounding at `tick` (the last one past the end).
+fn beat_sounding(voice: &Voice, tick: u32) -> usize {
+    let mut t = 0;
+    for (i, b) in voice.beats.iter().enumerate() {
+        t += b.ticks();
+        if tick < t {
+            return i;
+        }
+    }
+    voice.beats.len().saturating_sub(1)
 }
 
 /// One line (system) of the page layout as the engraver breaks it: which bars, on which page,
@@ -328,12 +355,11 @@ pub fn layout_rows(
             for (k, bi) in row.bars.clone().enumerate() {
                 let lead = barline::boundary(score, bi, k == 0).len() as u16;
                 let share = (line as f64 * row.widths[k] / total) as u16;
-                let beats = t.bars[bi].voices.first().map_or(&[][..], |v| &v.beats[..]);
                 let mut sc = scale;
-                let (mut offs, mut bx) = place_beats(beats, t, sc, lead);
+                let (mut offs, mut ticks, mut bx) = place_bar(&t.bars[bi], t, sc, lead);
                 while bx > share && sc > 1 {
                     sc -= 1;
-                    (offs, bx) = place_beats(beats, t, sc, lead);
+                    (offs, ticks, bx) = place_bar(&t.bars[bi], t, sc, lead);
                 }
                 let width = share.max(bx).min(avail.saturating_sub(x)).max(1);
                 bars.push(BarLayout {
@@ -341,6 +367,7 @@ pub fn layout_rows(
                     x,
                     lead,
                     beats: offs,
+                    ticks,
                     width,
                 });
                 x += width;
@@ -805,18 +832,37 @@ impl Widget for TabView<'_> {
                         }
                     }
                 }
-                let beats = track.bars[bl.bar]
-                    .voices
-                    .first()
-                    .map_or(&[][..], |v| &v.beats[..]);
-                let mut tick = 0;
+                let bar_voices = &track.bars[bl.bar].voices;
+                let beats = bar_voices.first().map_or(&[][..], |v| &v.beats[..]);
+                let cur_voice = pane.cursor.voice;
                 for (i, &(off, w)) in bl.beats.iter().enumerate() {
                     if off + w > bl.width + 1 {
                         break;
                     }
-                    let beat = beats.get(i);
+                    let tick = bl.ticks[i];
+                    // The beat each voice starts in this column; the first voice's drives the
+                    // text under and over the staff.
+                    let starts: Vec<Option<usize>> =
+                        bar_voices.iter().map(|v| beat_starting(v, tick)).collect();
+                    let beat = starts.first().copied().flatten().and_then(|k| beats.get(k));
                     let bx_beat = bx + off;
-                    let len = beat.map_or(0, |b| b.ticks());
+                    let len = bar_voices
+                        .iter()
+                        .zip(&starts)
+                        .filter_map(|(v, k)| k.map(|k| v.beats[k].ticks()))
+                        .max()
+                        .unwrap_or(0);
+                    // The cursor's voice: its beat here, else the one sounding.
+                    let cur_beat = bar_voices.get(cur_voice).map(|v| {
+                        starts
+                            .get(cur_voice)
+                            .copied()
+                            .flatten()
+                            .unwrap_or_else(|| beat_sounding(v, tick))
+                    });
+                    let cur_here = bar_voices
+                        .get(cur_voice)
+                        .and_then(|_| starts.get(cur_voice).copied().flatten());
                     // Column of the playhead inside this beat, in proportion to time.
                     let playhead = self.play.and_then(|(pb, pt)| {
                         (pb == bl.bar
@@ -827,18 +873,23 @@ impl Widget for TabView<'_> {
                                 bx_beat + (frac * w as f64) as u16
                             })
                     });
-                    let is_cursor_beat = pane.cursor.bar == bl.bar && pane.cursor.beat == i;
+                    let is_cursor_beat = pane.cursor.bar == bl.bar
+                        && cur_here.is_some_and(|k| k == pane.cursor.beat);
                     let selected = self.focused
+                        && cur_beat.is_some()
                         && self.app.selection().is_some_and(|(a, c, bars)| {
                             let (lo, hi) = if (a.bar, a.beat) <= (c.bar, c.beat) {
                                 (a, c)
                             } else {
                                 (c, a)
                             };
+                            let k = cur_here.unwrap_or(0);
                             if bars {
                                 (lo.bar..=hi.bar).contains(&bl.bar)
                             } else {
-                                (lo.bar, lo.beat) <= (bl.bar, i) && (bl.bar, i) <= (hi.bar, hi.beat)
+                                cur_here.is_some()
+                                    && (lo.bar, lo.beat) <= (bl.bar, k)
+                                    && (bl.bar, k) <= (hi.bar, hi.beat)
                             }
                         });
                     for s in 0..rows {
@@ -855,9 +906,9 @@ impl Widget for TabView<'_> {
                             cursor: Cursor {
                                 track: pane.cursor.track,
                                 bar: bl.bar,
-                                beat: i,
+                                beat: cur_beat.unwrap_or(i),
                                 string: s,
-                                voice: 0,
+                                voice: cur_voice.min(bar_voices.len().saturating_sub(1)),
                                 staff: tab_staff,
                                 line: 0,
                             },
@@ -868,14 +919,25 @@ impl Widget for TabView<'_> {
                                 Style::default().bg(rc(th.selection.mix(th.chrome, 0.5))),
                             );
                         }
-                        if let Some(n) =
-                            beat.and_then(|b| b.notes.iter().find(|n| row_of(n, track) == s))
-                        {
-                            let style = if n.ghost || n.tie {
-                                dim
-                            } else {
-                                Style::default().fg(rc(th.chrome_text))
+                        // Every voice's note on the string; the cursor's voice is drawn last, on top.
+                        let order = (0..bar_voices.len())
+                            .filter(|&v| v != cur_voice)
+                            .chain((cur_voice < bar_voices.len()).then_some(cur_voice));
+                        for v in order {
+                            let Some(n) = starts[v].and_then(|k| {
+                                bar_voices[v].beats[k]
+                                    .notes
+                                    .iter()
+                                    .find(|n| row_of(n, track) == s)
+                            }) else {
+                                continue;
                             };
+                            let style =
+                                if n.ghost || n.tie || (v != cur_voice && bar_voices.len() > 1) {
+                                    dim
+                                } else {
+                                    Style::default().fg(rc(th.chrome_text))
+                                };
                             buf.set_string(
                                 bx_beat,
                                 y,
@@ -888,7 +950,8 @@ impl Widget for TabView<'_> {
                             && pane.cursor.string == s
                             && !self.app.cursor_hidden(pane.buffer)
                         {
-                            let text_w = beat
+                            let text_w = cur_here
+                                .and_then(|k| bar_voices[cur_voice].beats.get(k))
                                 .and_then(|b| b.notes.iter().find(|n| row_of(n, track) == s))
                                 .map_or(1, |n| note_text(n, track).len() as u16);
                             buf.set_style(
@@ -1027,11 +1090,20 @@ impl Widget for TabView<'_> {
                             }
                         }
                     }
-                    tick += len;
                 }
                 // Tab+ rhythm: one glyph per beat under the strings, beams under the glyphs.
                 if rhythm_rows > 0 {
-                    let cols: Vec<u16> = bl.beats.iter().map(|b| b.0).collect();
+                    // The first voice's beats, at the columns they start in.
+                    let mut t0 = 0;
+                    let placed: Vec<(u16, u16)> = beats
+                        .iter()
+                        .map(|b| {
+                            let k = bl.ticks.iter().position(|&c| c == t0).unwrap_or(0);
+                            t0 += b.ticks();
+                            bl.beats[k]
+                        })
+                        .collect();
+                    let cols: Vec<u16> = placed.iter().map(|b| b.0).collect();
                     buf.set_string(
                         bx,
                         y0 + 2 + rows as u16,
@@ -1039,7 +1111,7 @@ impl Widget for TabView<'_> {
                         Style::default().fg(rc(th.chrome_text)),
                     );
                     let rstyle = Style::default().fg(rc(th.chrome_text));
-                    for (i, &(off, w)) in bl.beats.iter().enumerate() {
+                    for (i, &(off, w)) in placed.iter().enumerate() {
                         if off + w > bl.width + 1 {
                             break;
                         }

@@ -717,6 +717,18 @@ impl App {
         }
     }
 
+    /// Edits another voice of the cursor's bar, creating it (empty) when it is new.
+    fn switch_voice(&mut self, pick: impl FnOnce(&Score, &Cursor) -> usize) {
+        let c = self.pane().cursor;
+        let v = pick(&self.buffer().score, &c);
+        self.edit(|cx| {
+            edit::set_voice(cx, v);
+            Ok(())
+        });
+        let v = self.pane().cursor.voice;
+        self.info(format!("voice {}", v + 1));
+    }
+
     fn store(&mut self, clip: Clip) {
         if let Some(r) = self.ed.register.take() {
             self.ed.registers.insert(r, clip.clone());
@@ -739,13 +751,19 @@ impl App {
                 self.edit(|cx| {
                     let to = to.min(cx.score.master_bars.len() - 1);
                     let t = cx.cursor.track;
+                    let v = cx.cursor.voice;
                     for b in from..=to {
-                        cx.bar(t, b).voices = vec![Voice {
-                            beats: vec![Beat {
-                                empty: true,
-                                ..Beat::default()
-                            }],
+                        // Only the voice being edited is cleared, to an empty placeholder.
+                        let bar = cx.bar(t, b);
+                        let beats = vec![Beat {
+                            empty: true,
+                            ..Beat::default()
                         }];
+                        if v < bar.voices.len() {
+                            bar.voices[v].beats = beats;
+                        } else {
+                            bar.voices = vec![Voice { beats }];
+                        }
                     }
                     cx.cursor.bar = from;
                     cx.cursor.beat = 0;
@@ -925,6 +943,13 @@ impl App {
             DeleteNote => {
                 self.edit(|cx| {
                     edit::delete_note(cx);
+                    Ok(())
+                });
+            }
+            DeleteBeat => {
+                self.edit(|cx| {
+                    let at = (cx.cursor.bar, cx.cursor.beat);
+                    edit::delete_range(cx, at, at);
                     Ok(())
                 });
             }
@@ -1417,12 +1442,11 @@ impl App {
             }
             New => self.new_score(),
             Voice(n) => {
-                let v = n.clamp(&1, &4) - 1;
-                let p = self.panes.get_mut(&self.focused()).unwrap();
-                p.cursor.voice = v;
-                p.cursor.beat = 0;
-                self.info(format!("voice {}", v + 1));
+                let v = n.clamp(&1, &(cecilia_core::MAX_VOICES)) - 1;
+                self.switch_voice(|_, _| v);
             }
+            VoiceNext => self.switch_voice(|s, c| edit::adjacent_voice(s, c, true)),
+            VoicePrev => self.switch_voice(|s, c| edit::adjacent_voice(s, c, false)),
             Speed(pct) => {
                 self.config.file.audio.speed = (*pct as f64 / 100.0).clamp(0.1, 4.0);
                 self.effects.push(crate::app::Effect::PlaybackSettings);
@@ -2701,10 +2725,10 @@ mod tests {
         assert_eq!(a.pane().cursor, left);
         keys(&mut a, "<Esc>gg`^");
         assert_eq!(a.pane().cursor, left);
-        // The old behaviour is on <leader>i, and adds nothing.
+        // The old behaviour is on <CR>, and adds nothing.
         keys(&mut a, "gg");
         let beats = a.buffer().score.tracks[0].bars[0].voices[0].beats.len();
-        keys(&mut a, "<Space>i");
+        keys(&mut a, "<CR>");
         assert_eq!(a.mode, Mode::Insert);
         assert_eq!(a.pane().cursor.bar, 0);
         assert_eq!(
@@ -2727,7 +2751,7 @@ mod tests {
         keys(&mut a, "<C-u>insert-last");
         assert_eq!(a.palette().unwrap().items[0].text, "gi");
         keys(&mut a, "<C-u>insert-here");
-        assert_eq!(a.palette().unwrap().items[0].text, "<Space>i");
+        assert_eq!(a.palette().unwrap().items[0].text, "<CR>");
     }
 
     #[test]

@@ -593,3 +593,72 @@ fn corpus_survives_gabc_round_trip() {
         }
     }
 }
+
+/// A one-bar guitar score whose four voices play different frets and lengths.
+fn four_voices() -> Score {
+    let voice = |fret: u8, value: DurationValue| {
+        let count = (4 * TICKS_PER_QUARTER / value.ticks()) as usize;
+        Voice {
+            beats: vec![
+                Beat {
+                    duration: Duration::new(value),
+                    notes: vec![Note::new(fret % 6, fret)],
+                    ..Beat::default()
+                };
+                count
+            ],
+        }
+    };
+    let track = Track {
+        name: "Gtr".into(),
+        strings: vec![64, 59, 55, 50, 45, 40],
+        fret_count: 24,
+        bars: vec![Bar {
+            voices: vec![
+                voice(1, DurationValue::Eighth),
+                voice(2, DurationValue::Quarter),
+                voice(3, DurationValue::Half),
+                voice(4, DurationValue::Whole),
+            ],
+            ..Default::default()
+        }],
+        ..Track::default()
+    };
+    Score {
+        tempo: 100,
+        master_bars: vec![MasterBar::default()],
+        tracks: vec![track],
+        ..Score::default()
+    }
+}
+
+fn voice_shape(s: &Score) -> Vec<(usize, u8)> {
+    s.tracks[0].bars[0]
+        .voices
+        .iter()
+        .map(|v| (v.beats.len(), v.beats[0].notes[0].fret))
+        .collect()
+}
+
+#[test]
+fn four_voices_survive_gpx_gp_and_native_and_musicxml() {
+    let score = four_voices();
+    let want = vec![(8, 1), (4, 2), (2, 3), (1, 4)];
+    for ext in ["gpx", "gp", "cc", "musicxml"] {
+        let bytes = cecilia_formats::write_bytes(&score, ext).unwrap();
+        let name = format!("x.{ext}");
+        let back = cecilia_formats::read_bytes(&bytes, Some(std::path::Path::new(&name))).unwrap();
+        assert_eq!(voice_shape(&back), want, "{ext}");
+    }
+}
+
+#[test]
+fn gp5_keeps_two_voices_and_the_loss_is_reported() {
+    let score = four_voices();
+    let bytes = cecilia_formats::write_bytes(&score, "gp5").unwrap();
+    let back = cecilia_formats::read_bytes(&bytes, Some(std::path::Path::new("x.gp5"))).unwrap();
+    assert_eq!(voice_shape(&back), vec![(8, 1), (4, 2)]);
+    assert_eq!(cecilia_formats::voices_lost(&score, "gp5"), 2);
+    assert_eq!(cecilia_formats::voices_lost(&score, "gpx"), 0);
+    assert_eq!(cecilia_formats::voices_lost(&score, "cc"), 0);
+}

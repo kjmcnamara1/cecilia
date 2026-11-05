@@ -7,6 +7,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- Voices (Guitar Pro's up to four independent rhythmic streams per track): `:voice-next` / `:voice-prev` (`]v` `[v`, `<A-v>` `<A-V>`) and `<A-F1>`…`<A-F4>` (`:voice N`) switch the voice being edited; a voice the bar doesn't have yet is created empty (no rest, 0/4 filled) and the cursor keeps its time position. The status line shows `V2` … when the bar has several voices or voice 2–4 is being edited. `cc` clears only the cursor's voice, deleting a voice's last beats leaves it empty again, and typing into an empty voice fills it.
+- The editing palette starts with four voice buttons (1–4), centred and without a title, that switch the voice being edited (`:voice N`) and show which one is in force. Not offered on chant staves or over a selection.
+- `<Del>` in insert mode deletes the whole beat (`:delete-beat`) instead of leaving a rest; `<BS>` still deletes the note. In normal mode `<CR>` is `:insert-here` (was `<leader>i`).
+- Insert mode: `<Right>` moves to the next beat like `l` (it used to append one); the arrow keys now do exactly what `h` `j` `k` `l` do.
+- The GUI dims the voices other than the one being edited in bars that have several.
+- Fixed: voice 1 lost its cursor in a bar where it was still empty once another voice held music.
+- Saving to `.gp5` warns when voices beyond the two it stores hold notes.
+- The terminal tab view draws every voice on a shared time grid (columns where any voice has a beat), with the cursor in the voice being edited and the other voices dimmed.
+- Tab fret numbers of different voices that clash on one string at one moment are drawn side by side.
+
 ## [0.30.0] - 2026-11-05
 
 ### Added
@@ -172,7 +184,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Changed
 
 - Let ring and palm mute are drawn as one span over consecutive beats, as in Guitar Pro: the label (`let ring`, `P.M.`) at the first beat, a dashed line across the beats that have the effect and a hook down at the end of the last. A rest (or a beat without the effect) ends a span; spans run on across bars and, without the label, over line breaks. Both together stack as two lines. They are shown on tab staves, and on the standard staff when the track has no tab.
-- `gi` is now vim's `gi` (`:insert-last`); the old `gi`, Insert mode on the cursor beat adding nothing (`:insert-here`), is on `<leader>i`.
+- `gi` is now vim's `gi` (`:insert-last`); the old `gi`, Insert mode on the cursor beat adding nothing (`:insert-here`), is on `<CR>`.
 
 ### Fixed
 

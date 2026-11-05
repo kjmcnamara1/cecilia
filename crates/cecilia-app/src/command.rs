@@ -99,6 +99,8 @@ pub enum Command {
     /// Insert mode: put a note at the cursor (a fret is already in) and move to the next beat.
     InsertEnter,
     DeleteNote,
+    /// Delete the whole beat under the cursor (no rest left behind).
+    DeleteBeat,
     Operator(Operator),
     Put {
         before: bool,
@@ -207,6 +209,9 @@ pub enum Command {
     ChantSyllable,
     New,
     Voice(usize),
+    /// Edit the next / previous voice of the bar (going round, with one more to create).
+    VoiceNext,
+    VoicePrev,
     /// Playback speed in percent.
     Speed(u32),
     // Play-along
@@ -683,6 +688,7 @@ impl Command {
             "visual-append" => VisualInsert { after: true },
             "insert-enter" => InsertEnter,
             "delete-note" => DeleteNote,
+            "delete-beat" => DeleteBeat,
             "delete" => Operator(self::Operator::Delete),
             "yank" => Operator(self::Operator::Yank),
             "change" => Operator(self::Operator::Change),
@@ -858,6 +864,8 @@ impl Command {
             "chant-syllable" => ChantSyllable,
             "new" | "enew" => New,
             "voice" => Voice(number("voice")?),
+            "voice-next" => VoiceNext,
+            "voice-prev" => VoicePrev,
             "speed" => Speed(number("percent")? as u32),
             "audio" => Audio(arg.map(String::from)),
             "mix" => MixMode(arg.map(String::from)),
@@ -1229,6 +1237,7 @@ impl Command {
                 | DurationShorter
                 | InsertNext
                 | DeleteNote
+                | DeleteBeat
         )
     }
 
@@ -1267,6 +1276,7 @@ impl Command {
                 | InsertBeat(_)
                 | InsertEnter
                 | DeleteNote
+                | DeleteBeat
                 | Operator(_)
                 | Put { .. }
                 | BarInsert { .. }
