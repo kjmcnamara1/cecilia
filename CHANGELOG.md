@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.29.0] - 2026-11-05
+
 ### Added
 
 - Workspaces are managed explicitly: `:workspace-open [name]` saves the current workspace and switches to `name` (created, empty, if new; no name opens the picker), `:workspace-open!` does the same without saving it (and discards unsaved changes in files). `:workspace-save [name]` saves under a new name, leaving the old file as it was (a copy), and refuses to overwrite another workspace unless `:workspace-save!`. `:workspace-delete [name]` deletes a workspace file after asking (no name: the active one, leaving no workspace); `:workspace-delete!` doesn't ask.
@@ -16,10 +18,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - There can be no workspace (files named on the command line, or after `:workspace-delete`); quitting then saves nothing.
 - A workspace is no longer saved whenever the session changes, but on `:workspace-save`, when switching and on quit.
+- In the properties pane the staff reorder keys are now `<A-j>` / `<A-k>` instead of `<C-j>` / `<C-k>`.
 
 ### Removed
 
 - `:workspace-close` (use `:workspace-open default`, or `:workspace-delete` to leave a workspace).
+
+### Fixed
+
+- The GUI's command palette and pickers cast a soft, blurred shadow instead of a hard-edged one.
 
 ## [0.28.0] - 2026-11-04
 
