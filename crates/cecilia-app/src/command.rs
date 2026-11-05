@@ -207,6 +207,9 @@ pub enum Command {
     ChantSyllable,
     New,
     Voice(usize),
+    /// Edit the next / previous voice of the bar (going round, with one more to create).
+    VoiceNext,
+    VoicePrev,
     /// Playback speed in percent.
     Speed(u32),
     // Play-along
@@ -854,6 +857,8 @@ impl Command {
             "chant-syllable" => ChantSyllable,
             "new" | "enew" => New,
             "voice" => Voice(number("voice")?),
+            "voice-next" => VoiceNext,
+            "voice-prev" => VoicePrev,
             "speed" => Speed(number("percent")? as u32),
             "audio" => Audio(arg.map(String::from)),
             "mix" => MixMode(arg.map(String::from)),

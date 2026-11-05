@@ -853,3 +853,108 @@ fn pitch_change_moves_the_cursor_with_the_note_on_a_standard_staff() {
     assert_eq!(a.pane().cursor.line, line);
     assert_eq!(track(&a).bars[0].voices[0].beats[0].notes.len(), before);
 }
+
+fn voices_of(a: &App, bar: usize) -> &[Voice] {
+    &track(a).bars[bar].voices
+}
+
+#[test]
+fn a_new_voice_is_a_bar_rest_at_the_same_time_position() {
+    let mut a = app();
+    set_bar(&mut a, 0, &[&[(2, 5, false)], &[(2, 7, false)], &[], &[]]);
+    keys(&mut a, "l");
+    assert_eq!(at(&a), (0, 1));
+    a.run(Command::parse("voice 2").unwrap());
+    let c = a.pane().cursor;
+    assert_eq!((c.voice, c.beat), (1, 0));
+    let v = &voices_of(&a, 0)[1];
+    assert_eq!(v.beats.len(), 1);
+    assert!(v.beats[0].is_rest());
+    assert_eq!(v.ticks(), a.buffer().score.master_bars[0].ticks());
+    // Back to the first voice: the cursor is on the beat sounding at the same time (the start).
+    a.run(Command::parse("voice 1").unwrap());
+    assert_eq!((a.pane().cursor.voice, a.pane().cursor.beat), (0, 0));
+}
+
+#[test]
+fn editing_one_voice_leaves_the_others_alone() {
+    let mut a = app();
+    set_bar(&mut a, 0, &[&[(2, 5, false)], &[(2, 7, false)], &[], &[]]);
+    a.run(Command::parse("voice 2").unwrap());
+    keys(&mut a, "i");
+    keys(&mut a, "3");
+    keys(&mut a, "<Esc>");
+    let bar = &track(&a).bars[0];
+    assert_eq!(bar.voices[0].beats.len(), 4);
+    assert_eq!(bar.voices[0].beats[0].notes[0].fret, 5);
+    assert_eq!(bar.voices[1].beats[0].notes[0].fret, 3);
+    // Undo covers the voice edit and its creation.
+    keys(&mut a, "u");
+    keys(&mut a, "u");
+    assert_eq!(voices_of(&a, 0).len(), 1);
+}
+
+#[test]
+fn voice_next_goes_round_through_the_bar_voices_and_one_more() {
+    let mut a = app();
+    set_bar(&mut a, 0, &[&[(2, 5, false)], &[], &[], &[]]);
+    let v = |a: &App| a.pane().cursor.voice;
+    a.run(Command::VoiceNext);
+    assert_eq!(v(&a), 1);
+    // The second voice is only a rest: going on from it wraps round to the first.
+    a.run(Command::VoiceNext);
+    assert_eq!(v(&a), 0);
+    a.run(Command::parse("voice 4").unwrap());
+    assert_eq!(v(&a), 3);
+    assert_eq!(voices_of(&a, 0).len(), 4);
+    a.run(Command::VoiceNext);
+    assert_eq!(v(&a), 0);
+    a.run(Command::VoicePrev);
+    assert_eq!(v(&a), 3);
+    a.run(Command::parse("voice 9").unwrap());
+    assert_eq!(v(&a), 3);
+}
+
+#[test]
+fn deleting_a_voice_content_gives_back_a_bar_rest() {
+    let mut a = app();
+    set_bar(&mut a, 0, &[&[(2, 5, false)], &[], &[], &[]]);
+    a.run(Command::parse("voice 2").unwrap());
+    keys(&mut a, "i");
+    keys(&mut a, "3");
+    keys(&mut a, "<Esc>");
+    keys(&mut a, "cc");
+    keys(&mut a, "<Esc>");
+    let v = &voices_of(&a, 0)[1];
+    assert_eq!(v.ticks(), a.buffer().score.master_bars[0].ticks());
+    assert!(v.beats.iter().all(Beat::is_rest));
+    assert_eq!(voices_of(&a, 0)[0].beats.len(), 4);
+}
+
+#[test]
+fn the_status_line_names_the_voice() {
+    let mut a = app();
+    let tag = |a: &App| {
+        a.statusline(None, false)
+            .right
+            .iter()
+            .find(|s| s.text.starts_with('V'))
+            .map(|s| s.text.clone())
+    };
+    assert_eq!(tag(&a), None);
+    a.run(Command::parse("voice 2").unwrap());
+    assert_eq!(tag(&a), Some("V2".into()));
+    keys(&mut a, "<A-F1>");
+    assert_eq!(a.pane().cursor.voice, 0);
+    keys(&mut a, "]v");
+    assert_eq!(a.pane().cursor.voice, 1);
+}
+
+#[test]
+fn rest_beats_fill_any_length() {
+    for ticks in [1920, 1440, 2400, 3360, 960 + 240, 720] {
+        let beats = rest_beats(ticks);
+        assert_eq!(beats.iter().map(Beat::ticks).sum::<u32>(), ticks);
+    }
+    assert_eq!(rest_beats(1920).len(), 1);
+}

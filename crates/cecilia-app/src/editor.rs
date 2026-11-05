@@ -717,6 +717,18 @@ impl App {
         }
     }
 
+    /// Edits another voice of the cursor's bar, creating it (as a bar rest) when it is new.
+    fn switch_voice(&mut self, pick: impl FnOnce(&Score, &Cursor) -> usize) {
+        let c = self.pane().cursor;
+        let v = pick(&self.buffer().score, &c);
+        self.edit(|cx| {
+            edit::set_voice(cx, v);
+            Ok(())
+        });
+        let v = self.pane().cursor.voice;
+        self.info(format!("voice {}", v + 1));
+    }
+
     fn store(&mut self, clip: Clip) {
         if let Some(r) = self.ed.register.take() {
             self.ed.registers.insert(r, clip.clone());
@@ -739,13 +751,25 @@ impl App {
                 self.edit(|cx| {
                     let to = to.min(cx.score.master_bars.len() - 1);
                     let t = cx.cursor.track;
+                    let v = cx.cursor.voice;
                     for b in from..=to {
-                        cx.bar(t, b).voices = vec![Voice {
-                            beats: vec![Beat {
+                        // Only the voice being edited is cleared: a bar rest in a further
+                        // voice, an empty first voice.
+                        let full = cx.score.played_ticks(b);
+                        let bar = cx.bar(t, b);
+                        let beats = if v == 0 {
+                            vec![Beat {
                                 empty: true,
                                 ..Beat::default()
-                            }],
-                        }];
+                            }]
+                        } else {
+                            cecilia_core::rest_beats(full)
+                        };
+                        if v < bar.voices.len() {
+                            bar.voices[v].beats = beats;
+                        } else {
+                            bar.voices = vec![Voice { beats }];
+                        }
                     }
                     cx.cursor.bar = from;
                     cx.cursor.beat = 0;
@@ -1417,12 +1441,11 @@ impl App {
             }
             New => self.new_score(),
             Voice(n) => {
-                let v = n.clamp(&1, &4) - 1;
-                let p = self.panes.get_mut(&self.focused()).unwrap();
-                p.cursor.voice = v;
-                p.cursor.beat = 0;
-                self.info(format!("voice {}", v + 1));
+                let v = n.clamp(&1, &(cecilia_core::MAX_VOICES)) - 1;
+                self.switch_voice(|_, _| v);
             }
+            VoiceNext => self.switch_voice(|s, c| edit::adjacent_voice(s, c, true)),
+            VoicePrev => self.switch_voice(|s, c| edit::adjacent_voice(s, c, false)),
             Speed(pct) => {
                 self.config.file.audio.speed = (*pct as f64 / 100.0).clamp(0.1, 4.0);
                 self.effects.push(crate::app::Effect::PlaybackSettings);
