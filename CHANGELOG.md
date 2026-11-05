@@ -11,6 +11,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - `:workspace-open` without a name opens the workspace picker. New `:workspace-rename NAME` renames the active workspace, and `:workspace-new [name]` (`!` discards unsaved changes) starts an empty session as a new workspace (`untitled`, `untitled-2`, … without a name).
 
+### Changed
+
+- In the properties pane the staff reorder keys are now `<A-j>` / `<A-k>` instead of `<C-j>` / `<C-k>`.
+
 ## [0.28.0] - 2026-11-04
 
 ### Added

@@ -417,7 +417,7 @@ score pane). It stays Normal mode; while the pane has the focus its keys are
 | `<A-h>` / `<A-l>` | step the selected property down / up: a switch off / on; a choice (color, tuning, instrument, a staff's notation or clef) the previous / next one, without wrapping; a number down / up by one |
 | `c` / `d` | clear the property's text and edit it / just clear it |
 | `l` `<Right>` / `h` `<Left>` | on a staff row, select the clef box / the notation box (a click on a box selects it too); tab and slash staves have no clef |
-| `<C-j>` `<C-k>` | swap the selected staff with the one below / above |
+| `<A-j>` `<A-k>` | swap the selected staff with the one below / above |
 | `za` `zc` `zo` | toggle / close / open the section |
 | `x` | same as `d`: clear the text, lyrics or the track's own color, or remove the selected staff |
 | `/` | search: a field opens at the bottom of the pane and jumps to the first key or value with what is typed (any case, unless a capital is typed); `<CR>` keeps the jump and sets the `/` register, `<Esc>` goes back |

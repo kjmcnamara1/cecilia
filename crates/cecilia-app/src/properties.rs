@@ -2322,10 +2322,10 @@ mod tests {
         // Alt-j / alt-k swap with the staff below / above; the selection follows.
         keys(&mut app, "<leader>P");
         app.props.selected = field_row(&app, Field::StaffAt(0));
-        keys(&mut app, "<C-j>");
+        keys(&mut app, "<A-j>");
         assert_eq!(names(&app), ["tab+", "treble", "slash"]);
         assert_eq!(app.props.selected, field_row(&app, Field::StaffAt(1)));
-        keys(&mut app, "<C-k>");
+        keys(&mut app, "<A-k>");
         assert_eq!(names(&app), ["treble", "tab+", "slash"]);
         // Dragging a row onto another moves it.
         let (a, b) = (
