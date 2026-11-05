@@ -1,6 +1,6 @@
 //! Text tablature rendering for one pane.
 
-use crate::{barline, rc, rhythm};
+use crate::{barline, chantview, rc, rhythm};
 use cecilia_app::{App, Cursor};
 use cecilia_core::{Beat, DurationValue, Note, Score, Track, TrackKind};
 use ratatui::buffer::Buffer;
@@ -92,9 +92,15 @@ pub fn scroll_bars(
     }
 }
 
-/// Rows used by a system: header + strings + tab+ rhythm rows + one row per lyric verse + spacer.
+/// Rows used by a system: header + strings + tab+ rhythm rows + one row per lyric verse + the
+/// chant staff of the track, if it has one among other staves + spacer.
 pub fn system_height(track: &Track) -> u16 {
-    track.strings.len().max(1) as u16 + 2 + rhythm::rows(track) + verses(track)
+    let chant = if chantview::mixed(track).is_some() {
+        chantview::MIXED_ROWS
+    } else {
+        0
+    };
+    track.strings.len().max(1) as u16 + 2 + rhythm::rows(track) + verses(track) + chant
 }
 
 /// Number of lyric verses on a track's first voice.
@@ -570,6 +576,25 @@ impl Widget for TabView<'_> {
         let rows = track.strings.len().max(1);
         let rhythm_rows = rhythm::rows(track);
         let icons = self.app.config.file.tabline.icons.as_str();
+        // A chant staff among other staves: where it is among them, and what its beats show.
+        let ascii = icons == "none";
+        let chant_at = chantview::mixed(track);
+        let chant_staff = chant_at
+            .map(|_| chantview::MixedStaff::build(score, track, self.app.chord_policy(), ascii));
+        let chant_above = chant_at == Some(0);
+        let chant_off = if chant_above {
+            chantview::MIXED_ROWS
+        } else {
+            0
+        };
+        // The tab's own staff (the cursor's home staff), and whether the cursor is on the chant one.
+        let tab_staff = chant_at
+            .and_then(|_| track.staves().iter().position(|s| s.is_tab()))
+            .unwrap_or(Cursor::HOME);
+        let on_chant = chant_at.is_some_and(|c| {
+            pane.cursor.staff != Cursor::HOME
+                && cecilia_app::staff_index(track, pane.cursor.staff) == c
+        });
         let visible = (area.height / sh).max(1) as usize;
         // The page layout draws each page in a box: the score sits two columns inside it.
         let paged = pane.layout == "page" && self.page.is_some();
@@ -683,6 +708,9 @@ impl Widget for TabView<'_> {
                     page_edge(buf, outer, y0 + sh, ('└', '┘'), "", page_style);
                 }
             }
+            // The chant staff above the tab pushes it down.
+            let top_y = y0;
+            let y0 = y0 + chant_off;
             // String labels.
             for (s, &open) in track.strings.iter().enumerate() {
                 let label = if track.kind == TrackKind::Drums {
@@ -696,6 +724,33 @@ impl Widget for TabView<'_> {
                 buf.set_string(area.x, y0 + 1, " ♪", dim);
             }
             let x0 = area.x + LABEL_WIDTH;
+            // The chant staff: its top row, and its clef at the system's start.
+            let chant_y = chant_staff.as_ref().map(|c| {
+                let y = if chant_above {
+                    top_y + 1
+                } else {
+                    y0 + 1 + rows as u16 + rhythm_rows + verses(track)
+                };
+                if let Some(e) = &c.error {
+                    let msg: String = e.chars().take(area.width as usize).collect();
+                    buf.set_string(area.x, y, msg, Style::default().fg(rc(th.dim)));
+                } else {
+                    // The staff lines run through the label, under the clef.
+                    for p in (3..=9).step_by(2) {
+                        let dash = if ascii { "-" } else { "─" };
+                        let ly = y + chantview::MIXED_RANGE.row(p);
+                        buf.set_string(area.x, ly, dash.repeat(LABEL_WIDTH as usize), dim);
+                    }
+                    let letter = if c.clef.kind == cecilia_core::chant::ClefKind::Do {
+                        "C"
+                    } else {
+                        "F"
+                    };
+                    let cy = y + chantview::MIXED_RANGE.row(c.clef.position());
+                    buf.set_string(area.x, cy, letter, Style::default().fg(rc(th.marker)));
+                }
+                y
+            });
             for bl in &system.bars {
                 let bx = x0 + bl.x;
                 let mb = &score.master_bars[bl.bar];
@@ -715,7 +770,7 @@ impl Widget for TabView<'_> {
                     header.push_str(&format!(" [{}]", m.title));
                 }
                 let header: String = header.chars().take(bl.width as usize).collect();
-                buf.set_string(bx, y0, header, Style::default().fg(rc(th.marker)));
+                buf.set_string(bx, top_y, header, Style::default().fg(rc(th.marker)));
                 // Staff lines and bar lines; a bar without its full count has red staff lines
                 // when `ui.highlight_incomplete_bars` is on.
                 let staff_style = if self.app.highlight_incomplete_bars
@@ -737,6 +792,17 @@ impl Widget for TabView<'_> {
                         let (l, r) = barline::arms(cols, i, first, false);
                         let g = barline::glyph(c, s, rows, l, r).to_string();
                         buf.set_string(bx + i as u16, y, g, line_style);
+                    }
+                }
+                if let (Some(cy), Some(c)) =
+                    (chant_y, chant_staff.as_ref().filter(|c| c.error.is_none()))
+                {
+                    let _ = c;
+                    for p in (3..=9).step_by(2) {
+                        let y = cy + chantview::MIXED_RANGE.row(p);
+                        for dx in 0..bl.width {
+                            buf.set_string(bx + dx, y, if ascii { "-" } else { "─" }, staff_style);
+                        }
                     }
                 }
                 let beats = track.bars[bl.bar]
@@ -792,7 +858,7 @@ impl Widget for TabView<'_> {
                                 beat: i,
                                 string: s,
                                 voice: 0,
-                                staff: Cursor::HOME,
+                                staff: tab_staff,
                                 line: 0,
                             },
                         });
@@ -818,6 +884,7 @@ impl Widget for TabView<'_> {
                             );
                         }
                         if is_cursor_beat
+                            && !on_chant
                             && pane.cursor.string == s
                             && !self.app.cursor_hidden(pane.buffer)
                         {
@@ -833,6 +900,58 @@ impl Widget for TabView<'_> {
                                 },
                                 cursor_style,
                             );
+                        }
+                    }
+                    if let (Some(cy), Some(cs)) = (chant_y, chant_staff.as_ref()) {
+                        let sel = selected
+                            .then(|| Style::default().bg(rc(th.selection.mix(th.chrome, 0.5))));
+                        let range = chantview::MIXED_RANGE;
+                        let head = cs.heads.get(&(bl.bar, i));
+                        let cursor_here =
+                            on_chant && is_cursor_beat && !self.app.cursor_hidden(pane.buffer);
+                        chantview::draw_beat(
+                            buf,
+                            &chantview::BeatCell {
+                                x: bx_beat,
+                                y: cy,
+                                width: w,
+                                range,
+                                head,
+                                division: cs.divisions.get(&(bl.bar, i)).copied(),
+                                lead: off > 0,
+                                ascii,
+                                ink: Style::default()
+                                    .fg(rc(th.chrome_text))
+                                    .add_modifier(Modifier::BOLD),
+                                faint: line_style,
+                                dim,
+                                select: sel,
+                                cursor: cursor_here.then(|| {
+                                    (head.map_or(pane.cursor.line, |h| h.pos), cursor_style)
+                                }),
+                            },
+                        );
+                        if cs.error.is_none() {
+                            for p in range.low..=range.top {
+                                self.hits.push(Hit {
+                                    area: Rect {
+                                        x: bx_beat,
+                                        y: cy + range.row(p),
+                                        width: w,
+                                        height: 1,
+                                    },
+                                    pane: self.pane,
+                                    cursor: Cursor {
+                                        track: pane.cursor.track,
+                                        bar: bl.bar,
+                                        beat: i,
+                                        string: pane.cursor.string.min(rows - 1),
+                                        voice: 0,
+                                        staff: chant_at.unwrap_or(Cursor::HOME),
+                                        line: p,
+                                    },
+                                });
+                            }
                         }
                     }
                     // Clicking the rhythm under the strings picks the beat too.
@@ -851,7 +970,7 @@ impl Widget for TabView<'_> {
                                 beat: i,
                                 string: pane.cursor.string.min(rows - 1),
                                 voice: 0,
-                                staff: Cursor::HOME,
+                                staff: tab_staff,
                                 line: 0,
                             },
                         });
@@ -880,7 +999,7 @@ impl Widget for TabView<'_> {
                             let t: String = text.chars().take(w as usize).collect();
                             buf.set_string(
                                 bx_beat,
-                                y0 + sh - 1,
+                                top_y + sh - 1,
                                 t,
                                 Style::default().fg(rc(th.marker)),
                             );
@@ -895,6 +1014,17 @@ impl Widget for TabView<'_> {
                                 height: 1,
                             };
                             buf.set_style(cell, playhead_style);
+                        }
+                        if let (Some(cy), Some(_)) = (chant_y, chant_staff.as_ref()) {
+                            for r in 0..chantview::MIXED_ROWS {
+                                let cell = Rect {
+                                    x: px,
+                                    y: cy + r,
+                                    width: 1,
+                                    height: 1,
+                                };
+                                buf.set_style(cell, playhead_style);
+                            }
                         }
                     }
                     tick += len;
@@ -928,7 +1058,7 @@ impl Widget for TabView<'_> {
                 if let Some(n) = mb.repeat_end {
                     buf.set_string(
                         (bx + bl.width).saturating_sub(3),
-                        y0,
+                        top_y,
                         format!("x{n}"),
                         Style::default().fg(rc(th.marker)),
                     );
@@ -944,7 +1074,7 @@ impl Widget for TabView<'_> {
                 let points =
                     self.page.and_then(|p| p.get(row)).map_or(1.0, |r| r.span) / cols as f64;
                 if score.design.line_start(first).is_some() {
-                    buf.set_string(outer.x + 1, y0, "↵", on(th.marker));
+                    buf.set_string(outer.x + 1, top_y, "↵", on(th.marker));
                 }
                 for (k, bl) in system.bars.iter().enumerate().skip(1) {
                     self.design.push((

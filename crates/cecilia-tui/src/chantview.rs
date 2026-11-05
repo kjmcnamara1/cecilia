@@ -14,10 +14,12 @@
 use crate::rc;
 use crate::tabview::{self, Hit, System};
 use cecilia_app::{App, Cursor, ScrollTo};
+use cecilia_core::Track;
 use cecilia_core::chant::{
     Chant, ChantClef, ChantNote, ClefKind, Division, Liquescence, NeumeItem, Shape, group_neumes,
     transcribe,
 };
+use cecilia_core::melody::ChantView as Melody;
 use ratatui::buffer::Buffer;
 use ratatui::layout::Rect;
 use ratatui::style::{Modifier, Style};
@@ -59,6 +61,161 @@ pub fn staff_range(chant: &Chant) -> Range {
 /// Rows used by one line of chant: the staff positions, the text and a spacer.
 pub fn system_height(chant: &Chant) -> u16 {
     staff_range(chant).rows() + 2
+}
+
+/// Whether the chant view draws `track`: a chant track in square notation, or an ordinary track
+/// whose staves are all chant (`:notation chant`). A chant staff among other staves is drawn by
+/// the tab view (see [`mixed`]).
+pub fn shows(app: &App, track: &Track) -> bool {
+    match track.chant {
+        Some(_) => app.chant_view,
+        None => {
+            let staves = track.staves();
+            !staves.is_empty() && staves.iter().all(|s| s.chant_family().is_some())
+        }
+    }
+}
+
+/// The position of the chant staff of an ordinary track that has other staves too.
+pub fn mixed(track: &Track) -> Option<usize> {
+    let staves = track.staves();
+    let all = staves.iter().all(|s| s.chant_family().is_some());
+    (track.chant.is_none() && !all)
+        .then(|| staves.iter().position(|s| s.chant_family().is_some()))
+        .flatten()
+}
+
+/// Rows of a chant staff drawn among other staves: the positions 2 to 10.
+pub const MIXED_RANGE: Range = Range { low: 2, top: 10 };
+pub const MIXED_ROWS: u16 = 9;
+
+/// The chant staff of an ordinary track drawn among its other staves: what each beat shows,
+/// found by (bar, beat).
+#[derive(Debug, Clone, Default)]
+pub struct MixedStaff {
+    pub clef: ChantClef,
+    /// The head of the note a beat starts.
+    pub heads: HashMap<(usize, usize), Head>,
+    /// The division closing the note a beat last sounds.
+    pub divisions: HashMap<(usize, usize), Division>,
+    /// Why the staff cannot be drawn (a chord under the error policy).
+    pub error: Option<String>,
+}
+
+impl MixedStaff {
+    pub fn build(
+        score: &cecilia_core::Score,
+        track: &Track,
+        policy: cecilia_core::melody::ChordPolicy,
+        ascii: bool,
+    ) -> Self {
+        let view = match Melody::build(score, track, policy) {
+            Ok(v) => v,
+            Err(e) => {
+                return Self {
+                    error: Some(e.to_string()),
+                    ..Self::default()
+                };
+            }
+        };
+        let mut out = Self {
+            clef: view.clef,
+            ..Self::default()
+        };
+        for (h, ev) in heads(&view, ascii).into_iter().zip(&view.events) {
+            if let Some(d) = h.division {
+                out.divisions.insert(ev.last_beat(), d);
+            }
+            out.heads.insert(h.beat, h);
+        }
+        out
+    }
+}
+
+/// One beat's column of a chant staff drawn among other staves, for [`draw_beat`].
+pub struct BeatCell<'a> {
+    pub x: u16,
+    /// The staff's top row.
+    pub y: u16,
+    pub width: u16,
+    pub range: Range,
+    pub head: Option<&'a Head>,
+    pub division: Option<Division>,
+    /// There is a column before the beat for a flat.
+    pub lead: bool,
+    pub ascii: bool,
+    pub ink: Style,
+    pub faint: Style,
+    pub dim: Style,
+    /// Shading of the selection over the beat's column.
+    pub select: Option<Style>,
+    /// The cursor: the staff position it sits on and its style.
+    pub cursor: Option<(i32, Style)>,
+}
+
+/// Draws a beat of a chant staff: the head with its ledger lines, flat, mora and ligature
+/// stroke, the division closing it, the selection and the cursor.
+pub fn draw_beat(buf: &mut Buffer, b: &BeatCell) {
+    let row = |p: i32| b.y + b.range.row(p);
+    let right = b.x + b.width;
+    if let Some(s) = b.select {
+        buf.set_style(
+            Rect {
+                x: b.x,
+                y: b.y,
+                width: b.width,
+                height: b.range.rows(),
+            },
+            s,
+        );
+    }
+    if let Some(h) = b.head {
+        let dash = if b.ascii { "-" } else { "─" };
+        for q in ledger_lines(h.pos) {
+            for x in b.x..(b.x + 2).min(right) {
+                buf.set_string(x, row(q), dash, b.dim);
+            }
+        }
+        if let Some(next) = h.joined {
+            let stroke = if b.ascii { "|" } else { "┃" };
+            for q in h.pos.min(next) + 1..h.pos.max(next) {
+                buf.set_string(b.x, row(q), stroke, b.ink);
+            }
+        }
+        if h.flat && b.lead {
+            buf.set_string(
+                b.x - 1,
+                row(h.pos),
+                alter_char("x", b.ascii).to_string(),
+                b.ink,
+            );
+        }
+        let mut style = b.ink;
+        if h.episema {
+            style = style.add_modifier(Modifier::UNDERLINED);
+        }
+        buf.set_string(b.x, row(h.pos), h.ch.to_string(), style);
+        if h.mora > 0 && b.width > 1 {
+            buf.set_string(b.x + 1, row(h.pos), "·", b.ink);
+        }
+    }
+    if let Some(d) = b.division {
+        let x = right.saturating_sub(1).max(b.x);
+        for (p, c) in division_cells(d, b.ascii) {
+            buf.set_string(x, row(p), c.to_string(), b.faint);
+        }
+    }
+    if let Some((line, style)) = b.cursor {
+        buf.set_style(
+            Rect {
+                x: b.x,
+                y: row(line),
+                width: 1,
+                height: 1,
+            },
+            style,
+        );
+    }
 }
 
 /// A staff line: the odd positions 3 to 9.
@@ -162,6 +319,8 @@ pub enum Mark {
         pos: i32,
         /// (bar, beat, beats sounded) in the transcription.
         beat: Option<(usize, usize, u8)>,
+        /// Further beats of a modern track's note: those tied on to it.
+        also: Vec<(usize, usize)>,
         mora: u8,
         episema: bool,
         /// The position of the next note of the same ligature, joined by a stroke.
@@ -211,7 +370,7 @@ impl Syl {
     }
 }
 
-fn alter_char(sign: &str, ascii: bool) -> char {
+pub(crate) fn alter_char(sign: &str, ascii: bool) -> char {
     match (sign.chars().next(), ascii) {
         (Some('x' | 'X'), false) => '♭',
         (Some('x' | 'X'), true) => 'b',
@@ -257,6 +416,7 @@ pub fn layout(chant: &Chant, ascii: bool) -> Vec<Syl> {
                                 ch: note_glyph(n, last.contains(&ii), ascii),
                                 pos: n.pitch as i32,
                                 beat: beats.get(&(si, ii)).copied().filter(|_| r == 0),
+                                also: vec![],
                                 mora: n.mora(),
                                 episema: n.episema(),
                                 joined: joined
@@ -307,26 +467,44 @@ pub fn layout(chant: &Chant, ascii: bool) -> Vec<Syl> {
                 .syllables
                 .get(si + 1)
                 .is_some_and(|n| !n.word_start && !n.plain_text().trim().is_empty());
-        let text_w = text.chars().count() as u16 + u16::from(hyphen);
-        if marks.is_empty() && text.is_empty() {
-            continue;
-        }
-        let first_note = marks.iter().find_map(|(_, m)| match m {
-            Mark::Note { pos, beat, .. } => Some((*pos, beat.map(|(b, i, _)| (b, i)))),
-            _ => None,
-        });
-        out.push(Syl {
-            width: col.max(text_w) + 1,
-            marks,
-            text,
-            hyphen,
-            italic: s.italic(),
-            clef_in,
-            first_beat: first_note.and_then(|n| n.1),
-            first_pitch: first_note.map(|n| n.0),
-        });
+        finish(&mut out, marks, col, text, hyphen, s.italic(), clef_in);
     }
-    // Custodes without a pitch show the next note.
+    resolve_custodes(&mut out);
+    out
+}
+
+/// Adds a syllable of `col` columns of notation (nothing, if it has neither marks nor text).
+fn finish(
+    out: &mut Vec<Syl>,
+    marks: Vec<(u16, Mark)>,
+    col: u16,
+    text: String,
+    hyphen: bool,
+    italic: bool,
+    clef_in: ChantClef,
+) {
+    if marks.is_empty() && text.is_empty() {
+        return;
+    }
+    let text_w = text.chars().count() as u16 + u16::from(hyphen);
+    let first_note = marks.iter().find_map(|(_, m)| match m {
+        Mark::Note { pos, beat, .. } => Some((*pos, beat.map(|(b, i, _)| (b, i)))),
+        _ => None,
+    });
+    out.push(Syl {
+        width: col.max(text_w) + 1,
+        marks,
+        text,
+        hyphen,
+        italic,
+        clef_in,
+        first_beat: first_note.and_then(|n| n.1),
+        first_pitch: first_note.map(|n| n.0),
+    });
+}
+
+/// Custodes without a pitch show the next note.
+fn resolve_custodes(out: &mut [Syl]) {
     let mut next = None;
     for s in out.iter_mut().rev() {
         for (_, m) in s.marks.iter_mut().rev() {
@@ -340,7 +518,113 @@ pub fn layout(chant: &Chant, ascii: bool) -> Vec<Syl> {
             next = s.first_pitch;
         }
     }
+}
+
+/// What a note of a modern track's melody is drawn as on a chant staff.
+#[derive(Debug, Clone, PartialEq)]
+pub struct Head {
+    pub ch: char,
+    pub pos: i32,
+    pub mora: u8,
+    pub episema: bool,
+    /// The position of the next note of the same ligature.
+    pub joined: Option<i32>,
+    /// A flat goes before it.
+    pub flat: bool,
+    /// Where the note is: its beat and the beats tied on to it.
+    pub beat: (usize, usize),
+    pub also: Vec<(usize, usize)>,
+    /// The division after the note (as written: `,` `;` `:` `::`).
+    pub division: Option<Division>,
+}
+
+/// The heads of a melody, one per event, with the neume (ligature) each belongs to.
+pub fn heads(view: &Melody, ascii: bool) -> Vec<Head> {
+    let ligates = |n: &ChantNote| matches!(n.shape(), Shape::Punctum) && !n.cavum() && !n.linea();
+    let mut out: Vec<Option<Head>> = vec![None; view.events.len()];
+    for members in &view.neumes {
+        for (k, &e) in members.iter().enumerate() {
+            let (note, ev) = (&view.notes[e], &view.events[e]);
+            let next = members.get(k + 1).map(|&n| &view.notes[n]);
+            out[e] = Some(Head {
+                ch: note_glyph(note, k + 1 == members.len(), ascii),
+                pos: note.pitch as i32,
+                mora: note.mora(),
+                episema: note.episema(),
+                joined: next
+                    .filter(|n| ligates(note) && ligates(n))
+                    .map(|n| n.pitch as i32),
+                flat: view.alters[e] < 0,
+                beat: (ev.bar, ev.beat),
+                also: ev.continued.clone(),
+                division: ev.division.as_deref().map(Division::of),
+            });
+        }
+    }
+    out.into_iter().flatten().collect()
+}
+
+/// Lays a modern track's melody out like a chant: the syllables of its lyrics (a trailing `-`
+/// goes on into the next), the neumes of the melody with a gap between them, flats before their
+/// notes and the divisions after theirs.
+pub fn layout_melody(view: &Melody, ascii: bool) -> Vec<Syl> {
+    let heads = heads(view, ascii);
+    let mut out = Vec::new();
+    for members in view
+        .neumes
+        .chunk_by(|a, b| view.syllable_of[a[0]] == view.syllable_of[b[0]])
+    {
+        let first = members[0][0];
+        let mut marks = Vec::new();
+        let mut col: u16 = 0;
+        for neume in members {
+            if col > 0 {
+                col += 1;
+            }
+            for &e in neume {
+                let h = &heads[e];
+                if h.flat {
+                    marks.push((col, Mark::Alter(h.pos, alter_char("x", ascii))));
+                    col += 1;
+                }
+                marks.push((
+                    col,
+                    Mark::Note {
+                        ch: h.ch,
+                        pos: h.pos,
+                        beat: Some((h.beat.0, h.beat.1, 1)),
+                        also: h.also.clone(),
+                        mora: h.mora,
+                        episema: h.episema,
+                        joined: h.joined,
+                    },
+                ));
+                col += 1 + h.mora as u16;
+            }
+            if let Some(d) = neume.last().and_then(|&e| heads[e].division) {
+                col += 1;
+                marks.push((col, Mark::Division(d)));
+                col += 1;
+            }
+        }
+        let lyric = view.events[first].lyric.as_deref().unwrap_or("").trim();
+        let hyphen = lyric.ends_with('-');
+        let text = lyric.trim_end_matches('-').trim().to_string();
+        let hyphen = hyphen && !text.is_empty();
+        finish(&mut out, marks, col, text, hyphen, false, view.clef);
+    }
+    resolve_custodes(&mut out);
     out
+}
+
+/// The staff positions a melody's notes need (see [`staff_range`]).
+pub fn melody_range(view: &Melody) -> Range {
+    let (mut low, mut top) = (2, 10);
+    for n in &view.notes {
+        low = low.min(n.pitch as i32);
+        top = top.max(n.pitch as i32);
+    }
+    Range { low, top }
 }
 
 /// A line of syllables: each with its column from the line's start.
@@ -608,6 +892,7 @@ impl Painter<'_> {
                         ch,
                         pos,
                         beat,
+                        also,
                         mora,
                         episema,
                         ..
@@ -624,12 +909,15 @@ impl Painter<'_> {
                                 width: 1,
                                 height: range.rows(),
                             };
-                            let any =
-                                |f: &dyn Fn(usize) -> bool| (0..repeats as usize).any(|r| f(b + r));
+                            // Every beat the note sounds on: repeated notes, tied beats.
+                            let beats: Vec<(usize, usize)> = (0..repeats as usize)
+                                .map(|r| (bar, b + r))
+                                .chain(also.iter().copied())
+                                .collect();
                             let c = self.cursor;
-                            let on_cursor = any(&|bb| (c.bar, c.beat) == (bar, bb))
+                            let on_cursor = beats.contains(&(c.bar, c.beat))
                                 && !self.app.cursor_hidden(pane.buffer);
-                            let on_play = any(&|bb| self.playing == Some((bar, bb)));
+                            let on_play = self.playing.is_some_and(|p| beats.contains(&p));
                             if x < right {
                                 if on_play {
                                     buf.set_style(column, play_style);
@@ -650,7 +938,7 @@ impl Painter<'_> {
                                 first_hit.get_or_insert(hit);
                                 hits.push(hit);
                             }
-                            if any(&|bb| self.selected(bar, bb)) {
+                            if beats.iter().any(|&(a, bb)| self.selected(a, bb)) {
                                 buf.set_style(
                                     Rect {
                                         y,
@@ -739,17 +1027,22 @@ impl Widget for ChantView<'_> {
         let th = &self.app.config.theme;
         let pane = &self.app.panes[&self.pane];
         let score = &self.app.buffers[pane.buffer].score;
-        let Some(chant) = score
-            .tracks
-            .get(pane.cursor.track)
-            .and_then(|t| t.chant.as_deref())
-        else {
+        let Some(track) = score.tracks.get(pane.cursor.track) else {
             return;
         };
-        let track = &score.tracks[pane.cursor.track];
         let ascii = self.app.config.file.tabline.icons == "none";
-        let syls = layout(chant, ascii);
-        let range = staff_range(chant);
+        let (syls, range) = match track.chant.as_deref().filter(|_| self.app.chant_view) {
+            Some(chant) => (layout(chant, ascii), staff_range(chant)),
+            // An ordinary track whose staves are all chant: its melody as chant.
+            None => match Melody::build(score, track, self.app.chord_policy()) {
+                Ok(view) => (layout_melody(&view, ascii), melody_range(&view)),
+                Err(e) => {
+                    let style = Style::default().fg(rc(th.dim));
+                    buf.set_string(outer.x + 1, outer.y, e.to_string(), style);
+                    return;
+                }
+            },
+        };
         let sh = range.rows() + 2;
         let horizontal = pane.layout == "horizontal";
         let paged = pane.layout == "page";
@@ -1089,6 +1382,96 @@ mod tests {
             s.iter().map(|s| s.page()).collect::<Vec<_>>(),
             [0, 0, 0, 1, 1, 1, 2]
         );
+    }
+
+    fn modern() -> (cecilia_core::Score, usize) {
+        use cecilia_core::*;
+        let beat = |p: u8, lyric: &str| Beat {
+            notes: vec![Note::new(0, p)],
+            lyrics: if lyric.is_empty() {
+                vec![]
+            } else {
+                vec![lyric.into()]
+            },
+            ..Beat::rest(Duration::new(DurationValue::Quarter))
+        };
+        let beats = vec![
+            beat(62, "Ky-"),
+            beat(64, ""),
+            beat(60, "ri-"),
+            beat(62, "e"),
+            beat(60, ""),
+        ];
+        let mut bar = Bar::default();
+        bar.voices.push(Voice { beats });
+        let t = Track {
+            kind: TrackKind::Pitched,
+            strings: vec![64, 59, 55, 50, 45, 40],
+            bars: vec![bar],
+            ..Track::default()
+        };
+        let score = Score {
+            master_bars: vec![MasterBar::default()],
+            tracks: vec![t],
+            ..Score::default()
+        };
+        (score, 0)
+    }
+
+    #[test]
+    fn a_modern_melody_lays_out_like_chant() {
+        let (score, i) = modern();
+        let view = Melody::build(&score, &score.tracks[i], Default::default()).unwrap();
+        let syls = layout_melody(&view, false);
+        let texts: Vec<(&str, bool)> = syls.iter().map(|s| (s.text.as_str(), s.hyphen)).collect();
+        assert_eq!(texts, [("Ky", true), ("ri", true), ("e", false)]);
+        assert!(syls.iter().all(|s| s.clef_in == view.clef));
+        // One head per note, on the beat it sounds on, and the piece ends with a finalis.
+        let beats: Vec<_> = syls
+            .iter()
+            .flat_map(|s| &s.marks)
+            .filter_map(|(_, m)| match m {
+                Mark::Note { beat, .. } => beat.map(|b| (b.0, b.1)),
+                _ => None,
+            })
+            .collect();
+        assert_eq!(beats, [(0, 0), (0, 1), (0, 2), (0, 3), (0, 4)]);
+        assert!(matches!(
+            syls.last().unwrap().marks.last().unwrap().1,
+            Mark::Division(Division::Finalis)
+        ));
+        // The first beat's syllable is where the cursor is at the start.
+        assert_eq!(syllable_at(&syls, (0, 0)), 0);
+        assert_eq!(syllable_at(&syls, (0, 3)), 2);
+    }
+
+    #[test]
+    fn mixed_staff_maps_beats_to_heads_and_divisions() {
+        let (score, i) = modern();
+        let m = MixedStaff::build(&score, &score.tracks[i], Default::default(), false);
+        assert!(m.error.is_none());
+        assert_eq!(m.heads.len(), 5);
+        assert!(m.heads.values().all(|h| (0..=13).contains(&h.pos)));
+        // Higher pitches sit higher on the staff.
+        assert!(m.heads[&(0, 1)].pos > m.heads[&(0, 0)].pos);
+        assert_eq!(m.divisions[&(0, 4)], Division::Finalis);
+        assert_eq!(m.divisions.len(), 1);
+    }
+
+    #[test]
+    fn chant_staves_choose_the_renderer() {
+        use cecilia_core::Staff;
+        let (mut score, i) = modern();
+        let app = App::new(cecilia_app::Config::default(), None);
+        let track = &mut score.tracks[i];
+        assert!(!shows(&app, track) && mixed(track).is_none());
+        track.staves = vec![Staff::Chant];
+        assert!(shows(&app, track) && mixed(track).is_none());
+        track.staves = vec![Staff::Tab, Staff::ChantFa];
+        assert!(!shows(&app, track));
+        assert_eq!(mixed(track), Some(1));
+        track.staves = vec![Staff::Tab];
+        assert!(mixed(track).is_none());
     }
 
     #[test]
