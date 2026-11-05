@@ -1,4 +1,4 @@
-# muse
+# cecilia
 
 A keyboard-first, open-source editor and player for guitar tablature, standard notation and
 Gregorian chant, with Guitar Pro compatibility and audio play-along. Written in Rust.
@@ -10,8 +10,8 @@ full specification and roadmap, and [docs/keymap.md](docs/keymap.md) for key bin
 ## What works now
 
 - Reading Guitar Pro 3–8 (`.gp3`, `.gp4`, `.gp5`, `.gpx`, `.gp`), MusicXML (`.musicxml`, `.mxl`),
-  MIDI, GABC (Gregorio chant) and muse's own `.muse`; writing `.gp5`, `.gpx`, `.gp`, `.musicxml`,
-  `.mxl`, `.mid`, `.gabc`, `.muse`
+  MIDI, GABC (Gregorio chant) and cecilia's own `.cc`; writing `.gp5`, `.gpx`, `.gp`, `.musicxml`,
+  `.mxl`, `.mid`, `.gabc`, `.cc`
 - Drums in standard drum notation (hands stems up, feet stems down, x heads for cymbals) and as
   drum tab in the terminal (CY/HH/T1/SN/FT/BD lanes), entered with letter keys in Insert mode
 - Piano and other multi-staff parts as braced grand staves, kept as one instrument in GP7/GPX/
@@ -43,9 +43,9 @@ full specification and roadmap, and [docs/keymap.md](docs/keymap.md) for key bin
   colored bar overview with the edit cursor and playhead
 - A toolbar of common commands (configurable buttons), and themes in `[theme]`: six built-in
   presets, theme files, and every interface color (down to the score's page and ink)
-- Workspaces: `:workspace-save NAME` / `:workspace-open NAME` / `muse --workspace NAME` keep the
-  views, their pane splits and open files, saved automatically; `muse` reopens the last one (or
-  `default`), while `muse FILE` edits files without touching any workspace
+- Workspaces: `:workspace-save NAME` / `:workspace-open NAME` / `cecilia --workspace NAME` keep the
+  views, their pane splits and open files, saved automatically; `cecilia` reopens the last one (or
+  `default`), while `cecilia FILE` edits files without touching any workspace
 - TOML configuration with custom keybinds, reloaded automatically when the file changes
 
 ## Usage
@@ -69,17 +69,17 @@ In the UI: `h j k l` move by beat/string, `w b` jump between notes, `{ }` bars, 
 ### Installing on Linux
 
 ```sh
-packaging/linux/install.sh            # builds muse into ~/.local/bin, with a desktop entry
+packaging/linux/install.sh            # builds cecilia into ~/.local/bin, with a desktop entry
 sudo packaging/linux/install.sh /usr/local
 ```
 
-This installs the binary, `muse.desktop` (which opens muse in a window with `--gui`), an icon,
-and file types for `.muse`, Guitar Pro (`.gp`, `.gpx`, `.gp3`–`.gp5`) and `.gabc` files, so file
-managers offer muse for them. `packaging/linux/uninstall.sh [PREFIX]` removes them again.
+This installs the binary, `cecilia.desktop` (which opens cecilia in a window with `--gui`), an icon,
+and file types for `.cc`, Guitar Pro (`.gp`, `.gpx`, `.gp3`–`.gp5`) and `.gabc` files, so file
+managers offer cecilia for them. `packaging/linux/uninstall.sh [PREFIX]` removes them again.
 
 ## Configuration
 
-`~/.config/muse/config.toml` — see [docs/config.example.toml](docs/config.example.toml).
+`~/.config/cecilia/config.toml` — see [docs/config.example.toml](docs/config.example.toml).
 For realistic instrument sounds set `audio.soundfont` to a General MIDI `.sf2` file
 (e.g. FluidR3_GM or GeneralUser GS); otherwise the built-in synth is used.
 

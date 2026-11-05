@@ -1,5 +1,5 @@
-# muse configuration — copy to ~/.config/muse/config.toml
-# Changes are picked up automatically while muse is running (or run :source).
+# cecilia configuration — copy to ~/.config/cecilia/config.toml
+# Changes are picked up automatically while cecilia is running (or run :source).
 
 [general]
 leader = "<Space>"
@@ -50,7 +50,7 @@ suffix_width = 10        # …and this many at the end
 # A built-in theme: "dark", "light", "nord", "gruvbox", "solarized-dark" or "solarized-light".
 preset = "dark"
 # A theme file with the same keys as this section (absolute, ~/…, or relative to this folder);
-# keys here override it. Edits to it apply while muse runs.
+# keys here override it. Edits to it apply while cecilia runs.
 # file = "themes/mine.toml"
 # Any color overrides the preset: "#rrggbb" or "#rrggbbaa". Defaults of the dark theme:
 # paper = "#e8e9ec"           # around the engraved pages
@@ -80,7 +80,7 @@ preset = "dark"
 # loop_region = "#3cbe6e32"
 # sync_point = "#fabe28"
 # mode_normal = "#5a96e6"     # also mode_insert, mode_visual, mode_command, mode_picker, mode_tracks
-# icon_guitar_pro = "#f08c32" # also icon_musicxml, icon_midi, icon_chant, icon_muse
+# icon_guitar_pro = "#f08c32" # also icon_musicxml, icon_midi, icon_chant, icon_cecilia
 # track_colors = ["#e05050", "#e0a030", "#50b060", "#4090e0"]   # instead of the spectrum
 
 [statusline]
@@ -103,7 +103,7 @@ tuner_a4 = 440.0         # the tuner's reference pitch for A4 (Hz)
 enabled = true           # keep a recovery copy of buffers with unsaved changes
 interval = 5.0           # seconds after the last change before it is written (at most 6x while editing)
 auto_recover = true      # opening a file with a newer swap file restores it as unsaved changes
-# dir = "~/.local/state/muse/swap"   # default: $XDG_STATE_HOME/muse/swap, else ~/.local/state/muse/swap
+# dir = "~/.local/state/cecilia/swap"   # default: $XDG_STATE_HOME/cecilia/swap, else ~/.local/state/cecilia/swap
 
 [score]
 clef = "treble"          # clef of a standard staff added without one: treble, bass or grand

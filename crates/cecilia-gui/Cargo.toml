@@ -1,0 +1,18 @@
+[package]
+name = "cecilia-gui"
+description = "Graphical frontend for cecilia (winit + wgpu + vello)"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+rust-version.workspace = true
+
+[dependencies]
+cecilia-core.workspace = true
+cecilia-app = { workspace = true, features = ["dialog"] }
+cecilia-audio.workspace = true
+cecilia-engrave.workspace = true
+anyhow.workspace = true
+vello = "0.5"
+winit = "0.30"
+pollster = "0.4"
+tiny-skia = "0.11"

@@ -30,7 +30,7 @@ so `Q` and `<S-q>` are the same key and typing is unchanged. Shift is a separate
 
 The GUI reports every modifier. In the terminal, Ctrl+Shift+letter, Super and Shift on
 non-character keys need the kitty keyboard protocol (kitty, WezTerm, foot, Ghostty, Alacritty
-and others); muse enables it when the terminal supports it and restores the terminal on exit
+and others); cecilia enables it when the terminal supports it and restores the terminal on exit
 and on panic. On other terminals Ctrl+Shift+Q sends the same bytes as Ctrl+Q, so `<C-S-q>` can
 only be used in the GUI there, and `<D-…>` bindings never fire.
 
@@ -81,7 +81,7 @@ only be used in the GUI there, and `<D-…>` bindings never fire.
 
 `:design on` (`<leader>d`) lets you fix the page layout by hand, for clashes the automatic layout
 cannot see. It works in the page layout only and shows `design` in the status line. Every change
-is an undo step (a mouse drag is one step) and is stored in the score: `.muse` files keep it,
+is an undo step (a mouse drag is one step) and is stored in the score: `.cc` files keep it,
 other formats ignore it, and bars with no adjustment stay automatic.
 
 Keys while design mode is on (`[keymap.design]`, looked up before the normal keys; every other
@@ -280,7 +280,7 @@ act on the bar of every track, as bars are shared.
 | `<F1>`      | help: the key bindings of the current mode (Normal, Insert, Visual, command line, picker, tracks/properties/palette pane); `<F1>` or `<Esc>` hides it. Works in every mode; in the Normal modes a user binding of `<F1>` takes precedence |        |
 | `<leader>?` | find a key binding (keymaps picker) |        |
 | `ZZ`        | write and quit   |        |
-| `<C-q>`     | quit muse (`:quit`; not while files have unsaved changes) | |
+| `<C-q>`     | quit cecilia (`:quit`; not while files have unsaved changes) | |
 
 ## Status line
 
@@ -373,7 +373,7 @@ mode; while the pane has the focus its keys are `[keymap.tracks]`, then the usua
 | `:track-rename NAME [n]` | rename track n (default: the cursor's track) |
 | `:track-instrument [PROGRAM\|drums] [n]` | set a track's General MIDI instrument (1–128) or the drum kit (only an empty track changes between drums and pitched); without a program, a picker |
 | `:track-volume 80` (`+10`, `-10`) / `:track-volume-up` / `:track-volume-down` | the track's volume in percent |
-| `:track-color #rrggbb` / `:track-color off` / `:track-color` | the track's color (saved in `.muse` files) / back to the theme's / the next palette color |
+| `:track-color #rrggbb` / `:track-color off` / `:track-color` | the track's color (saved in `.cc` files) / back to the theme's / the next palette color |
 | `:mute [n\|audio\|master]` / `:solo [n\|audio\|master]` | toggle mute / solo of track n (default: the cursor's), the audio track, or the synth master. A row is soloed, muted or neither: turning one on turns the other off. With any row soloed only soloed rows play; a muted row is silent. The master's mute is on when every synth track is muted (it mutes or unmutes them all); its solo is on when any synth track is soloed (it solos them all, or clears their solos) |
 
 ## Properties pane
@@ -387,7 +387,7 @@ section titles small capitals (in the terminal too, as small-capital letters). C
 have a narrower box with the color's hex code or the strings' pitches beside it in grey.
 
 - **SCORE** — *Info* (title, subtitle, artist, album, words, music, copyright, tab author,
-  instructions) and *Page* (page size, margins and scale, as Guitar Pro 5 files keep them; muse
+  instructions) and *Page* (page size, margins and scale, as Guitar Pro 5 files keep them; cecilia
   doesn't print with them yet). Tempo and the pickup bar are edited in the score itself.
 - **TRACK** — the track under the score cursor (`n`/`p` change it): *Info* (name, kind, color),
   *Notation* (tuning, frets, capo, and the key *Staves* over one field per staff, top to bottom, with an empty "Add Staff" field at the bottom; each opens a picker of staff kinds, shown with an icon, and a field's handle drags it to another place, a line showing where it lands) and *Sound*
@@ -605,7 +605,7 @@ bottom one; `error` refuses chords and the status line names the first one):
 `:` opens the **command palette**, a box near the top of the window (in the terminal UI too).
 As you type, the matches for the word being typed are listed below it: command names with a short
 description on the right, then each command's arguments — file names for `:open`, `:w`,
-`:view-new` and `:audio` (folders first, only files muse can open or write) and the values of
+`:view-new` and `:audio` (folders first, only files cecilia can open or write) and the values of
 `:layout`, `:mix`, `:volume`, `:track-add`, `:tuning`, `:toggle`, `:duration`, `:clef`,
 `:interpretation`. `<Tab>` fills in a unique match (or the common part), and `<Tab>`/`<S-Tab>`
 or `<Down>`/`<Up>` move through the list, putting the selected match on the line. `<Enter>`
@@ -662,10 +662,10 @@ With the cursor on a note on any staff, the same note on the track's other stave
 A workspace saves the views — each with its pane splits, name and bufferline of loaded files —
 and each pane's file, cursor, recent files, layout and waveform strip, each pane's zoom, follow, chant
 view, the window waveform bar, marks (of saved files) and recorded macros, to
-`~/.local/share/muse/workspaces/NAME.toml` (or a path). A workspace is always active, and is
-saved again whenever the session changes and when muse quits. Until you choose one, it is
-`default`. `muse` reopens the workspace used last; `muse --workspace NAME` starts with another
-(created from scratch if it doesn't exist yet). `muse FILE…` opens just those files, without a
+`~/.local/share/cecilia/workspaces/NAME.toml` (or a path). A workspace is always active, and is
+saved again whenever the session changes and when cecilia quits. Until you choose one, it is
+`default`. `cecilia` reopens the workspace used last; `cecilia --workspace NAME` starts with another
+(created from scratch if it doesn't exist yet). `cecilia FILE…` opens just those files, without a
 workspace, so one-off edits leave your workspaces alone — `:workspace-save NAME` keeps such a
 session if you want it (with `--workspace` too, the files open in that workspace).
 
@@ -677,18 +677,18 @@ session if you want it (with `--workspace` too, the files open in that workspace
 
 ### Swap files
 
-While a file has unsaved changes muse keeps a recovery copy in the swap directory (`[swap]` in
-the config: `enabled`, `interval`, `auto_recover`, `dir`; by default `$XDG_STATE_HOME/muse/swap`, else
-`~/.local/state/muse/swap`), named after the file's full path. It is deleted when the file is
-saved or closed, and on quit. Opening a file whose swap file is newer (and not owned by another running muse) restores it
+While a file has unsaved changes cecilia keeps a recovery copy in the swap directory (`[swap]` in
+the config: `enabled`, `interval`, `auto_recover`, `dir`; by default `$XDG_STATE_HOME/cecilia/swap`, else
+`~/.local/state/cecilia/swap`), named after the file's full path. It is deleted when the file is
+saved or closed, and on quit. Opening a file whose swap file is newer (and not owned by another running cecilia) restores it
 automatically as unsaved changes (`auto_recover`, on by default; the file on disk is untouched
 until you `:w`; the undo tree is kept, and `:bd!` then `:open` gets the saved file back). With
-`auto_recover = false`, or when another running muse owns the swap file, it says so and stops
+`auto_recover = false`, or when another running cecilia owns the swap file, it says so and stops
 autosaving that file until you choose:
 
 | command                  |                                                                                  |
 | ------------------------ | -------------------------------------------------------------------------------- |
-| `:recover`               | restore the file from its swap file, left unsaved (`:recover!` if another muse owns it) |
+| `:recover`               | restore the file from its swap file, left unsaved (`:recover!` if another cecilia owns it) |
 | `:recover swapfile`      | open a swap file as a new unnamed buffer (for scores that were never saved)      |
 | `:swap-discard`          | delete the file's swap file                                                      |
 
@@ -726,7 +726,7 @@ flat or natural when needed), `x` deletes it and `u` undoes, as on any track.
 | `:scrollbar [on\|off]`                    | the scrollbars on every score pane: down the right side and along the bottom, each shown when the score scrolls that way (a bar wider than the pane, a zoomed page, a tall horizontal layout), in their own gutter (the score never draws under it). Click or drag it to scroll (the view then stays put until the cursor moves). `ui.scrollbar` sets the default (on) |
 | `:progress-bar [on\|off]`                  | the progress bar along the bottom of every score pane: the sections (letter and title), a translucent red mark at the play position (or the cursor), and the time; clicking it moves the cursor to that bar. `ui.progress_bar` sets the default (on) |
 | `:export {file}`                           | export by extension                                                                                                                                                                                      |
-| `:design [on\|off\|toggle]`               | design mode (page layout only): the layout can be adjusted by hand, with handles in the GUI and the keys of `[keymap.design]`; the status line shows `design`. The adjustments are saved in `.muse` files |
+| `:design [on\|off\|toggle]`               | design mode (page layout only): the layout can be adjusted by hand, with handles in the GUI and the keys of `[keymap.design]`; the status line shows `design`. The adjustments are saved in `.cc` files |
 | `:bar-width N\|+N\|-N\|auto`              | width of the cursor bar in the page layout, in percent of its automatic share of the line (the other bars of the line give up or take the difference so the line still fills the page; a bar is never narrower than 35% of its natural width) |
 | `:bars-per-line N\|+N\|-N\|auto`          | exactly N bars on the cursor's line (squeezed if need be) from the line's first bar on; `auto` hands the line back to the layout |
 | `:line-break` / `:line-join`              | start a new line at the cursor bar / bring the cursor bar back onto the previous line |

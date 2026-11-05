@@ -4,7 +4,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## What this repo is
 
-`muse`: a keyboard-first editor/player for guitar tab, standard notation and Gregorian chant
+`cecilia`: a keyboard-first editor/player for guitar tab, standard notation and Gregorian chant
 (Guitar Pro compatible, audio play-along). Rust 2024 workspace; `docs/SPEC.md` is the spec,
 `docs/keymap.md` the key bindings, `docs/config.example.toml` the config reference. Keep the last
 two in sync when adding commands, keys or settings.
@@ -12,14 +12,14 @@ two in sync when adding commands, keys or settings.
 ## Commands
 
 ```sh
-cargo build --release                      # binary: target/release/muse
+cargo build --release                      # binary: target/release/cecilia
 cargo test --workspace                     # all tests
-cargo test -p muse-app tracks::            # one crate / one module or test name
+cargo test -p cecilia-app tracks::            # one crate / one module or test name
 cargo clippy --workspace --all-targets     # keep clean
 cargo fmt                                  # rustfmt.toml: max_width 100
 cargo run --release -- --gui song.gp5      # window (default is the terminal UI)
 # headless GUI screenshot, for checking engraving/layout changes:
-target/release/muse -W <scratch-workspace> --screenshot out.png --keys "<keys>" song.gp5
+target/release/cecilia -W <scratch-workspace> --screenshot out.png --keys "<keys>" song.gp5
 ```
 
 Use `-W` with a scratch workspace name so runs don't touch the user's saved workspace.
@@ -43,21 +43,21 @@ older history uses plain sentences.
 
 Crates (dependencies flow downward):
 
-- `muse-core` — the `Score` model (Track → Bar → Voice → Beat → Note; `MasterBar`, markers,
+- `cecilia-core` — the `Score` model (Track → Bar → Voice → Beat → Note; `MasterBar`, markers,
   lyrics, chant marks, `Track.staves: Vec<Staff>` = notation *views* of one track's notes).
-- `muse-formats` — readers/writers (GP3–8, GPX/GP, MusicXML, MIDI, GABC, native `.muse`).
+- `cecilia-formats` — readers/writers (GP3–8, GPX/GP, MusicXML, MIDI, GABC, native `.cc`).
   Readers merge multi-staff parts into one grand-staff track; writers split internally, so
   round-trip tests compare `split_grand()` forms.
-- `muse-convert` — modern ⇄ chant conversion. `muse-audio` — synth, player, beat detection, tuner.
-- `muse-engrave` — score → layout (pages of drawing primitives) for standard/tab/tab+/slash/chant
+- `cecilia-convert` — modern ⇄ chant conversion. `cecilia-audio` — synth, player, beat detection, tuner.
+- `cecilia-engrave` — score → layout (pages of drawing primitives) for standard/tab/tab+/slash/chant
   staves; one engraving context per staff spec; `BeatPos`/`Hit` give the frontends cursor and
   click positions per staff.
-- `muse-app` — all editor logic, frontend-independent: `App` (views → pane tree → panes, cursor
+- `cecilia-app` — all editor logic, frontend-independent: `App` (views → pane tree → panes, cursor
   per pane, buffers, modes, keymaps, commands in `command.rs`, pickers, workspaces, undo tree,
   playback/play-along, progress bar, tracks pane). Anything behavioural belongs here with tests.
-- `muse-gui` (vello/wgpu; `draw.rs` builds a scene from `App` state and records click hit lists)
-  and `muse-tui` (ratatui) — thin renderers over `App`; changes to a pane kind or widget
-  usually need both. `muse` is the CLI binary wiring them together.
+- `cecilia-gui` (vello/wgpu; `draw.rs` builds a scene from `App` state and records click hit lists)
+  and `cecilia-tui` (ratatui) — thin renderers over `App`; changes to a pane kind or widget
+  usually need both. `cecilia` is the CLI binary wiring them together.
 
 Panes: `PaneKind` is `Score` or a tool (`Tracks`, `Audio`, `Piano`, `Fretboard`, `Tuner`).
 Tool panes live in the same layout tree (`layout.rs`) as scores, have fixed natural sizes, and

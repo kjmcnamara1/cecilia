@@ -1,0 +1,17 @@
+[package]
+name = "cecilia-tui"
+description = "Terminal frontend for cecilia"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+rust-version.workspace = true
+
+[dependencies]
+cecilia-core.workspace = true
+cecilia-app = { workspace = true, features = ["dialog"] }
+cecilia-audio.workspace = true
+ratatui.workspace = true
+anyhow.workspace = true
+
+[dev-dependencies]
+cecilia-formats.workspace = true

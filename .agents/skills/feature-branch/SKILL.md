@@ -1,6 +1,6 @@
 ---
 name: feature-branch
-description: Workflow for adding a new feature to muse - creates a herdr worktree branch, delegates the work to a bounded subagent, merges main into the branch and tests, then merges into main. Use this whenever the user wants to add, implement, build or prototype a feature, command, setting, pane, tool or format support, even if they don't mention branches or worktrees. Skip it for small bug fixes, renames and docs-only edits unless asked.
+description: Workflow for adding a new feature to cecilia - creates a herdr worktree branch, delegates the work to a bounded subagent, merges main into the branch and tests, then merges into main. Use this whenever the user wants to add, implement, build or prototype a feature, command, setting, pane, tool or format support, even if they don't mention branches or worktrees. Skip it for small bug fixes, renames and docs-only edits unless asked.
 ---
 
 # Feature branch workflow
@@ -12,7 +12,7 @@ Use for every new feature (not for small fixes or docs-only edits unless asked).
 From the main checkout, on an up-to-date `main`:
 
 ```sh
-herdr worktree create --cwd /home/kjm/Projects/muse --branch feat/<short-name> --base main --label <short-name> --no-focus
+herdr worktree create --cwd /home/kjm/Projects/cecilia --branch feat/<short-name> --base main --label <short-name> --no-focus
 ```
 
 Note the worktree path and workspace ID it reports. Branch names are kebab-case with a
@@ -22,7 +22,7 @@ Note the worktree path and workspace ID it reports. Branch names are kebab-case 
 in so the subagent can use the sample scores for tests and screenshots:
 
 ```sh
-ln -s /home/kjm/Projects/muse/test-corpus <worktree>/test-corpus
+ln -s /home/kjm/Projects/cecilia/test-corpus <worktree>/test-corpus
 ```
 
 ## 2. Implement in a bounded subagent
@@ -32,8 +32,8 @@ Give it a self-contained brief:
 
 - the feature description and acceptance criteria,
 - the worktree path (all edits and commands happen there, never in the main checkout),
-- the repo rules from `AGENTS.md`: behaviour in `muse-app` with tests, both `muse-gui` and
-  `muse-tui` updated for pane/widget changes, `docs/keymap.md` and `docs/config.example.toml`
+- the repo rules from `AGENTS.md`: behaviour in `cecilia-app` with tests, both `cecilia-gui` and
+  `cecilia-tui` updated for pane/widget changes, `docs/keymap.md` and `docs/config.example.toml`
   kept in sync, a line added under `[Unreleased]` in `CHANGELOG.md` (and the item removed from
   `TODO.md` if it was listed there),
 - scope limits: only the files the feature needs, no unrelated refactors, no merging, no

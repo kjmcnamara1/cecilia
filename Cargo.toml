@@ -9,14 +9,14 @@ license = "MIT OR Apache-2.0"
 rust-version = "1.85"
 
 [workspace.dependencies]
-muse-core = { path = "crates/muse-core" }
-muse-formats = { path = "crates/muse-formats" }
-muse-convert = { path = "crates/muse-convert" }
-muse-engrave = { path = "crates/muse-engrave" }
-muse-gui = { path = "crates/muse-gui" }
-muse-audio = { path = "crates/muse-audio" }
-muse-app = { path = "crates/muse-app" }
-muse-tui = { path = "crates/muse-tui" }
+cecilia-core = { path = "crates/cecilia-core" }
+cecilia-formats = { path = "crates/cecilia-formats" }
+cecilia-convert = { path = "crates/cecilia-convert" }
+cecilia-engrave = { path = "crates/cecilia-engrave" }
+cecilia-gui = { path = "crates/cecilia-gui" }
+cecilia-audio = { path = "crates/cecilia-audio" }
+cecilia-app = { path = "crates/cecilia-app" }
+cecilia-tui = { path = "crates/cecilia-tui" }
 anyhow = "1"
 thiserror = "2"
 serde = { version = "1", features = ["derive"] }

@@ -7,6 +7,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed
+
+- **Breaking:** the project is renamed from muse to cecilia: the binary, crates, window/app ID,
+  desktop entry and config/data directories (`~/.config/cecilia`, `~/.local/share/cecilia`) are
+  now `cecilia`; move existing config and workspaces over by hand.
+- **Breaking:** the native format uses the `.cc` extension instead of `.muse`.
+- The Linux desktop icon is now `assets/cecilia-transparent.svg`.
+
 ## [0.24.0] - 2026-11-04
 
 ### Added

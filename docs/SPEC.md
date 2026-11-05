@@ -1,10 +1,10 @@
-# muse — Specification
+# cecilia — Specification
 
 Status: draft v0.1 (2026-10-23). Decisions recorded from the initial requirements session.
 
 ## 1. Purpose
 
-**muse** is an open-source, keyboard-first application for reading, editing, composing and playing:
+**cecilia** is an open-source, keyboard-first application for reading, editing, composing and playing:
 
 - guitar (and other fretted) tablature,
 - standard notation (5-line staff, incl. piano grand staff and voice with lyrics),
@@ -30,19 +30,19 @@ Cargo workspace; frontends are thin shells over a headless application core.
 
 | crate | responsibility |
 |---|---|
-| `muse-core` | Score data model (pure data, `serde`). No I/O. |
-| `muse-formats` | Import/export of all file formats. |
-| `muse-convert` | Staff↔tab linkage, auto-fingering, retuning, chant↔modern transcription. |
-| `muse-engrave` | Layout engine → backend-agnostic display list + hit-test map. |
-| `muse-audio` | Audio output, decoding, MIDI synthesis, time-stretch/pitch-shift, mixer. |
-| `muse-sync` | Audio↔score sync map and beat-detection assist. |
-| `muse-app` | Headless app state: buffers, panes/tabs/workspaces, modes, commands, keymaps, undo, config, i18n. |
-| `muse-tui` | ratatui frontend. |
-| `muse-gui` | winit + wgpu + vello + parley frontend (desktop, later mobile). |
-| `muse` | Binary: CLI entry point, launches GUI/TUI/headless commands. |
+| `cecilia-core` | Score data model (pure data, `serde`). No I/O. |
+| `cecilia-formats` | Import/export of all file formats. |
+| `cecilia-convert` | Staff↔tab linkage, auto-fingering, retuning, chant↔modern transcription. |
+| `cecilia-engrave` | Layout engine → backend-agnostic display list + hit-test map. |
+| `cecilia-audio` | Audio output, decoding, MIDI synthesis, time-stretch/pitch-shift, mixer. |
+| `cecilia-sync` | Audio↔score sync map and beat-detection assist. |
+| `cecilia-app` | Headless app state: buffers, panes/tabs/workspaces, modes, commands, keymaps, undo, config, i18n. |
+| `cecilia-tui` | ratatui frontend. |
+| `cecilia-gui` | winit + wgpu + vello + parley frontend (desktop, later mobile). |
+| `cecilia` | Binary: CLI entry point, launches GUI/TUI/headless commands. |
 
-Dependency direction: `core ← formats/convert/engrave/sync ← audio ← app ← tui/gui ← muse`.
-`muse-app` never depends on a frontend; both frontends drive the same command registry, keymaps and config.
+Dependency direction: `core ← formats/convert/engrave/sync ← audio ← app ← tui/gui ← cecilia`.
+`cecilia-app` never depends on a frontend; both frontends drive the same command registry, keymaps and config.
 
 ### 3.1 Key third-party choices
 
@@ -60,7 +60,7 @@ Dependency direction: `core ← formats/convert/engrave/sync ← audio ← app �
 | zip containers | `zip` |
 | XML (GP7/GPX/MusicXML) | `quick-xml` |
 
-## 4. Data model (`muse-core`)
+## 4. Data model (`cecilia-core`)
 
 ```
 Score
@@ -99,7 +99,7 @@ let-ring/palm-mute ranges, chord diagrams (barres, fingerings), free time, multi
 tuplets (incl. nested), lyrics, repeats, alternate endings, directions.
 Anything not yet editable must still round-trip through `extras`.
 
-The editing palette (`muse-app`, `palette.rs`) exposes these as tools: durations, accidentals
+The editing palette (`cecilia-app`, `palette.rs`) exposes these as tools: durations, accidentals
 (down to double sharp / flat), dynamics and hairpins, articulations, effects, the six slides,
 strokes (brush, arpeggio, rasgueado, pick strokes), beam and stem overrides, and the bar tools
 (clef, key and time signature, free time, double bar, bar repeat signs, repeats, alternate
@@ -128,7 +128,7 @@ naturals where needed.
 
 **Chant staff on ordinary tracks.** Any track can show a chant staff (`:notation chant`, on a `do` or `fa` clef: `:clef do|fa`). It is a
 view: the track's notes are never changed and playback (which plays every note of the track,
-chords included) does not depend on which staves are shown. The view is built in `muse-core`
+chords included) does not depend on which staves are shown. The view is built in `cecilia-core`
 (`melody::ChantView`) and is exactly what `modern-to-chant` converts, so both agree:
 
 - Only the first voice is read. Chant is monophonic, so a chord shows one note, chosen by
@@ -137,7 +137,7 @@ chords included) does not depend on which staves are shown. The view is built in
   ("Chant staff: chord at bar 12 beat 3 — chant is monophonic") takes its place and appears in the
   status line, and `:modern-to-chant` refuses.
 - Syllables start at each lyric (at each quarter note when there are none); notes in a syllable
-  form neumes by contour (`muse_core::chant::group_neumes`, shared with the GABC engraver), and a
+  form neumes by contour (`cecilia_core::chant::group_neumes`, shared with the GABC engraver), and a
   note marked `neume_start` always starts a new one. Tied beats extend the note before them.
 - The melody is moved by the same shift to the white-key scale (B♭ allowed) and clef as
   `modern-to-chant`; a note longer than the typical one gets a mora.
@@ -146,7 +146,7 @@ chords included) does not depend on which staves are shown. The view is built in
   the end of the track a finalis (`::`). A division set on a beat (`:chant-bar`; `,` `;` `:` `::`)
   overrides the rest or bar rule. The model has no separate breath or fermata marks.
 
-## 5. File formats (`muse-formats`)
+## 5. File formats (`cecilia-formats`)
 
 | format | read | write | status / notes |
 |---|---|---|---|
@@ -157,7 +157,7 @@ chords included) does not depend on which staves are shown. The view is built in
 | Standard MIDI File | ✔ | ✔ | done (M2); export expands repeats; import quantises to 32nd/triplet grid |
 | GABC (Gregorio) | ✔ | ✔ | done (M6); checked note-for-note against Gregorio 6.2 on its 480-file test suite and on GregoBase chants; written files re-read identically. NABC (adiastematic) sections are kept verbatim |
 | ASCII tab | — | ✔ | shared with TUI rendering |
-| `.muse` (native) | ✔ | ✔ | done (M2); see 5.1 |
+| `.cc` (native) | ✔ | ✔ | done (M2); see 5.1 |
 
 Format detection by magic bytes first, extension second.
 Encoding for GP3–5 strings: Windows-1252, or UTF-8 when the bytes are valid UTF-8.
@@ -172,15 +172,15 @@ they were edited.
 
 **Validation.** Every reader and writer is checked against a local corpus (`test-corpus/`,
 163 Guitar Pro files of all versions):
-- GP3/4/5 → GP5, and every file → GP7, GPX and `.muse`, round-trip through muse's own readers
+- GP3/4/5 → GP5, and every file → GP7, GPX and `.cc`, round-trip through cecilia's own readers
   without loss (beyond each format's documented limits);
 - PyGuitarPro and alphaTab read the exported GP5/GP7/GPX files with the same note counts as the
-  originals, and muse's readers agree with alphaTab's note counts on every original;
+  originals, and cecilia's readers agree with alphaTab's note counts on every original;
 - MIDI export/import keeps 99.99% of sounding notes; `mido` reads every exported file;
 - MusicXML export validates against the MusicXML 4.0 XSD and MuseScore 4 opens 157 of 163
   files (the rest contain incomplete tuplet groups, which MuseScore rejects).
 
-### 5.1 Native `.muse` format
+### 5.1 Native `.cc` format
 
 Zip archive:
 - `manifest.toml`: format version, app version, created/modified.
@@ -189,11 +189,11 @@ Zip archive:
 - `undo.bin`: persisted undo tree (optional).
 - `audio/<file>`: embedded audio (optional; otherwise a relative/absolute path in `sync.toml`).
 
-`:w file.ext` exports to any writable format (by extension); `:w file.muse` saves everything.
+`:w file.ext` exports to any writable format (by extension); `:w file.cc` saves everything.
 A plain `:w` writes back to the buffer's own file only when the buffer has been modified, so an
-untouched original (which may contain data muse does not model) is never rewritten.
+untouched original (which may contain data cecilia does not model) is never rewritten.
 
-## 6. Conversion (`muse-convert`)
+## 6. Conversion (`cecilia-convert`)
 
 - **Linked staff/tab**: editing pitch in standard view picks a string/fret; editing tab updates pitch.
 - **Auto-fingering** (staff→tab): dynamic programming over candidate (string, fret) positions per
@@ -205,7 +205,7 @@ untouched original (which may contain data muse does not model) is never rewritt
   for episema/mora lengthening); modern → chant groups notes per syllable using neume heuristics,
   always flagged as lossy.
 
-## 7. Playback (`muse-audio`, `muse-sync`)
+## 7. Playback (`cecilia-audio`, `cecilia-sync`)
 
 - MIDI playback through `rustysynth` with a bundled permissive GM SoundFont; user `.sf2/.sf3` in config.
 - Effects rendered: bends/whammy (pitch bend), slides, vibrato, palm mute, dead notes, harmonics,
@@ -235,7 +235,7 @@ untouched original (which may contain data muse does not model) is never rewritt
   closing a tab falls back to the pane's previous buffer.
 - **Workspace**: saved session (views with their panes and bufferlines, cursor positions) as
   TOML. Done: `:workspace-save/open/close`, `--workspace`; one is always active (`default` until
-  chosen), autosaved, and reopened by a plain `muse`.
+  chosen), autosaved, and reopened by a plain `cecilia`.
 
 ### 8.2 Modes
 
@@ -258,13 +258,13 @@ select, drag pane borders, click tabs, scroll/zoom, context menus that invoke th
 
 ### 8.4 Frontends
 
-- **GUI** (`muse-gui`): full functionality. Score views support three layouts: page, continuous
+- **GUI** (`cecilia-gui`): full functionality. Score views support three layouts: page, continuous
   horizontal, continuous vertical. The page layout has a design mode (`:design`): bar widths,
   bars per line and beat positions can be adjusted by hand (keys, commands, dragging handles and
-  clicking line-end "+" / "-" buttons with the mouse) and are stored in the score (`Score.design`, native `.muse` format only). Notation uses SMuFL fonts (Bravura, SIL OFL), including the
+  clicking line-end "+" / "-" buttons with the mouse) and are stored in the score (`Score.design`, native `.cc` format only). Notation uses SMuFL fonts (Bravura, SIL OFL), including the
   plainchant ranges; square notation is set with the Caeciliae chant font (Oblates of St. Joseph,
   SIL OFL 1.1, bundled unmodified; see `assets/fonts/OFL-Caeciliae.txt`).
-- **TUI tab bar lines** (`muse-tui`, `barline.rs`): every bar line is one or more columns that
+- **TUI tab bar lines** (`cecilia-tui`, `barline.rs`): every bar line is one or more columns that
   run through all string rows, with joints where the line crosses a staff line (`─`); plain
   Unicode box drawing, no Nerd Font. Columns (top / middle / bottom row): thin `┬┼┴`, heavy
   `┰╂┸`, double `╥╫╨` (`│ ┃ ║` on a one-string staff), dashed `┆`, repeat dots `•` on rows 1 and
@@ -284,7 +284,7 @@ select, drag pane borders, click tabs, scroll/zoom, context menus that invoke th
 
   Special lines outrank the dashed one. A wider line takes its columns from the start of the
   bar (or after the last bar of a system), and the beats are placed after it.
-- **TUI** (`muse-tui`): chant tracks show as a text staff with neume marks and syllables; read,
+- **TUI** (`cecilia-tui`): chant tracks show as a text staff with neume marks and syllables; read,
   play and basic editing of tablature (frets, durations, ties, rests,
   basic techniques) rendered as text tab. Same keymaps, config and commands as the GUI; commands not
   available in the TUI report an error instead of failing silently.
@@ -297,7 +297,7 @@ PDF, SVG, PNG (from the engraving display list), ASCII tab, WAV/FLAC.
 
 ## 9. Configuration
 
-File: `$XDG_CONFIG_HOME/muse/config.toml` on Linux (via `directories` on other platforms;
+File: `$XDG_CONFIG_HOME/cecilia/config.toml` on Linux (via `directories` on other platforms;
 override with `--config`). Reloaded automatically when it changes, and on `:source`.
 
 ```toml
@@ -335,12 +335,12 @@ reported at load time without aborting (the previous valid config stays active).
 ## 10. CLI
 
 ```
-muse [FILE...]                 open in the TUI
-muse --gui [FILE...]           open in the GUI (muse.desktop launches this)
-muse play FILE [--audio A]     headless playback
-muse convert IN OUT            convert by output extension (gp5, gp, gpx, musicxml, mid, gabc, txt,
-                               pdf, svg, png, wav, flac, muse); --track, --tuning options
-muse info FILE [--json]        tracks, tunings, tempo, bar count, metadata; --json dumps the model
+cecilia [FILE...]                 open in the TUI
+cecilia --gui [FILE...]           open in the GUI (cecilia.desktop launches this)
+cecilia play FILE [--audio A]     headless playback
+cecilia convert IN OUT            convert by output extension (gp5, gp, gpx, musicxml, mid, gabc, txt,
+                               pdf, svg, png, wav, flac, cecilia); --track, --tuning options
+cecilia info FILE [--json]        tracks, tunings, tempo, bar count, metadata; --json dumps the model
 ```
 
 ## 11. Internationalisation
@@ -354,13 +354,13 @@ Lua/plugin API, external MIDI output, MIDI input (step entry / recording), adias
 
 ## 13. Milestones
 
-1. **M1 MVP** (done): workspace, `muse-core` (fretted subset), GP3/4/5 reader, `muse-app` (modes, keymap,
-   config, pane tree), TUI tab reader with vim navigation, MIDI playback with moving cursor, `muse info`.
-2. **M2 Formats** (done): GP7/8 + GPX read, GP5/GP7 write, MIDI + MusicXML I/O, `.muse`, `muse convert`,
+1. **M1 MVP** (done): workspace, `cecilia-core` (fretted subset), GP3/4/5 reader, `cecilia-app` (modes, keymap,
+   config, pane tree), TUI tab reader with vim navigation, MIDI playback with moving cursor, `cecilia info`.
+2. **M2 Formats** (done): GP7/8 + GPX read, GP5/GP7 write, MIDI + MusicXML I/O, `.cc`, `cecilia convert`,
    round-trip tests.
-3. **M3 GUI viewer** (done): `muse-engrave` (tab + standard staff, 3 layouts), `muse-gui` panes/tabs/
+3. **M3 GUI viewer** (done): `cecilia-engrave` (tab + standard staff, 3 layouts), `cecilia-gui` panes/tabs/
    workspaces, PDF/SVG/PNG export.
-4. **M4 Editing** (done; undo history is not yet saved in `.muse`): Insert/Visual/operators, undo tree, macros, full technique set, linked staff↔tab,
+4. **M4 Editing** (done; undo history is not yet saved in `.cc`): Insert/Visual/operators, undo tree, macros, full technique set, linked staff↔tab,
    auto-fingering, retune; TUI basic editing.
 5. **M5 Playalong** (done; the mixer is commands plus the status line rather than a dedicated pane,
    and per-track pan/master volume are not exposed yet): audio loading, waveform/sync pane, manual
