@@ -3411,6 +3411,38 @@ mod render_tests {
     }
 
     #[test]
+    fn tab_shows_every_voice_on_a_shared_time_grid() {
+        use cecilia_core::{Beat, Duration, DurationValue as D, Note, Voice};
+        let mut score = barline_score(1, |_| {});
+        let beat = |string: u8, fret: u8, v: D| Beat {
+            duration: Duration::new(v),
+            notes: vec![Note::new(string, fret)],
+            ..Default::default()
+        };
+        score.tracks[0].bars[0].voices = vec![
+            Voice {
+                beats: vec![beat(0, 3, D::Eighth); 8],
+            },
+            Voice {
+                beats: vec![beat(5, 7, D::Half), beat(5, 8, D::Half)],
+            },
+        ];
+        let mut app = App::new(cecilia_app::Config::default(), None);
+        app.set_tool(PaneKind::Properties, Some(false));
+        app.buffers[0].score = score;
+        let screen = render(&mut app, 80, 24);
+        println!("{screen}");
+        // The bass notes are there, on the low string, and the second one lines up with the
+        // fifth eighth of the first voice.
+        let low = screen.lines().find(|l| l.contains('7')).unwrap();
+        assert!(low.contains('8'), "{screen}");
+        let high = screen.lines().find(|l| l.matches('3').count() >= 8).unwrap();
+        let col = |l: &str, c: char| l.chars().position(|x| x == c).unwrap();
+        let fifth = high.char_indices().filter(|(_, c)| *c == '3').nth(4).unwrap().0;
+        assert_eq!(col(low, '8'), high[..fifth].chars().count());
+    }
+
+    #[test]
     fn barlines_are_continuous_columns() {
         let rows = tab_rows(barline_score(3, |_| {}));
         for r in &rows {
