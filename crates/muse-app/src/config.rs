@@ -253,7 +253,7 @@ impl Default for UiConfig {
             chant_chords: "top".into(),
             bar_numbers: "system".into(),
             highlight_incomplete_bars: false,
-            focus_ring_width: 2.0,
+            focus_ring_width: 4.0,
             focus_ring_color: None,
             zoom: 1.0,
         }
@@ -1064,7 +1064,7 @@ impl Config {
                 ui.focus_ring_width
             ));
         }
-        ui.focus_ring_width = clamp_setting(ui.focus_ring_width, 0.0, FOCUS_RING_WIDTH_MAX, 2.0);
+        ui.focus_ring_width = clamp_setting(ui.focus_ring_width, 0.0, FOCUS_RING_WIDTH_MAX, 4.0);
         if let Some(c) = &ui.focus_ring_color {
             if crate::theme::Rgba::parse(c).is_none() {
                 errors.push(format!(

@@ -2390,9 +2390,9 @@ impl App {
             FocusRingWidth(a) => {
                 let ui = &mut self.config.file.ui;
                 if let SettingArg::Set(n) = a {
-                    ui.focus_ring_width = clamp_setting(n, 0.0, FOCUS_RING_WIDTH_MAX, 2.0);
+                    ui.focus_ring_width = clamp_setting(n, 0.0, FOCUS_RING_WIDTH_MAX, 4.0);
                 } else if a == SettingArg::Default {
-                    ui.focus_ring_width = 2.0;
+                    ui.focus_ring_width = 4.0;
                 }
                 let w = ui.focus_ring_width;
                 self.info(format!("focus-ring-width {w}"));
@@ -4284,7 +4284,7 @@ pub(crate) mod tests {
         let (c, errors) = Config::parse("").unwrap();
         assert!(errors.is_empty());
         assert!(c.file.tabline.wrap);
-        assert_eq!(c.file.ui.focus_ring_width, 2.0);
+        assert_eq!(c.file.ui.focus_ring_width, 4.0);
         assert_eq!(
             c.focus_ring_color(Mode::Normal),
             c.theme.mode_color(Mode::Normal)
@@ -4318,7 +4318,7 @@ pub(crate) mod tests {
         run(&mut app, "focus-ring-width");
         assert_eq!(app.config.file.ui.focus_ring_width, 0.0);
         run(&mut app, "focus-ring-width default");
-        assert_eq!(app.config.file.ui.focus_ring_width, 2.0);
+        assert_eq!(app.config.file.ui.focus_ring_width, 4.0);
         assert!(Command::parse("focus-ring-width wide").is_err());
         assert!(Command::parse("focus-ring-width NaN").is_err());
 
