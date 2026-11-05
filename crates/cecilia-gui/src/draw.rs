@@ -991,7 +991,8 @@ pub fn build(
     // Panes fill the window between the tab bar and the status line; tool panes are among
     // them.
     let bottom = height - STATUS - CMDLINE;
-    let top = TAB_BAR + if app.toolbar { TOOLBAR } else { 0.0 };
+    let tabline = app.tabline_visible();
+    let top = if tabline { TAB_BAR } else { 0.0 } + if app.toolbar { TOOLBAR } else { 0.0 };
     views.chrome_bottom = top;
     // The tracks peeking after a change of track (no tracks pane shown) take the bottom.
     let peek = if app.tracks_peeking() && height > 300.0 {
@@ -1038,14 +1039,18 @@ pub fn build(
         draw_toolbar(scene, app, views, width);
     }
     let tab_y = if app.toolbar { TOOLBAR } else { 0.0 };
-    let hover = views.hover;
-    views.hover.1 -= tab_y;
-    let mut tabs = Scene::new();
-    draw_tabs(&mut tabs, app, views, width);
-    views.hover = hover;
-    scene.append(&tabs, Some(Affine::translate((0.0, tab_y))));
-    for (r, _) in views.tabline.iter_mut() {
-        *r = *r + vello::kurbo::Vec2::new(0.0, tab_y);
+    // No tabline over the dashboard: its space goes to the dashboard.
+    views.tabline.clear();
+    if tabline {
+        let hover = views.hover;
+        views.hover.1 -= tab_y;
+        let mut tabs = Scene::new();
+        draw_tabs(&mut tabs, app, views, width);
+        views.hover = hover;
+        scene.append(&tabs, Some(Affine::translate((0.0, tab_y))));
+        for (r, _) in views.tabline.iter_mut() {
+            *r = *r + vello::kurbo::Vec2::new(0.0, tab_y);
+        }
     }
     views.dashboard.clear();
     if app.dashboard_visible() {
@@ -5483,7 +5488,7 @@ impl Views {
     /// Whether a window position is over the tabline or toolbar (hovering there needs
     /// redraws).
     pub fn over_tabline(&self, y: f64) -> bool {
-        y < self.chrome_bottom.max(TAB_BAR)
+        y < self.chrome_bottom
     }
 
     /// A toolbar tooltip is waiting to show: redraw until it does.

@@ -41,9 +41,6 @@ pub struct Workspace {
     /// Height of waveform strips and bar (GUI, logical pixels).
     #[serde(default = "default_waveform_height")]
     pub waveform_height: u16,
-    /// The dashboard shows instead of the panes.
-    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
-    pub dashboard: bool,
     /// Tab of the properties pane.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub properties_tab: Option<String>,
@@ -78,6 +75,9 @@ pub struct ViewState {
     pub buffers: Vec<usize>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub name: Option<String>,
+    /// The view shows the dashboard (it has no files).
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub dashboard: bool,
 }
 
 /// A pane split tree: a pane, or panes stacked / side by side.
@@ -314,6 +314,7 @@ impl App {
                 split: split_of(&v.root),
                 buffers,
                 name: v.name.clone(),
+                dashboard: v.dashboard,
             });
         }
         let mut ids: Vec<&PaneId> = self.panes.keys().collect();
@@ -408,7 +409,6 @@ impl App {
             piano: false,
             tracks_rows: default_tracks_rows(),
             waveform_height: self.waveform_height,
-            dashboard: self.dashboard,
             properties_tab: Some(self.props.tab.name().to_string()),
         }
     }
@@ -449,7 +449,7 @@ impl App {
             Some(path) if path.exists() => self.open_workspace(name, true),
             Some(_) => {
                 // A new workspace with nothing open starts on the dashboard.
-                if self.buffers.iter().all(|b| b.path.is_none()) {
+                if self.buffers.iter().all(|b| b.path.is_none() && !b.modified) {
                     self.show_dashboard();
                 }
                 self.save_workspace(Some(name));
@@ -644,8 +644,9 @@ impl App {
                 .iter()
                 .filter_map(|f| buffer_of.get(f).copied())
                 .collect();
-            // Every buffer a pane shows is on the view's bufferline (version 1 had no list).
-            for id in &ids {
+            // Every buffer a pane shows is on the view's bufferline (version 1 had no list);
+            // a dashboard view has none.
+            for id in ids.iter().filter(|_| !v.dashboard) {
                 let b = self.panes[id].buffer;
                 if !buffers.contains(&b) {
                     buffers.push(b);
@@ -653,6 +654,7 @@ impl App {
             }
             self.views.push(View {
                 maximized: None,
+                dashboard: v.dashboard,
                 root,
                 focus,
                 score,
@@ -685,6 +687,7 @@ impl App {
             );
             self.views.push(View {
                 maximized: None,
+                dashboard: false,
                 root: Node::Leaf(1),
                 focus: 1,
                 score: 1,
@@ -757,7 +760,6 @@ impl App {
             }
         }
         self.normalize_layouts();
-        self.dashboard = ws.dashboard;
         self.dashboard_focus = 0;
         self.waveform_height = ws.waveform_height.clamp(
             crate::app::MIN_WAVEFORM_HEIGHT,

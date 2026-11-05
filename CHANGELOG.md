@@ -12,7 +12,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Dashboard: when no buffer is open (the last one closed, the only view closed, or a new, empty
   workspace) the window shows buttons Open Recent, Select Workspace, New Score and Open Score, in
   the window and the terminal, under the lily icon (a flower glyph in the terminal), the name and a
-  tagline. `j`/`k`/`Tab`/`Shift-Tab`/arrows move, `Enter` or a click runs one.
+  tagline, with no tabline or placeholder tab. `j`/`k`/`Tab`/`Shift-Tab`/arrows move, `Enter` or a click runs one.
+- Setting `ui.keep_files_in_new_view` (default on): off, `:view-new` starts the new view on the
+  dashboard instead of with the current files. The dashboard is per view and saved in workspaces.
 - Recently closed files are remembered (up to 20, kept between sessions) for the dashboard's Open
   Recent button and `:pick recent`.
 

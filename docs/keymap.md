@@ -191,7 +191,7 @@ view pickers also work while a song plays.
 | `:goto-mark x` / `:run-macro r`                                                                  | jump to a mark / run a macro (for bindings)                                                         |
 | `:bnext` / `:bprev` / `:buffer N`                                                                | next / previous / Nth buffer tab                                                                    |
 | `:bdelete [N]` / `:bdelete! [N]`                                                                 | close the focused (or Nth) buffer tab / discarding unsaved changes                                  |
-| `:view-new [file]`                                                                               | new view: a copy of the current view's tabs, just the current buffer, or empty (`tabline.new_view`) |
+| `:view-new [file]`                                                                               | new view: a copy of the current view's tabs, just the current buffer, or empty (`tabline.new_view`); with `ui.keep_files_in_new_view = false`, the dashboard |
 | `:view-close` / `:view-close!`                                                                   | close the view (buffers only it had are unloaded); the only view: closes all its buffers and shows the [dashboard](#dashboard)                                                   |
 | `:view N` / `:view-next` / `:view-prev`                                                          | switch views                                                                                        |
 | `:view-rename [name]`                                                                            | name the view in the tabline (no name: its number)                                                  |
@@ -668,9 +668,16 @@ Open Recent lists the files you closed lately (most recent first, up to 20, kept
 `recent-files` in cecilia's data folder, files that no longer exist skipped); choosing one opens it.
 Without any the button is dimmed and does nothing, and the focus skips it.
 
-`j` / `k` / `Down` / `Up` / `Tab` / `Shift-Tab` move the focus (`g` / `G` first and last), `Enter` or
+`j` / `k` / `Down` / `Up` / `Tab` / `Shift-Tab` move the focus (`Home` / `End` first and last), `Enter` or
 `Space` runs the focused button, a click runs the one under the mouse. `:` opens the command line as
-usual (`:q` quits); other keys do nothing. Showing a score ends it.
+usual (`:q` quits) and `gt` / `gT` move to another view; other keys do nothing. Showing a score
+ends it.
+
+The dashboard has no tabs, so the tabline is not drawn over it (with several views it stays, for
+the view tabs, without buffer tabs) and its space goes to the dashboard; the placeholder score
+behind it is never listed as a tab or in the pickers. The dashboard belongs to a view: a view can
+start on it (`ui.keep_files_in_new_view = false` makes `:view-new` do that), and workspaces save which
+views show it.
 
 ### Workspaces
 

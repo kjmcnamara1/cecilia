@@ -195,11 +195,14 @@ impl App {
                 )),
             );
         }
-        let mut file = buffer.name.clone();
-        if buffer.modified {
-            file.push_str(" ●");
+        // The dashboard has no file: its placeholder score is not named.
+        if !self.dashboard_visible() {
+            let mut file = buffer.name.clone();
+            if buffer.modified {
+                file.push_str(" ●");
+            }
+            left.push(Segment::new(file, SegKind::Plain));
         }
-        left.push(Segment::new(file, SegKind::Plain));
 
         // Section x: everything else, plainly.
         let mut x: Vec<String> = Vec::new();

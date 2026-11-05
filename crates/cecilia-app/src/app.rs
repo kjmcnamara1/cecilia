@@ -336,6 +336,8 @@ pub struct View {
     /// A pane shown alone, filling the view (`:maximize`); the others come back when it is
     /// toggled off or another pane is focused.
     pub maximized: Option<PaneId>,
+    /// The view shows the dashboard instead of its panes (it has no files).
+    pub dashboard: bool,
 }
 
 /// One tab of the bufferline (see [`App::bufferline`]).
@@ -572,8 +574,7 @@ pub struct App {
     pub(crate) view_info: HashMap<PaneId, ViewInfo>,
     pub(crate) effects: Vec<Effect>,
     pub quit: bool,
-    /// The dashboard shows instead of the panes (no score pane open), and its focused button.
-    pub(crate) dashboard: bool,
+    /// The dashboard's focused button.
     pub(crate) dashboard_focus: usize,
     /// Files closed lately, the most recent first (the dashboard's Open Recent).
     pub(crate) recent: Vec<PathBuf>,
@@ -642,6 +643,7 @@ impl App {
             next_pane: 2,
             views: vec![View {
                 maximized: None,
+                dashboard: false,
                 root: Node::Leaf(1),
                 focus: 1,
                 score: 1,
@@ -706,7 +708,6 @@ impl App {
             view_info: HashMap::new(),
             effects: Vec::new(),
             quit: false,
-            dashboard: false,
             dashboard_focus: 0,
             recent: Vec::new(),
             score_layout,
@@ -1280,7 +1281,7 @@ impl App {
     }
 
     pub fn layout(&self) -> Vec<(PaneId, Rect)> {
-        if self.dashboard {
+        if self.view().dashboard {
             return Vec::new();
         }
         if let Some(id) = self.maximized() {
@@ -1556,7 +1557,15 @@ impl App {
     /// Shows a buffer in the focused pane, adding it to the view's bufferline if needed. The
     /// pane remembers the buffer it showed (and its cursor) to come back to.
     pub(crate) fn show_buffer(&mut self, buffer: usize) {
-        self.dashboard = false;
+        let view = &mut self.views[self.active_view];
+        if view.dashboard {
+            // Leaving the dashboard: its placeholder score is not one to come back to.
+            view.dashboard = false;
+            let focused = self.focused();
+            if let Some(p) = self.panes.get_mut(&focused) {
+                p.recent.clear();
+            }
+        }
         let view = &mut self.views[self.active_view];
         if !view.buffers.contains(&buffer) {
             view.buffers.push(buffer);
@@ -1737,7 +1746,7 @@ impl App {
     /// current buffer, or an empty start.
     fn new_view(&mut self) {
         let current = self.pane().buffer;
-        let buffers = match self.config.file.tabline.new_view.as_str() {
+        let mut buffers = match self.config.file.tabline.new_view.as_str() {
             "current" => vec![current],
             "empty" => {
                 self.buffers.push(Buffer::empty());
@@ -1745,7 +1754,16 @@ impl App {
             }
             _ => self.view().buffers.clone(),
         };
-        let shown = if buffers.contains(&current) {
+        // Without `ui.keep_files_in_new_view` (or any file to keep) the new view is the
+        // dashboard, on a placeholder score no tab lists.
+        let dashboard = !self.config.file.ui.keep_files_in_new_view || buffers.is_empty();
+        if dashboard {
+            self.buffers.push(Buffer::empty());
+            buffers = Vec::new();
+        }
+        let shown = if dashboard {
+            self.buffers.len() - 1
+        } else if buffers.contains(&current) {
             current
         } else {
             buffers[0]
@@ -1755,6 +1773,7 @@ impl App {
             self.active_view + 1,
             View {
                 maximized: None,
+                dashboard,
                 root: Node::Leaf(id),
                 focus: id,
                 score: id,
@@ -1763,6 +1782,9 @@ impl App {
             },
         );
         self.active_view += 1;
+        if dashboard {
+            self.dashboard_focus = 0;
+        }
     }
 
     /// Closing the only view closes all its buffers: what remains is one score pane showing an
@@ -1794,8 +1816,6 @@ impl App {
         view.focus = keep;
         self.buffers.push(Buffer::empty());
         let empty = self.buffers.len() - 1;
-        let view = &mut self.views[self.active_view];
-        view.buffers = vec![empty];
         let pane = self.panes.get_mut(&keep).unwrap();
         pane.buffer = empty;
         pane.cursor = Cursor::default();
@@ -2911,11 +2931,9 @@ impl App {
             if self.views.len() > 1 {
                 self.close_view(true);
             } else {
-                self.show_dashboard();
                 self.buffers.push(Buffer::empty());
                 let empty = self.buffers.len() - 1;
-                let view = &mut self.views[self.active_view];
-                view.buffers.push(empty);
+                self.show_dashboard();
                 let pane = self.panes.get_mut(&id).unwrap();
                 pane.buffer = empty;
                 pane.cursor = Cursor::default();

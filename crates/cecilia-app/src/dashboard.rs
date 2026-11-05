@@ -50,7 +50,13 @@ impl DashboardButton {
 impl App {
     /// Whether the dashboard replaces the panes.
     pub fn dashboard_visible(&self) -> bool {
-        self.dashboard
+        self.view().dashboard
+    }
+
+    /// Whether the tabline is drawn: not over the dashboard of a lone view, which has no tabs
+    /// (with several views it still shows them, to switch between).
+    pub fn tabline_visible(&self) -> bool {
+        !(self.dashboard_visible() && self.views.len() == 1)
     }
 
     /// Whether button `index` can be used: Open Recent needs a recent file.
@@ -75,7 +81,10 @@ impl App {
 
     /// Shows the dashboard with the first enabled button focused.
     pub(crate) fn show_dashboard(&mut self) {
-        self.dashboard = true;
+        let view = &mut self.views[self.active_view];
+        view.dashboard = true;
+        // No score is open: the placeholder behind the dashboard is not a tab.
+        view.buffers.clear();
         self.dashboard_focus = 0;
     }
 
@@ -148,10 +157,10 @@ impl App {
     }
 
     /// Takes a key while the dashboard shows. Returns false when it is not the dashboard's:
-    /// the key then goes the usual way (`:` opens the command line; pickers and the command
-    /// line take their own keys).
+    /// the key then goes the usual way (`:` opens the command line, `g` starts `gt`; pickers
+    /// and the command line take their own keys).
     pub(crate) fn dashboard_key(&mut self, key: Key) -> bool {
-        if !self.dashboard
+        if !self.dashboard_visible()
             || self.mode != Mode::Normal
             || self.picker.is_some()
             || self.show_help
@@ -164,13 +173,13 @@ impl App {
             KeyCode::Char(':') if plain => return false,
             KeyCode::Down | KeyCode::Tab | KeyCode::Char('j') => self.dashboard_move(1),
             KeyCode::Up | KeyCode::BackTab | KeyCode::Char('k') => self.dashboard_move(-1),
-            KeyCode::Home | KeyCode::Char('g') => {
+            KeyCode::Home => {
                 self.dashboard_focus = 0;
                 self.dashboard_focus = self.dashboard_focus();
             }
-            KeyCode::End | KeyCode::Char('G') => {
-                self.dashboard_focus = DashboardButton::ALL.len() - 1;
-            }
+            KeyCode::End => self.dashboard_focus = DashboardButton::ALL.len() - 1,
+            // `g` starts `gt` / `gT`, to move to another view; the keys after it go the usual way.
+            KeyCode::Char('g') if plain => return false,
             KeyCode::Enter | KeyCode::Char(' ') => self.dashboard_activate(self.dashboard_focus()),
             // Other keys would edit the score hidden behind it.
             _ => {}
@@ -320,7 +329,7 @@ mod tests {
         assert_eq!(app.dashboard_focus(), 1);
         keys(&mut app, "k");
         assert_eq!(app.dashboard_focus(), 3);
-        keys(&mut app, "gj");
+        keys(&mut app, "<Home>j");
         assert_eq!(app.dashboard_focus(), 2);
         // A click on it does nothing.
         app.dashboard_activate(0);
@@ -362,7 +371,7 @@ mod tests {
         assert_eq!(app.dashboard_focus(), 3);
         keys(&mut app, "<Up><S-Tab>");
         assert_eq!(app.dashboard_focus(), 1);
-        keys(&mut app, "G");
+        keys(&mut app, "<End>");
         assert_eq!(app.dashboard_focus(), 3);
         // Other keys do not reach the hidden score.
         let before = app.pane().cursor;
@@ -433,13 +442,121 @@ mod tests {
     }
 
     #[test]
-    fn the_dashboard_is_saved_with_the_workspace() {
-        let mut app = test_app();
-        app.show_dashboard();
-        let ws = app.workspace();
-        assert!(ws.dashboard);
-        app.dashboard = false;
-        app.restore(&ws);
+    fn the_dashboard_has_no_tab_and_no_tabline() {
+        let (mut app, _) = app_with_file("tabs");
+        assert!(app.tabline_visible());
+        assert!(!app.bufferline().is_empty());
+        close_all(&mut app);
         assert!(app.dashboard_visible());
+        assert!(app.bufferline().is_empty(), "no [No file] tab");
+        assert!(!app.tabline_visible());
+        // Nor in the pickers, or by cycling.
+        keys(&mut app, ":pick buffer<CR>");
+        assert!(app.picker_palette().is_some_and(|p| p.items.is_empty()));
+        keys(&mut app, "<Esc>");
+        app.run(Command::BufferNext);
+        assert!(app.dashboard_visible());
+        // Showing a score brings the tabline back.
+        app.dashboard_activate(2);
+        assert!(app.tabline_visible());
+        assert_eq!(app.bufferline().len(), 1);
+    }
+
+    #[test]
+    fn the_tabline_stays_to_switch_between_several_views() {
+        let mut app = test_app();
+        app.config.file.ui.keep_files_in_new_view = false;
+        keys(&mut app, ":view-new<CR>");
+        assert!(app.dashboard_visible());
+        assert!(app.tabline_visible());
+        assert!(app.bufferline().is_empty());
+    }
+
+    #[test]
+    fn a_new_view_keeps_the_files_by_default() {
+        let mut app = test_app();
+        assert!(app.config.file.ui.keep_files_in_new_view);
+        keys(&mut app, ":view-new<CR>");
+        assert_eq!(app.views.len(), 2);
+        assert!(!app.dashboard_visible());
+        assert_eq!(app.bufferline().len(), 1);
+        assert_eq!(app.buffer().name, "test");
+    }
+
+    #[test]
+    fn a_new_view_can_start_on_the_dashboard() {
+        let mut app = test_app();
+        app.config.file.ui.keep_files_in_new_view = false;
+        keys(&mut app, ":view-new<CR>");
+        assert_eq!(app.views.len(), 2);
+        assert_eq!(app.active_view, 1);
+        assert!(app.dashboard_visible());
+        assert!(app.layout().is_empty());
+        assert!(app.bufferline().is_empty());
+        // The first view is untouched.
+        keys(&mut app, "gT");
+        assert_eq!(app.active_view, 0);
+        assert!(!app.dashboard_visible());
+        assert_eq!(app.bufferline().len(), 1);
+        keys(&mut app, "gt");
+        assert!(app.dashboard_visible());
+        // A button there shows a score in this view only.
+        app.dashboard_activate(2);
+        assert!(!app.dashboard_visible());
+        assert_eq!(app.buffer().name, "[New]");
+        assert_eq!(app.bufferline().len(), 1);
+        keys(&mut app, "gT");
+        assert_eq!(app.buffer().name, "test");
+    }
+
+    #[test]
+    fn a_dashboard_view_can_be_closed_and_the_quit_still_works() {
+        let mut app = test_app();
+        app.config.file.ui.keep_files_in_new_view = false;
+        keys(&mut app, ":view-new<CR>");
+        keys(&mut app, ":view-close<CR>");
+        assert_eq!(app.views.len(), 1);
+        assert!(!app.dashboard_visible(), "back on the first view's score");
+        assert_eq!(app.buffer().name, "test");
+        // A view made from a dashboard view is a dashboard view too (nothing to copy).
+        app.config.file.ui.keep_files_in_new_view = true;
+        app.show_dashboard();
+        keys(&mut app, ":view-new<CR>");
+        assert!(app.dashboard_visible());
+        keys(&mut app, ":q<CR>");
+        assert!(app.quit);
+    }
+
+    #[test]
+    fn views_save_their_dashboard_individually() {
+        let mut app = test_app();
+        app.config.file.ui.keep_files_in_new_view = false;
+        keys(&mut app, ":view-new<CR>");
+        keys(&mut app, ":view-new<CR>");
+        app.dashboard_activate(2);
+        // Views: 0 score, 1 dashboard, 2 score.
+        assert_eq!(
+            app.views.iter().map(|v| v.dashboard).collect::<Vec<_>>(),
+            [false, true, false]
+        );
+        let ws = app.workspace();
+        assert_eq!(
+            ws.views.iter().map(|v| v.dashboard).collect::<Vec<_>>(),
+            [false, true, false]
+        );
+        let text = toml::to_string_pretty(&ws).unwrap();
+        let ws: crate::workspace::Workspace = toml::from_str(&text).unwrap();
+        let mut other = test_app();
+        other.restore(&ws);
+        assert_eq!(
+            other.views.iter().map(|v| v.dashboard).collect::<Vec<_>>(),
+            [false, true, false]
+        );
+        assert!(other.views[1].buffers.is_empty());
+        assert!(!other.views[0].buffers.is_empty());
+        other.active_view = 1;
+        assert!(other.dashboard_visible() && other.bufferline().is_empty());
+        other.active_view = 0;
+        assert!(!other.dashboard_visible());
     }
 }

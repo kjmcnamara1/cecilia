@@ -630,7 +630,7 @@ fn draw(f: &mut Frame, app: &mut App, play: Option<(usize, Location, f64, f64)>,
     };
     let [toolbar, tabline, main, peek, status, cmdline] = Layout::vertical([
         Constraint::Length(u16::from(app.toolbar)),
-        Constraint::Length(1),
+        Constraint::Length(u16::from(app.tabline_visible())),
         Constraint::Min(3),
         Constraint::Length(peek_h),
         Constraint::Length(1),
@@ -655,7 +655,10 @@ fn draw(f: &mut Frame, app: &mut App, play: Option<(usize, Location, f64, f64)>,
         w: main.width,
         h: main.height,
     });
-    draw_tabline(f, app, tabline, ui);
+    ui.tabline.clear();
+    if app.tabline_visible() {
+        draw_tabline(f, app, tabline, ui);
+    }
     ui.toolbar.clear();
     ui.tooltip = None;
     if app.toolbar {
