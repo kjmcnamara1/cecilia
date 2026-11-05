@@ -1,0 +1,116 @@
+<svg xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink" viewBox="114 146 284 284" width="512" height="512" role="img" aria-label="Pipe organ">
+  <title>Pipe organ</title>
+  <defs>
+    <linearGradient id="brass" x1="0" y1="0" x2="1" y2="0">
+      <stop offset="0" stop-color="#B77D24"/>
+      <stop offset="0.2" stop-color="#E9B83E"/>
+      <stop offset="0.42" stop-color="#FFF0A0"/>
+      <stop offset="0.62" stop-color="#E9B83E"/>
+      <stop offset="1" stop-color="#A87532"/>
+    </linearGradient>
+    <linearGradient id="ledge-gold" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#FFE39A"/>
+      <stop offset="0.45" stop-color="#E6B84F"/>
+      <stop offset="1" stop-color="#A87532"/>
+    </linearGradient>
+    <linearGradient id="trim-gold" x1="0" y1="0" x2="1" y2="0">
+      <stop offset="0" stop-color="#C9943D"/>
+      <stop offset="0.5" stop-color="#F3CF76"/>
+      <stop offset="1" stop-color="#C9943D"/>
+    </linearGradient>
+    <linearGradient id="fleur-gold" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#FFF0A0"/>
+      <stop offset="0.55" stop-color="#E6B84F"/>
+      <stop offset="1" stop-color="#C9943D"/>
+    </linearGradient>
+    <linearGradient id="wood-case" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#4E2C14"/>
+      <stop offset="1" stop-color="#71421F"/>
+    </linearGradient>
+    <linearGradient id="wood-panel" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#71421F"/>
+      <stop offset="0.5" stop-color="#985D2E"/>
+      <stop offset="1" stop-color="#7C4A23"/>
+    </linearGradient>
+    <linearGradient id="pipe-well" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#2A170A" stop-opacity="0"/>
+      <stop offset="0.22" stop-color="#2F1A0B"/>
+      <stop offset="1" stop-color="#5A3418"/>
+    </linearGradient>
+    <!-- Soft shadows -->
+    <filter id="drop" x="-20%" y="-20%" width="140%" height="145%" color-interpolation-filters="sRGB">
+      <feGaussianBlur in="SourceAlpha" stdDeviation="2.4"/>
+      <feOffset dy="2.4"/>
+      <feComponentTransfer><feFuncA type="linear" slope="0.42"/></feComponentTransfer>
+      <feMerge><feMergeNode/><feMergeNode in="SourceGraphic"/></feMerge>
+    </filter>
+
+    <!-- Fleur-de-lis, drawn around its own centre -->
+    <g id="fleur-half">
+      <path d="M3.2 8.6C5 1 12-7 20.2-6.2C28.2-5.4 30.4 4.2 25.4 8C21.4 11 16 8 18 3C14.4 2.2 11.4 4.8 9.6 8.6Z"/>
+      <path d="M6 11.8C9 11.8 11.8 12.6 13.8 15.2C14.8 16.6 14.4 18.6 13 19C13 16.4 10.4 15 7.8 15.4C6.6 15.6 5.6 15.4 5 15Z"/>
+    </g>
+    <g id="fleur" fill="url(#fleur-gold)" stroke="#8B5E22" stroke-width="0.6" stroke-linejoin="round">
+      <path d="M0-26C7-17 11.4-9 9.2-1C8.2 2.8 5.4 5.6 4.2 8.2L-4.2 8.2C-5.4 5.6-8.2 2.8-9.2-1C-11.4-9-7-17 0-26Z"/>
+      <use xlink:href="#fleur-half"/>
+      <use xlink:href="#fleur-half" transform="scale(-1,1)"/>
+      <path d="M-6 12C-5 16-2.6 20.6 0 25C2.6 20.6 5 16 6 12Z"/>
+      <rect x="-11.5" y="7.8" width="23" height="4.2" rx="1.6"/>
+      <path d="M0-20C-.6-12-.6-4 0 5" fill="none" stroke="#FFF0A0" stroke-width="0.9" stroke-linecap="round"/>
+    </g>
+  </defs>
+  <g id="pipe-organ">
+    <rect id="pipe-backing" x="139" y="292" width="234" height="48" fill="url(#pipe-well)"/>
+    <g id="organ-pipes" filter="url(#drop)">
+      <g id="pipes-left">
+        <g class="pipe">
+          <path d="M137.6 307.16V262.6C137.6 260.65 140.2 260 144.1 260C148 260 150.6 260.65 150.6 262.6V307.16L146.31 339H141.89Z" fill="url(#brass)" stroke="#8F6222" stroke-width="0.6"/>
+          <path d="M144.1 287.4L140.2 303H144.1Z" fill="#B77D24"/>
+          <path d="M144.1 287.4L148 303H144.1Z" fill="#FFF0A0" opacity="0.9"/>
+          <rect x="139.68" y="302.34" width="8.84" height="2.2" rx="1.1" fill="#3A2109"/>
+        </g>
+        <g class="pipe">
+          <path d="M153.75 305.09V241.18C153.75 238.79 156.93 238 161.7 238C166.47 238 169.65 238.79 169.65 241.18V305.09L164.4 339H159Z" fill="url(#brass)" stroke="#8F6222" stroke-width="0.6"/>
+          <path d="M161.7 280.92L156.93 300H161.7Z" fill="#B77D24"/>
+          <path d="M161.7 280.92L166.47 300H161.7Z" fill="#FFF0A0" opacity="0.9"/>
+          <rect x="156.29" y="299.28" width="10.81" height="2.38" rx="1.19" fill="#3A2109"/>
+        </g>
+        <g class="pipe">
+          <path d="M172.5 302.63V224.02C172.5 221.38 176.02 220.5 181.3 220.5C186.58 220.5 190.1 221.38 190.1 224.02V302.63L184.29 339H178.31Z" fill="url(#brass)" stroke="#8F6222" stroke-width="0.6"/>
+          <path d="M181.3 275.88L176.02 297H181.3Z" fill="#B77D24"/>
+          <path d="M181.3 275.88L186.58 297H181.3Z" fill="#FFF0A0" opacity="0.9"/>
+          <rect x="175.32" y="296.21" width="11.97" height="2.64" rx="1.32" fill="#3A2109"/>
+        </g>
+        <g class="pipe">
+          <path d="M193.7 300.4V204C193.7 201 197.7 200 203.7 200C209.7 200 213.7 201 213.7 204V300.4L207.1 339H200.3Z" fill="url(#brass)" stroke="#8F6222" stroke-width="0.6"/>
+          <path d="M203.7 270L197.7 294H203.7Z" fill="#B77D24"/>
+          <path d="M203.7 270L209.7 294H203.7Z" fill="#FFF0A0" opacity="0.9"/>
+          <rect x="196.9" y="293.1" width="13.6" height="3" rx="1.5" fill="#3A2109"/>
+        </g>
+        <g class="pipe">
+          <path d="M217.2 298.04V182C217.2 178.7 221.6 177.6 228.2 177.6C234.8 177.6 239.2 178.7 239.2 182V298.04L231.94 339H224.46Z" fill="url(#brass)" stroke="#8F6222" stroke-width="0.6"/>
+          <path d="M228.2 264.6L221.6 291H228.2Z" fill="#B77D24"/>
+          <path d="M228.2 264.6L234.8 291H228.2Z" fill="#FFF0A0" opacity="0.9"/>
+          <rect x="220.72" y="290.01" width="14.96" height="3.3" rx="1.65" fill="#3A2109"/>
+        </g>
+      </g>
+      <use xlink:href="#pipes-left" transform="matrix(-1 0 0 1 512 0)"/>
+        <g id="pipe-centre">
+          <path d="M243.15 296.22V160.14C243.15 156.28 248.29 155 256 155C263.71 155 268.85 156.28 268.85 160.14V296.22L260.37 339H251.63Z" fill="url(#brass)" stroke="#8F6222" stroke-width="0.6"/>
+          <path d="M256 257.16L248.29 288H256Z" fill="#B77D24"/>
+          <path d="M256 257.16L263.71 288H256Z" fill="#FFF0A0" opacity="0.9"/>
+          <rect x="247.26" y="286.84" width="17.48" height="3.85" rx="1.93" fill="#3A2109"/>
+        </g>
+    </g>
+    <g id="organ-housing" filter="url(#drop)">
+      <path id="case" d="M146 354H366L349 410H163Z" fill="url(#wood-case)"/>
+      <path id="case-trim" d="M146 349H366V356.5H146Z" fill="url(#ledge-gold)" stroke="#8B5E22" stroke-width="0.5"/>
+      <path id="panel" d="M158.5 360.5H353.5L342.5 406H169.5Z" fill="url(#wood-panel)" stroke="#C9943D" stroke-width="1.2" stroke-linejoin="round"/>
+      <path id="grain" d="M170 372C210 369 240 375 278 371S330 370 346 373M175 393C214 396 246 389 290 393S328 395 339 392" fill="none" stroke="#5C3417" stroke-width="0.9" opacity="0.35"/>
+      <rect id="ledge" x="134" y="339" width="244" height="10.5" rx="1.6" fill="url(#ledge-gold)" stroke="#8B5E22" stroke-width="0.6"/>
+      <path id="base" d="M163 409.5H349L345 421.5H167Z" fill="url(#trim-gold)" stroke="#8B5E22" stroke-width="0.6" stroke-linejoin="round"/>
+      <path d="M165 413H347" stroke="#FFE39A" stroke-width="0.8" opacity="0.7"/>
+    </g>
+    <use id="fleur-de-lis" xlink:href="#fleur" transform="translate(256,383) scale(0.88)"/>
+  </g>
+</svg>
