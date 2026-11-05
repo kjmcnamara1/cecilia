@@ -9,7 +9,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
-- `<CR>` (`:chant-syllable`) on a chant staff of an ordinary track enters a plain punctum at the cursor's position with the insert duration and moves on (it used to be refused). Each such punctum is its own neume until the track has lyrics; then the syllables condense the notes into pes, clivis, torculus etc.
+- `<CR>` (`:chant-syllable`) on a chant staff of an ordinary track enters a plain punctum at the cursor's position with the insert duration (when the beat has no note) and moves on to the next beat, as on a standard staff (it used to be refused). Each such punctum is its own neume until the track has lyrics; then the syllables condense the notes into pes, clivis, torculus etc.
+
+### Changed
+
+- Insert mode on a chant staff: `h` `j` `k` `l` move the cursor as on a standard staff (they were the GABC pitches `h`–`l`; enter those by moving there and `<CR>`, or as `H`–`L`), and `<Space>` goes to the next beat (on a chant track it still adds a note to the neume).
+- The other staves of a track light the note under the cursor on a chant staff only while the cursor is on that note's position (they lit the beat's note wherever the cursor was).
 
 ## [0.31.0] - 2026-11-05
 

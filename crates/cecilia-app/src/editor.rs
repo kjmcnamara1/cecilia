@@ -928,6 +928,18 @@ impl App {
                     Ok(())
                 });
             }
+            // On a chant track (GABC) the next note is a new note of the neume instead.
+            InsertNext
+                if self.on_staff_kind(InsertKind::Chant)
+                    && self
+                        .buffer()
+                        .score
+                        .tracks
+                        .get(self.pane().cursor.track)
+                        .is_some_and(|t| t.chant.is_some()) =>
+            {
+                self.run_chant(&ChantAppend);
+            }
             InsertNext => {
                 self.edit(|cx| {
                     edit::advance(cx, duration);
@@ -2444,15 +2456,15 @@ mod tests {
         let mut a = app();
         a.run(Command::StaffAdd(Some("chant".into())));
         assert_eq!(a.pane().cursor.staff, 2);
-        // h under the c4 clef is A4 (la, two steps below do = C5); the guitar plays it.
-        keys(&mut a, "ihv");
+        // i under the c4 clef is B4 (ti, one step below do = C5); the guitar plays it.
+        keys(&mut a, "iiv");
         let t = a.buffer().score.tracks[0].clone();
         let beat =
             |a: &App, i: usize| a.buffer().score.tracks[0].bars[0].voices[0].beats[i].clone();
         let n = &beat(&a, 0).notes[0];
-        assert_eq!(t.pitch_of(n), 69);
+        assert_eq!(t.pitch_of(n), 71);
         assert_eq!(n.chant.as_ref().unwrap().mods, vec!["v".to_string()]);
-        assert_eq!(a.pane().cursor.line, 7);
+        assert_eq!(a.pane().cursor.line, 8);
         // A note after it, then one starting a new neume, a division after that.
         keys(&mut a, "<Space>g/;<Esc>");
         assert_eq!(t.pitch_of(&beat(&a, 1).notes[0]), 67);
@@ -2481,23 +2493,27 @@ mod tests {
         a.run(Command::Duration(8));
         keys(&mut a, "ic");
         let line = a.pane().cursor.line;
+        // The beat has its note: Enter only moves on.
         keys(&mut a, "<CR>");
-        // A second beat, same position, a plain punctum; the cursor moved on; no refusal.
+        assert_eq!(a.pane().cursor.beat, 1);
+        assert_eq!(beats(&a), 1);
+        // An empty beat gets a plain punctum at the cursor's position, and the cursor moves on.
+        keys(&mut a, "k<CR>");
         let second = track(&a).bars[0].voices[0].beats[1].clone();
         assert_eq!(
             second.notes[0].chant.as_ref().map(|m| m.punctum),
             Some(true)
         );
-        assert_eq!(a.pane().cursor.beat, 1);
-        assert_eq!(a.pane().cursor.line, line);
+        assert_eq!(a.pane().cursor.beat, 2);
+        assert_eq!(a.pane().cursor.line, line + 1);
         assert_eq!(beats(&a), 2);
-        keys(&mut a, "d<CR>c<Esc>"); // c d c
+        keys(&mut a, "c<Esc>"); // c d c
         let view = |a: &App| {
             let t = track(a);
             ChantView::build(&a.buffer().score, &t, Default::default()).unwrap()
         };
-        // No lyrics: every punctum is its own neume.
-        assert!(view(&a).neumes.iter().all(|n| n.len() == 1));
+        // No lyrics: the Enter punctum (the second note) is its own neume.
+        assert!(view(&a).neumes.iter().any(|n| *n == vec![1]));
         // Lyrics: one syllable over the first three notes makes a torculus-shaped neume run,
         // the punctum flags no longer split it.
         assert_eq!(beats(&a), 3);
@@ -2524,18 +2540,18 @@ mod tests {
             }
             out
         };
-        // Quarter notes: five of them fill a 4/4 bar and go on into the next.
+        // Quarter notes: the first Enter only leaves the typed note; four fill a 4/4 bar.
         keys(&mut a, "ig<CR><CR><CR><CR>");
-        assert_eq!(notes(&a), vec![(0, 0), (0, 1), (0, 2), (0, 3), (1, 0)]);
+        assert_eq!(notes(&a), vec![(0, 0), (0, 1), (0, 2), (0, 3)]);
         assert_eq!(a.pane().cursor.bar, 1);
         // Up / down moves by staff position; Enter enters there.
         let line = a.pane().cursor.line;
         keys(&mut a, "<Up><CR>");
         assert_eq!(a.pane().cursor.line, line + 1);
-        assert_eq!(notes(&a).len(), 6);
-        // Backspace deletes the note; undo takes back the whole insert session.
-        keys(&mut a, "<BS>");
         assert_eq!(notes(&a).len(), 5);
+        // Backspace deletes the note; undo takes back the whole insert session.
+        keys(&mut a, "h<BS>");
+        assert_eq!(notes(&a).len(), 4);
         keys(&mut a, "<Esc>u");
         assert!(notes(&a).is_empty());
     }

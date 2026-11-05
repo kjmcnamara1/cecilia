@@ -423,10 +423,10 @@ pub fn append_chant_note(
     Ok(())
 }
 
-/// On a chant staff of an ordinary track (Enter): a plain punctum at the cursor's staff
-/// position with `duration`, in a beat after the cursor beat (the cursor beat itself when it is
-/// empty); a full bar continues in the next one, which is added at the end. The cursor moves
-/// onto the new note. Until the track has lyrics the punctum is its own neume.
+/// On a chant staff of an ordinary track (Enter, as on a standard staff): a plain punctum at
+/// the cursor's staff position with `duration` in the cursor beat when that has no note (a
+/// beat with one is kept), then on to the next beat (see [`advance`]). Until the track has
+/// lyrics the punctum is its own neume.
 pub fn enter_chant_punctum(
     cx: &mut EditCx,
     policy: ChordPolicy,
@@ -438,32 +438,15 @@ pub fn enter_chant_punctum(
         let b = cx.beat();
         b.empty || b.notes.is_empty()
     };
-    if !empty {
-        let b = cx.cursor.bar;
-        let filled: u32 = cx.voice().iter().map(Beat::ticks).sum();
-        if filled + duration.ticks() <= cx.score.played_ticks(b) {
-            insert_beat(cx, true, duration);
-        } else {
-            if b + 1 >= cx.score.master_bars.len() {
-                insert_bars(cx, b + 1, 1);
-            }
-            cx.cursor.bar = b + 1;
-            cx.cursor.beat = 0;
-            if !cx
-                .voice()
-                .first()
-                .is_some_and(|x| x.empty || x.notes.is_empty())
-            {
-                insert_beat(cx, false, duration);
-            }
+    if empty {
+        put_chant_note(cx, policy, position, false, duration)?;
+        let beat = cx.beat();
+        let picked = melody::pick(&track, beat, policy).unwrap_or(0);
+        if let Some(n) = beat.notes.get_mut(picked) {
+            n.chant.get_or_insert_with(Default::default).punctum = true;
         }
     }
-    put_chant_note(cx, policy, position, false, duration)?;
-    let beat = cx.beat();
-    let picked = melody::pick(&track, beat, policy).unwrap_or(0);
-    if let Some(n) = beat.notes.get_mut(picked) {
-        n.chant.get_or_insert_with(Default::default).punctum = true;
-    }
+    advance(cx, duration);
     Ok(())
 }
 

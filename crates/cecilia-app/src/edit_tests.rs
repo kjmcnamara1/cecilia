@@ -690,19 +690,48 @@ fn enter_on_a_slash_staff_puts_a_slash() {
 }
 
 #[test]
-fn chant_insert_keeps_its_letters_and_enter() {
+fn chant_insert_moves_like_standard_and_keeps_its_letters() {
     let mut a = app();
     a.run(Command::StaffAdd(Some("chant".into())));
     assert_eq!(a.insert_kind(), InsertKind::Chant);
     let (c, _) = Config::parse("").unwrap();
-    // h j k l are GABC pitches there; Enter starts a new syllable.
     let chant = c.insert_keymap(InsertKind::Chant);
+    // h j k l are not GABC pitches in insert mode: they fall through to the cursor movement.
     for k in ["h", "j", "k", "l"] {
         let keys = crate::keys::parse_keys(k, &[]).unwrap();
-        assert!(chant.bindings.contains_key(&keys), "{k}");
+        assert!(!chant.bindings.contains_key(&keys), "{k}");
     }
-    let enter = crate::keys::parse_keys("<CR>", &[]).unwrap();
-    assert_eq!(chant.names[&enter], vec!["chant-syllable".to_string()]);
+    let names = |k: &str| chant.names[&crate::keys::parse_keys(k, &[]).unwrap()].clone();
+    assert_eq!(names("a"), vec!["chant-note a".to_string()]);
+    assert_eq!(names("<CR>"), vec!["chant-syllable".to_string()]);
+    assert_eq!(names("<Space>"), vec!["insert-next".to_string()]);
+}
+
+#[test]
+fn enter_and_space_on_a_chant_staff_of_an_ordinary_track() {
+    let mut a = app();
+    a.run(Command::StaffAdd(Some("chant".into())));
+    a.pane_mut().cursor.line = 6;
+    keys(&mut a, "i<CR>");
+    // A punctum at the cursor's position in the beat, then on to the next beat.
+    assert_eq!(bar_beats(&a, 0)[0].notes.len(), 1);
+    assert!(bar_beats(&a, 0)[0].notes[0].chant.as_ref().unwrap().punctum);
+    assert_eq!(at(&a), (0, 1));
+    // k moves the cursor up a position; Enter puts the next punctum there.
+    keys(&mut a, "k");
+    let line = a.pane().cursor.line;
+    assert_eq!(a.pane().cursor.beat, 1);
+    keys(&mut a, "<CR>");
+    assert_eq!(bar_beats(&a, 0)[1].notes.len(), 1);
+    assert_eq!(at(&a), (0, 2));
+    assert_ne!(line, 6);
+    // Space moves on without a note.
+    keys(&mut a, "<Space>");
+    assert!(bar_beats(&a, 0)[2].notes.is_empty());
+    assert_eq!(at(&a), (0, 3));
+    // h goes back a beat.
+    keys(&mut a, "h");
+    assert_eq!(at(&a), (0, 2));
 }
 
 #[test]

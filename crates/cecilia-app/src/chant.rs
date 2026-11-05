@@ -468,22 +468,22 @@ mod tests {
     #[test]
     fn chant_insert_mode() {
         let mut a = app();
-        // The first note of "Al" becomes h, then a virga.
-        keys(&mut a, "ih");
-        assert_eq!(gabc(&a), "(c4) Al(hg) le(h) lu(g) ia.(f.) (::)");
-        assert_eq!(a.pane().cursor.line, 7);
+        // The first note of "Al" becomes i, then a virga.
+        keys(&mut a, "ii");
+        assert_eq!(gabc(&a), "(c4) Al(ig) le(h) lu(g) ia.(f.) (::)");
+        assert_eq!(a.pane().cursor.line, 8);
         keys(&mut a, "v");
-        assert_eq!(gabc(&a), "(c4) Al(hvg) le(h) lu(g) ia.(f.) (::)");
+        assert_eq!(gabc(&a), "(c4) Al(ivg) le(h) lu(g) ia.(f.) (::)");
         // A new note after it, set to j; then a new neume.
-        keys(&mut a, "<Space>j");
-        assert_eq!(gabc(&a), "(c4) Al(hvjg) le(h) lu(g) ia.(f.) (::)");
-        keys(&mut a, "/k");
-        assert_eq!(gabc(&a), "(c4) Al(hvj/kg) le(h) lu(g) ia.(f.) (::)");
+        keys(&mut a, "<Space>m");
+        assert_eq!(gabc(&a), "(c4) Al(ivmg) le(h) lu(g) ia.(f.) (::)");
+        keys(&mut a, "/e");
+        assert_eq!(gabc(&a), "(c4) Al(ivm/eg) le(h) lu(g) ia.(f.) (::)");
         // Deleting it leaves g starting the neume; a division follows the syllable.
         keys(&mut a, "<BS>");
-        assert_eq!(gabc(&a), "(c4) Al(hvj/g) le(h) lu(g) ia.(f.) (::)");
+        assert_eq!(gabc(&a), "(c4) Al(ivm/g) le(h) lu(g) ia.(f.) (::)");
         keys(&mut a, ";");
-        assert_eq!(gabc(&a), "(c4) Al(hvj/g) (;) le(h) lu(g) ia.(f.) (::)");
+        assert_eq!(gabc(&a), "(c4) Al(ivm/g) (;) le(h) lu(g) ia.(f.) (::)");
         keys(&mut a, "<Esc>uuuuuu");
         assert_eq!(gabc(&a), "(c4) Al(fg) le(h) lu(g) ia.(f.) (::)");
     }

@@ -1272,6 +1272,25 @@ impl App {
             .get(c.beat)?;
         let string = if uses_strings(track, kind) {
             u8::try_from(c.string).ok()?
+        } else if kind.is_chant() && track.chant.is_none() {
+            // A chant staff of an ordinary track shows the beat's picked note at its position:
+            // only a cursor on that position is over the note.
+            let policy = self.chord_policy();
+            let n = &beat.notes[cecilia_core::melody::pick(track, beat, policy)?];
+            let view = cecilia_core::melody::ChantView::build(score, track, policy)
+                .or_else(|_| {
+                    cecilia_core::melody::ChantView::build(score, track, Default::default())
+                })
+                .ok()?;
+            let at = view
+                .clef
+                .place(track.pitch_of(n), view.shift)
+                .0
+                .clamp(0, 13);
+            if at != c.line {
+                return None;
+            }
+            n.string
         } else if matches!(kind, Staff::Slash) || kind.is_chant() {
             beat.notes.first()?.string
         } else {
@@ -3721,13 +3740,22 @@ pub(crate) mod tests {
         app.pane_mut().cursor.line = p;
         app.pane_mut().cursor.beat = 1;
         assert_eq!(app.linked_note(app.pane()), None);
-        // Slash and chant staves show the beat's one note.
-        for kind in [Staff::Slash, Staff::Chant] {
-            app.buffers[0].score.tracks[0].staves = vec![Staff::Tab, kind];
-            app.pane_mut().cursor.staff = 1;
-            app.pane_mut().cursor.beat = 0;
-            assert_eq!(app.linked_note(app.pane()).map(|n| n.staff), Some(1));
-        }
+        // A slash staff shows the beat's one note.
+        app.buffers[0].score.tracks[0].staves = vec![Staff::Tab, Staff::Slash];
+        app.pane_mut().cursor.staff = 1;
+        app.pane_mut().cursor.beat = 0;
+        assert_eq!(app.linked_note(app.pane()).map(|n| n.staff), Some(1));
+        // A chant staff lights it only with the cursor on the note's position.
+        app.buffers[0].score.tracks[0].staves = vec![Staff::Tab, Staff::Chant];
+        let (score, track) = (&app.buffers[0].score, &app.buffers[0].score.tracks[0]);
+        let v = cecilia_core::melody::ChantView::build(score, track, Default::default()).unwrap();
+        let n = &track.bars[0].voices[0].beats[0].notes[0];
+        let at = v.clef.place(track.pitch_of(n), v.shift).0.clamp(0, 13);
+        app.pane_mut().cursor.staff = 1;
+        app.pane_mut().cursor.line = at;
+        assert_eq!(app.linked_note(app.pane()).map(|n| n.staff), Some(1));
+        app.pane_mut().cursor.line = (at + 1) % 13;
+        assert_eq!(app.linked_note(app.pane()), None);
     }
 
     #[test]
