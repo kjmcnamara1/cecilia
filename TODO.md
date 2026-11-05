@@ -52,7 +52,6 @@ Planned work. Finished items move to `CHANGELOG.md` under `[Unreleased]`.
 ### GUI
 
 - [ ] Try to more closely emulate a GTK4 style
-- [ ] FIX: soften the shadow under the command palette/pickers
 
 ### Scripting
 

@@ -3122,6 +3122,18 @@ fn beat_fallback<'a>(layout: &'a Layout, r: &BeatRef) -> Option<&'a cecilia_engr
     })
 }
 
+/// A soft gaussian drop shadow under a floating box (palette, pickers): offset a few px down,
+/// blurred over ~16 px, subtle.
+fn popover_shadow(scene: &mut Scene, r: Rect, radius: f64) {
+    scene.draw_blurred_rounded_rect(
+        Affine::IDENTITY,
+        Rect::new(r.x0, r.y0 + 4.0, r.x1, r.y1 + 4.0),
+        Color::from_rgba8(0, 0, 0, 90),
+        radius,
+        8.0,
+    );
+}
+
 /// Rows of candidates the palette shows at once.
 const PALETTE_ROWS: usize = 12;
 
@@ -3143,13 +3155,7 @@ fn draw_palette(scene: &mut Scene, p: &cecilia_app::Palette, width: f64, height:
             0.0
         };
     // Shadow, frame, input.
-    scene.fill(
-        Fill::NonZero,
-        Affine::IDENTITY,
-        Color::from_rgba8(0, 0, 0, 70),
-        None,
-        &RoundedRect::new(x0 - 2.0, y0 + 2.0, x0 + w + 2.0, y0 + h + 6.0, 12.0),
-    );
+    popover_shadow(scene, Rect::new(x0, y0, x0 + w, y0 + h), 10.0);
     let frame = RoundedRect::new(x0, y0, x0 + w, y0 + h, 10.0);
     scene.fill(Fill::NonZero, Affine::IDENTITY, popover(), None, &frame);
     scene.stroke(&Stroke::new(1.0), Affine::IDENTITY, accent(), None, &frame);

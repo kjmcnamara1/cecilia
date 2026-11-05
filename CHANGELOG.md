@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+
+- The GUI's command palette and pickers cast a soft, blurred shadow instead of a hard-edged one.
+
 ## [0.28.0] - 2026-11-04
 
 ### Added
