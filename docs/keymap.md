@@ -669,9 +669,11 @@ Open Recent lists the files you closed lately (most recent first, up to 20, kept
 Without any the button is dimmed and does nothing, and the focus skips it.
 
 `j` / `k` / `Down` / `Up` / `Tab` / `Shift-Tab` move the focus (`Home` / `End` first and last), `Enter` or
-`Space` runs the focused button, a click runs the one under the mouse. `:` opens the command line as
-usual (`:q` quits) and `gt` / `gT` move to another view; other keys do nothing. Showing a score
-ends it.
+`Space` runs the focused button, a click runs the one under the mouse. Those plain keys come first;
+every other key goes through the normal keymap, user bindings included, so quitting (`<C-q>` or
+your own binding), `:`, `gt` / `gT`, `:view-new`, `:open`, `:new`, the pickers and `<F1>` all work.
+What would edit the score hidden behind the dashboard (inserting, deleting, pasting, operators) does
+nothing, and Insert and Visual mode are not entered. Showing a score ends the dashboard.
 
 The dashboard has no tabs, so the tabline is not drawn over it (with several views it stays, for
 the view tabs, without buffer tabs) and its space goes to the dashboard; the placeholder score

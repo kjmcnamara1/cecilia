@@ -156,21 +156,25 @@ impl App {
             .collect();
     }
 
-    /// Takes a key while the dashboard shows. Returns false when it is not the dashboard's:
-    /// the key then goes the usual way (`:` opens the command line, `g` starts `gt`; pickers
-    /// and the command line take their own keys).
+    /// Takes a key while the dashboard shows: only its own keys (`j` `k` `Up` `Down` `Tab`
+    /// `Shift-Tab` `Home` `End` `Enter` `Space`, unmodified). Returns false for every other key,
+    /// which goes the usual way through the keymaps, so `:`, `gt`, quitting and the user's own
+    /// bindings work; what would edit the score hidden behind the dashboard is skipped in
+    /// `normal_key`, and so is keeping Insert or Visual mode.
     pub(crate) fn dashboard_key(&mut self, key: Key) -> bool {
         if !self.dashboard_visible()
             || self.mode != Mode::Normal
             || self.picker.is_some()
             || self.show_help
             || !self.pending.is_empty()
+            || self.ed.awaiting.is_some()
+            || key.ctrl
+            || key.alt
+            || key.sup
         {
             return false;
         }
-        let plain = !key.ctrl && !key.alt && !key.sup;
         match key.code {
-            KeyCode::Char(':') if plain => return false,
             KeyCode::Down | KeyCode::Tab | KeyCode::Char('j') => self.dashboard_move(1),
             KeyCode::Up | KeyCode::BackTab | KeyCode::Char('k') => self.dashboard_move(-1),
             KeyCode::Home => {
@@ -178,11 +182,8 @@ impl App {
                 self.dashboard_focus = self.dashboard_focus();
             }
             KeyCode::End => self.dashboard_focus = DashboardButton::ALL.len() - 1,
-            // `g` starts `gt` / `gT`, to move to another view; the keys after it go the usual way.
-            KeyCode::Char('g') if plain => return false,
             KeyCode::Enter | KeyCode::Char(' ') => self.dashboard_activate(self.dashboard_focus()),
-            // Other keys would edit the score hidden behind it.
-            _ => {}
+            _ => return false,
         }
         true
     }
@@ -200,6 +201,7 @@ fn recent_file() -> Option<PathBuf> {
 mod tests {
     use super::*;
     use crate::app::tests::{keys, test_app};
+    use crate::config::Config;
 
     /// An app showing a saved score, with the dashboard behind it.
     fn app_with_file(name: &str) -> (App, PathBuf) {
@@ -373,10 +375,6 @@ mod tests {
         assert_eq!(app.dashboard_focus(), 1);
         keys(&mut app, "<End>");
         assert_eq!(app.dashboard_focus(), 3);
-        // Other keys do not reach the hidden score.
-        let before = app.pane().cursor;
-        keys(&mut app, "l");
-        assert_eq!(app.pane().cursor, before);
     }
 
     #[test]
@@ -558,5 +556,75 @@ mod tests {
         assert!(other.dashboard_visible() && other.bufferline().is_empty());
         other.active_view = 0;
         assert!(!other.dashboard_visible());
+    }
+
+    #[test]
+    fn the_default_quit_key_works_on_the_dashboard() {
+        let mut app = test_app();
+        app.show_dashboard();
+        keys(&mut app, "<C-q>");
+        assert!(app.quit);
+    }
+
+    #[test]
+    fn a_custom_quit_binding_works_on_the_dashboard() {
+        for bind in ["<C-S-q>", "<A-x>", "Q", "<F9>"] {
+            let toml = format!("[keymap.normal]\n\"{bind}\" = \"quit!\"\n");
+            let (config, warnings) = Config::parse(&toml).unwrap();
+            assert!(warnings.is_empty(), "{warnings:?}");
+            let mut app = test_app();
+            app.config = config;
+            app.show_dashboard();
+            keys(&mut app, bind);
+            assert!(app.quit, "{bind}");
+        }
+    }
+
+    #[test]
+    fn other_bound_keys_work_on_the_dashboard() {
+        let mut app = test_app();
+        app.show_dashboard();
+        // A key sequence (`gt`) and the command line go the usual way.
+        keys(&mut app, ":view-new<CR>");
+        let views = app.views.len();
+        assert!(views > 1);
+        keys(&mut app, "gT");
+        assert_eq!(app.active_view, 0);
+        // Pickers and help.
+        let mut app = test_app();
+        app.show_dashboard();
+        keys(&mut app, ":pick workspace<CR>");
+        assert!(app.picker.is_some());
+        keys(&mut app, "<Esc>");
+        keys(&mut app, "<F1>");
+        assert!(app.show_help);
+    }
+
+    #[test]
+    fn dashboard_keys_win_over_bindings_of_the_same_key() {
+        let (config, _) = Config::parse("[keymap.normal]\n\"j\" = \"quit!\"\n").unwrap();
+        let mut app = test_app();
+        app.config = config;
+        app.show_dashboard();
+        keys(&mut app, "j");
+        assert!(!app.quit);
+        assert_eq!(app.dashboard_focus(), 2);
+    }
+
+    #[test]
+    fn unbound_keys_and_edits_leave_the_hidden_score_alone() {
+        let (mut app, _) = app_with_file("swallow");
+        close_all(&mut app);
+        let b = app.pane().buffer;
+        let before = app.buffers[b].score.clone();
+        let cursor = app.pane().cursor;
+        // Unbound keys, editing keys, Insert and Visual starters, counts.
+        keys(&mut app, "Zq5xdwi7<Esc>vjy3p");
+        assert_eq!(app.buffers[b].score, before);
+        assert!(!app.buffers[b].modified);
+        assert_eq!(app.pane().cursor, cursor);
+        assert_eq!(app.mode, Mode::Normal);
+        assert!(app.dashboard_visible());
+        assert!(!app.quit);
     }
 }

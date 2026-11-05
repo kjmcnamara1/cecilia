@@ -1935,6 +1935,10 @@ impl App {
             return;
         }
         self.dispatch_key(key);
+        if self.dashboard_visible() && matches!(self.mode, Mode::Insert | Mode::Visual) {
+            self.mode = Mode::Normal;
+            self.ed.visual_anchor = None;
+        }
         self.chant_staff_notice();
     }
 
