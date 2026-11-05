@@ -38,6 +38,11 @@ Planned work. Finished items move to `CHANGELOG.md` under `[Unreleased]`.
 
 - [ ] Create a dashboard that is displayed on the background when all score
       panes are closed (also when opening a new workspace)
+  - :pane-close shouldn't quit the app
+  - Focusable buttons with keyboard and clickable with mouse:
+    - Select Workspace (opens workspace picker)
+    - New Score
+    - Open Score
 - [ ] Allow grouping scores in tabline into groups and ability to (auto)
       collapse/expand them
 - [ ] Add ability to have multiple windows in the same workspace (not just views
@@ -57,6 +62,7 @@ Planned work. Finished items move to `CHANGELOG.md` under `[Unreleased]`.
 ### GUI
 
 - [ ] Try to more closely emulate a GTK4 style
+- [ ] FIX: soften the shadow under the command palette/pickers
 
 ### Scripting
 
