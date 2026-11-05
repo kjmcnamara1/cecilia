@@ -42,6 +42,8 @@ Planned work. Finished items move to `CHANGELOG.md` under `[Unreleased]`.
   - relative values set with +NUMBER or -NUMBER
 - string
 - array of values
+  - add value to array with +value
+  - remove value from array with -value
 
 #### Commands
 
