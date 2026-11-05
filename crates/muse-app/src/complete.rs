@@ -141,8 +141,6 @@ pub const COMMANDS: &[&str] = &[
     "equalize-on-close",
     "focus-ring-width",
     "focus-ring-color",
-    "corner-radius",
-    "pane-corner-radius",
     "tabline-wrap",
     "fretboard",
     "piano",
@@ -365,7 +363,7 @@ fn values(command: &str) -> Option<&'static [&'static str]> {
         ],
         "tracks" | "toolbar" | "equalize-on-close" | "tabline-wrap" | "palette" | "fretboard"
         | "piano" | "tuner" => &["off", "on"],
-        "focus-ring-color" | "pane-corner-radius" => &["default"],
+        "focus-ring-color" => &["default"],
         "track-color" => &["off"],
         "design" => &["off", "on", "toggle"],
         "bar-width" | "bars-per-line" => &["auto"],
@@ -963,8 +961,6 @@ pub fn describe(command: &str) -> Option<&'static str> {
         }
         "focus-ring-width" => "Thickness of the focus ring in pixels (0 to 8)",
         "focus-ring-color" => "Color of the focus ring: #rrggbb or default (the mode's color)",
-        "corner-radius" => "GUI corner radius of panes, tabs, buttons and popups (0 to 24)",
-        "pane-corner-radius" => "GUI corner radius of panes alone (0 to 24, or default)",
         "tabline-wrap" => "Wrap buffer next/prev around the tabline ends (on, off or toggle)",
         "fretboard" => "Show or hide the fretboard (notes at the cursor or playhead)",
         "piano" => "Show or hide the piano keys (notes at the cursor or playhead)",

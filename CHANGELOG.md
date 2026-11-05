@@ -10,8 +10,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Added
 
 - `ui.focus_ring_width` (0 to 8, default 2) and `ui.focus_ring_color` (default: the mode's color) set the ring around the focused pane; the terminal UI takes the color, and a thick border from width 3.
-- `ui.corner_radius` (0 to 24, default 6) and `ui.pane_corner_radius` (panes and their focus ring; default: `corner_radius`) set the GUI's corner radii for panes, tabs, buttons and popups; 0 gives plain borders in the terminal UI.
-- `:focus-ring-width`, `:focus-ring-color`, `:corner-radius`, `:pane-corner-radius` and `:tabline-wrap` change these settings for the session (no argument shows the value; `:tabline-wrap` toggles); numbers clamp like on config load.
+- `:focus-ring-width`, `:focus-ring-color` and `:tabline-wrap` change these settings for the session (no argument shows the value; `:tabline-wrap` toggles); the width clamps like on config load.
 - `tabline.wrap` (default on): off stops `:buffer-next` / `:buffer-prev` at the last / first tab instead of wrapping.
 
 ## [0.23.0] - 2026-11-04

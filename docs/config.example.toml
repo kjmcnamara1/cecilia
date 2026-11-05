@@ -29,8 +29,6 @@ global_tools = ["tracks", "waveform", "fretboard", "piano", "tuner"]   # tool pa
 auto_resize = true       # tracks panes fit their contents' height, until you resize them by hand
 focus_ring_width = 2.0 # GUI: thickness in pixels of the ring around the focused pane (0 to 8; 0: none; the terminal UI uses a thick border from 3; :focus-ring-width N sets it for the session)
 # focus_ring_color = "#fabe28" # color of that ring (#rgb, #rrggbb or #rrggbbaa); unset: the current mode's color (:focus-ring-color #hex|default)
-corner_radius = 6.0 # GUI: corner radius in pixels of panes, tabs, buttons and popups (0 to 24; 0: square; the terminal UI then uses plain borders; :corner-radius N)
-# pane_corner_radius = 6.0 # corner radius of panes and the focus ring alone; unset: corner_radius (:pane-corner-radius N|default)
 equalize_on_close = true # closing a pane re-equalizes the split it was in (off: the neighbour takes its space; :equalize-on-close [on|off] changes it for the session)
 tracks_peek = 1.0        # seconds the tracks show when the track changes, while no tracks pane is
                          # shown (0: never)

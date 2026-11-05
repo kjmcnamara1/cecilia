@@ -3394,13 +3394,10 @@ mod select_tests {
     }
 }
 
-/// A pane's border: plain corners when `ui.corner_radius` (or `pane_corner_radius`) is 0, and
-/// a thick line on the focused pane when `ui.focus_ring_width` is 3 or more.
+/// A pane's border: a thick line on the focused pane when `ui.focus_ring_width` is 3 or more.
 fn border_type(app: &App, focused: bool) -> BorderType {
     if focused && app.config.file.ui.focus_ring_width >= 3.0 {
         BorderType::Thick
-    } else if app.config.pane_corner_scale() == 0.0 {
-        BorderType::Plain
     } else {
         BorderType::Rounded
     }

@@ -266,10 +266,6 @@ pub enum Command {
     FocusRingWidth(SettingArg<f64>),
     /// Set `ui.focus_ring_color` (`#hex`, or `default` for the mode's color).
     FocusRingColor(SettingArg<String>),
-    /// Set `ui.corner_radius`.
-    CornerRadius(SettingArg<f64>),
-    /// Set `ui.pane_corner_radius` (`default`: follow `corner_radius`).
-    PaneCornerRadius(SettingArg<f64>),
     /// Turn `tabline.wrap` on or off for this session (no argument: toggle).
     TablineWrap(Option<bool>),
     /// Show or hide the properties pane (no argument: toggle).
@@ -1152,8 +1148,6 @@ impl Command {
                 Some(a) => return Err(format!("equalize-on-close: '{a}' is not on or off")),
             }),
             "focus-ring-width" => FocusRingWidth(number_arg("focus-ring-width", arg, true)?),
-            "corner-radius" => CornerRadius(number_arg("corner-radius", arg, false)?),
-            "pane-corner-radius" => PaneCornerRadius(number_arg("pane-corner-radius", arg, true)?),
             "focus-ring-color" => FocusRingColor(match arg {
                 None => SettingArg::Show,
                 Some("default") => SettingArg::Default,
