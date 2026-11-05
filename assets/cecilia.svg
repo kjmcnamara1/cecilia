@@ -1,0 +1,278 @@
+<svg xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink" viewBox="0 0 512 512" width="512" height="512" role="img" aria-label="Saint Cecilia emblem">
+  <title>Saint Cecilia emblem</title>
+  <defs>
+    <!-- Background and frame -->
+    <radialGradient id="field" cx="50%" cy="46%" r="62%">
+      <stop offset="0" stop-color="#153B56"/>
+      <stop offset="0.6" stop-color="#0D2940"/>
+      <stop offset="1" stop-color="#091E31"/>
+    </radialGradient>
+    <linearGradient id="frame-gold" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#FFE39A"/>
+      <stop offset="0.3" stop-color="#E6B84F"/>
+      <stop offset="0.55" stop-color="#F3CF76"/>
+      <stop offset="0.8" stop-color="#E6B84F"/>
+      <stop offset="1" stop-color="#C9943D"/>
+    </linearGradient>
+
+    <!-- Polished brass: light runs down the middle of each pipe -->
+    <linearGradient id="brass" x1="0" y1="0" x2="1" y2="0">
+      <stop offset="0" stop-color="#B77D24"/>
+      <stop offset="0.2" stop-color="#E9B83E"/>
+      <stop offset="0.42" stop-color="#FFF0A0"/>
+      <stop offset="0.62" stop-color="#E9B83E"/>
+      <stop offset="1" stop-color="#A87532"/>
+    </linearGradient>
+    <linearGradient id="ledge-gold" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#FFE39A"/>
+      <stop offset="0.45" stop-color="#E6B84F"/>
+      <stop offset="1" stop-color="#A87532"/>
+    </linearGradient>
+    <linearGradient id="trim-gold" x1="0" y1="0" x2="1" y2="0">
+      <stop offset="0" stop-color="#C9943D"/>
+      <stop offset="0.5" stop-color="#F3CF76"/>
+      <stop offset="1" stop-color="#C9943D"/>
+    </linearGradient>
+    <linearGradient id="fleur-gold" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#FFF0A0"/>
+      <stop offset="0.55" stop-color="#E6B84F"/>
+      <stop offset="1" stop-color="#C9943D"/>
+    </linearGradient>
+
+    <!-- Wood -->
+    <linearGradient id="wood-case" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#4E2C14"/>
+      <stop offset="1" stop-color="#71421F"/>
+    </linearGradient>
+    <linearGradient id="wood-panel" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#71421F"/>
+      <stop offset="0.5" stop-color="#985D2E"/>
+      <stop offset="1" stop-color="#7C4A23"/>
+    </linearGradient>
+    <linearGradient id="pipe-well" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#2A170A" stop-opacity="0"/>
+      <stop offset="0.22" stop-color="#2F1A0B"/>
+      <stop offset="1" stop-color="#5A3418"/>
+    </linearGradient>
+
+    <!-- Flowers. Petal gradient is in the petal's own coordinates: base at y=0 -->
+    <linearGradient id="petal-fill" gradientUnits="userSpaceOnUse" x1="0" y1="0" x2="0" y2="-72">
+      <stop offset="0" stop-color="#D6BF88"/>
+      <stop offset="0.34" stop-color="#F4E9CD"/>
+      <stop offset="0.75" stop-color="#FBF3DC"/>
+      <stop offset="1" stop-color="#FFF9E8"/>
+    </linearGradient>
+    <linearGradient id="anther" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#EDBB4E"/>
+      <stop offset="1" stop-color="#D39A32"/>
+    </linearGradient>
+    <radialGradient id="rose-outer" gradientUnits="userSpaceOnUse" cx="0" cy="-3" r="17">
+      <stop offset="0" stop-color="#A9403E"/>
+      <stop offset="0.5" stop-color="#D85F57"/>
+      <stop offset="0.86" stop-color="#E56C60"/>
+      <stop offset="1" stop-color="#F18B7D"/>
+    </radialGradient>
+    <radialGradient id="rose-inner" gradientUnits="userSpaceOnUse" cx="0" cy="-2" r="12">
+      <stop offset="0" stop-color="#A9403E"/>
+      <stop offset="0.6" stop-color="#D85F57"/>
+      <stop offset="1" stop-color="#F18B7D"/>
+    </radialGradient>
+
+    <!-- Soft shadows -->
+    <filter id="drop" x="-20%" y="-20%" width="140%" height="145%" color-interpolation-filters="sRGB">
+      <feGaussianBlur in="SourceAlpha" stdDeviation="2.4"/>
+      <feOffset dy="2.4"/>
+      <feComponentTransfer><feFuncA type="linear" slope="0.42"/></feComponentTransfer>
+      <feMerge><feMergeNode/><feMergeNode in="SourceGraphic"/></feMerge>
+    </filter>
+
+    <!-- Lily petal, straight, base at origin, tip up -->
+    <g id="petal">
+      <path d="M0 0C-5-10-17-24-17-40C-17-52-7-61 0-72C7-61 17-52 17-40C17-24 5-10 0 0Z" fill="url(#petal-fill)" stroke="#C7B184" stroke-width="0.6"/>
+      <path d="M0 0C4-12 10-27 10-41C10-52 5-62 0-72C7-61 17-52 17-40C17-24 5-10 0 0Z" fill="#DCC99E" opacity="0.4"/>
+      <path d="M0-8C.8-26 .8-46 0-62" fill="none" stroke="#D2BE90" stroke-width="0.8" stroke-linecap="round"/>
+    </g>
+    <!-- Lily petal with the tip swept over to one side -->
+    <g id="petal-swept">
+      <path d="M0 0C-5-10-18-24-18-42C-18-56-4-68 18-78C10-70 17-54 16-38C15-24 5-10 0 0Z" fill="url(#petal-fill)" stroke="#C7B184" stroke-width="0.6"/>
+      <path d="M0 0C4-13 9-29 9-43C9-56 12-68 18-78C10-70 17-54 16-38C15-24 5-10 0 0Z" fill="#DCC99E" opacity="0.4"/>
+      <path d="M0-8C1-26 1-48 11-68" fill="none" stroke="#D2BE90" stroke-width="0.8" stroke-linecap="round"/>
+    </g>
+    <g id="stamens" fill="none" stroke="#D39A32" stroke-linecap="round">
+      <path d="M0 0C-.4-14-.4-30 0-44" stroke-width="1.9"/>
+      <path d="M0 0C-3-9-6-18-10-27" stroke-width="1.7"/>
+      <path d="M0 0C3-9 6-18 10-27" stroke-width="1.7"/>
+      <g fill="url(#anther)" stroke="#A87532" stroke-width="0.4">
+        <ellipse cx="0" cy="-49" rx="3.3" ry="7.4"/>
+        <ellipse cx="-11" cy="-31" rx="3.1" ry="6.6" transform="rotate(-20 -11 -31)"/>
+        <ellipse cx="11" cy="-31" rx="3.1" ry="6.6" transform="rotate(20 11 -31)"/>
+      </g>
+    </g>
+    <!-- A six-petalled lily: back whorl, side whorl, then the near petal -->
+    <g id="lily">
+      <use xlink:href="#petal-swept" transform="rotate(54) scale(1.06,0.92)" filter="url(#drop-small)"/>
+      <use xlink:href="#petal-swept" transform="rotate(-54) scale(-1.06,0.92)" filter="url(#drop-small)"/>
+      <use xlink:href="#petal" transform="scale(1.24,0.96)" filter="url(#drop-small)"/>
+      <use xlink:href="#petal-swept" transform="rotate(114) scale(1.02,0.9)" filter="url(#drop-small)"/>
+      <use xlink:href="#petal-swept" transform="rotate(-114) scale(-1.02,0.9)" filter="url(#drop-small)"/>
+      <use xlink:href="#petal" transform="rotate(180) scale(1.2,0.66)" filter="url(#drop-small)"/>
+      <use xlink:href="#stamens"/>
+    </g>
+    <filter id="drop-small" x="-30%" y="-30%" width="160%" height="160%" color-interpolation-filters="sRGB">
+      <feGaussianBlur in="SourceAlpha" stdDeviation="1.3"/>
+      <feOffset dy="0.9"/>
+      <feComponentTransfer><feFuncA type="linear" slope="0.3"/></feComponentTransfer>
+      <feMerge><feMergeNode/><feMergeNode in="SourceGraphic"/></feMerge>
+    </filter>
+
+    <!-- Rose: overlapping cupped petals around a spiral heart -->
+    <path id="rose-petal" d="M-14 3C-17-7-8-15 0-14C8-15 17-7 14 3C8 9-8 9-14 3Z"/>
+    <g id="rose">
+      <g fill="url(#rose-outer)" stroke="#A9403E" stroke-width="0.5">
+        <use xlink:href="#rose-petal" transform="rotate(0) translate(0,-9)"/>
+        <use xlink:href="#rose-petal" transform="rotate(72) translate(0,-9)"/>
+        <use xlink:href="#rose-petal" transform="rotate(144) translate(0,-9)"/>
+        <use xlink:href="#rose-petal" transform="rotate(216) translate(0,-9)"/>
+        <use xlink:href="#rose-petal" transform="rotate(288) translate(0,-9)"/>
+      </g>
+      <g fill="url(#rose-inner)" stroke="#A9403E" stroke-width="0.5">
+        <use xlink:href="#rose-petal" transform="rotate(36) translate(0,-5.5) scale(0.66)"/>
+        <use xlink:href="#rose-petal" transform="rotate(126) translate(0,-5.5) scale(0.66)"/>
+        <use xlink:href="#rose-petal" transform="rotate(216) translate(0,-5.5) scale(0.66)"/>
+        <use xlink:href="#rose-petal" transform="rotate(306) translate(0,-5.5) scale(0.66)"/>
+      </g>
+      <circle r="6.4" fill="#C04F4A" stroke="#A9403E" stroke-width="0.6"/>
+      <path d="M-5.4 1.6C-5.4-3.6-1.4-6 2-5.2C5.6-4.4 6.2 0 4 2.6C1.8 5-2.2 4.4-2.6 1.4C-2.8-.8-.6-2.2 1-1.6C2.4-1 2.4.8 1.2 1.2" fill="none" stroke="#8A2F31" stroke-width="1.15" stroke-linecap="round"/>
+      <path d="M-11.5-6.8C-8.6-11-3.8-13-.8-12.8M12.4-3C11.4-6.8 9-9.6 6.4-11" fill="none" stroke="#F9B3A4" stroke-width="1" stroke-linecap="round" opacity="0.8"/>
+    </g>
+
+    <!-- Crown leaf: base at origin, tip up, lit half and shaded half -->
+    <g id="leaf">
+      <path d="M0 0C-13-8-16-31 2-50C13-32 13-11 0 0Z" fill="#8FA45B"/>
+      <path d="M0 0C-1-17 0-34 2-50C13-32 13-11 0 0Z" fill="#5E7741"/>
+      <path d="M0 0C-1-17 0-34 2-50" fill="none" stroke="#A6B85A" stroke-width="0.8" opacity="0.85"/>
+    </g>
+
+    <!-- Palm leaflet: base at origin, tip along +x, slight arc -->
+    <g id="frond">
+      <path d="M0 0C20-8 62-9 100-1C66 6 24 6 0 0Z" fill="#899F48"/>
+      <path d="M0 0C20-8 62-9 100-1C70-3.6 30-3 0 0Z" fill="#B6C565"/>
+      <path d="M0 0C30-1 66-2 100-1C66 6 24 6 0 0Z" fill="#61763B" opacity="0.5"/>
+      <path d="M1 0C32-1.2 66-2 97-1.1" fill="none" stroke="#C0CC72" stroke-width="0.55" opacity="0.8"/>
+    </g>
+
+    <!-- Fleur-de-lis, drawn around its own centre -->
+    <g id="fleur-half">
+      <path d="M3.2 8.6C5 1 12-7 20.2-6.2C28.2-5.4 30.4 4.2 25.4 8C21.4 11 16 8 18 3C14.4 2.2 11.4 4.8 9.6 8.6Z"/>
+      <path d="M6 11.8C9 11.8 11.8 12.6 13.8 15.2C14.8 16.6 14.4 18.6 13 19C13 16.4 10.4 15 7.8 15.4C6.6 15.6 5.6 15.4 5 15Z"/>
+    </g>
+    <g id="fleur" fill="url(#fleur-gold)" stroke="#8B5E22" stroke-width="0.6" stroke-linejoin="round">
+      <path d="M0-26C7-17 11.4-9 9.2-1C8.2 2.8 5.4 5.6 4.2 8.2L-4.2 8.2C-5.4 5.6-8.2 2.8-9.2-1C-11.4-9-7-17 0-26Z"/>
+      <use xlink:href="#fleur-half"/>
+      <use xlink:href="#fleur-half" transform="scale(-1,1)"/>
+      <path d="M-6 12C-5 16-2.6 20.6 0 25C2.6 20.6 5 16 6 12Z"/>
+      <rect x="-11.5" y="7.8" width="23" height="4.2" rx="1.6"/>
+      <path d="M0-20C-.6-12-.6-4 0 5" fill="none" stroke="#FFF0A0" stroke-width="0.9" stroke-linecap="round"/>
+    </g>
+  </defs>
+  <g id="background">
+    <rect id="canvas" width="512" height="512" fill="#091E31"/>
+    <rect id="navy-field" x="14" y="14" width="484" height="484" rx="94" fill="url(#field)"/>
+    <rect id="gold-frame" x="16.5" y="16.5" width="479" height="479" rx="92" fill="none" stroke="url(#frame-gold)" stroke-width="9"/>
+    <rect id="frame-highlight" x="13.5" y="13.5" width="485" height="485" rx="95" fill="none" stroke="#FFE39A" stroke-width="1" opacity="0.65"/>
+    <rect id="frame-inner-line" x="23" y="23" width="466" height="466" rx="85.5" fill="none" stroke="#A87532" stroke-width="1.4"/>
+  </g>
+  <g id="palm-branches">
+    <g id="left-palm" filter="url(#drop-small)">
+      <g id="left-fronds">
+        <use xlink:href="#frond" transform="translate(217.23,452.16) rotate(-177.42) scale(0.92,-1.37)"/>
+        <use xlink:href="#frond" transform="translate(196.88,440.01) rotate(-172.39) scale(1.06,-1.49)"/>
+        <use xlink:href="#frond" transform="translate(175.14,423.48) rotate(-166.83) scale(1.16,-1.53)"/>
+        <use xlink:href="#frond" transform="translate(152.52,401.98) rotate(-158.48) scale(1.2,-1.61)"/>
+        <use xlink:href="#frond" transform="translate(129.53,374.91) rotate(-148.6) scale(1.13,-1.58)"/>
+        <use xlink:href="#frond" transform="translate(106.69,341.67) rotate(-137.44) scale(1,-1.46)"/>
+        <use xlink:href="#frond" transform="translate(80.57,293.61) rotate(-115.77) scale(0.8,-1.32)"/>
+        <use xlink:href="#frond" transform="translate(100.55,331.46) rotate(-98.89) scale(1.01,1.34)"/>
+        <use xlink:href="#frond" transform="translate(125.35,369.35) rotate(-100.22) scale(1.09,1.5)"/>
+        <use xlink:href="#frond" transform="translate(150.44,399.76) rotate(-108.54) scale(0.99,1.52)"/>
+      </g>
+      <path id="left-stem" d="M250.28 460.48C247.18 459.46 238.4 457.13 231.7 454.37C225 451.61 217.67 448.28 210.08 443.93C202.48 439.58 194.38 434.5 186.15 428.25C177.92 422 169.31 414.88 160.69 406.43C152.07 397.98 143.2 388.5 134.45 377.56C125.7 366.61 116.82 354.48 108.2 340.74C99.57 326.99 90.95 311.92 82.71 295.09C74.47 278.25 62.74 248.95 58.75 239.72L57.25 240.28C61.11 249.6 72.4 279.15 80.39 296.21C88.38 313.26 96.76 328.58 105.18 342.61C113.6 356.63 122.29 369.07 130.89 380.36C139.5 391.64 148.26 401.49 156.81 410.32C165.36 419.16 173.94 426.7 182.19 433.37C190.44 440.04 198.6 445.56 206.3 450.35C214 455.14 221.49 458.92 228.39 462.12C235.29 465.31 244.5 468.29 247.72 469.52Z" fill="#A3AD55" stroke="#5F7338" stroke-width="0.6"/>
+    </g>
+    <g id="right-palm" filter="url(#drop-small)"><use xlink:href="#left-fronds" transform="matrix(-1 0 0 1 512 0)"/><use xlink:href="#left-stem" transform="matrix(-1 0 0 1 512 0)"/></g>
+  </g>
+  <g id="pipe-organ">
+    <rect id="pipe-backing" x="139" y="292" width="234" height="48" fill="url(#pipe-well)"/>
+    <g id="organ-pipes" filter="url(#drop)">
+      <g id="pipes-left">
+        <g class="pipe">
+          <path d="M137.6 307.16V262.6C137.6 260.65 140.2 260 144.1 260C148 260 150.6 260.65 150.6 262.6V307.16L146.31 339H141.89Z" fill="url(#brass)" stroke="#8F6222" stroke-width="0.6"/>
+          <path d="M144.1 287.4L140.2 303H144.1Z" fill="#B77D24"/>
+          <path d="M144.1 287.4L148 303H144.1Z" fill="#FFF0A0" opacity="0.9"/>
+          <rect x="139.68" y="302.34" width="8.84" height="2.2" rx="1.1" fill="#3A2109"/>
+        </g>
+        <g class="pipe">
+          <path d="M153.75 305.09V241.18C153.75 238.79 156.93 238 161.7 238C166.47 238 169.65 238.79 169.65 241.18V305.09L164.4 339H159Z" fill="url(#brass)" stroke="#8F6222" stroke-width="0.6"/>
+          <path d="M161.7 280.92L156.93 300H161.7Z" fill="#B77D24"/>
+          <path d="M161.7 280.92L166.47 300H161.7Z" fill="#FFF0A0" opacity="0.9"/>
+          <rect x="156.29" y="299.28" width="10.81" height="2.38" rx="1.19" fill="#3A2109"/>
+        </g>
+        <g class="pipe">
+          <path d="M172.5 302.63V224.02C172.5 221.38 176.02 220.5 181.3 220.5C186.58 220.5 190.1 221.38 190.1 224.02V302.63L184.29 339H178.31Z" fill="url(#brass)" stroke="#8F6222" stroke-width="0.6"/>
+          <path d="M181.3 275.88L176.02 297H181.3Z" fill="#B77D24"/>
+          <path d="M181.3 275.88L186.58 297H181.3Z" fill="#FFF0A0" opacity="0.9"/>
+          <rect x="175.32" y="296.21" width="11.97" height="2.64" rx="1.32" fill="#3A2109"/>
+        </g>
+        <g class="pipe">
+          <path d="M193.7 300.4V204C193.7 201 197.7 200 203.7 200C209.7 200 213.7 201 213.7 204V300.4L207.1 339H200.3Z" fill="url(#brass)" stroke="#8F6222" stroke-width="0.6"/>
+          <path d="M203.7 270L197.7 294H203.7Z" fill="#B77D24"/>
+          <path d="M203.7 270L209.7 294H203.7Z" fill="#FFF0A0" opacity="0.9"/>
+          <rect x="196.9" y="293.1" width="13.6" height="3" rx="1.5" fill="#3A2109"/>
+        </g>
+        <g class="pipe">
+          <path d="M217.2 298.04V182C217.2 178.7 221.6 177.6 228.2 177.6C234.8 177.6 239.2 178.7 239.2 182V298.04L231.94 339H224.46Z" fill="url(#brass)" stroke="#8F6222" stroke-width="0.6"/>
+          <path d="M228.2 264.6L221.6 291H228.2Z" fill="#B77D24"/>
+          <path d="M228.2 264.6L234.8 291H228.2Z" fill="#FFF0A0" opacity="0.9"/>
+          <rect x="220.72" y="290.01" width="14.96" height="3.3" rx="1.65" fill="#3A2109"/>
+        </g>
+      </g>
+      <use xlink:href="#pipes-left" transform="matrix(-1 0 0 1 512 0)"/>
+        <g id="pipe-centre">
+          <path d="M243.15 296.22V160.14C243.15 156.28 248.29 155 256 155C263.71 155 268.85 156.28 268.85 160.14V296.22L260.37 339H251.63Z" fill="url(#brass)" stroke="#8F6222" stroke-width="0.6"/>
+          <path d="M256 257.16L248.29 288H256Z" fill="#B77D24"/>
+          <path d="M256 257.16L263.71 288H256Z" fill="#FFF0A0" opacity="0.9"/>
+          <rect x="247.26" y="286.84" width="17.48" height="3.85" rx="1.93" fill="#3A2109"/>
+        </g>
+    </g>
+    <g id="organ-housing" filter="url(#drop)">
+      <path id="case" d="M146 354H366L349 410H163Z" fill="url(#wood-case)"/>
+      <path id="case-trim" d="M146 349H366V356.5H146Z" fill="url(#ledge-gold)" stroke="#8B5E22" stroke-width="0.5"/>
+      <path id="panel" d="M158.5 360.5H353.5L342.5 406H169.5Z" fill="url(#wood-panel)" stroke="#C9943D" stroke-width="1.2" stroke-linejoin="round"/>
+      <path id="grain" d="M170 372C210 369 240 375 278 371S330 370 346 373M175 393C214 396 246 389 290 393S328 395 339 392" fill="none" stroke="#5C3417" stroke-width="0.9" opacity="0.35"/>
+      <rect id="ledge" x="134" y="339" width="244" height="10.5" rx="1.6" fill="url(#ledge-gold)" stroke="#8B5E22" stroke-width="0.6"/>
+      <path id="base" d="M163 409.5H349L345 421.5H167Z" fill="url(#trim-gold)" stroke="#8B5E22" stroke-width="0.6" stroke-linejoin="round"/>
+      <path d="M165 413H347" stroke="#FFE39A" stroke-width="0.8" opacity="0.7"/>
+    </g>
+    <use id="fleur-de-lis" xlink:href="#fleur" transform="translate(256,383) scale(0.88)"/>
+  </g>
+  <g id="floral-crown">
+    <g id="crown-left">
+      <g id="crown-foliage" filter="url(#drop-small)">
+        <use xlink:href="#leaf" transform="translate(209,88) rotate(-59.59) scale(1.09,1.07)"/>
+        <use xlink:href="#leaf" transform="translate(238,106) rotate(-133.49) scale(-1.14,1.08)"/>
+        <use xlink:href="#leaf" transform="translate(196,116) rotate(-143.13) scale(1,0.9)"/>
+        <use xlink:href="#leaf" transform="translate(121,118) rotate(-74.25) scale(0.86,0.81)"/>
+        <use xlink:href="#leaf" transform="translate(101,150) rotate(-88.73) scale(-0.91,0.9)"/>
+        <use xlink:href="#leaf" transform="translate(136,160) rotate(-167.35) scale(1.09,1)"/>
+        <use xlink:href="#leaf" transform="translate(83,197) rotate(-147.17) scale(-0.73,0.74)"/>
+        <use xlink:href="#leaf" transform="translate(103,196) rotate(-157.01) scale(0.73,0.72)"/>
+      </g>
+      <g id="crown-roses" filter="url(#drop)">
+        <use xlink:href="#rose" transform="translate(178,99) rotate(-12) scale(1.1)"/>
+        <use xlink:href="#rose" transform="translate(86,180) rotate(24) scale(1.1)"/>
+      </g>
+      <use id="side-lily" xlink:href="#lily" transform="translate(140,147) rotate(-34) scale(0.8)"/>
+    </g>
+    <use id="crown-right" xlink:href="#crown-left" transform="matrix(-1 0 0 1 512 0)"/>
+    <use id="centre-lily" xlink:href="#lily" transform="translate(256,98) scale(0.95)"/>
+  </g>
+</svg>

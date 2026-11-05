@@ -4,10 +4,9 @@ Planned work. Finished items move to `CHANGELOG.md` under `[Unreleased]`.
 
 ### Title
 
-- [ ] Rename project to Cecilia (Ceci)
-- [ ] Use .cc as file extension?
-- [ ] Change icon to have portable pipe organ, palm branches, and floral crown
-      of ivory lilies and muted coral roses
+- [ ] Rename this entire project from muse to cecilia
+- [ ] Use .cc as file extension instead of .muse
+- [ ] Change icon to use assets/cecilia-transparent.svg
 
 ### Docs
 
