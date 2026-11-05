@@ -196,7 +196,7 @@ const DIATONIC: [i32; 7] = [0, 2, 4, 5, 7, 9, 11];
 
 /// The clef and shift (in semitones) that put a melody on the white-key scale (B♭ allowed) and
 /// keep it on the four-line staff.
-pub fn fit(pitches: &[u8], family: Option<ClefKind>) -> (ChantClef, i32) {
+pub fn fit(pitches: &[u8], family: Option<ClefKind>, line: Option<u8>) -> (ChantClef, i32) {
     let cost = |shift: i32| -> f64 {
         pitches
             .iter()
@@ -222,6 +222,7 @@ pub fn fit(pitches: &[u8], family: Option<ClefKind>) -> (ChantClef, i32) {
             .map(|&p| (p as i32 + shift).clamp(0, 127) as u8)
             .collect::<Vec<_>>(),
         family,
+        line,
     );
     (clef, shift + octave)
 }
@@ -247,13 +248,14 @@ pub struct ChantView {
 impl ChantView {
     pub fn build(score: &Score, track: &Track, policy: ChordPolicy) -> Result<Self, ChordError> {
         let events = melody(score, track, policy)?;
-        Ok(Self::of(events, track.chant_family()))
+        Ok(Self::of(events, track.chant_family(), track.chant_line))
     }
 
-    /// A view of `events` on a clef of the given family (the best fitting one if `None`).
-    pub fn of(events: Vec<MelodyEvent>, family: Option<ClefKind>) -> Self {
+    /// A view of `events` on a clef of the given family and staff line (the best fitting one
+    /// if `None`).
+    pub fn of(events: Vec<MelodyEvent>, family: Option<ClefKind>, line: Option<u8>) -> Self {
         let pitches: Vec<u8> = events.iter().map(|e| e.pitch).collect();
-        let (clef, shift) = fit(&pitches, family);
+        let (clef, shift) = fit(&pitches, family, line);
         // A typical note length: longer notes get a mora.
         let mut lengths: Vec<u32> = events.iter().map(|e| e.ticks).collect();
         lengths.sort_unstable();

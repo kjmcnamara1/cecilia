@@ -123,12 +123,7 @@ impl<'a> EditCx<'a> {
         let bar = self.bar(t, b);
         bar.simile = None;
         while bar.voices.len() <= v {
-            bar.voices.push(Voice {
-                beats: vec![Beat {
-                    empty: true,
-                    ..Beat::default()
-                }],
-            });
+            bar.voices.push(Voice { beats: Vec::new() });
         }
         if bar.voices[v].beats.is_empty() {
             bar.voices[v].beats.push(Beat {
@@ -701,10 +696,16 @@ pub fn set_duration(cx: &mut EditCx, f: impl Fn(Duration) -> Duration) -> Durati
 /// Inserts a rest beat before or after the cursor and moves onto it.
 pub fn insert_beat(cx: &mut EditCx, after: bool, duration: Duration) {
     let i = cx.cursor.beat;
+    let (v, full) = (cx.cursor.voice, cx.score.played_ticks(cx.cursor.bar));
     let beats = cx.voice();
-    // An empty placeholder becomes the new beat itself.
-    if beats.len() == 1 && beats[0].empty {
-        beats[0] = Beat::rest(duration);
+    // An empty placeholder, or a further voice that is still a rest for the whole bar, becomes
+    // the new beat itself (the voice then grows beat by beat, as the first one does).
+    let bar_rest = v > 0
+        && beats.iter().all(Beat::is_rest)
+        && beats.iter().map(Beat::ticks).sum::<u32>() == full;
+    if (beats.len() == 1 && beats[0].empty) || bar_rest {
+        beats.clear();
+        beats.push(Beat::rest(duration));
         cx.cursor.beat = 0;
         return;
     }
@@ -1215,6 +1216,72 @@ pub fn delete_range(cx: &mut EditCx, from: Pos, to: Pos) {
     }
     cx.cursor.bar = from.0;
     cx.cursor.beat = from.1;
+}
+
+/// Voice that `Voice next/prev` goes to from the cursor's: voices go round through those the
+/// bar has and one more (up to [`cecilia_core::MAX_VOICES`]), which is created on arrival.
+pub fn adjacent_voice(score: &Score, c: &Cursor, forward: bool) -> usize {
+    // Voices with notes in the bar (a voice that is only rests is reachable while on it).
+    let have = score
+        .tracks
+        .get(c.track)
+        .and_then(|t| t.bars.get(c.bar))
+        .map_or(1, |b| {
+            b.voices
+                .iter()
+                .rposition(|v| v.beats.iter().any(|b| !b.notes.is_empty()))
+                .map_or(1, |i| i + 1)
+        });
+    // Voices up to and including the first free slot after the last used one.
+    let last = have
+        .min(cecilia_core::MAX_VOICES - 1)
+        .max(c.voice.min(cecilia_core::MAX_VOICES - 1));
+    if forward {
+        if c.voice >= last { 0 } else { c.voice + 1 }
+    } else if c.voice == 0 {
+        last
+    } else {
+        c.voice - 1
+    }
+}
+
+/// Makes `voice` (0-based) the voice being edited, creating it in the cursor's bar as an empty
+/// placeholder when the bar doesn't have it yet. The cursor keeps its time position: it goes
+/// to the beat of the new voice sounding where it was.
+pub fn set_voice(cx: &mut EditCx, voice: usize) {
+    let voice = voice.min(cecilia_core::MAX_VOICES - 1);
+    let (t, b) = (cx.cursor.track, cx.cursor.bar);
+    let tick = {
+        let beats = cx.score.tracks[t].bars[b]
+            .voices
+            .get(cx.cursor.voice)
+            .map_or(&[][..], |v| &v.beats[..]);
+        beats
+            .iter()
+            .take(cx.cursor.beat)
+            .map(Beat::ticks)
+            .sum::<u32>()
+    };
+    let missing = {
+        let bar = &cx.score.tracks[t].bars[b];
+        voice > 0 && bar.voices.get(voice).is_none_or(Voice::is_empty)
+    };
+    cx.cursor.voice = voice;
+    if missing {
+        // A new voice stays an empty placeholder (no rest, no time filled) until typed into.
+        let _ = cx.voice();
+    }
+    let beats = &cx.score.tracks[t].bars[b].voices[voice].beats;
+    let mut start = 0;
+    let mut at = 0;
+    for (i, beat) in beats.iter().enumerate() {
+        if start > tick {
+            break;
+        }
+        at = i;
+        start += beat.ticks();
+    }
+    cx.cursor.beat = at;
 }
 
 /// Inserts beats after (or before) the cursor beat.

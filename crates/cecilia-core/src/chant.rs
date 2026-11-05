@@ -154,8 +154,9 @@ impl ChantClef {
 
     /// The clef and octave shift (semitones) that keep pitches on the four-line staff, for
     /// showing ordinary notes as chant.
-    pub fn fitting(pitches: &[u8], family: Option<ClefKind>) -> (ChantClef, i32) {
-        let clefs = [
+    /// `family` and `line` restrict the clef to a kind and a staff line when set.
+    pub fn fitting(pitches: &[u8], family: Option<ClefKind>, line: Option<u8>) -> (ChantClef, i32) {
+        let mut clefs = vec![
             (ClefKind::Do, 4),
             (ClefKind::Do, 3),
             (ClefKind::Fa, 3),
@@ -163,6 +164,9 @@ impl ChantClef {
             (ClefKind::Fa, 4),
             (ClefKind::Do, 1),
         ];
+        if let Some(l) = line {
+            clefs = vec![(ClefKind::Do, l), (ClefKind::Fa, l)];
+        }
         let mut best: Option<(f64, ChantClef, i32)> = None;
         for (order, &(kind, line)) in clefs.iter().enumerate() {
             if family.is_some_and(|f| f != kind) {

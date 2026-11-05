@@ -663,7 +663,17 @@ impl App {
                         );
                         let row = rows.last_mut().unwrap();
                         row.icon = Some(crate::icons::Icon::of_notation(*s));
-                        row.value2 = crate::picker::clef_label(*s);
+                        row.value2 = match s.chant_family() {
+                            Some(_) => {
+                                let c = crate::picker::chant_clef_now(
+                                    &self.buffer().score,
+                                    t,
+                                    self.chord_policy(),
+                                );
+                                c.gabc()
+                            }
+                            None => crate::picker::clef_label(*s),
+                        };
                         row.icon2 = crate::icons::Icon::of_clef(*s);
                     }
                     field(

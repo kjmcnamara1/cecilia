@@ -346,7 +346,7 @@ impl Playback {
             }
             Effect::PlaybackSettings => self.push_settings(app),
             // Handled by the frontend (see `dialog::apply`).
-            Effect::OpenDialog { .. } => {}
+            Effect::OpenDialog { .. } | Effect::SaveDialog { .. } => {}
             Effect::SyncTap => self.sync_tap(app),
             Effect::SyncDetect => self.sync_detect(app),
             Effect::Tuner(on) => {

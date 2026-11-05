@@ -66,6 +66,7 @@ pub const COMMANDS: &[&str] = &[
     "count-in",
     "delete",
     "delete-note",
+    "delete-beat",
     "dot",
     "duration",
     "duration-longer",
@@ -132,6 +133,7 @@ pub const COMMANDS: &[&str] = &[
     "pick-buffer",
     "pick-keymap",
     "pick-section",
+    "save-as",
     "sections",
     "section-next",
     "section-prev",
@@ -268,6 +270,8 @@ pub const COMMANDS: &[&str] = &[
     "visual-insert",
     "visual-append",
     "voice",
+    "voice-next",
+    "voice-prev",
     "volume",
     "vsplit",
     "w",
@@ -307,8 +311,8 @@ fn values(command: &str) -> Option<&'static [&'static str]> {
         "mix" => &["audio", "both", "midi"],
         "interpretation" => &["equalist", "solesmes"],
         "clef" => &[
-            "treble", "bass", "grand", "neutral", "do", "fa", "c1", "c2", "c3", "c4", "cb2", "cb3",
-            "cb4", "f1", "f2", "f3", "f4",
+            "treble", "bass", "grand", "neutral", "c1", "c2", "c3", "c4", "cb2", "cb3", "cb4",
+            "f1", "f2", "f3", "f4",
         ],
         "global-tool" => &["fretboard", "piano", "tracks", "tuner", "waveform"],
         "track-add" => &["bass", "drums", "guitar", "piano", "voice"],
@@ -573,7 +577,7 @@ pub fn complete(line: &str, cwd: &Path, score_dir: Option<&Path>, m: Matcher) ->
     let ranked = match command {
         "recover" | "recover!" => paths(arg, cwd, None, m),
         "open" | "view-new" => paths(arg, cwd, Some(SCORE_EXTENSIONS), m),
-        "w" | "write" => paths(arg, cwd, Some(WRITE_EXTENSIONS), m),
+        "w" | "write" | "save-as" | "saveas" => paths(arg, cwd, Some(WRITE_EXTENSIONS), m),
         "workspace-open" | "workspace-open!" | "workspace-save" | "workspace-save!"
         | "workspace-delete" | "workspace-delete!" => {
             m.rank(crate::workspace::workspace_names(), arg)
@@ -877,6 +881,7 @@ pub fn describe(command: &str) -> Option<&'static str> {
         "count-in" => "Toggle the count-in before playing",
         "delete" => "Delete operator",
         "delete-note" => "Delete the note under the cursor",
+        "delete-beat" => "Delete the whole beat under the cursor",
         "dot" => "Toggle a dot on the beat",
         "duration" => "Set the note value (1, 2, 4 … 64)",
         "duration-longer" => "Double the beat's length",
@@ -939,6 +944,9 @@ pub fn describe(command: &str) -> Option<&'static str> {
         "octave-down" => "Note down an octave",
         "octave-up" => "Note up an octave",
         "open" => "Open a file (no file: the system file picker)",
+        "save-as" => {
+            "Write to a new file and make it the buffer's file (no file: the system dialog)"
+        }
         "open-dialog" => "Choose files to open in the system file picker",
         "page-down" => "Move the cursor half a screen forward",
         "page-up" => "Move the cursor half a screen back",
@@ -1124,7 +1132,9 @@ pub fn describe(command: &str) -> Option<&'static str> {
         "visual-bar" => "Visual mode (bars)",
         "visual-insert" => "Visual mode: new beat before the selection, then insert mode",
         "visual-append" => "Visual mode: new beat after the selection, then insert mode",
-        "voice" => "Edit voice 1–4",
+        "voice" => "Edit voice 1–4 of the bar (created empty when new)",
+        "voice-next" => "Edit the next voice of the bar",
+        "voice-prev" => "Edit the previous voice of the bar",
         "volume" => "Level of midi, audio or metronome",
         "vsplit" => "Split the pane vertically",
         "w" | "write" => "Save (or save as / export by extension)",

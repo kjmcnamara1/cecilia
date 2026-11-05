@@ -172,6 +172,18 @@ pub(crate) fn clef_label(staff: cecilia_core::Staff) -> String {
     }
 }
 
+/// The chant clef a chant staff of `track` shows: the chant's own, else the engraver's pick.
+pub(crate) fn chant_clef_now(
+    score: &cecilia_core::Score,
+    track: &cecilia_core::Track,
+    policy: cecilia_core::melody::ChordPolicy,
+) -> cecilia_core::chant::ChantClef {
+    match track.chant.as_deref() {
+        Some(c) => c.initial_clef(),
+        None => crate::edit::chant_clef_of(score, track, policy).0,
+    }
+}
+
 /// The name of a color of the picker's list.
 pub(crate) fn color_name(c: Rgba) -> Option<&'static str> {
     COLORS
@@ -675,6 +687,36 @@ impl App {
                 let here = track.staves().get(i).copied();
                 let drums = track.kind == cecilia_core::TrackKind::Drums;
                 use cecilia_core::{Clef, Staff};
+                if here.is_some_and(|h| h.is_chant()) {
+                    // A clef per kind and line, from the bottom line up: c1 … c4, f1 … f4.
+                    let now = chant_clef_now(&self.buffer().score, track, self.chord_policy());
+                    return [Staff::Chant, Staff::ChantFa]
+                        .into_iter()
+                        .flat_map(|staff| (1..=4u8).map(move |line| (staff, line)))
+                        .map(|(staff, line)| {
+                            let (k, name) = if staff == Staff::Chant {
+                                ("Do (C)", 'c')
+                            } else {
+                                ("Fa (F)", 'f')
+                            };
+                            let same = staff.chant_family() == Some(now.kind) && line == now.line;
+                            let about = format!("{k} clef on line {line} from the bottom");
+                            Entry {
+                                label: format!("{name}{line}"),
+                                description: if same {
+                                    format!("{about}  (current)")
+                                } else {
+                                    about
+                                },
+                                action: Command::Clef(format!("{name}{line}")),
+                                search_description: true,
+                                swatch: None,
+                                icon: Icon::of_clef(staff),
+                                current: same,
+                            }
+                        })
+                        .collect();
+                }
                 let kinds: &[(&str, &str, Staff)] = match here {
                     Some(Staff::Standard(_)) => &[
                         ("treble", "Treble clef", Staff::Standard(Clef::Treble)),
@@ -691,10 +733,6 @@ impl App {
                             "Percussion clef (drum tracks)",
                             Staff::Standard(Clef::Neutral),
                         ),
-                    ],
-                    Some(Staff::Chant | Staff::ChantFa) => &[
-                        ("do", "Do (C) clef", Staff::Chant),
-                        ("fa", "Fa (F) clef", Staff::ChantFa),
                     ],
                     _ => &[],
                 };

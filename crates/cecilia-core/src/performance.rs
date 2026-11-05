@@ -368,4 +368,32 @@ mod tests {
         assert_eq!(perf.notes.len(), 1);
         assert_eq!(perf.notes[0].end, 7680);
     }
+
+    #[test]
+    fn voices_play_together_with_their_own_durations_and_ties() {
+        let mut score = score_with_bars(vec![MasterBar::default(); 2]);
+        let note = |string: u8, value: DurationValue, tie: bool| Beat {
+            duration: Duration::new(value),
+            notes: vec![Note {
+                tie,
+                ..Note::new(string, 0)
+            }],
+            ..Beat::default()
+        };
+        let eighths = |string: u8| vec![note(string, DurationValue::Eighth, false); 8];
+        // Voice 1: eight eighths per bar on string 0; voice 2: a whole bass note tied over the
+        // barline on string 5, sustained under them.
+        for b in 0..2 {
+            score.tracks[0].bars[b].voices[0].beats = eighths(0);
+            score.tracks[0].bars[b].voices.push(Voice {
+                beats: vec![note(5, DurationValue::Whole, b == 1)],
+            });
+        }
+        let perf = Performance::build(&score, &[]);
+        let bass: Vec<_> = perf.notes.iter().filter(|n| n.key == 40).collect();
+        assert_eq!(bass.len(), 1);
+        assert_eq!((bass[0].start, bass[0].end), (0, 7680));
+        assert_eq!(perf.notes.iter().filter(|n| n.key == 64).count(), 16);
+        assert!(perf.notes.iter().all(|n| n.track == 0));
+    }
 }

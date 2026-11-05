@@ -25,6 +25,16 @@ type Item = (&'static str, &'static str, &'static str);
 /// with that text typed (and completion for the argument).
 pub const SECTIONS: &[(&str, &[Item])] = &[
     (
+        // No title: the voice buttons sit headerless, centred, at the top of the pane.
+        "",
+        &[
+            ("Voice 1", "voice 1", "1"),
+            ("Voice 2", "voice 2", "2"),
+            ("Voice 3", "voice 3", "3"),
+            ("Voice 4", "voice 4", "4"),
+        ],
+    ),
+    (
         "Duration",
         &[
             ("Whole note", "duration 1", "1"),
@@ -286,6 +296,11 @@ pub struct PaletteRow {
 }
 
 impl PaletteRow {
+    /// The button is one of the voice selector's, which the frontends centre in their line.
+    pub fn is_voice(&self) -> bool {
+        self.command.starts_with("voice ")
+    }
+
     /// The name as the tooltip and the label show it: with its insert-mode keys and, if it
     /// can't be applied now, "(unavailable)", e.g. "Palm mute (m) (unavailable)".
     pub fn name(&self) -> String {
@@ -359,6 +374,10 @@ fn applies(command: &str, kind: InsertKind, visual: Option<bool>) -> bool {
         name,
         "duration" | "dot" | "double-dot" | "tuplet" | "duration-longer" | "duration-shorter"
     );
+    // The voice selector: on every notation but chant, not over a selection.
+    if name == "voice" {
+        return kind != InsertKind::Chant && visual.is_none();
+    }
     if kind == InsertKind::Chant {
         return value || (name == "clef" && visual.is_none());
     }
@@ -469,16 +488,19 @@ impl App {
             if !items.iter().any(|(_, c, _)| applies(c, kind, visual)) {
                 continue;
             }
-            let folded = self.palette.folded.contains(&s);
-            rows.push(PaletteRow {
-                kind: PaletteKind::Header { section: s, folded },
-                label: title,
-                short: "",
-                command: "",
-                active: false,
-                unavailable: None,
-                keys: Vec::new(),
-            });
+            // A section without a title (the voices) has no header, so it can't be folded.
+            let folded = !title.is_empty() && self.palette.folded.contains(&s);
+            if !title.is_empty() {
+                rows.push(PaletteRow {
+                    kind: PaletteKind::Header { section: s, folded },
+                    label: title,
+                    short: "",
+                    command: "",
+                    active: false,
+                    unavailable: None,
+                    keys: Vec::new(),
+                });
+            }
             if folded {
                 continue;
             }
@@ -524,6 +546,7 @@ impl App {
                             d,
                         )
                     }
+                    ("voice", n) => n.parse() == Ok(cursor.voice + 1),
                     ("duration", n) => n.parse() == Ok(duration.value.denominator()),
                     ("rest", _) => rest,
                     ("accidental", "double-sharp") => alter(2),
@@ -1185,6 +1208,29 @@ mod tests {
     }
 
     #[test]
+    fn the_voice_selector_leads_and_marks_the_voice_being_edited() {
+        let mut app = app();
+        let rows = app.palette_rows();
+        assert!(rows[0].is_voice(), "no header before the voices");
+        let voices: Vec<_> = rows
+            .iter()
+            .filter(|r| r.command.starts_with("voice "))
+            .collect();
+        assert_eq!(voices.len(), 4);
+        assert!(voices[0].active && !voices[1].active);
+        app.run(Command::PaletteFocus);
+        select(&mut app, "voice 2");
+        app.activate_palette();
+        let rows = app.palette_rows();
+        let active: Vec<_> = rows
+            .iter()
+            .filter(|r| r.active && r.command.starts_with("voice "))
+            .collect();
+        assert_eq!(active.len(), 1);
+        assert_eq!(active[0].command, "voice 2");
+    }
+
+    #[test]
     fn every_item_is_a_command() {
         for (_, items) in SECTIONS {
             for (label, command, _) in items.iter() {
@@ -1251,10 +1297,11 @@ mod tests {
     fn j_and_k_move_and_za_folds() {
         let mut app = app();
         app.run(Command::PaletteFocus);
+        app.set_palette_cols(4);
         let all = app.palette_rows().len();
+        // The voice buttons come first (no header); the Duration title follows them.
         press(&mut app, "j");
-        assert_eq!(app.palette_selected(), 1);
-        press(&mut app, "k");
+        assert_eq!(app.palette_selected(), 4);
         press(&mut app, "za");
         assert!(app.palette_rows().len() < all);
         press(&mut app, "<CR>");
@@ -1336,16 +1383,16 @@ mod tests {
         app.run(Command::PaletteFocus);
         app.set_palette_cols(4);
         let lines = app.palette_lines();
-        let PaletteLine::Cells(first) = &lines[1] else {
+        let PaletteLine::Cells(first) = &lines[2] else {
             panic!("a line of buttons after the first title");
         };
         assert_eq!(first.len(), 4);
-        press(&mut app, "j");
+        press(&mut app, "jj");
         assert_eq!(app.palette_selected(), first[0]);
         press(&mut app, "ll");
         assert_eq!(app.palette_selected(), first[2]);
         press(&mut app, "j");
-        let PaletteLine::Cells(second) = &app.palette_lines()[2] else {
+        let PaletteLine::Cells(second) = &app.palette_lines()[3] else {
             panic!()
         };
         assert_eq!(app.palette_selected(), second[2]);
@@ -1358,7 +1405,7 @@ mod tests {
         for _ in 0..2 {
             press(&mut app, "j");
         }
-        let PaletteLine::Cells(third) = &app.palette_lines()[3] else {
+        let PaletteLine::Cells(third) = &app.palette_lines()[4] else {
             panic!()
         };
         assert_eq!(app.palette_selected(), *third.last().unwrap());
@@ -1660,8 +1707,11 @@ mod tests {
             let mut app = focused_app(n);
             let cells = cell_lines(&app);
             let (first, last) = (&cells[0], cells.last().unwrap());
-            press(&mut app, "j");
-            assert_eq!(app.palette_selected(), first[0]);
+            assert_eq!(
+                app.palette_selected(),
+                first[0],
+                "the voice buttons come first"
+            );
             press(&mut app, "h");
             assert_eq!(
                 app.palette_selected(),
@@ -1751,7 +1801,6 @@ mod tests {
         assert_eq!(app.palette_selected(), 0);
         press(&mut app, "h");
         assert_eq!(app.palette_selected(), 0);
-        press(&mut app, "j");
         press(&mut app, "hhhhh");
         let first = cell_lines(&app)[0].clone();
         assert_eq!(app.palette_selected(), first[0]);

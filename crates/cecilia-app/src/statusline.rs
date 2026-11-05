@@ -268,6 +268,18 @@ impl App {
         // Nothing in free time and in a pickup bar.
         {
             let c = pane.cursor;
+            // The voice being edited, once the bar has more than one or another than the first.
+            let used = score
+                .tracks
+                .get(c.track)
+                .and_then(|t| t.bars.get(c.bar))
+                .map_or(0, |b| b.voices.iter().filter(|v| !v.is_empty()).count());
+            if c.voice > 0 || used > 1 {
+                right.push(
+                    Segment::new(format!("V{}", c.voice + 1), SegKind::Plain)
+                        .on_click(crate::command::Command::VoiceNext),
+                );
+            }
             if let Some(count) = score.bar_count(c.track, c.bar, c.voice) {
                 let kind = if count.is_complete() {
                     SegKind::Plain

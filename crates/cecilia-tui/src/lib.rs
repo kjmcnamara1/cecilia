@@ -1464,7 +1464,7 @@ fn tool_icon(b: &cecilia_app::toolbar::ToolButton, style: &str) -> String {
         _ if playing => ("\u{f04c}", "⏸", "pause"),
         "new" => ("\u{f0fe}", "✚", "new"),
         "open" | "open-dialog" | "e" | "edit" => ("\u{f07c}", "▤", "open"),
-        "write" | "w" | "wall" | "wa" => ("\u{f0c7}", "▣", "save"),
+        "write" | "w" | "wall" | "wa" | "save-as" | "saveas" => ("\u{f0c7}", "▣", "save"),
         "undo" | "u" => ("\u{f0e2}", "↶", "undo"),
         "redo" => ("\u{f01e}", "↷", "redo"),
         "play-toggle" | "play" => ("\u{f04b}", "▶", "play"),
@@ -1952,9 +1952,16 @@ fn draw_edit_palette(f: &mut Frame, app: &App, area: Rect, ui: &mut Ui) {
                 ));
             }
             PaletteLine::Cells(cells) => {
+                // The voice buttons are centred in the pane.
+                let x0 = if cells.first().is_some_and(|&i| rows[i].is_voice()) {
+                    let total = (cells.len() as u16 * CELL).saturating_sub(1);
+                    area.x + area.width.saturating_sub(total) / 2
+                } else {
+                    area.x + 1
+                };
                 for (k, &i) in cells.iter().enumerate() {
                     let row = &rows[i];
-                    let x = area.x + 1 + k as u16 * CELL;
+                    let x = x0 + k as u16 * CELL;
                     let style = if i == sel && focused {
                         // A neutral gray, apart from the accent of buttons in force.
                         Style::default()
@@ -3107,7 +3114,12 @@ mod render_tests {
         let mut terminal = Terminal::new(TestBackend::new(100, 40)).unwrap();
         let mut ui = Ui::default();
         terminal.draw(|f| draw(f, &mut app, None, &mut ui)).unwrap();
-        let (r, i) = *ui.palette.iter().find(|(_, i)| *i == 4).unwrap();
+        let eighth = app
+            .palette_rows()
+            .iter()
+            .position(|r| r.command == "duration 8")
+            .unwrap();
+        let (r, i) = *ui.palette.iter().find(|(_, i)| *i == eighth).unwrap();
         assert!(r.width < 8, "a button, not a line");
         app.click_palette(i);
         assert_eq!(app.insert_duration().value.denominator(), 8);
@@ -3408,6 +3420,46 @@ mod render_tests {
         let screen = render(&mut app, 60, 24);
         assert!(screen.contains("│    e  e  e  e"), "{screen}");
         assert!(screen.contains("│    ----  ----"), "{screen}");
+    }
+
+    #[test]
+    fn tab_shows_every_voice_on_a_shared_time_grid() {
+        use cecilia_core::{Beat, Duration, DurationValue as D, Note, Voice};
+        let mut score = barline_score(1, |_| {});
+        let beat = |string: u8, fret: u8, v: D| Beat {
+            duration: Duration::new(v),
+            notes: vec![Note::new(string, fret)],
+            ..Default::default()
+        };
+        score.tracks[0].bars[0].voices = vec![
+            Voice {
+                beats: vec![beat(0, 3, D::Eighth); 8],
+            },
+            Voice {
+                beats: vec![beat(5, 7, D::Half), beat(5, 8, D::Half)],
+            },
+        ];
+        let mut app = App::new(cecilia_app::Config::default(), None);
+        app.set_tool(PaneKind::Properties, Some(false));
+        app.buffers[0].score = score;
+        let screen = render(&mut app, 80, 24);
+        println!("{screen}");
+        // The bass notes are there, on the low string, and the second one lines up with the
+        // fifth eighth of the first voice.
+        let low = screen.lines().find(|l| l.contains('7')).unwrap();
+        assert!(low.contains('8'), "{screen}");
+        let high = screen
+            .lines()
+            .find(|l| l.matches('3').count() >= 8)
+            .unwrap();
+        let col = |l: &str, c: char| l.chars().position(|x| x == c).unwrap();
+        let fifth = high
+            .char_indices()
+            .filter(|(_, c)| *c == '3')
+            .nth(4)
+            .unwrap()
+            .0;
+        assert_eq!(col(low, '8'), high[..fifth].chars().count());
     }
 
     #[test]
@@ -3825,6 +3877,7 @@ mod render_tests {
             modified: false,
             history: Default::default(),
             version: 0,
+            disk: None,
         };
         let screen = render(&mut app, 80, 20);
         assert!(screen.contains("Lead"), "{screen}");

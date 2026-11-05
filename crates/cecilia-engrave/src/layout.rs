@@ -2592,7 +2592,6 @@ impl Ctx<'_> {
             .iter()
             .filter(|v| !v.beats.iter().all(|b| b.empty))
             .count();
-        let bar_blank = bar.voices.iter().all(|v| v.beats.iter().all(|b| b.empty));
         let key_alter = key_alters(mb.key_signature.accidentals);
         let mut alters: HashMap<i32, i32> = HashMap::new();
         let mut shown = false;
@@ -2619,8 +2618,11 @@ impl Ctx<'_> {
                 }
             }
         }
+        let mut voice_starts: Vec<usize> = Vec::new();
         for (vi, voice) in bar.voices.iter().enumerate() {
+            voice_starts.push(page.items.len());
             let mut t = 0;
+            let voice_blank = voice.beats.iter().all(|b| b.empty);
             let mut beamable: Vec<(usize, f64, Vec<f64>, DurationValue, u32)> = Vec::new();
             // Beats of a tab+ staff waiting for their beam: start tick, stem x, value, dots.
             let mut rhythm: Vec<RhythmBeat> = Vec::new();
@@ -2639,7 +2641,9 @@ impl Ctx<'_> {
                 t += beat.ticks();
                 // The first beat of a bar with nothing in it gets a position (for the cursor and
                 // clicks) but draws nothing.
-                let placeholder = beat.empty && vi == 0 && i == 0 && bar_blank;
+                // A voice with nothing in it keeps its place even when another voice has music,
+                // so the cursor still shows there.
+                let placeholder = beat.empty && i == 0 && voice_blank;
                 if beat.empty && !placeholder {
                     continue;
                 }
@@ -3086,6 +3090,17 @@ impl Ctx<'_> {
             tuplets.push((std::mem::take(&mut tuplet_group), tuplet_ratio));
             for (group, ratio) in tuplets {
                 self.draw_tuplet(page, &group, ratio, std_top);
+            }
+        }
+        voice_starts.push(page.items.len());
+        if bar.voices.len() > 1 {
+            // Where each voice's items lie on the page, so a frontend can dim the inactive ones.
+            for (vi, w) in voice_starts.windows(2).enumerate() {
+                page.voice_spans.push(crate::display::VoiceSpan {
+                    voice: vi,
+                    start: w[0],
+                    end: w[1],
+                });
             }
         }
         // A bar repeat sign takes the place of the notes.
@@ -4039,10 +4054,17 @@ impl Ctx<'_> {
     ) {
         let sp = self.sp;
         let size = 1.9 * sp;
-        let cx = x + self.nh_width / 2.0;
+        let cx0 = x + self.nh_width / 2.0;
         let mut above_marks: Vec<String> = Vec::new();
         for n in &beat.notes {
             let y = tab_top + n.string as f64 * 1.5 * sp;
+            // A note on a string another voice plays at the same moment steps aside.
+            let cx = cx0
+                + if self.voice_clash(pos, n) {
+                    1.1 * sp
+                } else {
+                    0.0
+                };
             let fret = if n.dead {
                 "x".to_string()
             } else {
@@ -4191,7 +4213,7 @@ impl Ctx<'_> {
                 self.draw_stroke(
                     page,
                     st,
-                    cx - w / 2.0 - 0.7 * sp,
+                    cx0 - w / 2.0 - 0.7 * sp,
                     y(lo) - 0.6 * sp,
                     y(hi) + 0.6 * sp,
                 );
@@ -4202,11 +4224,35 @@ impl Ctx<'_> {
             page.text(
                 FontKind::Italic,
                 above_marks.join(" "),
-                (cx, tab_top - 0.9 * sp),
+                (cx0, tab_top - 0.9 * sp),
                 1.5 * sp,
                 Align::Center,
             );
         }
+    }
+
+    /// Whether an earlier voice of the bar starts a different fret on the note's string at the
+    /// same moment (the two numbers would be drawn over each other).
+    fn voice_clash(&self, (bar, voice, beat): (usize, usize, usize), n: &Note) -> bool {
+        if voice == 0 {
+            return false;
+        }
+        let Some(b) = self.track.bars.get(bar) else {
+            return false;
+        };
+        let start: u32 = b.voices[voice].beats[..beat].iter().map(Beat::ticks).sum();
+        b.voices[..voice].iter().any(|v| {
+            let mut t = 0;
+            v.beats.iter().any(|other| {
+                let at = t;
+                t += other.ticks();
+                at == start
+                    && other
+                        .notes
+                        .iter()
+                        .any(|m| m.string == n.string && (m.fret != n.fret || m.dead != n.dead))
+            })
+        })
     }
 
     /// Whether the tie through the note on `string` at (bar, voice, beat) goes on to the next
@@ -4592,6 +4638,44 @@ mod tests {
         let layout = engrave(&mixed, 0, &Options::default());
         assert!(layout.beats.contains_key(&at));
         assert!(!layout.beats.contains_key(&BeatRef { beat: 1, ..at }));
+
+        // An empty first voice keeps its position when a second voice holds a bar rest, and
+        // the voices' items can be told apart to dim the inactive one.
+        let mut two = score.clone();
+        two.tracks[0].bars[0].voices.push(Voice {
+            beats: vec![Beat::default()],
+        });
+        let layout = engrave(&two, 0, &Options::default());
+        assert!(
+            layout.beats.contains_key(&at),
+            "voice 1 keeps its cursor place"
+        );
+        assert!(layout.beats.contains_key(&BeatRef { voice: 1, ..at }));
+        // A second voice that is empty too has a place for its cursor.
+        let mut blank_two = score.clone();
+        blank_two.tracks[0].bars[0].voices.push(Voice {
+            beats: vec![empty()],
+        });
+        let layout2 = engrave(&blank_two, 0, &Options::default());
+        assert!(layout2.beats.contains_key(&BeatRef { voice: 1, ..at }));
+        let page = &layout.pages[0];
+        // A span per voice on each of the two staves.
+        assert_eq!(page.voice_spans.len(), 4);
+        let dimmed = page.with_voices_dimmed(0, 90).expect("voice 2 is dimmed");
+        let second: Vec<_> = page.voice_spans.iter().filter(|s| s.voice == 1).collect();
+        assert!(
+            second.iter().any(|s| s.end > s.start),
+            "voice 2 draws its rest"
+        );
+        for s in second {
+            assert!(dimmed.items[s.start..s.end].iter().all(|i| match i {
+                Item::Line { color, .. }
+                | Item::Rect { color, .. }
+                | Item::Path { color, .. }
+                | Item::Glyph { color, .. }
+                | Item::Text { color, .. } => color.a < 255,
+            }));
+        }
     }
 
     #[test]
@@ -6699,5 +6783,64 @@ mod tests {
             sys.drag_barline(&widths, &natural, sys.bars - 1, 1.0)
                 .is_none()
         );
+    }
+
+    #[test]
+    fn voices_share_the_beat_grid_and_clashing_frets_step_aside() {
+        let beat = |fret: u8, v: DurationValue| Beat {
+            duration: Duration::new(v),
+            notes: vec![Note::new(2, fret)],
+            ..Beat::default()
+        };
+        let e = DurationValue::Eighth;
+        let track = Track {
+            strings: vec![64, 59, 55, 50, 45, 40],
+            bars: vec![Bar {
+                voices: vec![
+                    Voice {
+                        beats: (0..8).map(|i| beat(i, e)).collect(),
+                    },
+                    Voice {
+                        beats: vec![beat(9, DurationValue::Half), beat(9, DurationValue::Half)],
+                    },
+                ],
+                ..Default::default()
+            }],
+            ..Track::default()
+        };
+        let score = Score {
+            tempo: 100,
+            master_bars: vec![MasterBar::default()],
+            tracks: vec![track],
+            ..Score::default()
+        };
+        let layout = engrave(&score, 0, &Options::default());
+        let x = |voice: usize, beat: usize| {
+            layout
+                .beats
+                .iter()
+                .find(|(b, _)| b.voice == voice && b.beat == beat)
+                .unwrap()
+                .1
+                .x
+        };
+        // The second voice's second beat sits where the first voice's fifth does.
+        assert!((x(1, 1) - x(0, 4)).abs() < 1e-6);
+        assert!((x(1, 0) - x(0, 0)).abs() < 1e-6);
+        // Fret 9 against fret 0 on the same string and moment: drawn beside it, not over it.
+        let texts: Vec<(String, f64)> = layout
+            .pages
+            .iter()
+            .flat_map(|p| &p.items)
+            .filter_map(|i| match i {
+                Item::Text { text, at, .. } if text == "9" || text == "0" => {
+                    Some((text.clone(), at.x))
+                }
+                _ => None,
+            })
+            .collect();
+        let nine = texts.iter().find(|t| t.0 == "9").unwrap().1;
+        let zero = texts.iter().find(|t| t.0 == "0").unwrap().1;
+        assert!(nine > zero + 1.0, "{nine} {zero}");
     }
 }

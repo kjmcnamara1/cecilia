@@ -87,6 +87,7 @@ type CacheKey = (
     bool,
     // The incomplete-bar color, while highlighted.
     Option<[u8; 3]>,
+    usize,
 );
 
 struct Cached {
@@ -907,6 +908,20 @@ fn rgb(c: cecilia_engrave::display::Color, page: Rgba, ink: Rgba) -> Color {
     }
 }
 
+/// How much of its ink a voice that is not being edited keeps.
+const INACTIVE_VOICE_ALPHA: u8 = 90;
+
+/// The page with the voices other than `active` faded, in bars that have several.
+fn dim_inactive_voices(
+    page: &cecilia_engrave::display::Page,
+    active: usize,
+) -> std::borrow::Cow<'_, cecilia_engrave::display::Page> {
+    match page.with_voices_dimmed(active, INACTIVE_VOICE_ALPHA) {
+        Some(p) => std::borrow::Cow::Owned(p),
+        None => std::borrow::Cow::Borrowed(page),
+    }
+}
+
 fn page_scene(page: &cecilia_engrave::display::Page, paper: Rgba, ink: Rgba) -> Scene {
     let mut s = Scene::new();
     s.fill(
@@ -1632,7 +1647,7 @@ fn draw_tool_icon(
             );
             line(scene, &path(&[(1.0, 8.0), (15.0, 8.0)], false));
         }
-        "write" | "w" | "wall" | "wa" => {
+        "write" | "w" | "wall" | "wa" | "save-as" | "saveas" => {
             line(scene, &rect(1.5, 1.5, 14.5, 14.5, 2.0));
             line(
                 scene,
@@ -2183,6 +2198,8 @@ fn draw_pane_content(
             let c = app.config.theme.incomplete_bar;
             [c.r, c.g, c.b]
         }),
+        // The voice being edited: the others are dimmed.
+        pane.cursor.voice,
     );
     if views.cache.get(&id).is_none_or(|c| c.key != key) {
         let mode = match mode_name {
@@ -2213,7 +2230,7 @@ fn draw_pane_content(
         let scenes = layout
             .pages
             .iter()
-            .map(|p| page_scene(p, page, ink))
+            .map(|p| page_scene(&dim_inactive_voices(p, pane.cursor.voice), page, ink))
             .collect();
         let gap = if mode_name == "page" { 24.0 } else { 0.0 };
         let mut offsets = Vec::new();
@@ -2260,7 +2277,10 @@ fn draw_pane_content(
                 .enumerate()
                 .filter_map(|(i, p)| {
                     let lit = p.with_note_color(beat, n.string, n.staff, color)?;
-                    Some((i, page_scene(&lit, page, ink)))
+                    Some((
+                        i,
+                        page_scene(&dim_inactive_voices(&lit, pane.cursor.voice), page, ink),
+                    ))
                 })
                 .collect();
             (n, c, pages)
@@ -2444,6 +2464,8 @@ fn draw_pane_content(
         .layout
         .beats
         .get(&cursor_ref)
+        // A voice the bar doesn't have yet: the cursor shows where the bar starts.
+        .or_else(|| beat_fallback(&cached.layout, &cursor_ref))
         .filter(|_| !app.cursor_hidden(pane.buffer))
     {
         // Following playback, it slides forward along a system towards its beat (an easing that
@@ -3113,13 +3135,23 @@ fn follow_scroll(scroll: (f64, f64), view: (f64, f64), x: (f64, f64), y: (f64, f
 }
 
 fn beat_fallback<'a>(layout: &'a Layout, r: &BeatRef) -> Option<&'a cecilia_engrave::BeatPos> {
-    layout.beats.get(&BeatRef { beat: 0, ..*r }).or_else(|| {
-        layout
-            .beats
-            .iter()
-            .find(|(k, _)| k.bar == r.bar)
-            .map(|(_, v)| v)
-    })
+    layout
+        .beats
+        .get(&BeatRef { beat: 0, ..*r })
+        .or_else(|| {
+            layout.beats.get(&BeatRef {
+                voice: 0,
+                beat: 0,
+                ..*r
+            })
+        })
+        .or_else(|| {
+            layout
+                .beats
+                .iter()
+                .find(|(k, _)| k.bar == r.bar)
+                .map(|(_, v)| v)
+        })
 }
 
 /// A soft gaussian drop shadow under a floating box (palette, pickers): offset 8 px down,
@@ -3839,12 +3871,18 @@ fn draw_edit_palette(scene: &mut Scene, app: &App, views: &mut Views, r: Rect) {
                 views.palette.push((Rect::new(r.x0, y, r.x1, y + HEAD), *i));
             }
             PaletteLine::Cells(cells) => {
+                // The voice buttons are centred in the pane.
+                let x0 = if cells.first().is_some_and(|&i| rows[i].is_voice()) {
+                    r.x0 + (r.width() - cells.len() as f64 * CELL) / 2.0
+                } else {
+                    r.x0 + PAD
+                };
                 for (k, &i) in cells.iter().enumerate() {
                     let row = &rows[i];
                     let b = Rect::new(
-                        r.x0 + PAD + k as f64 * CELL + 2.0,
+                        x0 + k as f64 * CELL + 2.0,
                         y + 2.0,
-                        r.x0 + PAD + (k + 1) as f64 * CELL - 2.0,
+                        x0 + (k + 1) as f64 * CELL - 2.0,
                         y + CELL - 2.0,
                     );
                     let shape = b.to_rounded_rect(5.0);

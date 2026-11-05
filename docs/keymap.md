@@ -52,12 +52,29 @@ only be used in the GUI there, and `<D-…>` bindings never fire.
 | `0` `<Home>` / `<End>`    | first / last beat of the bar, note or not (`:bar-start`, `:bar-end`)                                                                                      | _(M1)_ |
 | `gg` / `G`                | first bar / last bar (`[count]G` = bar _count_)                                                                                                          | _(M1)_ |
 | `J` / `K`                 | next / previous track                                                                                                                                    | _(M1)_ |
+| `]v` / `[v`, `<A-v>` / `<A-V>` (also insert mode) | edit the next / previous voice of the bar: voices go round through those with notes and one more, which is created empty (`:voice-next`, `:voice-prev`) | |
+| `<A-F1>`…`<A-F4>` (also insert mode) | edit voice 1…4 of the bar (`:voice N`); a voice the bar doesn't have yet is created empty. The cursor stays at the same time position, on the beat of that voice sounding there | |
 | `]s` / `[s`         | next / previous section (`[count]` sections away; `''` goes back) |        |
 | `<leader>S`         | sections picker: every section of the file with its bars; Enter jumps there (`:sections`) | |
 | `m{a-z}` / `m{A-Z}`       | set a mark in this file / a global mark (any file)                                                                                                       |        |
 | `'{mark}` / `` `{mark} `` | jump to the mark's bar / exact position (a popup lists the marks and where they are); a global mark reopens its file if it was closed. `''` jumps back to before the last jump (also after `gg`, `G`). `` `< `` / `` `> `` (or `'<` `'>`) are the start / end of the last Visual selection, `` `^ `` where Insert mode was last left |        |
 | `zz` / `zt` / `zb`        | scroll the view so the cursor is in the middle / at the top / at the bottom of the pane (the left / right in the horizontal layout; the cursor's own staff line when a system is taller than the pane); the cursor does not move, a count is ignored (`:scroll-center`, `:scroll-top`, `:scroll-bottom`) | |
 | `<C-d>` / `<C-u>`         | half a screen down / up: half the displayed bars in the horizontal layout, else half the displayed rows of bars (rounded up, at least one; in the page layout half the rows on a page, whatever the zoom) keeping the place in the bar and on the staff | _(M1)_ |
+
+### Voices
+
+A track holds up to four voices (Guitar Pro's): independent rhythmic streams that each fill the bar
+on their own, sharing the track's instrument, tuning and mixer settings. The status line shows
+`V2` … once the bar has more than one voice or another than the first is being edited (a click
+on it goes to the next voice). Beats, durations, ties, `d` `c` `y` `p` and the other edits act on the
+voice being edited only; transposing, `:retune` and the like act on all voices. `cc` clears only
+the voice being edited (leaving it empty); a new voice is empty too (no rest, nothing filled)
+until typed into. The staves draw voices 1 and 3 with stems up and 2 and 4 with stems down,
+their rests offset, beats at the same time on the same column and clashing tab frets side by side;
+the editing palette starts with a button per voice that switches to it and
+highlights the one being edited; the terminal tab shows every voice on a shared time grid (the voices not being edited dimmed).
+Writing `.gp5` keeps two voices per bar (the status line warns when more with notes are left out);
+`.gp`, `.gpx`, `.cc` and MusicXML keep all four.
 
 ### Playback
 
@@ -216,7 +233,7 @@ is typed after it, is one undo step.
 | `I` / `A`                                              | same at the start / end of the bar (`:insert-bar-start`, `:append-bar-end`)                       |
 | `o` / `O`                                              | new bar after / before the cursor bar (`[count]` bars), then Insert mode on it (`:bar-open-after`, `:bar-open-before`) |
 | `gi`                                                   | Insert mode where Insert mode was last left in this file (on the cursor if never), adding nothing (`:insert-last`) |
-| `<leader>i`                                            | Insert mode on the cursor beat, adding nothing (`:insert-here`; the old `i` and, until 0.17, `gi`) |
+| `<CR>`                                                 | Insert mode on the cursor beat, adding nothing (`:insert-here`; the old `i` and, until 0.17, `gi`) |
 | `x`                                                    | delete the one note under the cursor: on the cursor string, or at the cursor line / space (`[count]x`); on a slash staff the beat's slash, i.e. all its notes |
 | `d{motion}` / `dd`                                     | delete beats / bars (`[count]dd`). `dl` the beat under the cursor, `dh` the one before it, `dw` `de` `db` `d$` `d^` …  |
 | `y{motion}` / `yy`, `p` / `P`                          | yank beats or bars (`yl`, `yh` …, `yy` the bar) / put after / before the cursor                   |
@@ -557,12 +574,14 @@ Shared keys:
 
 | keys                         | command                                                         |
 | ---------------------------- | --------------------------------------------------------------- |
-| `<Space>` / `<Right>`        | next beat, appending one (or moving to the next bar) at the end |
-| `<Left>` / `<Up>` / `<Down>` | previous beat / row up / row down (across staves, as `k` / `j`) |
+| `<Space>`                    | next beat, appending one (or moving to the next bar) at the end |
+| `<Left>` `<Right>` / `<Up>` `<Down>` | the same as `h` `l` / `k` `j`: previous / next beat (no beat is added), row up / down (across staves). On chant and on drum tracks, where those letters are pitches and instruments, the arrows still move |
 | `h` `l` / `j` `k`            | previous / next beat (no beat is added), row down / up. Not on chant, where they are pitches; on drum tracks `h` and `k` are the hi-hat and kick |
 | `<CR>`                       | finish the beat: on a tab the fret typed stays (an empty beat becomes a rest); on a standard staff a note is put at the cursor's line or space (in the key; nothing if the beat has a note there already); on a slash staff the slash. Then the cursor goes to the next beat, as `<Space>` (appending one while the bar has room for it, else to the start of the next bar, adding a bar at the end of the score). The beats get the insert duration: the duration tool of the palette, `+` `-` `<A-1>`…`<A-7>`. Chant keeps `<CR>` = a new syllable (`:insert-enter`) |
 | `<A-CR>`                     | new beat after the cursor, staying (`:beat-new`; the old `<CR>`) |
-| `<BS>` / `<Del>`             | delete the note                                                 |
+| `<A-v>` / `<A-V>` / `<A-F1>`…`<A-F4>` | next / previous voice, voice 1…4 (see Voices) |
+| `<BS>`                       | delete the note                                                 |
+| `<Del>`                      | delete the whole beat, leaving no rest (`:delete-beat`; chant: the note) |
 | `r` / `.` / `<C-t>`          | rest / dot / triplet                                            |
 | `+` / `-` / `<A-1>`…`<A-7>`  | longer / shorter / whole … 64th                                 |
 | `<C-a>` / `<C-x>`            | the cursor note a semitone up / down                            |
@@ -631,6 +650,7 @@ e.g. `"<C-g>" = "completion-ignore-case"`, `"<C-f>" = "completion-fuzzy"`.
 | -------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | `:open {file}` / `:w [file]` / `:q` (quit) / `:wq` (write all, quit) / `:q!`                  | _(M2)_ `:w file.ext` exports by extension                                                                                                                                                   |
 | `:focus-ring-width [N\|default]` / `:focus-ring-color [#hex\|default]` / `:tabline-wrap [on\|off]` | set (no argument: show; `:tabline-wrap` toggles) `ui.focus_ring_width`, `ui.focus_ring_color` and `tabline.wrap` for the session; the width clamps to the config range (ring 0 to 8) |
+| `:save-as [file]` (`:saveas`) | write to a new file and make it the buffer's file (later `:w` writes there; `:w file` stays an export). No file: the system save dialog (starting beside the current file, suggesting its name or `untitled.cc`; cancelling does nothing; no file extension means `.cc`). A plain `:w` on a buffer with no file runs it too. Builds without the `dialog` feature say "use :write FILE" |
 | `:wa` (`:wall`) / `:pane-close` | write every changed file / close the focused pane (its view with the last pane); the last pane of the last view cannot be closed (a message says so; close its buffers to reach the [dashboard](#dashboard)); the remaining panes of its split share the space equally again (`ui.equalize_on_close`; off: the neighbour takes it; `:equalize-on-close [on\|off]` sets or toggles it for the session) |
 | `:split` / `:vsplit`                                                 | _(M1)_                                                                                                                                                                                      |
 | `:track {n}`                                                         | _(M1)_                                                                                                                                                                                      |
@@ -647,7 +667,7 @@ e.g. `"<C-g>" = "completion-ignore-case"`, `"<C-f>" = "completion-fuzzy"`.
 | `:beams auto\|force\|break\|break-secondary` / `:stems auto\|up\|down` | beaming and stem direction of the cursor beat, or of every beat of the Visual selection (`force` joins a beat to the one before it, `break` starts a new group, `break-secondary` keeps the primary beam but breaks the shorter ones; `auto` clears the override) |
 | `:accidental double-sharp\|double-flat`                              | the cursor note on a standard staff, spelled with a double sharp / flat (also `sharp`, `flat`, `natural`)                                                                                   |
 | `:toggle {technique}`                                                | on the cursor note or beat: `accent` `heavy-accent` `staccato` `fermata` `let-ring` `palm-mute` `hammer` (legato) `bend` `half-bend` `vibrato` `vibrato-wide` `harmonic` `artificial-harmonic` `pinch-harmonic` `tremolo` `tap` `left-hand-tap` `slap` `pop` `slide` (shift) `slide-legato` `slide-in-above` `slide-in-below` `slide-out-down` `slide-out-up` `grace-before` `grace-on` `stroke-down` `stroke-up` `arpeggio-down` `arpeggio-up` `rasgueado` `pick-down` `pick-up` `crescendo` `decrescendo` `fade-in` `fade-out` `volume-swell` `tie` `dead` `ghost` |
-| `:note C#4` / `:voice 2`                                             | set the cursor note's pitch / edit another voice                                                                                                                                            |
+| `:note C#4` / `:voice 2`                                             | set the cursor note's pitch / edit voice N (1–4) of the bar, creating it empty if new                                                                                                                                            |
 | `:tuning drop-d` or `:tuning D2 A2 D3 G3 B3 E4` / `:capo 2`          | retune keeping pitches                                                                                                                                                                      |
 | `:refinger` / `:transpose 2`                                         | re-finger the track to minimise hand movement / transpose                                                                                                                                   |
 | `:track-add bass` / `:track-delete` / `:new`                         | tracks and new scores (`:track-add piano` gets a grand staff)                                                                                                                                 |
@@ -655,7 +675,7 @@ e.g. `"<C-g>" = "completion-ignore-case"`, `"<C-f>" = "completion-fuzzy"`.
 | `:incomplete-bars [on\|off\|toggle]` | draw the staff lines of bars that don't hold their full count in red (`theme.incomplete_bar`; `ui.highlight_incomplete_bars = true` sets it at start-up). A bar is flagged when any of its voices that holds notes or rests is shorter or longer than the time signature (tuplets and dots counted exactly, a few ticks of rounding allowed); bars with nothing in them, free-time bars and a pickup first bar are never flagged. All staff kinds are marked in the GUI engraving; the TUI tab view colors the bar's dashed staff lines |
 | `:bar-numbers [every\|system\|toggle]` | number every bar, or only the first bar of each line (the default; `ui.bar_numbers = "every"` in `config.toml` sets it at start-up). The GUI engraving shows the numbers; the TUI tab view always numbers every bar |
 | `:notation {notation}` | show the cursor's staff in another notation: `standard` (keeps the staff's clef), `tab`, `tab+` (tab with a rhythm row of note glyphs), `slash`, `chant`; a clef name (`treble`, `bass`, `grand [split]`, `neutral`, `chant fa`) is accepted too and sets it. A tab on a track without strings puts its notes on strings (refused if one would not fit). `:staff` is the old name |
-| `:clef {clef}` | the clef of the cursor's staff, by its notation. Standard: `treble`, `bass`, `grand [split]` (a grand staff splits at C3 unless a note such as `G3` is given) or `neutral` (percussion clef: drum tracks only, and the only clef they take). Chant: `do` or `fa`. Tab and slash staves have no clef. On a chant track also `c1`–`c4`, `f1`–`f4`, `cb3` (notes keep their staff positions) |
+| `:clef {clef}` | the clef of the cursor's staff, by its notation. Standard: `treble`, `bass`, `grand [split]` (a grand staff splits at C3 unless a note such as `G3` is given) or `neutral` (percussion clef: drum tracks only, and the only clef they take). Chant: `c1`–`c4` / `f1`–`f4` (the staff line, 1 is the bottom one) (line 1 is the bottom one). On a staff of an ordinary track the notes keep their pitch and are re-placed at the new clef; on a chant track they keep their staff positions, and `cb3` (flat clef) is also accepted. Tab and slash staves have no clef |
 | `:lyrics-attach {above\|below} [track]` / `:lyrics-attach none` | attach lyrics to the cursor's staff, above or below it (not both), taken from the given track (number; the staff's own track by default) and aligned with the staff's beats by their position in the bar. A track whose staves have none attached shows its own lyrics below its top staff; once any staff has some, only those staves show lyrics |
 | `:staff-remove [n]` / `:staff-move {n\|+N\|-N}`                      | remove a staff (1 = top; the cursor's by default; the last one stays) / move the cursor's staff to position n, or down / up |
 | `:lyrics [verse] TEXT` _(M7)_                                        | syllables from the cursor on, one per note, in Guitar Pro syntax: spaces and hyphens separate syllables (`he-si-tate`), an extra space skips a note, `+` joins words on one note; verse 1–5 |
@@ -740,7 +760,7 @@ flat or natural when needed), `x` deletes it and `u` undoes, as on any track.
 | -------------------------------------------- | ----------------------------------------------------------------------------------------------------- |
 | `:gabc` / `:gabc fgh` / `:gabc Glo(fg)ri(h)` | show the cursor syllable as GABC; replace its notes, or the syllable itself                           |
 | `:interpretation [equalist\|solesmes]`       | rhythm used for playback and the modern transcription                                                 |
-| `:clef c3`                                   | change the chant clef (`c1`–`c4`, `f1`–`f4`, `cb3` for a flat clef, or `do` / `fa` keeping the line); notes keep their staff positions |
+| `:clef c3`                                   | change the chant clef (`c1`–`c4`, `f1`–`f4`, `cb3` for a flat clef); notes keep their staff positions |
 | `:chant-view`                                | square notation / modern transcription of chant tracks                                                |
 | `:modern-to-chant`                           | open the cursor track's melody as chant in a new buffer (syllables from lyrics)                       |
 | `:chant-to-modern`                           | turn the chant track into an ordinary staff track                                                     |
