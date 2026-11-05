@@ -132,6 +132,7 @@ pub const COMMANDS: &[&str] = &[
     "pick-buffer",
     "pick-keymap",
     "pick-section",
+    "save-as",
     "sections",
     "section-next",
     "section-prev",
@@ -573,7 +574,7 @@ pub fn complete(line: &str, cwd: &Path, score_dir: Option<&Path>, m: Matcher) ->
     let ranked = match command {
         "recover" | "recover!" => paths(arg, cwd, None, m),
         "open" | "view-new" => paths(arg, cwd, Some(SCORE_EXTENSIONS), m),
-        "w" | "write" => paths(arg, cwd, Some(WRITE_EXTENSIONS), m),
+        "w" | "write" | "save-as" | "saveas" => paths(arg, cwd, Some(WRITE_EXTENSIONS), m),
         "workspace-open" | "workspace-open!" | "workspace-save" | "workspace-save!"
         | "workspace-delete" | "workspace-delete!" => {
             m.rank(crate::workspace::workspace_names(), arg)
@@ -939,6 +940,9 @@ pub fn describe(command: &str) -> Option<&'static str> {
         "octave-down" => "Note down an octave",
         "octave-up" => "Note up an octave",
         "open" => "Open a file (no file: the system file picker)",
+        "save-as" => {
+            "Write to a new file and make it the buffer's file (no file: the system dialog)"
+        }
         "open-dialog" => "Choose files to open in the system file picker",
         "page-down" => "Move the cursor half a screen forward",
         "page-up" => "Move the cursor half a screen back",

@@ -15,6 +15,7 @@ pub mod edit;
 #[cfg(test)]
 mod edit_tests;
 mod editor;
+mod external;
 pub mod history;
 pub mod icons;
 pub mod instrument;

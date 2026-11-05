@@ -9,6 +9,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- `:save-as [file]` saves the buffer under a new name: with no file it opens the system save dialog (filters for the formats cecilia writes, `.cc` first); with a file it writes there. The buffer is renamed, so later `:w` writes to it; `:w file` is the same as `:save-as file`. The dialog suggests the buffer's file name, else the kebab-case score title. A plain `:w` on a buffer with no file now runs `:save-as` instead of failing.
+- A file open in a buffer that is changed outside the app flags the buffer modified and asks whether to load the changes (`y` reloads, `n` keeps your version); a deleted file flags the buffer modified (`:w` recreates it).
 - The chant clef can be moved to another staff line anywhere a chant staff is shown: `:clef c1`–`c4` / `f1`–`f4` now also work on a chant staff of an ordinary track (the notes keep their pitch and are re-placed at the new clef; stored as `Track.chant_line`, old files load as before), and the tracks pane's clef box steps through `c1`–`c4`, `f1`–`f4` (and shows the clef with its line).
 
 ## [0.29.0] - 2026-11-05

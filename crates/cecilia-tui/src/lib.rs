@@ -1464,7 +1464,7 @@ fn tool_icon(b: &cecilia_app::toolbar::ToolButton, style: &str) -> String {
         _ if playing => ("\u{f04c}", "⏸", "pause"),
         "new" => ("\u{f0fe}", "✚", "new"),
         "open" | "open-dialog" | "e" | "edit" => ("\u{f07c}", "▤", "open"),
-        "write" | "w" | "wall" | "wa" => ("\u{f0c7}", "▣", "save"),
+        "write" | "w" | "wall" | "wa" | "save-as" | "saveas" => ("\u{f0c7}", "▣", "save"),
         "undo" | "u" => ("\u{f0e2}", "↶", "undo"),
         "redo" => ("\u{f01e}", "↷", "redo"),
         "play-toggle" | "play" => ("\u{f04b}", "▶", "play"),
@@ -3825,6 +3825,7 @@ mod render_tests {
             modified: false,
             history: Default::default(),
             version: 0,
+            disk: None,
         };
         let screen = render(&mut app, 80, 20);
         assert!(screen.contains("Lead"), "{screen}");
