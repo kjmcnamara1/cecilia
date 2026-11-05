@@ -5,6 +5,47 @@ Planned work. Finished items move to `CHANGELOG.md` under `[Unreleased]`.
 ### Docs
 
 - [ ] Static site for documentation (Zensical)
+- [ ] Document all options in docs/OPTIONS.md
+- [ ] Document all commands in docs/COMMANDS.md
+- [x] Document the specification for the .cc file in a section in docs/SPEC.md
+
+### Refactor
+
+#### Options
+
+- All settings are "options"
+- Always in lower_snake_case
+- Options are all defined via dot separation
+  - e.g. tabline.truncation.max_width
+- All options have a default value
+- Remove all option-setting specific commands
+- Options can be set from config.toml file directly
+- Options can be set from command line with -o or --option
+  - e.g. cecilia -o OPTION1=value1 OPTION2=value2.1,value2.2 OPTION3=true OPTION4=default
+  - everything after "--" in command should be interpreted as file names
+    - e.g. cecilia -o tabline.wrap=true -W foo -- song.cc tab.gp
+- Options are set in app with command :set OPTION [value]
+  - If no value, set to default value (can also be set with special value
+    "default" to be explicit)
+  - If invalid value is set, fail with helpful error message giving allowed values
+  - Array of values option is set with a comma-separated list with no spaces
+    like :set OPTION value1,value2,value3,...
+- Print current value of option with :get OPTION
+
+##### Option Types
+
+- boolean
+  - choices = true/false
+  - special value "toggle" to switch
+- integer or float
+  - absolute values set with NUMBER
+  - relative values set with +NUMBER or -NUMBER
+- string
+- array of values
+
+#### Commands
+
+- Always in lower-kebab-case
 
 ### Tool Panes
 
