@@ -9,7 +9,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
-- The chant clef can be moved to another staff line anywhere a chant staff is shown: `:clef c1`–`c4` / `f1`–`f4` now also work on a chant staff of an ordinary track (the notes keep their pitch and are re-placed at the new clef; stored as `Track.chant_line`, old files load as before), `:clef-line {1-4|up|down}` and the Normal-mode keys `tu` / `td` on a chant staff move it a line, and the tracks pane's clef box steps through `c1`–`c4`, `f1`–`f4` (and shows the clef with its line).
+- The chant clef can be moved to another staff line anywhere a chant staff is shown: `:clef c1`–`c4` / `f1`–`f4` now also work on a chant staff of an ordinary track (the notes keep their pitch and are re-placed at the new clef; stored as `Track.chant_line`, old files load as before), and the tracks pane's clef box steps through `c1`–`c4`, `f1`–`f4` (and shows the clef with its line).
 
 ## [0.29.0] - 2026-11-05
 
@@ -219,7 +219,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
-- `:clef` picks the clef of the cursor's staff by its notation: `treble`, `bass`, `grand [split]` or `neutral` (the percussion clef, now the clef of drum staves) for standard notation, `do` or `fa` for chant (a chant staff on an ordinary track fits its melody to a C or an F clef). Tab and slash staves have no clef. On a chant track it still takes `c1`–`c4`, `f1`–`f4` and `cb3`.
+- `:clef` picks the clef of the cursor's staff by its notation: `treble`, `bass`, `grand [split]` or `neutral` (the percussion clef, now the clef of drum staves) for standard notation, `c1`–`c4` or `f1`–`f4` for chant. Tab and slash staves have no clef. On a chant track it still takes `c1`–`c4`, `f1`–`f4` and `cb3`.
 - `:lyrics-attach above|below [TRACK]` (or `none`) attaches lyrics to the cursor's staff, above or below it, taken from any track (the staff's own by default) and aligned with the staff's beats by position in the bar. Lyrics above a staff sit just over the highest notation, stem, mark or chord name over them, and under a section marker. Lyrics below a staff (the track's own or attached) are placed under whatever hangs below it, including dynamics and hairpins, which now sit closest to the staff; syllables that fall on the same place or too close are set one after another, never overlapping.
 - `ui.bar_numbers = "every"` (and `:bar-numbers every|system|toggle`) numbers every bar in the engraved score, not just the first bar of each line.
 

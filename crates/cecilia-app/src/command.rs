@@ -385,8 +385,6 @@ pub enum Command {
     Clef(String),
     /// Initial clef of a chant track (`c4`, `cb3`, `f3`); notes keep their staff positions.
     ChantClef(String),
-    /// Moves the chant clef to a staff line: `1`–`4`, `up` or `down`.
-    ClefLine(String),
     /// Attach lyrics to the cursor's staff: `above` or `below`, optionally `TRACK`; `none`
     /// detaches them.
     LyricsAttach(String),
@@ -1035,11 +1033,7 @@ impl Command {
             "gabc" => Gabc(arg.map(String::from)),
             "interpretation" => Interpretation(arg.map(String::from)),
             "clef" => Clef(
-                arg.ok_or("clef: expected treble, bass, grand, neutral, do or fa")?
-                    .to_string(),
-            ),
-            "clef-line" => ClefLine(
-                arg.ok_or("clef-line: expected 1–4, up or down")?
+                arg.ok_or("clef: expected treble, bass, grand, neutral, c1–c4 or f1–f4")?
                     .to_string(),
             ),
             "lyrics-attach" => LyricsAttach(

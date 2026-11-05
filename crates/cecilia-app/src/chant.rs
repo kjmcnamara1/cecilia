@@ -554,19 +554,6 @@ mod tests {
     }
 
     #[test]
-    fn clef_line_moves_the_clef() {
-        let mut app = app();
-        app.run(Command::ClefLine("3".into()));
-        assert!(gabc(&app).starts_with("(c3)"));
-        app.run(Command::ClefLine("up".into()));
-        assert!(gabc(&app).starts_with("(c4)"));
-        app.run(Command::ClefLine("up".into()));
-        assert!(gabc(&app).starts_with("(c4)"), "stays on the staff");
-        app.run(Command::ClefLine("down".into()));
-        assert!(gabc(&app).starts_with("(c3)"));
-    }
-
-    #[test]
     fn modern_chant_staff_takes_a_clef_line() {
         use cecilia_core::chant::ClefKind;
         let mut app = app();
@@ -592,12 +579,11 @@ mod tests {
             (ClefKind::Fa, 2)
         );
         assert_eq!(pitches(&app), before, "same sounding pitches");
-        app.run(Command::ClefLine("up".into()));
-        assert_eq!(view(&app).clef.line, 3);
         app.run(Command::Clef("do".into()));
         assert_eq!(
             (view(&app).clef.kind, view(&app).clef.line),
-            (ClefKind::Do, 3)
+            (ClefKind::Fa, 2),
+            "do is no longer a clef"
         );
     }
 }

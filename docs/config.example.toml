@@ -134,7 +134,6 @@ clef = "treble"          # clef of a standard staff added without one: treble, b
 
 [keymap.normal-slash]
 [keymap.normal-chant]
-# "tu" = "clef-line up"     # defaults: tu / td move the chant clef up / down a staff line
 
 [keymap.insert]
 # Insert-mode keys on every staff, e.g. durations. Shared defaults: h j k l move the cursor

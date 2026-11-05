@@ -539,8 +539,8 @@ const DEFAULT_NORMAL_STANDARD: &[(&str, &str)] = &[
 /// Normal mode on a slash staff.
 const DEFAULT_NORMAL_SLASH: &[(&str, &str)] = &[("ta", "toggle accent"), ("tt", "toggle tie")];
 
-/// Normal mode on chant: the clef up or down a line (chant signs are typed in insert mode).
-const DEFAULT_NORMAL_CHANT: &[(&str, &str)] = &[("tu", "clef-line up"), ("td", "clef-line down")];
+/// Normal mode on chant: no technique keys (chant signs are typed in insert mode).
+const DEFAULT_NORMAL_CHANT: &[(&str, &str)] = &[];
 
 const DEFAULT_INSERT: &[(&str, &str)] = &[
     ("<Esc>", "normal"),

@@ -1381,7 +1381,6 @@ impl App {
             TrackAdd(kind) => self.add_track(kind),
             Notation(arg) => self.set_notation(arg),
             Clef(arg) => self.set_clef(arg),
-            ClefLine(arg) => self.set_clef_line(arg),
             LyricsAttach(arg) => self.attach_lyrics(arg),
             StaffAdd(arg) => self.add_staff(arg.as_deref()),
             StaffRemove(n) => self.remove_staff(*n),
@@ -1856,39 +1855,8 @@ impl App {
         }
     }
 
-    /// Moves the clef of the cursor's chant staff to another line: `1`–`4`, or `up` / `down`
-    /// from where it is now.
-    fn set_clef_line(&mut self, arg: &str) {
-        let arg = arg.trim();
-        let (track, here) = self.cursor_staff();
-        let (Some(track), Some(here)) = (track, here) else {
-            return;
-        };
-        if !here.is_chant() {
-            return self.error("clef-line: the cursor is not on a chant staff");
-        }
-        let now = match track.chant.as_deref() {
-            Some(c) => c.initial_clef(),
-            None => crate::edit::chant_clef_of(&self.buffer().score, track, self.chord_policy()).0,
-        };
-        let line = match arg {
-            "up" => now.line.saturating_add(1),
-            "down" => now.line.saturating_sub(1),
-            n => match n.parse::<u8>() {
-                Ok(l) => l,
-                Err(_) => return self.error("clef-line: expected 1–4, up or down"),
-            },
-        };
-        if !(1..=4).contains(&line) {
-            return self.error(format!("clef-line: line {line} is off the staff (1–4)"));
-        }
-        let k = if now.kind == ClefKind::Do { 'c' } else { 'f' };
-        let flat = if now.flat { "b" } else { "" };
-        self.set_clef(&format!("{k}{flat}{line}"));
-    }
-
     /// Sets the clef of the cursor's staff, among those its notation has: treble, bass, grand
-    /// or neutral for standard notation; do or fa for chant. Tab and slash have none.
+    /// or neutral for standard notation; c1–c4 or f1–f4 for chant. Tab and slash have none.
     fn set_clef(&mut self, arg: &str) {
         let arg = arg.trim();
         let (track, here) = self.cursor_staff();
@@ -1913,56 +1881,31 @@ impl App {
             },
             Notation::Chant => {
                 let family = match arg.chars().next() {
-                    _ if arg == "do" => Some(ClefKind::Do),
-                    _ if arg == "fa" => Some(ClefKind::Fa),
                     Some('c') => Some(ClefKind::Do),
                     Some('f') => Some(ClefKind::Fa),
                     _ => None,
                 };
-                let Some(family) = family else {
-                    self.error(format!(
-                        "clef: '{arg}' is not a chant clef (do, fa{})",
-                        if chant_track {
-                            ", c1–c4, f1–f4, cb3"
-                        } else {
-                            ""
-                        }
-                    ));
+                let parsed = cecilia_core::chant::ChantClef::parse(arg);
+                let (Some(family), Some(c)) = (family, parsed) else {
+                    self.error(format!("clef: '{arg}' is not a chant clef (c1–c4, f1–f4)"));
                     return;
                 };
                 if chant_track {
-                    // The clef of the chant itself; do / fa keep its line.
-                    let spec = match arg {
-                        "do" | "fa" => {
-                            let line = track.chant.as_ref().map_or(3, |c| c.initial_clef().line);
-                            format!("{}{line}", if arg == "do" { 'c' } else { 'f' })
-                        }
-                        _ => arg.to_string(),
-                    };
-                    self.run(Command::ChantClef(spec));
-                } else if arg == "do" || arg == "fa" {
-                    self.put_staff(if family == ClefKind::Do {
-                        Staff::Chant
-                    } else {
-                        Staff::ChantFa
-                    });
+                    self.run(Command::ChantClef(arg.to_string()));
+                } else if c.flat || !(1..=4).contains(&c.line) {
+                    self.error(format!(
+                        "clef: '{arg}' is not a clef for this staff (c1–c4, f1–f4)"
+                    ));
                 } else {
                     // `c3`, `f2` …: the notes keep their pitch, so the engraver re-places them.
-                    match cecilia_core::chant::ChantClef::parse(arg) {
-                        Some(c) if !c.flat && c.line <= 4 => {
-                            self.put_chant_staff(
-                                if family == ClefKind::Do {
-                                    Staff::Chant
-                                } else {
-                                    Staff::ChantFa
-                                },
-                                Some(c.line),
-                            );
-                        }
-                        _ => self.error(format!(
-                            "clef: '{arg}' is not a clef for this staff (do, fa, c1–c4, f1–f4)"
-                        )),
-                    }
+                    self.put_chant_staff(
+                        if family == ClefKind::Do {
+                            Staff::Chant
+                        } else {
+                            Staff::ChantFa
+                        },
+                        Some(c.line),
+                    );
                 }
             }
         }
@@ -2358,16 +2301,16 @@ mod tests {
         a.run(Command::Notation("slash".into()));
         a.run(Command::Clef("treble".into()));
         assert_eq!(staves(&a)[0], Staff::Slash);
-        // Chant staves take do or fa, and keep fa when asked for `chant` again.
+        // Chant staves take c1–c4 or f1–f4, and keep fa when asked for `chant` again.
         a.run(Command::Notation("chant".into()));
         assert_eq!(staves(&a)[0], Staff::Chant);
-        a.run(Command::Clef("fa".into()));
+        a.run(Command::Clef("f3".into()));
         assert_eq!(staves(&a)[0], Staff::ChantFa);
         a.run(Command::Clef("treble".into()));
         assert_eq!(staves(&a)[0], Staff::ChantFa);
         a.run(Command::Notation("chant".into()));
         assert_eq!(staves(&a)[0], Staff::ChantFa);
-        a.run(Command::Clef("do".into()));
+        a.run(Command::Clef("c3".into()));
         assert_eq!(staves(&a)[0], Staff::Chant);
         // Drums read the neutral clef, whatever is asked.
         a.run(Command::TrackAdd("drums".into()));
