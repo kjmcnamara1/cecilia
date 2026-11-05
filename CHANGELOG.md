@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.24.0] - 2026-11-04
+
 ### Added
 
 - `ui.focus_ring_width` (0 to 8, default 4) and `ui.focus_ring_color` (default: the mode's color) set the ring around the focused pane; the terminal UI takes the color, and a thick border above width 4.

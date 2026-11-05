@@ -65,12 +65,6 @@ Planned work. Finished items move to `CHANGELOG.md` under `[Unreleased]`.
 
 - [ ] Try to more closely emulate a GTK4 style
 
-### Configuration
-
-- [ ] Allow setting size and color of focus-ring
-- [ ] Setting to enable/disable cycle/wrap focus of buffers in the tabline
-- [ ] Ability to set corner radii
-
 ### Scripting
 
 - [ ] Add mlua for ability to script application and create plugins
