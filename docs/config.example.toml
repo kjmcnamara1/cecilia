@@ -31,6 +31,8 @@ focus_ring_width = 4.0 # GUI: thickness in pixels of the ring around the focused
 # focus_ring_color = "#fabe28" # color of that ring (#rgb, #rrggbb or #rrggbbaa); unset: the current mode's color (:focus-ring-color #hex|default)
 equalize_on_close = true # closing a pane re-equalizes the split it was in (off: the neighbour takes its space; :equalize-on-close [on|off] changes it for the session)
 keep_files_in_new_view = true # :view-new starts the new view with the current files (as tabline.new_view says; off: with the dashboard, no files)
+workspace_autosave_on_quit = true # quitting runs :workspace-save for the active workspace (:quit! never does; no workspace: nothing)
+workspace_restore_last = true # `cecilia` with no arguments loads the last workspace (created as "default" if none is saved); off: the dashboard, with no workspace
 tracks_peek = 1.0        # seconds the tracks show when the track changes, while no tracks pane is
                          # shown (0: never)
 

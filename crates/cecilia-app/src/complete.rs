@@ -273,10 +273,12 @@ pub const COMMANDS: &[&str] = &[
     "w",
     "waveform",
     "waveform-strip",
-    "workspace-close",
+    "workspace-delete",
+    "workspace-delete!",
     "workspace-open",
     "workspace-open!",
     "workspace-save",
+    "workspace-save!",
     "wq",
     "write",
     "write-quit",
@@ -572,7 +574,8 @@ pub fn complete(line: &str, cwd: &Path, score_dir: Option<&Path>, m: Matcher) ->
         "recover" | "recover!" => paths(arg, cwd, None, m),
         "open" | "view-new" => paths(arg, cwd, Some(SCORE_EXTENSIONS), m),
         "w" | "write" => paths(arg, cwd, Some(WRITE_EXTENSIONS), m),
-        "workspace-open" | "workspace-open!" | "workspace-save" => {
+        "workspace-open" | "workspace-open!" | "workspace-save" | "workspace-save!"
+        | "workspace-delete" | "workspace-delete!" => {
             m.rank(crate::workspace::workspace_names(), arg)
         }
         "audio" => {
@@ -1140,10 +1143,12 @@ pub fn describe(command: &str) -> Option<&'static str> {
         }
         "design-reset" => "Discard every manual page-layout adjustment",
         "wq" | "x" | "write-quit" => "Write every changed file and quit",
-        "workspace-save" => "Save the views, panes and open files as a workspace",
-        "workspace-open" => "Open a saved workspace",
-        "workspace-open!" => "Open a workspace, discarding unsaved changes",
-        "workspace-close" => "Save and leave the active workspace for default",
+        "workspace-save" => "Save the session as a workspace (a new name duplicates it)",
+        "workspace-save!" => "Save the session as a workspace, overwriting one of that name",
+        "workspace-open" => "Save this workspace, then switch to another (created if new)",
+        "workspace-open!" => "Switch to another workspace without saving this one",
+        "workspace-delete" => "Delete a workspace (the active one without a name), after asking",
+        "workspace-delete!" => "Delete a workspace without asking",
         "yank" => "Yank operator",
         "scroll-bottom" => "Scroll so the cursor is at the bottom of the view",
         "scroll-center" => "Scroll so the cursor is in the middle of the view",

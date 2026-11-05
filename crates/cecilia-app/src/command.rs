@@ -352,12 +352,14 @@ pub enum Command {
     /// Draw the staff lines of bars without their full count in red (`Some(true)`), or not;
     /// toggles without an argument.
     IncompleteBars(Option<bool>),
-    /// Save the session as a workspace (by name or path; the active one without).
-    WorkspaceSave(Option<String>),
-    /// Replace the session with a saved workspace (`!` discards unsaved changes).
+    /// Save the session as a workspace under a name (the active one without); `!` overwrites an
+    /// existing workspace of that name.
+    WorkspaceSave(Option<String>, bool),
+    /// Save the current workspace and switch to another, created if new (`!` skips the save and
+    /// discards unsaved changes).
     WorkspaceOpen(String, bool),
-    /// Stop saving the session to the active workspace.
-    WorkspaceClose,
+    /// Delete a workspace (the active one without a name); `!` skips the confirmation.
+    WorkspaceDelete(Option<String>, bool),
     /// Set a mark: await its letter (`m`).
     SetMark,
     /// Jump to a mark: await its letter (`'` to its bar, `` ` `` exactly).
@@ -985,13 +987,17 @@ impl Command {
                     ));
                 }
             }),
-            "workspace-save" => WorkspaceSave(arg.map(String::from)),
-            "workspace-open" | "workspace-open!" => WorkspaceOpen(
-                arg.ok_or("workspace-open: expected a workspace name or path")?
-                    .to_string(),
-                name.ends_with('!'),
-            ),
-            "workspace-close" => WorkspaceClose,
+            "workspace-save" | "workspace-save!" => {
+                WorkspaceSave(arg.map(String::from), name.ends_with('!'))
+            }
+            "workspace-open" | "workspace-open!" => match arg {
+                Some(a) => WorkspaceOpen(a.to_string(), name.ends_with('!')),
+                None if name.ends_with('!') => Pick(crate::picker::PickerKind::WorkspaceDiscard),
+                None => Pick(crate::picker::PickerKind::Workspace),
+            },
+            "workspace-delete" | "workspace-delete!" => {
+                WorkspaceDelete(arg.map(String::from), name.ends_with('!'))
+            }
             "set-mark" => SetMark,
             "goto-mark" => GotoMark(
                 arg.and_then(|a| a.chars().next())

@@ -19,6 +19,8 @@ pub enum PickerKind {
     Macro,
     /// Every key binding of every mode, found by keys, command or description.
     Keymap,
+    /// Workspaces to switch to without saving the current one (`:workspace-open!`).
+    WorkspaceDiscard,
     /// The sections (markers) of the file shown.
     Section,
     /// General MIDI instruments (and the drum kit) for a track.
@@ -53,6 +55,7 @@ impl PickerKind {
             PickerKind::Buffer => "Buffers",
             PickerKind::View => "Views",
             PickerKind::Workspace => "Workspaces",
+            PickerKind::WorkspaceDiscard => "Workspaces (discard the current)",
             PickerKind::Recent => "Recent files",
             PickerKind::Mark => "Marks",
             PickerKind::Macro => "Macros",
@@ -841,7 +844,8 @@ impl App {
                     current: false,
                 })
                 .collect(),
-            PickerKind::Workspace => {
+            PickerKind::Workspace | PickerKind::WorkspaceDiscard => {
+                let discard = kind == PickerKind::WorkspaceDiscard;
                 let active = self.workspace_name();
                 crate::workspace::workspace_names()
                     .into_iter()
@@ -865,7 +869,7 @@ impl App {
                             summary
                         };
                         Entry {
-                            action: Command::WorkspaceOpen(name.clone(), false),
+                            action: Command::WorkspaceOpen(name.clone(), discard),
                             label: name,
                             description,
                             search_description: false,
