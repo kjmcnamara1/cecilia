@@ -22,6 +22,9 @@ pub struct Buffer {
     pub history: crate::history::History,
     /// Incremented on every change, so views know to re-layout.
     pub version: u64,
+    /// The file's size and modification time when this buffer last read or wrote it (none: the
+    /// file did not exist), to notice changes made outside the app (see `external.rs`).
+    pub disk: Option<(SystemTime, u64)>,
 }
 
 /// What a score pane displays, reported by the frontend for half-page movement.
@@ -233,6 +236,15 @@ impl PaneKind {
 }
 
 /// Adds a pane along the bottom of a layout (a tool docked at the window's bottom).
+/// `Ave Maria (2nd)` → `ave-maria-2nd`: lowercase words joined by single dashes.
+fn kebab_case(s: &str) -> String {
+    s.split(|c: char| !c.is_alphanumeric())
+        .filter(|w| !w.is_empty())
+        .map(str::to_lowercase)
+        .collect::<Vec<_>>()
+        .join("-")
+}
+
 fn dock_bottom(root: Node, id: PaneId) -> Node {
     match root {
         Node::Split {
@@ -596,6 +608,10 @@ pub struct App {
     pub workspace_file: Option<PathBuf>,
     /// A pending "delete this workspace?" prompt.
     pub confirm_delete_workspace: Option<PathBuf>,
+    /// A pending "file changed on disk: reload?" prompt, for this buffer.
+    pub confirm_reload: Option<usize>,
+    /// When the open files were last looked at for outside changes.
+    pub(crate) disk_checked: Option<std::time::Instant>,
     /// Record the active workspace for the next start (`cecilia` without arguments reopens it).
     /// Off in tests and screenshots.
     pub remember_workspace: bool,
@@ -722,6 +738,8 @@ impl App {
             pa: Default::default(),
             workspace_file: None,
             confirm_delete_workspace: None,
+            confirm_reload: None,
+            disk_checked: None,
             remember_workspace: false,
         };
         // Tool panes the config shows from the start.
@@ -1530,6 +1548,7 @@ impl App {
             |n| n.to_string_lossy().into(),
         );
         // Replace the initial empty buffer if nothing refers to anything else yet.
+        let canonical_path = canonical.clone();
         let mut buffer = Buffer {
             path: Some(canonical),
             name,
@@ -1537,6 +1556,7 @@ impl App {
             modified: false,
             history: Default::default(),
             version: 0,
+            disk: file_stamp(&canonical_path),
         };
         let recovered = self.swap_check_open(buffer.path.as_deref().unwrap());
         if let Some((score, history)) = recovered.clone() {
@@ -1887,6 +1907,7 @@ impl App {
     /// Reloads the config file if it changed on disk.
     pub fn poll_config(&mut self) {
         self.swap_tick(std::time::Instant::now());
+        self.poll_files();
         let Some(path) = self.config_path.clone() else {
             return;
         };
@@ -1935,6 +1956,9 @@ impl App {
     pub fn handle_key(&mut self, key: Key) {
         if let Some(path) = self.confirm_delete_workspace.take() {
             return self.answer_delete_workspace(path, key);
+        }
+        if let Some(buffer) = self.confirm_reload.take() {
+            return self.answer_reload(buffer, key);
         }
         if let Some(buffer) = self.confirm_close.take() {
             return self.answer_close(buffer, key);
@@ -2738,9 +2762,9 @@ impl App {
         if path.is_none() && self.buffers[index].path.is_none() {
             return self.request_save_dialog();
         }
-        // Writing a new (unnamed) buffer to a path names it, like `:save-as`.
-        if let Some(path) = path.as_ref().filter(|_| self.buffers[index].path.is_none()) {
-            return self.save_as(path.clone());
+        // `:write FILE` is `:save-as FILE`: the buffer takes the new file.
+        if let Some(path) = path {
+            return self.save_as(path);
         }
         self.write_buffer(index, path);
     }
@@ -2753,8 +2777,12 @@ impl App {
             .as_deref()
             .and_then(Path::parent)
             .map(Path::to_path_buf);
-        let name = if buffer.path.is_some() || buffer.name.ends_with(".cc") {
+        // The file's name, else the title in kebab-case (a new file), else a placeholder.
+        let slug = kebab_case(&buffer.score.meta.title);
+        let name = if buffer.path.is_some() {
             buffer.name.clone()
+        } else if !slug.is_empty() {
+            format!("{slug}.cc")
         } else {
             "untitled.cc".to_string()
         };
@@ -2788,6 +2816,7 @@ impl App {
             || path.display().to_string(),
             |n| n.to_string_lossy().into(),
         );
+        buffer.disk = file_stamp(&canonical);
         buffer.path = Some(canonical);
         buffer.modified = false;
         buffer.history.mark_saved();
@@ -2894,6 +2923,7 @@ impl App {
             Ok(()) => {
                 let size = std::fs::metadata(&target).map(|m| m.len()).unwrap_or(0);
                 if buffer.path.as_deref() == Some(target.as_path()) {
+                    self.buffers[index].disk = file_stamp(&target);
                     self.buffers[index].modified = false;
                     self.buffers[index].history.mark_saved();
                     self.swap_release(index);
@@ -3130,6 +3160,12 @@ impl App {
     }
 }
 
+/// A file's size and modification time (none: it does not exist).
+pub(crate) fn file_stamp(path: &Path) -> Option<(SystemTime, u64)> {
+    let m = std::fs::metadata(path).ok()?;
+    Some((m.modified().ok()?, m.len()))
+}
+
 fn mtime(path: &Path) -> Option<SystemTime> {
     std::fs::metadata(path).and_then(|m| m.modified()).ok()
 }
@@ -3182,6 +3218,7 @@ impl Buffer {
             modified: false,
             history: Default::default(),
             version: 0,
+            disk: None,
         }
     }
 }
@@ -3597,6 +3634,7 @@ pub(crate) mod tests {
             modified: false,
             history: Default::default(),
             version: 0,
+            disk: None,
         };
         // The properties pane is on by default; most tests are about panes without it.
         app.set_tool(PaneKind::Properties, Some(false));

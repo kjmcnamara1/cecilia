@@ -3825,6 +3825,7 @@ mod render_tests {
             modified: false,
             history: Default::default(),
             version: 0,
+            disk: None,
         };
         let screen = render(&mut app, 80, 20);
         assert!(screen.contains("Lead"), "{screen}");

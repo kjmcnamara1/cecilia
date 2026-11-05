@@ -224,11 +224,11 @@ mod tests {
         app.run(Command::Write(None));
         assert!(app.take_effects().is_empty());
         assert!(out.exists());
-        // `:w other` is still an export: the buffer keeps its file.
+        // `:w other` is `:save-as other`.
         let other = dir.join("other.mid");
         app.run(Command::Write(Some(other.clone())));
         assert!(other.exists());
-        assert_eq!(app.buffer().name, "song.cc");
+        assert_eq!(app.buffer().name, "other.mid");
         std::fs::remove_dir_all(dir).ok();
     }
 
@@ -240,10 +240,24 @@ mod tests {
         app.run(Command::Write(Some(dir.join("first.cc"))));
         assert_eq!(app.buffer().name, "first.cc");
         assert!(!app.buffer().modified);
-        // Now it has a file: `:w other` exports without renaming.
+        // `:w other` is `:save-as other`: the buffer is renamed again.
         app.run(Command::Write(Some(dir.join("second.cc"))));
-        assert_eq!(app.buffer().name, "first.cc");
+        assert_eq!(app.buffer().name, "second.cc");
         std::fs::remove_dir_all(dir).ok();
+    }
+
+    #[test]
+    fn the_dialog_suggests_the_kebab_case_title() {
+        let mut app = App::new(Config::default(), None);
+        app.run(Command::New);
+        let i = app.pane().buffer;
+        app.buffers[i].score.meta.title = "Ave Maria (2nd setting)".into();
+        app.take_effects();
+        app.run(Command::SaveAs(None));
+        let Some(Effect::SaveDialog { name, .. }) = app.take_effects().pop() else {
+            panic!("no dialog")
+        };
+        assert_eq!(name, "ave-maria-2nd-setting.cc");
     }
 
     #[test]

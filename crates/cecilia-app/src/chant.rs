@@ -411,6 +411,7 @@ impl App {
                             modified: true,
                             history: Default::default(),
                             version: 0,
+                            disk: None,
                         });
                         let b = self.buffers.len() - 1;
                         self.show_buffer(b);
