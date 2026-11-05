@@ -417,6 +417,10 @@ pub struct Track {
     /// the rest). Without any attached lyrics a track shows its own below its top staff.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub staff_lyrics: Vec<Option<StaffLyrics>>,
+    /// Staff line (1 = bottom) the chant staves of a staff track put their clef on; `None`
+    /// lets the engraver pick the line that fits the melody.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub chant_line: Option<u8>,
     pub extras: Extras,
 }
 

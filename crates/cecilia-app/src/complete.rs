@@ -308,8 +308,8 @@ fn values(command: &str) -> Option<&'static [&'static str]> {
         "mix" => &["audio", "both", "midi"],
         "interpretation" => &["equalist", "solesmes"],
         "clef" => &[
-            "treble", "bass", "grand", "neutral", "do", "fa", "c1", "c2", "c3", "c4", "cb2", "cb3",
-            "cb4", "f1", "f2", "f3", "f4",
+            "treble", "bass", "grand", "neutral", "c1", "c2", "c3", "c4", "cb2", "cb3", "cb4",
+            "f1", "f2", "f3", "f4",
         ],
         "global-tool" => &["fretboard", "piano", "tracks", "tuner", "waveform"],
         "track-add" => &["bass", "drums", "guitar", "piano", "voice"],

@@ -1037,7 +1037,7 @@ impl Command {
             "gabc" => Gabc(arg.map(String::from)),
             "interpretation" => Interpretation(arg.map(String::from)),
             "clef" => Clef(
-                arg.ok_or("clef: expected treble, bass, grand, neutral, do or fa")?
+                arg.ok_or("clef: expected treble, bass, grand, neutral, c1–c4 or f1–f4")?
                     .to_string(),
             ),
             "lyrics-attach" => LyricsAttach(
