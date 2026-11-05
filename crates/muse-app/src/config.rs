@@ -103,6 +103,9 @@ pub struct TablineConfig {
     pub icons: String,
     /// Hide the views on the right of the tabline while there is only one.
     pub hide_single_view: bool,
+    /// `:buffer-next` / `:buffer-prev` wrap around at the ends of the tabline (off: they stop
+    /// at the last / first tab).
+    pub wrap: bool,
     pub truncation: TruncationConfig,
 }
 
@@ -112,6 +115,7 @@ impl Default for TablineConfig {
             new_view: "copy".into(),
             icons: "nerd".into(),
             hide_single_view: true,
+            wrap: true,
             truncation: TruncationConfig::default(),
         }
     }
@@ -214,6 +218,10 @@ pub struct UiConfig {
     pub bar_numbers: String,
     /// Draw the staff lines of bars that don't hold their full count in red.
     pub highlight_incomplete_bars: bool,
+    /// Thickness in pixels of the ring around the focused pane in the GUI (0: none; 0 to 8).
+    pub focus_ring_width: f64,
+    /// Color of that ring (`#rgb`, `#rrggbb` or `#rrggbbaa`); unset: the current mode's color.
+    pub focus_ring_color: Option<String>,
 }
 
 impl Default for UiConfig {
@@ -245,6 +253,8 @@ impl Default for UiConfig {
             chant_chords: "top".into(),
             bar_numbers: "system".into(),
             highlight_incomplete_bars: false,
+            focus_ring_width: 4.0,
+            focus_ring_color: None,
             zoom: 1.0,
         }
     }
@@ -863,7 +873,7 @@ impl Default for Config {
 
 impl Config {
     /// Builds a config, collecting (not failing on) invalid keymap entries.
-    pub fn from_file(file: ConfigFile) -> (Self, Vec<String>) {
+    pub fn from_file(mut file: ConfigFile) -> (Self, Vec<String>) {
         let mut errors = Vec::new();
         let leader = parse_keys(&file.general.leader, &[]).unwrap_or_else(|e| {
             errors.push(format!("general.leader: {e}"));
@@ -1047,6 +1057,22 @@ impl Config {
                 file.ui.chant_chords
             ));
         }
+        let ui = &mut file.ui;
+        if !(0.0..=FOCUS_RING_WIDTH_MAX).contains(&ui.focus_ring_width) {
+            errors.push(format!(
+                "ui.focus_ring_width: {} is outside 0 to 8 (clamped)",
+                ui.focus_ring_width
+            ));
+        }
+        ui.focus_ring_width = clamp_setting(ui.focus_ring_width, 0.0, FOCUS_RING_WIDTH_MAX, 4.0);
+        if let Some(c) = &ui.focus_ring_color {
+            if crate::theme::Rgba::parse(c).is_none() {
+                errors.push(format!(
+                    "ui.focus_ring_color: '{c}' is not a #rrggbb color (using the mode's color)"
+                ));
+                ui.focus_ring_color = None;
+            }
+        }
         if file.ui.global_waveform.is_some() {
             errors.push(
                 "ui.global_waveform: no longer used; list \"waveform\" in ui.global_tools and open it with :waveform".into(),
@@ -1107,6 +1133,16 @@ impl Config {
             Err(e) if e.kind() == std::io::ErrorKind::NotFound => Ok((Self::default(), vec![])),
             Err(e) => Err(format!("{}: {e}", path.display())),
         }
+    }
+
+    /// The color of the focus ring in `mode`: `ui.focus_ring_color`, else the mode's color.
+    pub fn focus_ring_color(&self, mode: Mode) -> crate::theme::Rgba {
+        self.file
+            .ui
+            .focus_ring_color
+            .as_deref()
+            .and_then(crate::theme::Rgba::parse)
+            .unwrap_or_else(|| self.theme.mode_color(mode))
     }
 
     pub fn keymap(&self, mode: Mode) -> &Keymap {
@@ -1174,6 +1210,14 @@ fn apply_user(
             Err(e) => errors.push(format!("{section}: {e}")),
         }
     }
+}
+
+/// Largest `ui.focus_ring_width`.
+pub const FOCUS_RING_WIDTH_MAX: f64 = 8.0;
+
+/// Clamps a numeric setting to `lo..=hi`; NaN gives `default`.
+pub fn clamp_setting(v: f64, lo: f64, hi: f64, default: f64) -> f64 {
+    if v.is_nan() { default } else { v.clamp(lo, hi) }
 }
 
 /// Default config file location (`$XDG_CONFIG_HOME/muse/config.toml` on Linux).

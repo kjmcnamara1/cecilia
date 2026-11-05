@@ -6,8 +6,8 @@ use std::time::SystemTime;
 
 use muse_core::{Beat, Clef, Note, Score, Staff, StaffClef, Track, TrackKind, staff};
 
-use crate::command::Command;
-use crate::config::{Config, Lookup, Mode};
+use crate::command::{Command, SettingArg};
+use crate::config::{Config, FOCUS_RING_WIDTH_MAX, Lookup, Mode, clamp_setting};
 use crate::keys::{Key, KeyCode};
 use crate::layout::{Axis, Node, PaneId, Rect, neighbour};
 
@@ -1623,7 +1623,7 @@ impl App {
         self.views[active].score = saved;
     }
 
-    /// Shows the buffer `steps` tabs along the bufferline (wrapping) in the focused pane.
+    /// Shows the buffer `steps` tabs along the bufferline (wrapping with `tabline.wrap`) in the focused pane.
     fn cycle_buffer(&mut self, steps: isize) {
         let list = &self.view().buffers;
         if list.is_empty() {
@@ -1634,7 +1634,12 @@ impl App {
             .iter()
             .position(|&b| b == self.pane().buffer)
             .unwrap_or(0) as isize;
-        let next = list[(at + steps).rem_euclid(n) as usize];
+        let to = if self.config.file.tabline.wrap {
+            (at + steps).rem_euclid(n)
+        } else {
+            (at + steps).clamp(0, n - 1)
+        };
+        let next = list[to as usize];
         self.show_buffer(next);
     }
 
@@ -2381,6 +2386,37 @@ impl App {
                 ui.equalize_on_close = on.unwrap_or(!ui.equalize_on_close);
                 let state = if ui.equalize_on_close { "on" } else { "off" };
                 self.info(format!("equalize-on-close {state}"));
+            }
+            FocusRingWidth(a) => {
+                let ui = &mut self.config.file.ui;
+                if let SettingArg::Set(n) = a {
+                    ui.focus_ring_width = clamp_setting(n, 0.0, FOCUS_RING_WIDTH_MAX, 4.0);
+                } else if a == SettingArg::Default {
+                    ui.focus_ring_width = 4.0;
+                }
+                let w = ui.focus_ring_width;
+                self.info(format!("focus-ring-width {w}"));
+            }
+            FocusRingColor(a) => {
+                let ui = &mut self.config.file.ui;
+                match a {
+                    SettingArg::Set(c) => ui.focus_ring_color = Some(c),
+                    SettingArg::Default => ui.focus_ring_color = None,
+                    SettingArg::Show => {}
+                }
+                let c = self.config.focus_ring_color(self.mode).hex();
+                let from = if self.config.file.ui.focus_ring_color.is_some() {
+                    ""
+                } else {
+                    " (the mode's color)"
+                };
+                self.info(format!("focus-ring-color {c}{from}"));
+            }
+            TablineWrap(on) => {
+                let t = &mut self.config.file.tabline;
+                t.wrap = on.unwrap_or(!t.wrap);
+                let state = if t.wrap { "on" } else { "off" };
+                self.info(format!("tabline-wrap {state}"));
             }
             Fretboard(on) => self.set_tool(PaneKind::Fretboard, on),
             GlobalTool(name) => self.toggle_global_tool(&name),
@@ -4221,6 +4257,88 @@ pub(crate) mod tests {
         assert!(app.config.file.ui.equalize_on_close);
         app.run(Command::parse("equalize-on-close off").unwrap());
         assert!(!app.config.file.ui.equalize_on_close);
+    }
+
+    #[test]
+    fn buffer_next_and_prev_wrap_with_tabline_wrap() {
+        for wrap in [true, false] {
+            let dir = std::env::temp_dir().join(format!("muse-wrap-{wrap}-{}", std::process::id()));
+            let f = files(&dir, &["a.muse", "b.muse"]);
+            let (config, _) = Config::parse(&format!("[tabline]\nwrap = {wrap}\n")).unwrap();
+            let mut app = App::new(config, None);
+            app.set_tool(PaneKind::Properties, Some(false));
+            for p in &f {
+                app.run(Command::Edit(p.clone()));
+            }
+            assert_eq!(app.buffer().name, "b.muse");
+            app.run(Command::BufferNext);
+            assert_eq!(app.buffer().name, if wrap { "a.muse" } else { "b.muse" });
+            app.run(Command::BufferGoto(1));
+            app.run(Command::BufferPrev);
+            assert_eq!(app.buffer().name, if wrap { "b.muse" } else { "a.muse" });
+        }
+    }
+
+    #[test]
+    fn appearance_settings_default_to_the_built_in_look_and_clamp() {
+        let (c, errors) = Config::parse("").unwrap();
+        assert!(errors.is_empty());
+        assert!(c.file.tabline.wrap);
+        assert_eq!(c.file.ui.focus_ring_width, 4.0);
+        assert_eq!(
+            c.focus_ring_color(Mode::Normal),
+            c.theme.mode_color(Mode::Normal)
+        );
+        let (c, errors) =
+            Config::parse("[ui]\nfocus_ring_width = 20\nfocus_ring_color = \"#102030\"\n").unwrap();
+        assert_eq!(errors.len(), 1, "{errors:?}");
+        assert_eq!(c.file.ui.focus_ring_width, 8.0);
+        assert_eq!(
+            c.focus_ring_color(Mode::Insert),
+            crate::theme::Rgba::rgb(0x10, 0x20, 0x30)
+        );
+        let (c, errors) = Config::parse("[ui]\nfocus_ring_color = \"red\"\n").unwrap();
+        assert_eq!(errors.len(), 1);
+        assert_eq!(
+            c.focus_ring_color(Mode::Normal),
+            c.theme.mode_color(Mode::Normal)
+        );
+    }
+
+    #[test]
+    fn appearance_commands_set_show_clamp_and_reject() {
+        let mut app = App::new(Config::default(), None);
+        let run = |app: &mut App, c: &str| app.run(Command::parse(c).unwrap());
+        run(&mut app, "focus-ring-width 4");
+        assert_eq!(app.config.file.ui.focus_ring_width, 4.0);
+        run(&mut app, "focus-ring-width 99");
+        assert_eq!(app.config.file.ui.focus_ring_width, 8.0);
+        run(&mut app, "focus-ring-width -1");
+        assert_eq!(app.config.file.ui.focus_ring_width, 0.0);
+        run(&mut app, "focus-ring-width");
+        assert_eq!(app.config.file.ui.focus_ring_width, 0.0);
+        run(&mut app, "focus-ring-width default");
+        assert_eq!(app.config.file.ui.focus_ring_width, 4.0);
+        assert!(Command::parse("focus-ring-width wide").is_err());
+        assert!(Command::parse("focus-ring-width NaN").is_err());
+
+        run(&mut app, "focus-ring-color #102030");
+        assert_eq!(
+            app.config.focus_ring_color(Mode::Normal),
+            crate::theme::Rgba::rgb(0x10, 0x20, 0x30)
+        );
+        run(&mut app, "focus-ring-color");
+        run(&mut app, "focus-ring-color default");
+        assert!(app.config.file.ui.focus_ring_color.is_none());
+        assert!(Command::parse("focus-ring-color red").is_err());
+
+        run(&mut app, "tabline-wrap");
+        assert!(!app.config.file.tabline.wrap);
+        run(&mut app, "tabline-wrap on");
+        assert!(app.config.file.tabline.wrap);
+        run(&mut app, "tabline-wrap off");
+        assert!(!app.config.file.tabline.wrap);
+        assert!(Command::parse("tabline-wrap maybe").is_err());
     }
 
     #[test]

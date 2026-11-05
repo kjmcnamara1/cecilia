@@ -1133,13 +1133,7 @@ pub fn build(
         scene.pop_layer();
         // The focused tool pane is outlined in the mode's color.
         if id == focused {
-            scene.stroke(
-                &Stroke::new(2.0),
-                Affine::IDENTITY,
-                tc(|t| t.mode_color(app.mode)),
-                None,
-                &rect.to_rounded_rect(3.0),
-            );
+            ring(scene, app, rect, 3.0);
         }
     }
     for (id, info) in std::mem::take(&mut views.view_infos) {
@@ -1862,8 +1856,54 @@ fn mode_tag(pane: &muse_app::Pane) -> &'static str {
     }
 }
 
+/// Space around a pane rect that belongs to the pane (panes are inset this far in their cell).
+const PANE_MARGIN: f64 = 3.0;
+
+/// The path the focus ring of `width` is stroked along for a pane `rect` of corner `radius`:
+/// the pane's edge, moved in so the ring's outer edge stays within the pane's margin (wide
+/// rings would otherwise spill over the neighbouring pane). The radius follows the offset.
+fn ring_shape(rect: Rect, radius: f64, width: f64) -> RoundedRect {
+    let inset = (width / 2.0 - PANE_MARGIN).max(0.0);
+    let r = rect.inset(-inset);
+    RoundedRect::from_rect(r, (radius - inset).max(0.0))
+}
+
+/// The ring around the focused pane: `ui.focus_ring_width` thick, `ui.focus_ring_color`. It
+/// is drawn after the pane's content so nothing (title bar, page) covers it.
+fn ring(scene: &mut Scene, app: &App, rect: Rect, radius: f64) {
+    let width = app.config.file.ui.focus_ring_width;
+    if width <= 0.0 {
+        return;
+    }
+    let c = app.config.focus_ring_color(app.mode);
+    scene.stroke(
+        &Stroke::new(width),
+        Affine::IDENTITY,
+        col(c),
+        None,
+        &ring_shape(rect, radius, width),
+    );
+}
+
 #[allow(clippy::too_many_arguments)]
 fn draw_pane(
+    scene: &mut Scene,
+    app: &mut App,
+    views: &mut Views,
+    playback: Option<&mut Playback>,
+    id: PaneId,
+    rect: Rect,
+    focused: bool,
+    play: Option<(usize, Location, f64, f64)>,
+) {
+    draw_pane_content(scene, app, views, playback, id, rect, focused, play);
+    if focused {
+        ring(scene, app, rect, 6.0);
+    }
+}
+
+#[allow(clippy::too_many_arguments)]
+fn draw_pane_content(
     scene: &mut Scene,
     app: &mut App,
     views: &mut Views,
@@ -1890,19 +1930,16 @@ fn draw_pane(
         None,
         &RoundedRect::from_rect(rect, 6.0),
     );
-    // The focused pane is ringed in the mode's color, like the tool panes.
-    let border = if focused {
-        tc(|t| t.mode_color(app.mode))
-    } else {
-        tc(|t| t.chrome.mix(t.chrome_text, 0.25))
-    };
-    scene.stroke(
-        &Stroke::new(if focused { 2.0 } else { 1.0 }),
-        Affine::IDENTITY,
-        border,
-        None,
-        &RoundedRect::from_rect(rect, 6.0),
-    );
+    // The focused pane's ring is drawn last, by `draw_pane`, over everything else.
+    if !focused {
+        scene.stroke(
+            &Stroke::new(1.0),
+            Affine::IDENTITY,
+            tc(|t| t.chrome.mix(t.chrome_text, 0.25)),
+            None,
+            &RoundedRect::from_rect(rect, 6.0),
+        );
+    }
     let title = match score.tracks.get(pane.cursor.track) {
         Some(t) => {
             // The horizontal layout has no header on the score: its tuning goes here.
@@ -6124,5 +6161,25 @@ mod select_tests {
         assert!(edge_velocity(-5000.0, 0.0, 1000.0) >= -1600.0);
         // A tiny pane still has a calm middle.
         assert_eq!(edge_velocity(50.0, 0.0, 100.0), 0.0);
+    }
+}
+
+#[cfg(test)]
+mod ring_tests {
+    use super::*;
+
+    #[test]
+    fn ring_stays_within_the_pane_margin() {
+        let rect = Rect::new(10.0, 10.0, 110.0, 60.0);
+        // Up to width 6 the ring is centered on the edge, as before.
+        for w in [1.0, 2.0, 6.0] {
+            assert_eq!(ring_shape(rect, 6.0, w).rect(), rect);
+        }
+        // Wider rings move in so their outer edge is `PANE_MARGIN` out at most.
+        for w in [8.0, 12.0] {
+            let shape = ring_shape(rect, 6.0, w);
+            let outer = rect.x0 - (shape.rect().x0 - w / 2.0);
+            assert!(outer.abs() <= PANE_MARGIN + 1e-9, "{outer}");
+        }
     }
 }
