@@ -44,8 +44,8 @@ full specification and roadmap, and [docs/keymap.md](docs/keymap.md) for key bin
 - A toolbar of common commands (configurable buttons), and themes in `[theme]`: six built-in
   presets, theme files, and every interface color (down to the score's page and ink)
 - Workspaces: `:workspace-save NAME` / `:workspace-open NAME` / `cecilia --workspace NAME` keep the
-  views, their pane splits and open files, saved automatically; `cecilia` reopens the last one (or
-  `default`), while `cecilia FILE` edits files without touching any workspace
+  views, their pane splits and open files, saved when you switch and on quit; `cecilia` reopens the
+  last one (or `default`), while `cecilia FILE` edits files without touching any workspace
 - TOML configuration with custom keybinds, reloaded automatically when the file changes
 
 ## Usage

@@ -693,20 +693,26 @@ views show it.
 A workspace saves the views — each with its pane splits, name and bufferline of loaded files —
 and each pane's file, cursor, recent files, layout and waveform strip, each pane's zoom, follow, chant
 view, the window waveform bar, marks (of saved files) and recorded macros, to
-`~/.local/share/cecilia/workspaces/NAME.toml` (or a path). A workspace is always active, and is
-saved again whenever the session changes and when cecilia quits. Until you choose one, it is
-`default`. `cecilia` reopens the workspace used last; `cecilia --workspace NAME` starts with another
-(created from scratch if it doesn't exist yet). `cecilia FILE…` opens just those files, without a
-workspace, so one-off edits leave your workspaces alone — `:workspace-save NAME` keeps such a
-session if you want it (with `--workspace` too, the files open in that workspace).
+`~/.local/share/cecilia/workspaces/NAME.toml` (or a path). A workspace is saved when you ask
+(`:workspace-save`), when you switch to another, and when cecilia quits (`ui.workspace_autosave_on_quit`,
+on by default; `:quit!` never saves it). There can also be *no* workspace: the status line shows
+none, and quitting saves nothing.
 
-| command                  |                                                                                          |
-| ------------------------ | ---------------------------------------------------------------------------------------- |
-| `:workspace-save [name]` | save the session as a workspace and make it active (no name: the active one)             |
-| `:workspace-open [name]` | replace the session with a saved workspace (no name: the picker; `:workspace-open!` discards unsaved changes) |
-| `:workspace-new [name]`  | start an empty session as a new workspace (no name: `untitled`; `:workspace-new!` discards unsaved changes) |
-| `:workspace-rename name` | rename the active workspace (not `default`)                                              |
-| `:workspace-close`       | save and leave the active workspace for `default`                                        |
+`cecilia` with no arguments loads the workspace used last, or creates `default` if none is saved
+(`ui.workspace_restore_last = false`: the dashboard, with no workspace). `cecilia --workspace NAME`
+starts with another (created from scratch if it doesn't exist yet). `cecilia FILE…` opens just
+those files, with no workspace, so one-off edits leave your workspaces alone — `:workspace-save
+NAME` keeps such a session if you want it (with `--workspace` too, the files open in that
+workspace).
+
+| command                   |                                                                                                                                  |
+| ------------------------- | -------------------------------------------------------------------------------------------------------------------------------- |
+| `:workspace-open [name]`  | save the current workspace, then switch to `name` (created, empty, if it doesn't exist); no name: the picker                       |
+| `:workspace-open! [name]` | the same without saving the current workspace first, and dropping unsaved changes in files (which stop `:workspace-open`)         |
+| `:workspace-save [name]`  | save the session as workspace `name` and make it the active one, leaving the old file as it was (a copy); no name: the active file |
+| `:workspace-save! [name]` | the same, overwriting an existing workspace of that name (without `!` that is refused)                                           |
+| `:workspace-delete [name]` | delete that workspace file after asking (`y`/`n`); no name: the active one, leaving no workspace (the session stays open)         |
+| `:workspace-delete! [name]` | the same without asking. Deleting `default` is allowed: it is created again when cecilia next starts with no arguments            |
 
 ### Swap files
 

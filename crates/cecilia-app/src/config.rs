@@ -202,6 +202,10 @@ pub struct UiConfig {
     pub equalize_on_close: bool,
     /// `:view-new` starts the new view with the current files (off: with the dashboard).
     pub keep_files_in_new_view: bool,
+    /// Save the active workspace (`:workspace-save`) when quitting; `:quit!` never does.
+    pub workspace_autosave_on_quit: bool,
+    /// Starting without arguments loads the last workspace (off: the dashboard, with no workspace).
+    pub workspace_restore_last: bool,
     /// The toolbar of common commands at the top of the window.
     pub toolbar: bool,
     /// The fretboard and piano panels (notes at the cursor or playhead).
@@ -248,6 +252,8 @@ impl Default for UiConfig {
             auto_resize: true,
             equalize_on_close: true,
             keep_files_in_new_view: true,
+            workspace_autosave_on_quit: true,
+            workspace_restore_last: true,
             toolbar: true,
             fretboard: false,
             piano: false,

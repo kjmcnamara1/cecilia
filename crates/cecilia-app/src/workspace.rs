@@ -1,7 +1,7 @@
 //! Workspaces: a session's views — each with its pane splits and its bufferline of loaded
 //! files — and each pane's file, cursor, recent files and view settings, saved to a TOML file so
-//! the session can be reopened as it was. The active workspace is saved again whenever it
-//! changes.
+//! the session can be reopened as it was. A workspace is saved by `:workspace-save`, when
+//! switching to another and (by default) when the app quits.
 
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
@@ -413,16 +413,29 @@ impl App {
         }
     }
 
-    /// Saves the session as a workspace (by name or path; the active one without), and makes
-    /// it the active workspace.
-    pub fn save_workspace(&mut self, target: Option<&str>) {
+    /// Saves the session as a workspace and makes it the active one. With a name (or path) it is
+    /// saved under that name, leaving the file of the workspace it came from as it is; without,
+    /// to the active workspace's file. An existing, different workspace of that name is only
+    /// overwritten with `force`.
+    pub fn save_workspace(&mut self, target: Option<&str>, force: bool) {
         let path = match target {
-            Some(t) => workspace_path(t),
+            Some(t) => {
+                if !is_path_like(t) && !valid_workspace_name(t.trim()) {
+                    return self.error(format!("workspace-save: \"{t}\" is not a valid name"));
+                }
+                workspace_path(t)
+            }
             None => self.workspace_file.clone(),
         };
         let Some(path) = path else {
             return self.error("workspace-save: give a name (no workspace is active)");
         };
+        if !force && self.workspace_file.as_ref() != Some(&path) && path.exists() {
+            return self.error(format!(
+                "workspace-save: {} already exists (:workspace-save! overwrites it)",
+                workspace_label(&path)
+            ));
+        }
         match self.write_workspace(&path) {
             Ok(()) => {
                 self.set_workspace_file(path.clone());
@@ -437,120 +450,15 @@ impl App {
         if let Some(dir) = path.parent() {
             std::fs::create_dir_all(dir).map_err(|e| format!("{}: {e}", dir.display()))?;
         }
-        std::fs::write(path, &text).map_err(|e| format!("{}: {e}", path.display()))?;
-        self.workspace_saved = Some(text);
-        Ok(())
+        std::fs::write(path, &text).map_err(|e| format!("{}: {e}", path.display()))
     }
 
-    /// Makes a workspace the active one: opens it if it was saved, otherwise starts it with the
-    /// current session.
-    pub fn use_workspace(&mut self, name: &str) {
-        match workspace_path(name) {
-            Some(path) if path.exists() => self.open_workspace(name, true),
-            Some(_) => {
-                // A new workspace with nothing open starts on the dashboard.
-                if self.buffers.iter().all(|b| b.path.is_none() && !b.modified) {
-                    self.show_dashboard();
-                }
-                self.save_workspace(Some(name));
-            }
-            None => self.error(format!("workspace {name}: no data folder to keep it in")),
+    /// Saves the active workspace before the app quits (`ui.workspace_autosave_on_quit`); does
+    /// nothing without an active workspace.
+    pub(crate) fn autosave_workspace_on_quit(&mut self) {
+        if self.config.file.ui.workspace_autosave_on_quit && self.workspace_file.is_some() {
+            self.save_workspace(None, false);
         }
-    }
-
-    /// Leaves the active workspace (saving it) for the default one: its saved session, or an
-    /// empty one the first time.
-    pub fn close_workspace(&mut self) {
-        let default = workspace_path(DEFAULT_WORKSPACE);
-        if self.workspace_file.is_none() || self.workspace_file == default {
-            return self.error("this is the default workspace (open another with :workspace-open)");
-        }
-        if let Some(b) = self.buffers.iter().find(|b| b.modified) {
-            return self.error(format!(
-                "workspace-close: \"{}\" has unsaved changes (:w first)",
-                b.name
-            ));
-        }
-        match default {
-            Some(p) if p.exists() => self.open_workspace(DEFAULT_WORKSPACE, false),
-            _ => {
-                self.autosave_workspace();
-                let fresh = App::new(self.config.clone(), None).workspace();
-                self.restore(&fresh);
-                self.show_dashboard();
-                self.save_workspace(Some(DEFAULT_WORKSPACE));
-            }
-        }
-    }
-
-    /// Renames the active workspace (its file stays in the same folder).
-    pub fn rename_workspace(&mut self, new: &str) {
-        let default = workspace_path(DEFAULT_WORKSPACE);
-        let Some(old) = self
-            .workspace_file
-            .clone()
-            .filter(|f| Some(f) != default.as_ref())
-        else {
-            return self.error("workspace-rename: the default workspace cannot be renamed");
-        };
-        let new = new.trim();
-        if !valid_workspace_name(new) || new == DEFAULT_WORKSPACE {
-            return self.error(format!("workspace-rename: \"{new}\" is not a valid name"));
-        }
-        let Some(target) = old.parent().map(|d| d.join(format!("{new}.toml"))) else {
-            return self.error("workspace-rename: no folder to keep it in");
-        };
-        if target.exists() {
-            return self.error(format!("workspace-rename: \"{new}\" already exists"));
-        }
-        // Write pending changes first, so the file to move is current.
-        self.autosave_workspace();
-        if let Err(e) = std::fs::rename(&old, &target) {
-            return self.error(format!("workspace-rename: {}: {e}", old.display()));
-        }
-        self.set_workspace_file(target.clone());
-        self.info(format!("workspace renamed: {}", workspace_label(&target)));
-    }
-
-    /// Starts an empty session as a new workspace, named `name` or `untitled`. Unsaved changes
-    /// stop it unless `force`.
-    pub fn new_workspace(&mut self, name: Option<&str>, force: bool) {
-        if !force {
-            if let Some(b) = self.buffers.iter().find(|b| b.modified) {
-                return self.error(format!(
-                    "workspace-new: \"{}\" has unsaved changes (:w, or :workspace-new! to discard)",
-                    b.name
-                ));
-            }
-        }
-        let name = match name.map(str::trim).filter(|n| !n.is_empty()) {
-            Some(n) => n.to_string(),
-            None => {
-                let taken = workspace_names();
-                std::iter::once("untitled".to_string())
-                    .chain((2..).map(|i| format!("untitled-{i}")))
-                    .find(|n| !taken.contains(n))
-                    .unwrap_or_default()
-            }
-        };
-        let is_path = name.contains('/') || name.ends_with(".toml");
-        if !is_path && !valid_workspace_name(&name) {
-            return self.error(format!("workspace-new: \"{name}\" is not a valid name"));
-        }
-        let Some(path) = workspace_path(&name) else {
-            return self.error("workspace-new: no data folder to keep it in");
-        };
-        if path.exists() {
-            return self.error(format!(
-                "workspace-new: \"{name}\" already exists (:workspace-open {name})"
-            ));
-        }
-        // Save the workspace being left first.
-        self.autosave_workspace();
-        let fresh = App::new(self.config.clone(), None).workspace();
-        self.restore(&fresh);
-        self.show_dashboard();
-        self.save_workspace(Some(&name));
     }
 
     fn set_workspace_file(&mut self, path: PathBuf) {
@@ -563,27 +471,17 @@ impl App {
         self.workspace_file = Some(path);
     }
 
-    /// Saves the active workspace if the session changed since it was last saved.
-    pub fn autosave_workspace(&mut self) {
-        let Some(path) = self.workspace_file.clone() else {
-            return;
-        };
-        let Ok(text) = toml::to_string_pretty(&self.workspace()) else {
-            return;
-        };
-        if self.workspace_saved.as_deref() != Some(text.as_str()) {
-            if let Err(e) = self.write_workspace(&path) {
-                self.error(format!("workspace not saved: {e}"));
-            }
+    /// Switches to a workspace, creating it (empty) if it doesn't exist. The workspace being
+    /// left is saved first, unless `discard` (`:workspace-open!`), which also drops unsaved
+    /// changes in files; without it those stop the switch.
+    pub fn open_workspace(&mut self, name: &str, discard: bool) {
+        if !is_path_like(name) && !valid_workspace_name(name.trim()) {
+            return self.error(format!("workspace-open: \"{name}\" is not a valid name"));
         }
-    }
-
-    /// Replaces the session with a saved workspace. Unsaved changes stop it unless `force`.
-    pub fn open_workspace(&mut self, name: &str, force: bool) {
         let Some(path) = workspace_path(name) else {
             return self.error("workspace-open: give a name or path");
         };
-        if !force {
+        if !discard {
             if let Some(b) = self.buffers.iter().find(|b| b.modified) {
                 return self.error(format!(
                     "workspace-open: \"{}\" has unsaved changes (:w, or :workspace-open! to discard)",
@@ -591,22 +489,37 @@ impl App {
                 ));
             }
         }
-        let ws: Workspace = match std::fs::read_to_string(&path)
-            .map_err(|e| e.to_string())
-            .and_then(|t| toml::from_str(&t).map_err(|e| e.to_string()))
-        {
-            Ok(ws) => ws,
-            Err(e) => return self.error(format!("workspace-open: {}: {e}", path.display())),
+        let ws: Option<Workspace> = if path.exists() {
+            match std::fs::read_to_string(&path)
+                .map_err(|e| e.to_string())
+                .and_then(|t| toml::from_str(&t).map_err(|e| e.to_string()))
+            {
+                Ok(ws) => Some(ws),
+                Err(e) => return self.error(format!("workspace-open: {}: {e}", path.display())),
+            }
+        } else {
+            None
         };
-        // Save the workspace being left first.
-        self.autosave_workspace();
+        if !discard && self.workspace_file.is_some() {
+            self.save_workspace(None, false);
+            if self.message.as_ref().is_some_and(|m| m.error) {
+                return;
+            }
+        }
+        let created = ws.is_none();
+        let ws = ws.unwrap_or_else(|| App::new(self.config.clone(), None).workspace());
         self.restore(&ws);
         // A workspace with nothing open starts on the dashboard.
         if ws.files.is_empty() {
             self.show_dashboard();
         }
         self.set_workspace_file(path.clone());
-        self.workspace_saved = toml::to_string_pretty(&self.workspace()).ok();
+        if created {
+            if let Err(e) = self.write_workspace(&path) {
+                return self.error(format!("workspace-open: {e}"));
+            }
+            return self.info(format!("workspace created: {}", workspace_label(&path)));
+        }
         let missing = ws.files.iter().filter(|f| !f.exists()).count();
         if missing > 0 {
             self.error(format!(
@@ -616,6 +529,53 @@ impl App {
         } else {
             self.info(format!("workspace opened: {}", workspace_label(&path)));
         }
+    }
+
+    /// Deletes a workspace file: the named one, or the active one (leaving the session as it is
+    /// but with no workspace). Asks first unless `force`; without a name and an active
+    /// workspace it does nothing.
+    pub fn delete_workspace(&mut self, name: Option<&str>, force: bool) {
+        let path = match name {
+            Some(n) => match workspace_path(n) {
+                Some(p) if p.exists() || self.workspace_file.as_ref() == Some(&p) => p,
+                Some(_) => return self.error(format!("workspace-delete: no workspace \"{n}\"")),
+                None => return self.error("workspace-delete: give a name or path"),
+            },
+            None => match self.workspace_file.clone() {
+                Some(p) => p,
+                None => return,
+            },
+        };
+        if force {
+            return self.remove_workspace(&path);
+        }
+        self.info(format!(
+            "delete workspace {}? (y/n)",
+            workspace_label(&path)
+        ));
+        self.confirm_delete_workspace = Some(path);
+    }
+
+    /// The answer to the delete prompt: `y` deletes, any other key cancels.
+    pub(crate) fn answer_delete_workspace(&mut self, path: PathBuf, key: crate::keys::Key) {
+        self.message = None;
+        if matches!(key.code, crate::keys::KeyCode::Char('y' | 'Y')) {
+            self.remove_workspace(&path);
+        } else {
+            self.info("cancelled");
+        }
+    }
+
+    fn remove_workspace(&mut self, path: &Path) {
+        match std::fs::remove_file(path) {
+            Ok(()) => {}
+            Err(e) if e.kind() == std::io::ErrorKind::NotFound => {}
+            Err(e) => return self.error(format!("workspace-delete: {}: {e}", path.display())),
+        }
+        if self.workspace_file.as_deref() == Some(path) {
+            self.workspace_file = None;
+        }
+        self.info(format!("workspace deleted: {}", workspace_label(path)));
     }
 
     pub(crate) fn restore(&mut self, ws: &Workspace) {
@@ -853,6 +813,11 @@ fn valid_workspace_name(name: &str) -> bool {
         && !name.ends_with(".toml")
 }
 
+/// Whether a workspace argument is a path rather than a name.
+fn is_path_like(arg: &str) -> bool {
+    arg.contains('/') || arg.ends_with(".toml")
+}
+
 fn workspace_label(path: &Path) -> String {
     match workspace_dir() {
         Some(d) if path.parent() == Some(d.as_path()) => path
@@ -898,7 +863,10 @@ mod tests {
             app.handle_key(k);
         }
         let ws_file = dir.join("session.toml");
-        app.run(Command::WorkspaceSave(Some(ws_file.display().to_string())));
+        app.run(Command::WorkspaceSave(
+            Some(ws_file.display().to_string()),
+            false,
+        ));
         let saved = app.workspace();
         assert_eq!(saved.views[0].buffers, [0, 1]);
         assert_eq!(saved.views[1].buffers, [0, 1, 2]);
@@ -920,9 +888,9 @@ mod tests {
         assert!(other.marks.global.contains_key(&'Z'));
         assert_eq!(saved.macros.get("a").map(String::as_str), Some("}<C-w>v"));
         assert_eq!(other.workspace_file.as_deref(), Some(ws_file.as_path()));
-        // Changes are saved automatically.
+        // Saving without a name writes the active workspace again.
         other.run(Command::ViewPrev);
-        other.autosave_workspace();
+        other.run(Command::WorkspaceSave(None, false));
         let reread: Workspace =
             toml::from_str(&std::fs::read_to_string(&ws_file).unwrap()).unwrap();
         assert_eq!(reread.active_view, 0);
@@ -1026,89 +994,185 @@ mod tests {
         assert!(!other.has_tool(PaneKind::Properties));
     }
 
-    #[test]
-    fn using_a_workspace_starts_it_or_opens_it() {
-        let dir = std::env::temp_dir().join(format!("cecilia-ws-use-{}", std::process::id()));
+    fn scratch(tag: &str) -> PathBuf {
+        let dir = std::env::temp_dir().join(format!("cecilia-ws-{tag}-{}", std::process::id()));
         std::fs::create_dir_all(&dir).unwrap();
-        let ws = dir.join("gig.toml").display().to_string();
-        // Not saved yet: the current session becomes it.
+        dir
+    }
+
+    /// How many panes the first view of a saved workspace has.
+    fn panes_saved(file: &str) -> usize {
         let mut app = App::new(Config::default(), None);
-        app.set_tool(PaneKind::Properties, Some(false));
-        app.run(Command::Split);
-        app.use_workspace(&ws);
-        assert_eq!(app.workspace_name().as_deref(), Some(ws.as_str()));
-        assert!(std::path::Path::new(&ws).exists());
-        // Saved: it is opened.
-        let mut other = App::new(Config::default(), None);
-        other.use_workspace(&ws);
-        assert_eq!(other.views[0].root.panes().len(), 2);
-        std::fs::remove_dir_all(dir).ok();
+        app.restore(&toml::from_str(&std::fs::read_to_string(file).unwrap()).unwrap());
+        app.views[0].root.panes().len()
+    }
+
+    fn path_arg(dir: &Path, name: &str) -> String {
+        dir.join(format!("{name}.toml")).display().to_string()
     }
 
     #[test]
-    fn workspaces_are_renamed_and_started_new() {
-        let dir = std::env::temp_dir().join(format!("cecilia-ws-new-{}", std::process::id()));
-        std::fs::create_dir_all(&dir).unwrap();
-        let path = |n: &str| dir.join(format!("{n}.toml"));
+    fn opening_creates_a_missing_workspace_and_saves_the_one_left() {
+        let dir = scratch("open");
+        let (a, b) = (path_arg(&dir, "a"), path_arg(&dir, "b"));
         let mut app = App::new(Config::default(), None);
-        // Without an active workspace there is nothing to rename.
-        app.run(Command::WorkspaceRename("x".into()));
-        assert!(app.workspace_name().is_none());
-        app.save_workspace(Some(&path("a").display().to_string()));
-        app.save_workspace(Some(&path("b").display().to_string()));
-        // Taken, invalid and default names are refused.
-        for bad in ["b", "a/b", "", "default"] {
-            app.run(Command::WorkspaceRename(bad.into()));
-            assert_eq!(
-                app.workspace_file.as_deref(),
-                Some(path("b").as_path()),
-                "{bad}"
-            );
-        }
-        app.run(Command::WorkspaceRename("c".into()));
-        assert_eq!(app.workspace_file.as_deref(), Some(path("c").as_path()));
-        assert!(path("c").exists() && !path("b").exists());
-        // A new workspace is empty and saved; an existing name is refused.
+        // From no workspace: a new, empty one, written at once.
+        app.run(Command::WorkspaceOpen(a.clone(), false));
+        assert_eq!(app.workspace_name().as_deref(), Some(a.as_str()));
+        assert!(Path::new(&a).exists());
+        assert!(app.dashboard_visible());
+        // Change it, then switch: it is saved first, and `b` starts empty.
         app.run(Command::Split);
-        app.run(Command::WorkspaceNew(
-            Some(path("d").display().to_string()),
-            false,
-        ));
-        assert_eq!(app.workspace_file.as_deref(), Some(path("d").as_path()));
-        assert!(path("d").exists());
+        assert_eq!(app.views[0].root.panes().len(), 2);
+        app.run(Command::WorkspaceOpen(b.clone(), false));
         assert_eq!(app.views[0].root.panes().len(), 1);
-        app.run(Command::WorkspaceNew(Some(".hidden".into()), false));
-        assert_eq!(app.workspace_file.as_deref(), Some(path("d").as_path()));
-        // Unsaved changes stop it unless forced.
-        app.buffers[0].modified = true;
-        app.run(Command::WorkspaceNew(
-            Some(path("e").display().to_string()),
-            false,
-        ));
-        assert_eq!(app.workspace_file.as_deref(), Some(path("d").as_path()));
-        app.run(Command::WorkspaceNew(
-            Some(path("e").display().to_string()),
-            true,
-        ));
-        assert_eq!(app.workspace_file.as_deref(), Some(path("e").as_path()));
+        assert_eq!(panes_saved(&a), 2);
+        // Back again: the saved one comes back.
+        app.run(Command::WorkspaceOpen(a.clone(), false));
+        assert_eq!(app.views[0].root.panes().len(), 2);
+        // `!` does not save what it leaves.
+        app.run(Command::Split);
+        app.run(Command::WorkspaceOpen(b.clone(), true));
+        app.run(Command::WorkspaceOpen(a.clone(), false));
+        assert_eq!(app.views[0].root.panes().len(), 2);
+        // A bad name is refused, and nothing changes.
+        app.run(Command::WorkspaceOpen(".x".into(), false));
+        assert!(app.message.as_ref().unwrap().error);
+        assert_eq!(app.workspace_name().as_deref(), Some(a.as_str()));
         std::fs::remove_dir_all(dir).ok();
     }
 
     #[test]
-    fn workspace_open_without_a_name_picks_one() {
+    fn unsaved_files_stop_a_switch_unless_discarded() {
+        let dir = scratch("guard");
+        let (a, b) = (path_arg(&dir, "a"), path_arg(&dir, "b"));
+        let mut app = App::new(Config::default(), None);
+        app.run(Command::WorkspaceOpen(a.clone(), false));
+        app.buffers[0].modified = true;
+        app.run(Command::WorkspaceOpen(b.clone(), false));
+        assert!(app.message.as_ref().unwrap().error);
+        assert_eq!(app.workspace_name().as_deref(), Some(a.as_str()));
+        app.run(Command::WorkspaceOpen(b.clone(), true));
+        assert_eq!(app.workspace_name().as_deref(), Some(b.as_str()));
+        std::fs::remove_dir_all(dir).ok();
+    }
+
+    #[test]
+    fn saving_under_a_name_duplicates_and_refuses_to_overwrite() {
+        let dir = scratch("save");
+        let (a, b) = (path_arg(&dir, "a"), path_arg(&dir, "b"));
+        let mut app = App::new(Config::default(), None);
+        // No workspace and no name: nothing to save to.
+        app.run(Command::WorkspaceSave(None, false));
+        assert!(app.message.as_ref().unwrap().error && app.workspace_file.is_none());
+        app.run(Command::WorkspaceSave(Some(a.clone()), false));
+        app.run(Command::Split);
+        // A new name duplicates: `a` stays as it was, `b` is active.
+        app.run(Command::WorkspaceSave(Some(b.clone()), false));
+        assert_eq!(app.workspace_name().as_deref(), Some(b.as_str()));
+        assert_eq!(panes_saved(&a), 1);
+        // Another name for the same session may not take over an existing workspace...
+        app.run(Command::WorkspaceSave(Some(a.clone()), false));
+        assert!(app.message.as_ref().unwrap().error);
+        assert_eq!(app.workspace_name().as_deref(), Some(b.as_str()));
+        // ...unless forced. Saving to the active one needs no `!`.
+        app.run(Command::WorkspaceSave(Some(b.clone()), false));
+        assert!(!app.message.as_ref().unwrap().error);
+        app.run(Command::WorkspaceSave(Some(a.clone()), true));
+        assert_eq!(app.workspace_name().as_deref(), Some(a.as_str()));
+        assert_eq!(panes_saved(&a), 2);
+        std::fs::remove_dir_all(dir).ok();
+    }
+
+    #[test]
+    fn deleting_asks_then_leaves_no_workspace() {
+        use crate::keys::{Key, KeyCode};
+        let dir = scratch("delete");
+        let (a, b) = (path_arg(&dir, "a"), path_arg(&dir, "b"));
+        let mut app = App::new(Config::default(), None);
+        // Nothing active and no name: nothing happens.
+        app.run(Command::WorkspaceDelete(None, false));
+        assert!(app.confirm_delete_workspace.is_none());
+        app.run(Command::WorkspaceOpen(a.clone(), false));
+        app.run(Command::WorkspaceOpen(b.clone(), false));
+        // A named one that is not the active one: asked, and `n` keeps it.
+        app.run(Command::WorkspaceDelete(Some(a.clone()), false));
+        assert!(app.confirm_delete_workspace.is_some());
+        app.handle_key(Key::new(KeyCode::Char('n')));
+        assert!(Path::new(&a).exists() && app.confirm_delete_workspace.is_none());
+        app.run(Command::WorkspaceDelete(Some(a.clone()), false));
+        app.handle_key(Key::new(KeyCode::Char('y')));
+        assert!(!Path::new(&a).exists());
+        assert_eq!(app.workspace_name().as_deref(), Some(b.as_str()));
+        // A name that does not exist is an error.
+        app.run(Command::WorkspaceDelete(Some(a.clone()), true));
+        assert!(app.message.as_ref().unwrap().error);
+        // The active one, without asking: the session stays, with no workspace.
+        app.run(Command::WorkspaceDelete(None, true));
+        assert!(!Path::new(&b).exists() && app.workspace_file.is_none());
+        std::fs::remove_dir_all(dir).ok();
+    }
+
+    #[test]
+    fn quitting_saves_the_workspace_unless_forced_or_switched_off() {
+        let dir = scratch("quit");
+        let a = path_arg(&dir, "a");
+        let quit = |force: bool, on: bool| {
+            let mut app = App::new(Config::default(), None);
+            app.config.file.ui.workspace_autosave_on_quit = on;
+            app.run(Command::WorkspaceOpen(a.clone(), false));
+            std::fs::remove_file(&a).unwrap();
+            app.run(Command::Quit { force });
+            assert!(app.quit);
+            Path::new(&a).exists()
+        };
+        assert!(quit(false, true));
+        std::fs::remove_file(&a).unwrap();
+        assert!(!quit(true, true));
+        assert!(!quit(false, false));
+        // No workspace: nothing is written.
+        let mut app = App::new(Config::default(), None);
+        app.run(Command::Quit { force: false });
+        assert!(app.quit && app.workspace_file.is_none());
+        std::fs::remove_dir_all(dir).ok();
+    }
+
+    #[test]
+    fn the_workspace_commands_parse() {
+        use crate::picker::PickerKind;
+        let p = |s| Command::parse(s);
         assert_eq!(
-            Command::parse("workspace-open"),
-            Ok(Command::Pick(crate::picker::PickerKind::Workspace))
-        );
-        assert!(Command::parse("workspace-open!").is_err());
-        assert_eq!(
-            Command::parse("workspace-new"),
-            Ok(Command::WorkspaceNew(None, false))
+            p("workspace-open"),
+            Ok(Command::Pick(PickerKind::Workspace))
         );
         assert_eq!(
-            Command::parse("workspace-new! x"),
-            Ok(Command::WorkspaceNew(Some("x".into()), true))
+            p("workspace-open!"),
+            Ok(Command::Pick(PickerKind::WorkspaceDiscard))
         );
+        assert_eq!(
+            p("workspace-open x"),
+            Ok(Command::WorkspaceOpen("x".into(), false))
+        );
+        assert_eq!(
+            p("workspace-open! x"),
+            Ok(Command::WorkspaceOpen("x".into(), true))
+        );
+        assert_eq!(p("workspace-save"), Ok(Command::WorkspaceSave(None, false)));
+        assert_eq!(
+            p("workspace-save! x"),
+            Ok(Command::WorkspaceSave(Some("x".into()), true))
+        );
+        assert_eq!(
+            p("workspace-delete"),
+            Ok(Command::WorkspaceDelete(None, false))
+        );
+        assert_eq!(
+            p("workspace-delete! x"),
+            Ok(Command::WorkspaceDelete(Some("x".into()), true))
+        );
+        for gone in ["workspace-close", "workspace-new", "workspace-rename x"] {
+            assert!(p(gone).is_err(), "{gone}");
+        }
     }
 
     #[test]

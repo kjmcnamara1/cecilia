@@ -9,11 +9,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
-- `:workspace-open` without a name opens the workspace picker. New `:workspace-rename NAME` renames the active workspace, and `:workspace-new [name]` (`!` discards unsaved changes) starts an empty session as a new workspace (`untitled`, `untitled-2`, … without a name).
+- Workspaces are managed explicitly: `:workspace-open [name]` saves the current workspace and switches to `name` (created, empty, if new; no name opens the picker), `:workspace-open!` does the same without saving it (and discards unsaved changes in files). `:workspace-save [name]` saves under a new name, leaving the old file as it was (a copy), and refuses to overwrite another workspace unless `:workspace-save!`. `:workspace-delete [name]` deletes a workspace file after asking (no name: the active one, leaving no workspace); `:workspace-delete!` doesn't ask.
+- Settings `ui.workspace_autosave_on_quit` (default on: quitting saves the active workspace; `:quit!` never does) and `ui.workspace_restore_last` (default on: `cecilia` with no arguments loads the last workspace or creates `default`; off: the dashboard, with no workspace).
 
 ### Changed
 
-- In the properties pane the staff reorder keys are now `<A-j>` / `<A-k>` instead of `<C-j>` / `<C-k>`.
+- There can be no workspace (files named on the command line, or after `:workspace-delete`); quitting then saves nothing.
+- A workspace is no longer saved whenever the session changes, but on `:workspace-save`, when switching and on quit.
+
+### Removed
+
+- `:workspace-close` (use `:workspace-open default`, or `:workspace-delete` to leave a workspace).
 
 ## [0.28.0] - 2026-11-04
 

@@ -80,7 +80,7 @@ impl App {
     }
 
     /// Shows the dashboard with the first enabled button focused.
-    pub(crate) fn show_dashboard(&mut self) {
+    pub fn show_dashboard(&mut self) {
         let view = &mut self.views[self.active_view];
         view.dashboard = true;
         // No score is open: the placeholder behind the dashboard is not a tab.

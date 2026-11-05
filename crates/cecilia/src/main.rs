@@ -139,26 +139,31 @@ fn main() -> Result<()> {
             Ok(())
         }
         None => {
+            let restore_last = config.file.ui.workspace_restore_last;
             let mut app = App::new(config, config_path);
             if !warnings.is_empty() {
                 app.error(warnings.join("; "));
             }
-            // `cecilia` alone opens the workspace used last (else "default"); files named on the
-            // command line open on their own, so one-off edits leave the workspaces alone
-            // (`:workspace-save` keeps such a session). `--workspace` always uses that one.
-            // (Screenshots only use one when asked.)
+            // `cecilia` alone opens the workspace used last (else creates "default"; with
+            // `ui.workspace_restore_last` off it shows the dashboard, with no workspace). Files
+            // named on the command line open with no workspace, so one-off edits leave the
+            // workspaces alone (`:workspace-save NAME` keeps such a session). `--workspace`
+            // always uses that one. (Screenshots only use one when asked.)
             let interactive = cli.screenshot.is_none();
             app.remember_workspace = interactive;
             if interactive {
                 app.load_recent();
             }
-            if (interactive && cli.files.is_empty()) || cli.workspace.is_some() {
-                let ws = cli
-                    .workspace
-                    .clone()
-                    .or_else(cecilia_app::workspace::last_workspace)
-                    .unwrap_or_else(|| cecilia_app::workspace::DEFAULT_WORKSPACE.into());
-                app.use_workspace(&ws);
+            if let Some(ws) = cli.workspace.clone() {
+                app.open_workspace(&ws, true);
+            } else if interactive && cli.files.is_empty() {
+                if restore_last {
+                    let ws = cecilia_app::workspace::last_workspace()
+                        .unwrap_or_else(|| cecilia_app::workspace::DEFAULT_WORKSPACE.into());
+                    app.open_workspace(&ws, true);
+                } else {
+                    app.show_dashboard();
+                }
             }
             // Files given open as buffer tabs in it; the first one is shown.
             for f in &cli.files {

@@ -586,10 +586,10 @@ pub struct App {
     pub(crate) ed: crate::editor::EditorState,
     /// Play-along settings.
     pub pa: crate::playalong::PlayAlong,
-    /// The active workspace file, saved again as the session changes.
+    /// The active workspace file (none: no workspace; `:workspace-save NAME` starts one).
     pub workspace_file: Option<PathBuf>,
-    /// The workspace as last written, to save only when something changed.
-    pub(crate) workspace_saved: Option<String>,
+    /// A pending "delete this workspace?" prompt.
+    pub confirm_delete_workspace: Option<PathBuf>,
     /// Record the active workspace for the next start (`cecilia` without arguments reopens it).
     /// Off in tests and screenshots.
     pub remember_workspace: bool,
@@ -715,7 +715,7 @@ impl App {
             ed: Default::default(),
             pa: Default::default(),
             workspace_file: None,
-            workspace_saved: None,
+            confirm_delete_workspace: None,
             remember_workspace: false,
         };
         // Tool panes the config shows from the start.
@@ -1880,7 +1880,6 @@ impl App {
 
     /// Reloads the config file if it changed on disk.
     pub fn poll_config(&mut self) {
-        self.autosave_workspace();
         self.swap_tick(std::time::Instant::now());
         let Some(path) = self.config_path.clone() else {
             return;
@@ -1928,6 +1927,9 @@ impl App {
     // ---- keys ----
 
     pub fn handle_key(&mut self, key: Key) {
+        if let Some(path) = self.confirm_delete_workspace.take() {
+            return self.answer_delete_workspace(path, key);
+        }
         if let Some(buffer) = self.confirm_close.take() {
             return self.answer_close(buffer, key);
         }
@@ -2602,11 +2604,9 @@ impl App {
                     self.try_quit(false);
                 }
             }
-            WorkspaceSave(target) => self.save_workspace(target.as_deref()),
-            WorkspaceOpen(name, force) => self.open_workspace(&name, force),
-            WorkspaceClose => self.close_workspace(),
-            WorkspaceRename(name) => self.rename_workspace(&name),
-            WorkspaceNew(name, force) => self.new_workspace(name.as_deref(), force),
+            WorkspaceSave(target, force) => self.save_workspace(target.as_deref(), force),
+            WorkspaceOpen(name, discard) => self.open_workspace(&name, discard),
+            WorkspaceDelete(name, force) => self.delete_workspace(name.as_deref(), force),
             ViewNext => self.active_view = (self.active_view + 1) % self.views.len(),
             ViewPrev => {
                 self.active_view = (self.active_view + self.views.len() - 1) % self.views.len()
@@ -2760,7 +2760,8 @@ impl App {
     /// Quits cecilia; with unsaved changes (unless forced) it asks about each changed file first.
     fn try_quit(&mut self, force: bool) {
         if force {
-            self.quit_skipping((0..self.buffers.len()).collect());
+            self.swap_clear();
+            self.quit = true;
         } else {
             self.quit_skipping(Vec::new());
         }
@@ -2773,7 +2774,7 @@ impl App {
             Some(b) => self.ask_save(Closing::Quit, b, skip),
             None => {
                 self.swap_clear();
-                self.autosave_workspace();
+                self.autosave_workspace_on_quit();
                 self.quit = true;
             }
         }

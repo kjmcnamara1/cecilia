@@ -234,8 +234,10 @@ untouched original (which may contain data cecilia does not model) is never rewr
   open in several views is one shared buffer. Each pane remembers the buffers it showed, so
   closing a tab falls back to the pane's previous buffer.
 - **Workspace**: saved session (views with their panes and bufferlines, cursor positions) as
-  TOML. Done: `:workspace-save/open/close/new/rename`, `--workspace`; one is always active (`default` until
-  chosen), autosaved, and reopened by a plain `cecilia`.
+  TOML. Done: `:workspace-open[!]` (saves the current one first, creates a missing one),
+  `:workspace-save[!]` (saving under a new name duplicates), `:workspace-delete[!]`, `--workspace`;
+  there may be no workspace; one is saved on quit (`ui.workspace_autosave_on_quit`, never by
+  `:quit!`) and a plain `cecilia` reopens the last (`ui.workspace_restore_last`) or creates `default`.
 
 ### 8.2 Modes
 
