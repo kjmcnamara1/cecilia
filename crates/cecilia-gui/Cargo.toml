@@ -13,6 +13,7 @@ cecilia-audio.workspace = true
 cecilia-engrave.workspace = true
 anyhow.workspace = true
 vello = "0.5"
+vello_svg = "0.7"
 winit = "0.30"
 pollster = "0.4"
 tiny-skia = "0.11"

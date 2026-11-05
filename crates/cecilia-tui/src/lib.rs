@@ -889,25 +889,42 @@ fn draw_dashboard(f: &mut Frame, app: &App, area: Rect, ui: &mut Ui) {
     );
     let buttons = DashboardButton::ALL;
     let (w, h) = (26.min(area.width), 3);
-    let total = 3 + buttons.len() as u16 * h;
+    let total = 5 + buttons.len() as u16 * h;
     if area.width < 8 || area.height < total {
         return;
     }
     let top = area.y + (area.height - total) / 2;
     let x = area.x + (area.width - w) / 2;
-    f.render_widget(
-        Paragraph::new("cecilia")
-            .alignment(ratatui::layout::Alignment::Center)
-            .style(
-                Style::default()
-                    .fg(rc(t.text_on(t.paper)))
-                    .bg(rc(t.paper))
-                    .add_modifier(ratatui::style::Modifier::BOLD),
-            ),
-        Rect::new(area.x, top, area.width, 1),
-    );
+    let centred = |text: &'static str, row: u16, style: Style| {
+        (
+            Paragraph::new(text)
+                .alignment(ratatui::layout::Alignment::Center)
+                .style(style),
+            Rect::new(area.x, top + row, area.width, 1),
+        )
+    };
+    let base = Style::default().bg(rc(t.paper));
+    // A small flower stands for the lily of assets/lily.svg, which a terminal cannot show.
+    let rows = [
+        centred("\u{273f}", 0, base.fg(rc(t.accent))),
+        centred(
+            "cecilia",
+            2,
+            base.fg(rc(t.text_on(t.paper)))
+                .add_modifier(ratatui::style::Modifier::BOLD),
+        ),
+        centred(
+            "Tablature, notation and chant editor and player",
+            3,
+            base.fg(rc(t.dim))
+                .add_modifier(ratatui::style::Modifier::ITALIC),
+        ),
+    ];
+    for (widget, r) in rows {
+        f.render_widget(widget, r);
+    }
     for (i, b) in buttons.into_iter().enumerate() {
-        let r = Rect::new(x, top + 3 + i as u16 * h, w, h);
+        let r = Rect::new(x, top + 5 + i as u16 * h, w, h);
         let focused = i == app.dashboard_focus();
         let style = if focused {
             on(app, t.accent)

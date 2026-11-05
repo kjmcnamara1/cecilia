@@ -11,7 +11,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - Dashboard: when no score pane is open (the last one closed with `:pane-close`, or a workspace with
   nothing in it) the window shows buttons Select Workspace, New Score and Open Score, in the window
-  and the terminal. `j`/`k`/`Tab`/`Shift-Tab`/arrows move, `Enter` or a click runs one.
+  and the terminal, under the lily icon (a flower glyph in the terminal), the name and a tagline.
+  `j`/`k`/`Tab`/`Shift-Tab`/arrows move, `Enter` or a click runs one.
 
 ### Changed
 
