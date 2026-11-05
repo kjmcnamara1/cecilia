@@ -552,4 +552,52 @@ mod tests {
         assert_eq!(app.buffers.len(), 2);
         assert!(app.buffer().score.tracks[0].chant.is_some());
     }
+
+    #[test]
+    fn clef_line_moves_the_clef() {
+        let mut app = app();
+        app.run(Command::ClefLine("3".into()));
+        assert!(gabc(&app).starts_with("(c3)"));
+        app.run(Command::ClefLine("up".into()));
+        assert!(gabc(&app).starts_with("(c4)"));
+        app.run(Command::ClefLine("up".into()));
+        assert!(gabc(&app).starts_with("(c4)"), "stays on the staff");
+        app.run(Command::ClefLine("down".into()));
+        assert!(gabc(&app).starts_with("(c3)"));
+    }
+
+    #[test]
+    fn modern_chant_staff_takes_a_clef_line() {
+        use cecilia_core::chant::ClefKind;
+        let mut app = app();
+        app.run(Command::ChantToModern);
+        app.run(Command::StaffAdd(Some("chant".into())));
+        app.run(Command::StaffNext);
+        let view = |app: &App| {
+            let b = app.buffer();
+            cecilia_core::melody::ChantView::build(&b.score, &b.score.tracks[0], Default::default())
+                .unwrap()
+        };
+        app.run(Command::Clef("c3".into()));
+        assert_eq!(app.buffer().score.tracks[0].chant_line, Some(3));
+        assert_eq!(
+            (view(&app).clef.kind, view(&app).clef.line),
+            (ClefKind::Do, 3)
+        );
+        let pitches = |app: &App| view(app).events.iter().map(|e| e.pitch).collect::<Vec<_>>();
+        let before = pitches(&app);
+        app.run(Command::Clef("f2".into()));
+        assert_eq!(
+            (view(&app).clef.kind, view(&app).clef.line),
+            (ClefKind::Fa, 2)
+        );
+        assert_eq!(pitches(&app), before, "same sounding pitches");
+        app.run(Command::ClefLine("up".into()));
+        assert_eq!(view(&app).clef.line, 3);
+        app.run(Command::Clef("do".into()));
+        assert_eq!(
+            (view(&app).clef.kind, view(&app).clef.line),
+            (ClefKind::Do, 3)
+        );
+    }
 }

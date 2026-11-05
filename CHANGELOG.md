@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- The chant clef can be moved to another staff line anywhere a chant staff is shown: `:clef c1`–`c4` / `f1`–`f4` now also work on a chant staff of an ordinary track (the notes keep their pitch and are re-placed at the new clef; stored as `Track.chant_line`, old files load as before), `:clef-line {1-4|up|down}` and the Normal-mode keys `tu` / `td` on a chant staff move it a line, and the tracks pane's clef box steps through `c1`–`c4`, `f1`–`f4` (and shows the clef with its line).
+
 ## [0.29.0] - 2026-11-05
 
 ### Added

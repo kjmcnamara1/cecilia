@@ -1381,6 +1381,7 @@ impl App {
             TrackAdd(kind) => self.add_track(kind),
             Notation(arg) => self.set_notation(arg),
             Clef(arg) => self.set_clef(arg),
+            ClefLine(arg) => self.set_clef_line(arg),
             LyricsAttach(arg) => self.attach_lyrics(arg),
             StaffAdd(arg) => self.add_staff(arg.as_deref()),
             StaffRemove(n) => self.remove_staff(*n),
@@ -1837,6 +1838,55 @@ impl App {
         }
     }
 
+    /// Puts a chant staff of an ordinary track in the cursor's place, with its clef on a staff
+    /// line (the track's `chant_line`; `None` lets the engraver choose).
+    fn put_chant_staff(&mut self, staff: Staff, line: Option<u8>) {
+        let done = self.edit(|cx| {
+            let (i, t) = (cx.cursor.staff, cx.cursor.track);
+            let track = &mut cx.whole().tracks[t];
+            fret_for_tab(track, staff)?;
+            track.chant_line = line;
+            let staves = track.staves_mut();
+            let i = i.min(staves.len() - 1);
+            staves[i] = staff;
+            Ok(i)
+        });
+        if let Some(i) = done {
+            self.info(format!("staff {}: {}", i + 1, staff.name()));
+        }
+    }
+
+    /// Moves the clef of the cursor's chant staff to another line: `1`–`4`, or `up` / `down`
+    /// from where it is now.
+    fn set_clef_line(&mut self, arg: &str) {
+        let arg = arg.trim();
+        let (track, here) = self.cursor_staff();
+        let (Some(track), Some(here)) = (track, here) else {
+            return;
+        };
+        if !here.is_chant() {
+            return self.error("clef-line: the cursor is not on a chant staff");
+        }
+        let now = match track.chant.as_deref() {
+            Some(c) => c.initial_clef(),
+            None => crate::edit::chant_clef_of(&self.buffer().score, track, self.chord_policy()).0,
+        };
+        let line = match arg {
+            "up" => now.line.saturating_add(1),
+            "down" => now.line.saturating_sub(1),
+            n => match n.parse::<u8>() {
+                Ok(l) => l,
+                Err(_) => return self.error("clef-line: expected 1–4, up or down"),
+            },
+        };
+        if !(1..=4).contains(&line) {
+            return self.error(format!("clef-line: line {line} is off the staff (1–4)"));
+        }
+        let k = if now.kind == ClefKind::Do { 'c' } else { 'f' };
+        let flat = if now.flat { "b" } else { "" };
+        self.set_clef(&format!("{k}{flat}{line}"));
+    }
+
     /// Sets the clef of the cursor's staff, among those its notation has: treble, bass, grand
     /// or neutral for standard notation; do or fa for chant. Tab and slash have none.
     fn set_clef(&mut self, arg: &str) {
@@ -1897,7 +1947,22 @@ impl App {
                         Staff::ChantFa
                     });
                 } else {
-                    self.error("clef: a chant staff of an ordinary track takes do or fa");
+                    // `c3`, `f2` …: the notes keep their pitch, so the engraver re-places them.
+                    match cecilia_core::chant::ChantClef::parse(arg) {
+                        Some(c) if !c.flat && c.line <= 4 => {
+                            self.put_chant_staff(
+                                if family == ClefKind::Do {
+                                    Staff::Chant
+                                } else {
+                                    Staff::ChantFa
+                                },
+                                Some(c.line),
+                            );
+                        }
+                        _ => self.error(format!(
+                            "clef: '{arg}' is not a clef for this staff (do, fa, c1–c4, f1–f4)"
+                        )),
+                    }
                 }
             }
         }
