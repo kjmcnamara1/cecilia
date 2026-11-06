@@ -57,6 +57,7 @@ Planned work. Finished items move to `CHANGELOG.md` under `[Unreleased]`.
 - toggle switch above textarea to show/edit the raw gabc
   - if on:
     - display and allow editing everything in parentheses (gabc) as well as the actual lyric text
+    - starts with clef definition e.g. (c4)
     - (gabc) text should be bold foreground color font
     - [Verse labels] text should be bold blue font
     - <bar:beat> anchor text should be red font
@@ -77,19 +78,35 @@ Planned work. Finished items move to `CHANGELOG.md` under `[Unreleased]`.
   - font should be monospace in textarea
   - should be able to set font family (default JetBrainsMono) and height (default 14pt)
 - text inside () is parsed as gabc and will be used only for chant notation on a staff
+- the syllables from the gabc are used to map to notes in standard and tab
 - newlines are not parsed
 - whitespace in excess of 1 space is ignored
-- "*" as a standalone word is rendered as  (six pointed asterisk), but is not attached as a syllable
-- word broken by "-" splits syllables with a dash
+- if typing into the empty textarea with gabc toggled off
+  - "*" as a standalone word is rendered as  (six pointed asterisk), but is not
+    attached as a syllable by default
+  - word broken by "-" splits syllables with a dash. dash does not get note assigned
+  - "_" begins a syllable that should be printed in italics. so this should
+    usually get assigned a note
+  - text inside [] is displayed on the score, but not attached as a syllable.
+    this allows displaying e.g. verse numbers
+  - lyrics anchor points can be set with <bar:beat>. otherwise lyrics start at
+    the first audible note/beat in the score (including pickup).
+- syllables are assigned to beats in order following the progression of the
+  score including repeats, alternate endings, and directions
+- the :lyrics command inserts an anchor tag into the lyrics pane before the
+  words supplied as arguments as if they were typed in to the gabc toggled off
+  textarea
+- lyrics entered with the :lyrics command follow the same rules. newlines can be
+  entered with \n
+
+Lyrics should still be read appropriately from all versions of guitar pro files,
+but then translated into this specification (gabc+) to display in the textarea.
+
+---
+
 - special "words"
   - a word of all "-" is rendered as a single dash. the length determines how many beats the dash covers
   - a word of all "_" is not rendered. the length determines how many beats are not rendered
-- syllables are assigned to beats in order following the progression of the score including repeats, alternate endings, and directions
-- text inside [] is displayed on the score, but not attached as a syllable. this allows displaying verse numbers
-- lyrics anchor points can be set with <bar:beat>. otherwise lyrics start at the first note/beat in the score (including pickup).
-- the :lyrics command inserts an anchor tag into the lyrics pane before the words
-- lyrics entered with the :lyrics command follow the same rules. newlines can be
-  entered with \n
 
 e.g.
 
@@ -101,12 +118,23 @@ e.g.
 - "some _ one" is 3 beats separated by space
 - "some __ one" is 4 beats separated by space
 
-e.g. lyrics =
-[1.] Let all mor-tal flesh keep _ si-lence,
+e.g. lyrics with gabc toggled off =
+<1:1> [1.] Let all mor-tal flesh keep _ si-lence,
 And with fear and trem-bling _ stand;
 
 [2.] Rank on rank the host of _ hea-ven
 Spreads its van-guard on the _ way,
+
+_if 1:1 is a rest, it will anchor the "1." right before the first audible beat
+and then the "Let" syllable centered on the first audible beat.
+
+in combination with gabc:
+some(g)---one(e)
+-> 2 descending punctums with text "some - one" - pes centered on "some" and punctum on "one"
+some(gh) -- one(e)
+-> pes and then punctum with text "some - one" - pes centered on "some" and punctum on "one"
+some(gh) --- one(e)
+-> this would need another note after "gh". should autofill as (ghh)
 
 ### Tool Panes
 
