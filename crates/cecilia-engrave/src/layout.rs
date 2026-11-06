@@ -1545,7 +1545,7 @@ impl Ctx<'_> {
                     Kind::Inclinatum
                 } else if n.mods.iter().any(|m| m == "v") {
                     Kind::Virga
-                } else if n.mods.iter().any(|m| m == "s") {
+                } else if n.mods.iter().any(|m| m.starts_with('s')) {
                     Kind::Stropha
                 } else {
                     Kind::Punctum
