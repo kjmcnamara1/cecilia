@@ -101,6 +101,9 @@ pub enum Command {
     DeleteNote,
     /// Delete the whole beat under the cursor (no rest left behind).
     DeleteBeat,
+    /// Redraws the barlines of the cursor voice to match the time signatures: notes move
+    /// between bars (the whole score, or the Visual selection), splitting and tying where needed.
+    Reflow,
     Operator(Operator),
     Put {
         before: bool,
@@ -687,6 +690,7 @@ impl Command {
             "insert-enter" => InsertEnter,
             "delete-note" => DeleteNote,
             "delete-beat" => DeleteBeat,
+            "reflow" => Reflow,
             "delete" => Operator(self::Operator::Delete),
             "yank" => Operator(self::Operator::Yank),
             "change" => Operator(self::Operator::Change),
@@ -1270,6 +1274,7 @@ impl Command {
                 | InsertEnter
                 | DeleteNote
                 | DeleteBeat
+                | Reflow
                 | Operator(_)
                 | Put { .. }
                 | BarInsert { .. }

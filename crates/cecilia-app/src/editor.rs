@@ -958,6 +958,16 @@ impl App {
                     Ok(())
                 });
             }
+            Reflow => {
+                let range = if self.selection().is_some() {
+                    let r = self.beat_range();
+                    self.run(Command::Normal);
+                    r
+                } else {
+                    ((0, 0), (usize::MAX, usize::MAX))
+                };
+                self.edit(|cx| edit::reflow(cx, range.0, range.1));
+            }
             DeleteBeat => {
                 self.edit(|cx| {
                     let at = (cx.cursor.bar, cx.cursor.beat);

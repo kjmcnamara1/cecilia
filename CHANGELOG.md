@@ -11,6 +11,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - `<CR>` (`:chant-syllable`) on a chant staff of an ordinary track enters a plain punctum at the cursor's position with the insert duration (when the beat has no note) and moves on to the next beat, as on a standard staff (it used to be refused). Each such punctum is its own neume until the track has lyrics; then the syllables condense the notes into pes, clivis, torculus etc.
 
+### Added
+
+- `:reflow` redraws the barlines of the cursor's voice to match the time signatures: beats that run over a bar move to the start of the next, bars that come up short are filled from the next, and a beat that straddles a barline is split and tied (durations and pitches never change). It works over every bar, or in Visual mode over just the selection, whose last bar keeps whatever is left over. Other voices are not touched; bars with repeat signs are refused.
+
 ### Fixed
 
 - Deleting a note or beat that carries a lyric syllable no longer loses it: the text shifts on over the following notes (the deleted note's syllable goes to the next note, each later one moves one note on, until a note without a syllable takes one; at the end of the track a syllable joins the last note's).

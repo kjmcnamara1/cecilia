@@ -1070,3 +1070,104 @@ fn a_syllable_with_no_free_note_joins_the_last_one() {
     keys(&mut a, "<Del><Esc>");
     assert_eq!(syllables(&a), ["A", "le", "lu ia"]);
 }
+
+/// The lengths in quarters of the beats of bar `b` of track 0's first voice.
+fn quarters(a: &App, b: usize) -> Vec<f64> {
+    bar_beats(a, b)
+        .iter()
+        .filter(|x| !x.empty)
+        .map(|x| x.ticks() as f64 / 960.0)
+        .collect()
+}
+
+#[test]
+fn reflow_moves_the_excess_into_the_next_bar_and_fills_the_gaps() {
+    let mut a = app();
+    let q: Spec = &[(0, 1, false)];
+    // 4/4: five quarters, then two.
+    set_bar(&mut a, 0, &[q, q, q, q, q]);
+    set_bar(&mut a, 1, &[q, q]);
+    keys(&mut a, ":reflow<CR>");
+    assert_eq!(quarters(&a, 0), [1.0; 4]);
+    assert_eq!(quarters(&a, 1), [1.0; 3]);
+    assert_eq!(undo_steps(&a), 1);
+    // A short bar takes notes from the next.
+    set_bar(&mut a, 0, &[q, q, q]);
+    set_bar(&mut a, 1, &[q, q, q, q]);
+    keys(&mut a, ":reflow<CR>");
+    assert_eq!(quarters(&a, 0), [1.0; 4]);
+    assert_eq!(quarters(&a, 1), [1.0; 3]);
+}
+
+#[test]
+fn reflow_splits_a_beat_over_the_barline_and_ties_it() {
+    let mut a = app();
+    let q: Spec = &[(0, 1, false)];
+    // 3 quarters and a half note: the half note straddles the barline.
+    set_bar(&mut a, 0, &[q, q, q]);
+    let b = a.pane().buffer;
+    let half = Beat {
+        duration: Duration::new(DurationValue::Half),
+        notes: vec![Note::new(1, 7)],
+        ..Beat::default()
+    };
+    a.buffers[b].score.tracks[0].bars[0].voices[0]
+        .beats
+        .push(half);
+    set_bar(&mut a, 1, &[]);
+    keys(&mut a, ":reflow<CR>");
+    assert_eq!(quarters(&a, 0), [1.0, 1.0, 1.0, 1.0]);
+    assert_eq!(quarters(&a, 1), [1.0]);
+    let (head, tail) = (&bar_beats(&a, 0)[3], &bar_beats(&a, 1)[0]);
+    assert_eq!((head.notes[0].string, head.notes[0].fret), (1, 7));
+    assert_eq!((tail.notes[0].string, tail.notes[0].fret), (1, 7));
+    assert!(!head.notes[0].tie);
+    assert!(tail.notes[0].tie);
+}
+
+#[test]
+fn reflow_in_visual_mode_only_touches_the_selection() {
+    let mut a = app();
+    let q: Spec = &[(0, 1, false)];
+    set_bar(&mut a, 0, &[q, q, q, q, q]);
+    set_bar(&mut a, 1, &[q, q, q, q, q, q, q]);
+    set_bar(&mut a, 2, &[q, q, q, q, q]);
+    // Bars 2 and 3 selected: the excess of bar 2 shifts on, the last bar keeps what is left.
+    a.pane_mut().cursor.bar = 1;
+    a.run(Command::Visual { bars: true });
+    a.run(Command::BarNext);
+    keys(&mut a, ":reflow<CR>");
+    assert_eq!(a.mode, Mode::Normal);
+    assert_eq!(quarters(&a, 0), [1.0; 5]);
+    assert_eq!(quarters(&a, 1), [1.0; 4]);
+    assert_eq!(quarters(&a, 2), [1.0; 8]);
+    // A selection of beats: only those are repacked, the rest of their bars stays.
+    set_bar(&mut a, 0, &[q, q, q, q, q]);
+    set_bar(&mut a, 1, &[q, q]);
+    a.pane_mut().cursor.bar = 0;
+    a.pane_mut().cursor.beat = 3;
+    a.run(Command::Visual { bars: false });
+    a.run(Command::BarNext);
+    keys(&mut a, ":reflow<CR>");
+    // Beats 4-5 of bar 1 and beat 1 of bar 2 repacked around the beats left out: bar 1 is
+    // filled to four, bar 2 keeps the rest and the unselected beat after the area.
+    assert_eq!(quarters(&a, 0), [1.0; 4]);
+    assert_eq!(quarters(&a, 1), [1.0; 3]);
+}
+
+#[test]
+fn reflow_only_changes_the_cursor_voice() {
+    let mut a = app();
+    let q: Spec = &[(0, 1, false)];
+    set_bar(&mut a, 0, &[q, q, q, q, q]);
+    let b = a.pane().buffer;
+    let second = Voice {
+        beats: vec![Beat::rest(Duration::new(DurationValue::Whole))],
+    };
+    a.buffers[b].score.tracks[0].bars[0]
+        .voices
+        .push(second.clone());
+    keys(&mut a, ":reflow<CR>");
+    assert_eq!(a.buffers[b].score.tracks[0].bars[0].voices[1], second);
+    assert_eq!(quarters(&a, 0), [1.0; 4]);
+}

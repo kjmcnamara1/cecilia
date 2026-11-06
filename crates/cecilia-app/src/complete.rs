@@ -66,6 +66,7 @@ pub const COMMANDS: &[&str] = &[
     "delete",
     "delete-note",
     "delete-beat",
+    "reflow",
     "dot",
     "duration",
     "duration-longer",
@@ -881,6 +882,9 @@ pub fn describe(command: &str) -> Option<&'static str> {
         "delete" => "Delete operator",
         "delete-note" => "Delete the note under the cursor",
         "delete-beat" => "Delete the whole beat under the cursor",
+        "reflow" => {
+            "Redraw the barlines of the voice to fit the time signatures: shift notes between bars (the Visual selection, else every bar)"
+        }
         "dot" => "Toggle a dot on the beat",
         "duration" => "Set the note value (1, 2, 4 … 64)",
         "duration-longer" => "Double the beat's length",

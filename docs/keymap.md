@@ -234,6 +234,7 @@ is typed after it, is one undo step.
 | `o` / `O`                                              | new bar after / before the cursor bar (`[count]` bars), then Insert mode on it (`:bar-open-after`, `:bar-open-before`) |
 | `gi`                                                   | Insert mode where Insert mode was last left in this file (on the cursor if never), adding nothing (`:insert-last`) |
 | `<CR>`                                                 | Insert mode on the cursor beat, adding nothing (`:insert-here`; the old `i` and, until 0.17, `gi`) |
+| `:reflow`                                              | redraw the barlines of the cursor's voice to fit the time signatures: excess beats move to the start of the next bar, short bars are filled from the next, and a beat straddling a barline is split and tied. Durations and pitches don't change; other voices are left alone. Over every bar, or in Visual mode over the selection only, whose last bar keeps whatever is left over |
 | `x`                                                    | delete the one note under the cursor: on the cursor string, or at the cursor line / space (`[count]x`); on a slash staff the beat's slash, i.e. all its notes |
 | `d{motion}` / `dd`                                     | delete beats / bars (`[count]dd`). `dl` the beat under the cursor, `dh` the one before it, `dw` `de` `db` `d$` `d^` …  |
 | `y{motion}` / `yy`, `p` / `P`                          | yank beats or bars (`yl`, `yh` …, `yy` the bar) / put after / before the cursor                   |
