@@ -248,7 +248,7 @@ pub struct ChantView {
 impl ChantView {
     pub fn build(score: &Score, track: &Track, policy: ChordPolicy) -> Result<Self, ChordError> {
         let events = melody(score, track, policy)?;
-        Ok(Self::of(events, track.chant_family(), track.chant_line))
+        Ok(Self::of(events, None, None))
     }
 
     /// A view of `events` on a clef of the given family and staff line (the best fitting one

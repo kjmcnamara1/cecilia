@@ -50,9 +50,25 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
-- Moving down from the GABC switch puts the normal-mode (block) caret in the lyrics text area,
-  as does a click in it; `<CR>` there is `i`, `<Esc>` in normal mode leaves the text area and the
-  properties pane, `<C-k>` goes up to the switch and `<C-j>` back.
+- Selecting the lyrics text area (it is the only row of the LYRICS tab now) or clicking in it puts
+  the normal-mode (block) caret there; `<CR>` there is `i`, `<Esc>` in normal mode leaves the text
+  area and the properties pane.
+- The LYRICS tab of a chant track always shows its GABC (it had a switch); the tab of any other
+  track shows its text without its GABC groups.
+- `ui.chant_chords` is used only by `:modern-to-chant` and `cecilia convert … .gabc`.
+- `:clef` on a chant track takes only chant clefs (`c1`–`c4`, `f1`–`f4`, `cb3`); `:notation` and
+  `:staff-add` refuse on a chant track, which has one square-notation staff.
+
+### Removed
+
+- The chant staff of ordinary tracks (`:notation chant`, `:staff-add chant`, `:clef f3` on a
+  staff of an ordinary track, the chant entries of the staff and clef pickers, the chant staff in
+  the terminal's tab systems and in the GUI) and everything that edited through it (`<CR>`
+  punctums, `:chant-mod`, `:chant-bar`, `:chant-append`, `:chant-syllable` on an ordinary track).
+  Square notation belongs to chant tracks: convert a melody with `:modern-to-chant`. Old `.cc`
+  files that name a chant staff (and its `chant_line`) on an ordinary track load without it,
+  keeping the track's other staves (or the default ones).
+- The GABC switch of the LYRICS tab, and the GABC inferred from the notes it showed.
 - `:lyrics TEXT` adds an anchor at the cursor (its beat in the first voice) and the words to the track's gabc+ text (`\n` a line
   break); words over notes that already have some go on the next verse row. The verse number
   argument is gone. `:lyrics-clear` clears the text; `:lyrics-clear N` removes a verse row.

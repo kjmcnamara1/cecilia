@@ -421,10 +421,6 @@ pub struct Track {
     /// on its beats, which are laid out from it again after every edit.
     #[serde(default, skip_serializing_if = "String::is_empty")]
     pub lyrics_text: String,
-    /// Staff line (1 = bottom) the chant staves of a staff track put their clef on; `None`
-    /// lets the engraver pick the line that fits the melody.
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub chant_line: Option<u8>,
     pub extras: Extras,
 }
 
@@ -439,10 +435,6 @@ pub enum Staff {
     TabRhythm,
     /// Rhythm slashes.
     Slash,
-    /// Gregorian square notation, on a do (C) clef.
-    Chant,
-    /// Gregorian square notation, on a fa (F) clef.
-    ChantFa,
 }
 
 /// The kind of notation a staff holds.
@@ -451,12 +443,11 @@ pub enum Notation {
     Standard,
     Tab,
     Slash,
-    Chant,
 }
 
 impl Notation {
     /// Every notation, as typed after `:notation`.
-    pub const NAMES: [&str; 5] = ["standard", "tab", "tab+", "slash", "chant"];
+    pub const NAMES: [&str; 4] = ["standard", "tab", "tab+", "slash"];
 }
 
 /// Lyrics shown with a staff: those of any track (the staff's own by default), aligned with the
@@ -537,11 +528,9 @@ pub fn parse_pitch(s: &str) -> Option<u8> {
 
 impl Staff {
     /// Every kind, as typed: `standard`, `tab`, `tab+`, `slash`, `chant`.
-    pub const KINDS: [&str; 8] = [
-        "treble", "bass", "grand", "neutral", "tab", "tab+", "slash", "chant",
-    ];
+    pub const KINDS: [&str; 7] = ["treble", "bass", "grand", "neutral", "tab", "tab+", "slash"];
 
-    /// Parses `treble`, `bass`, `grand [split note]`, `tab`, `tab+`, `slash` or `chant` (standard
+    /// Parses `treble`, `bass`, `grand [split note]`, `tab`, `tab+` or `slash` (standard
     /// notation is `standard [clef]`, which still works; `standard` alone takes `clef`).
     pub fn parse(s: &str, clef: Clef) -> Result<Staff, String> {
         let words: Vec<&str> = s.split_whitespace().collect();
@@ -565,11 +554,9 @@ impl Staff {
             ["tab"] => Staff::Tab,
             ["tab+"] => Staff::TabRhythm,
             ["slash"] => Staff::Slash,
-            ["chant"] | ["chant", "do"] => Staff::Chant,
-            ["chant", "fa"] => Staff::ChantFa,
             _ => {
                 return Err(format!(
-                    "'{s}' is not a staff (treble, bass, grand [split], neutral, tab, tab+, slash, chant [do|fa])"
+                    "'{s}' is not a staff (treble, bass, grand [split], neutral, tab, tab+, slash)"
                 ));
             }
         })
@@ -598,8 +585,6 @@ impl Staff {
             Staff::Tab => "tab".into(),
             Staff::TabRhythm => "tab+".into(),
             Staff::Slash => "slash".into(),
-            Staff::Chant => "chant".into(),
-            Staff::ChantFa => "chant fa".into(),
         }
     }
 
@@ -608,20 +593,6 @@ impl Staff {
             Staff::Standard(_) => Notation::Standard,
             Staff::Tab | Staff::TabRhythm => Notation::Tab,
             Staff::Slash => Notation::Slash,
-            Staff::Chant | Staff::ChantFa => Notation::Chant,
-        }
-    }
-
-    pub fn is_chant(self) -> bool {
-        self.notation() == Notation::Chant
-    }
-
-    /// The family of a chant staff's clef (do or fa).
-    pub fn chant_family(self) -> Option<crate::chant::ClefKind> {
-        match self {
-            Staff::Chant => Some(crate::chant::ClefKind::Do),
-            Staff::ChantFa => Some(crate::chant::ClefKind::Fa),
-            _ => None,
         }
     }
 
@@ -630,7 +601,7 @@ impl Staff {
     }
 }
 
-/// Chant signs kept with a note, for chant staves of ordinary tracks.
+/// Chant signs kept with a note, for the chant view built from an ordinary track.
 #[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
 pub struct ChantMarks {
     /// Punctum inclinatum (diamond).
@@ -687,9 +658,6 @@ impl Track {
     /// The staves shown when none were chosen: chant as chant; fretted tracks as standard
     /// notation over tab; others as standard notation in the clef that suits their range.
     pub fn default_staves(&self) -> Vec<Staff> {
-        if self.chant.is_some() {
-            return vec![Staff::Chant];
-        }
         if self.kind == TrackKind::Drums {
             return vec![Staff::Standard(Clef::Neutral)];
         }
@@ -768,11 +736,6 @@ impl Track {
         while self.staff_lyrics.last() == Some(&None) {
             self.staff_lyrics.pop();
         }
-    }
-
-    /// The family of clef the track's chant staff uses, if it has one.
-    pub fn chant_family(&self) -> Option<crate::chant::ClefKind> {
-        self.staves().iter().find_map(|s| s.chant_family())
     }
 
     /// The clef a standard staff with `clef` shows (one half of a grand staff for `bass`).
@@ -1067,7 +1030,7 @@ pub struct Note {
     pub effects: NoteEffects,
     /// Playback length as a fraction of the written duration (1.0 = full).
     pub duration_percent: f32,
-    /// Chant signs, when the track has a chant staff.
+    /// Chant signs kept with the note for `:modern-to-chant`.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub chant: Option<Box<ChantMarks>>,
     /// Written alteration (-2 double flat … 2 double sharp) the staff spells the note with,

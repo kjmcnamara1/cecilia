@@ -1281,26 +1281,7 @@ impl App {
             .get(c.beat)?;
         let string = if uses_strings(track, kind) {
             u8::try_from(c.string).ok()?
-        } else if kind.is_chant() && track.chant.is_none() {
-            // A chant staff of an ordinary track shows the beat's picked note at its position:
-            // only a cursor on that position is over the note.
-            let policy = self.chord_policy();
-            let n = &beat.notes[cecilia_core::melody::pick(track, beat, policy)?];
-            let view = cecilia_core::melody::ChantView::build(score, track, policy)
-                .or_else(|_| {
-                    cecilia_core::melody::ChantView::build(score, track, Default::default())
-                })
-                .ok()?;
-            let at = view
-                .clef
-                .place(track.pitch_of(n), view.shift)
-                .0
-                .clamp(0, 13);
-            if at != c.line {
-                return None;
-            }
-            n.string
-        } else if matches!(kind, Staff::Slash) || kind.is_chant() {
+        } else if matches!(kind, Staff::Slash) || track.chant.is_some() {
             beat.notes.first()?.string
         } else {
             let key = score
@@ -1999,48 +1980,12 @@ impl App {
             self.mode = Mode::Normal;
             self.ed.visual_anchor = None;
         }
-        self.chant_staff_notice();
     }
 
-    /// The chord policy of chant staves of ordinary tracks (`ui.chant_chords`).
+    /// The chord policy of `:modern-to-chant` and `cecilia convert … .gabc` (`ui.chant_chords`).
     pub fn chord_policy(&self) -> cecilia_core::melody::ChordPolicy {
         cecilia_core::melody::ChordPolicy::parse(&self.config.file.ui.chant_chords)
             .unwrap_or_default()
-    }
-
-    /// Why the cursor track's chant staff is not drawn: the chord the `error` policy refuses.
-    pub fn chant_staff_problem(&self) -> Option<String> {
-        let track = self.buffer().score.tracks.get(self.pane().cursor.track)?;
-        if track.chant.is_some() || !track.staves().iter().any(|s| s.is_chant()) {
-            return None;
-        }
-        cecilia_core::melody::ChantView::build(&self.buffer().score, track, self.chord_policy())
-            .err()
-            .map(|e| e.to_string())
-    }
-
-    /// Reports a chant staff that cannot be shown: with the cursor on it, over any message but
-    /// an error; elsewhere only when nothing else has been said.
-    fn chant_staff_notice(&mut self) {
-        let on_chant = self
-            .buffer()
-            .score
-            .tracks
-            .get(self.pane().cursor.track)
-            .is_some_and(|t| {
-                t.staves()
-                    .get(staff_index(t, self.pane().cursor.staff))
-                    .is_some_and(|s| s.is_chant())
-            });
-        let blocked = match &self.message {
-            Some(m) => m.error || !on_chant,
-            None => false,
-        };
-        if !blocked {
-            if let Some(problem) = self.chant_staff_problem() {
-                self.error(problem);
-            }
-        }
     }
 
     /// Shows the save prompt for a buffer and waits for the answer.
@@ -2337,15 +2282,9 @@ impl App {
             }),
             NoteNext => self.move_cursor(|s, c| step_note(s, c, true)),
             NotePrev => self.move_cursor(|s, c| step_note(s, c, false)),
-            RowNext | RowEnd | RowPrev => {
-                let rows = self.chant_rows();
-                let rows = rows.as_ref();
-                match cmd {
-                    RowNext => self.move_cursor(|s, c| row_next(s, c, rows)),
-                    RowEnd => self.move_cursor(|s, c| row_end(s, c, rows)),
-                    _ => self.move_cursor(|s, c| row_prev(s, c, rows)),
-                }
-            }
+            RowNext => self.move_cursor(row_next),
+            RowEnd => self.move_cursor(row_end),
+            RowPrev => self.move_cursor(row_prev),
             BarFirstNote => self.move_cursor(|s, c| {
                 c.beat = beats(s, c)
                     .iter()
@@ -2368,8 +2307,7 @@ impl App {
             }
             StaffNext | StaffPrev => {
                 let forward = cmd == StaffNext;
-                let policy = self.chord_policy();
-                self.move_cursor(|s, c| move_staff(s, c, forward, policy));
+                self.move_cursor(|s, c| move_staff(s, c, forward));
             }
             BarNext => self.move_cursor(|s, c| set_bar(s, c, c.bar + 1)),
             BarPrev => self.move_cursor(|s, c| set_bar(s, c, c.bar.saturating_sub(1))),
@@ -3320,14 +3258,16 @@ pub(crate) fn uses_strings(track: &Track, staff: Staff) -> bool {
     match staff {
         Staff::Tab | Staff::TabRhythm => !track.strings.is_empty(),
         Staff::Standard(_) => track.kind == TrackKind::Drums,
-        Staff::Slash | Staff::Chant | Staff::ChantFa => false,
+        Staff::Slash => false,
     }
 }
 
-/// Middle of a staff (its treble half on a grand staff; a GABC position on chant).
+/// Middle of a staff (its treble half on a grand staff; a GABC position on a chant track).
 fn staff_middle(track: &Track, staff: Staff) -> i32 {
+    if track.chant.is_some() {
+        return 6;
+    }
     match staff {
-        Staff::Chant | Staff::ChantFa => 6,
         Staff::Standard(clef) => track.written_clef(clef, false).bottom_line() + 4,
         _ => track.written_clef(Clef::Treble, false).bottom_line() + 4,
     }
@@ -3361,8 +3301,10 @@ fn staff_rows(score: &Score, c: &Cursor, track: &Track, index: usize, staff: Sta
         }
         (lo, hi)
     };
+    if track.chant.is_some() {
+        return lines(1, 11).collect();
+    }
     match staff {
-        Staff::Chant | Staff::ChantFa => lines(1, 11).collect(),
         Staff::Slash => vec![Row::Line(index, staff_middle(track, staff))],
         Staff::Standard(clef @ Clef::Grand { split }) => {
             let (t_lo, t_hi) = range(track.written_clef(clef, false), &|p| p >= split);
@@ -3439,7 +3381,7 @@ fn own_rows(score: &Score, c: &Cursor) -> Vec<Row> {
     let index = staff_index(track, c.staff);
     let staff = staves[index];
     let mut rows = staff_rows(score, c, track, index, staff);
-    if !(staff.is_chant() || staff == Staff::Slash) && !uses_strings(track, staff) {
+    if !(track.chant.is_some() || staff == Staff::Slash) && !uses_strings(track, staff) {
         if let (Some(&Row::Line(_, top)), Some(&Row::Line(_, bottom))) = (rows.first(), rows.last())
         {
             let above = (top + 1..=top + LEDGER_ROWS)
@@ -3455,12 +3397,7 @@ fn own_rows(score: &Score, c: &Cursor) -> Vec<Row> {
 }
 
 /// The cursor to the next or previous staff of its track (it stops at the first and last).
-fn move_staff(
-    score: &Score,
-    c: &mut Cursor,
-    forward: bool,
-    policy: cecilia_core::melody::ChordPolicy,
-) {
+fn move_staff(score: &Score, c: &mut Cursor, forward: bool) {
     let Some(track) = score.tracks.get(c.track) else {
         return;
     };
@@ -3477,19 +3414,6 @@ fn move_staff(
         let shown = staff_rows(score, c, track, to, staves[to]);
         if !shown.contains(&Row::Line(to, c.line)) {
             c.line = staff_middle(track, staves[to]);
-        }
-    }
-    // Onto a chant staff the cursor goes to the position of the beat's note.
-    if to != here && staves[to].is_chant() && track.chant.is_none() {
-        let note = beats(score, c).get(c.beat).and_then(|b| {
-            let n = &b.notes[cecilia_core::melody::pick(track, b, policy)?];
-            Some(track.pitch_of(n))
-        });
-        if let (Some(p), Ok(v)) = (
-            note,
-            cecilia_core::melody::ChantView::build(score, track, policy),
-        ) {
-            c.line = v.clef.place(p, v.shift).0.clamp(0, 13);
         }
     }
 }
@@ -3580,54 +3504,15 @@ fn step_note(score: &Score, c: &mut Cursor, forward: bool) {
     *c = start;
 }
 
-/// Where a chant staff of an ordinary track shows each beat's note: the staff position and the
-/// note's string, by (bar, beat) of the first voice.
-pub(crate) struct ChantRows(HashMap<(usize, usize), (i32, u8)>);
-
-impl App {
-    /// The chant positions of the cursor track's notes, when the cursor is on a chant staff of
-    /// an ordinary track.
-    pub(crate) fn chant_rows(&self) -> Option<ChantRows> {
-        let c = self.pane().cursor;
-        let score = &self.buffer().score;
-        let track = score.tracks.get(c.track)?;
-        if track.chant.is_some() || !track.staves().get(staff_index(track, c.staff))?.is_chant() {
-            return None;
-        }
-        let policy = self.chord_policy();
-        let view = cecilia_core::melody::ChantView::build(score, track, policy)
-            .or_else(|_| cecilia_core::melody::ChantView::build(score, track, Default::default()))
-            .ok()?;
-        Some(ChantRows(
-            view.events
-                .iter()
-                .zip(&view.notes)
-                .map(|(e, n)| ((e.bar, e.beat), (n.pitch as i32, e.string)))
-                .collect(),
-        ))
-    }
-}
-
 /// The note of the beat at the cursor that sits on the cursor's row: its string on a tab, its
-/// line or space on a standard staff, the beat's first note on a slash staff, the note shown
-/// at the cursor's position on a chant staff.
-pub(crate) fn row_note<'a>(
-    score: &'a Score,
-    c: &Cursor,
-    chant: Option<&ChantRows>,
-) -> Option<&'a Note> {
+/// line or space on a standard staff, the beat's first note on a slash staff or a chant track.
+pub(crate) fn row_note<'a>(score: &'a Score, c: &Cursor) -> Option<&'a Note> {
     let track = score.tracks.get(c.track)?;
     let kind = *track.staves().get(staff_index(track, c.staff))?;
     let beat = beats(score, c).get(c.beat)?;
     if uses_strings(track, kind) {
         beat.notes.iter().find(|n| n.string as usize == c.string)
-    } else if let (true, Some(rows)) = (kind.is_chant(), chant) {
-        let &(pos, string) = rows.0.get(&(c.bar, c.beat))?;
-        if pos != c.line {
-            return None;
-        }
-        beat.notes.iter().find(|n| n.string == string)
-    } else if matches!(kind, Staff::Slash) || kind.is_chant() {
+    } else if matches!(kind, Staff::Slash) || track.chant.is_some() {
         beat.notes.first()
     } else {
         let key = score
@@ -3642,16 +3527,16 @@ pub(crate) fn row_note<'a>(
 }
 
 /// Whether the note on the cursor's row is tied from the one before it.
-fn row_tied(score: &Score, c: &Cursor, chant: Option<&ChantRows>) -> bool {
-    row_note(score, c, chant).is_some_and(|n| n.tie)
+fn row_tied(score: &Score, c: &Cursor) -> bool {
+    row_note(score, c).is_some_and(|n| n.tie)
 }
 
 /// The last note of the tie the cursor's note starts or continues (the cursor stays when the
 /// note is not tied on).
-fn tie_end(score: &Score, c: &mut Cursor, chant: Option<&ChantRows>) {
+fn tie_end(score: &Score, c: &mut Cursor) {
     loop {
         let mut next = *c;
-        if !step_beat(score, &mut next, true) || !row_tied(score, &next, chant) {
+        if !step_beat(score, &mut next, true) || !row_tied(score, &next) {
             return;
         }
         *c = next;
@@ -3659,10 +3544,10 @@ fn tie_end(score: &Score, c: &mut Cursor, chant: Option<&ChantRows>) {
 }
 
 /// The first note of the tie the cursor's note continues.
-fn tie_start(score: &Score, c: &mut Cursor, chant: Option<&ChantRows>) {
-    while row_tied(score, c, chant) {
+fn tie_start(score: &Score, c: &mut Cursor) {
+    while row_tied(score, c) {
         let mut prev = *c;
-        if !step_beat(score, &mut prev, false) || row_note(score, &prev, chant).is_none() {
+        if !step_beat(score, &mut prev, false) || row_note(score, &prev).is_none() {
             return;
         }
         *c = prev;
@@ -3675,12 +3560,11 @@ fn find_row_note(
     score: &Score,
     c: &mut Cursor,
     forward: bool,
-    chant: Option<&ChantRows>,
     wanted: impl Fn(&Note) -> bool,
 ) -> bool {
     let mut at = *c;
     while step_beat(score, &mut at, forward) {
-        if row_note(score, &at, chant).is_some_and(&wanted) {
+        if row_note(score, &at).is_some_and(&wanted) {
             *c = at;
             return true;
         }
@@ -3689,25 +3573,25 @@ fn find_row_note(
 }
 
 /// `w`: the next note on the row that begins a tie (or is not tied at all).
-fn row_next(score: &Score, c: &mut Cursor, chant: Option<&ChantRows>) {
-    find_row_note(score, c, true, chant, |n| !n.tie);
+fn row_next(score: &Score, c: &mut Cursor) {
+    find_row_note(score, c, true, |n| !n.tie);
 }
 
 /// `e`: the end of the tie the cursor is in, else the end of the next note's tie.
-fn row_end(score: &Score, c: &mut Cursor, chant: Option<&ChantRows>) {
+fn row_end(score: &Score, c: &mut Cursor) {
     let here = *c;
-    tie_end(score, c, chant);
-    if *c == here && find_row_note(score, c, true, chant, |_| true) {
-        tie_end(score, c, chant);
+    tie_end(score, c);
+    if *c == here && find_row_note(score, c, true, |_| true) {
+        tie_end(score, c);
     }
 }
 
 /// `b`: the start of the tie the cursor is in, else the start of the previous note's tie.
-fn row_prev(score: &Score, c: &mut Cursor, chant: Option<&ChantRows>) {
+fn row_prev(score: &Score, c: &mut Cursor) {
     let here = *c;
-    tie_start(score, c, chant);
-    if *c == here && find_row_note(score, c, false, chant, |_| true) {
-        tie_start(score, c, chant);
+    tie_start(score, c);
+    if *c == here && find_row_note(score, c, false, |_| true) {
+        tie_start(score, c);
     }
 }
 
@@ -3823,78 +3707,6 @@ pub(crate) mod tests {
         app.pane_mut().cursor.staff = 1;
         app.pane_mut().cursor.beat = 0;
         assert_eq!(app.linked_note(app.pane()).map(|n| n.staff), Some(1));
-        // A chant staff lights it only with the cursor on the note's position.
-        app.buffers[0].score.tracks[0].staves = vec![Staff::Tab, Staff::Chant];
-        let (score, track) = (&app.buffers[0].score, &app.buffers[0].score.tracks[0]);
-        let v = cecilia_core::melody::ChantView::build(score, track, Default::default()).unwrap();
-        let n = &track.bars[0].voices[0].beats[0].notes[0];
-        let at = v.clef.place(track.pitch_of(n), v.shift).0.clamp(0, 13);
-        app.pane_mut().cursor.staff = 1;
-        app.pane_mut().cursor.line = at;
-        assert_eq!(app.linked_note(app.pane()).map(|n| n.staff), Some(1));
-        app.pane_mut().cursor.line = (at + 1) % 13;
-        assert_eq!(app.linked_note(app.pane()), None);
-    }
-
-    #[test]
-    fn chant_staff_follows_the_chord_policy() {
-        let mut app = test_app();
-        // A chord on the second beat of bar 2, and a chant staff to show it on.
-        let t = &mut app.buffers[0].score.tracks[0];
-        t.bars[1].voices[0].beats[1].notes = vec![Note::new(0, 3), Note::new(2, 5)];
-        t.staves = vec![Staff::Tab, Staff::Chant];
-        // The default skyline policy shows a chant staff: the highest note.
-        keys(&mut app, "<A-j>");
-        assert_eq!(app.chant_staff_problem(), None);
-        let (score, track) = (&app.buffers[0].score, &app.buffers[0].score.tracks[0]);
-        let top = cecilia_core::melody::ChantView::build(score, track, Default::default()).unwrap();
-        let chord = &track.bars[1].voices[0].beats[1].notes;
-        let high = chord.iter().map(|n| track.pitch_of(n)).max();
-        let low = chord.iter().map(|n| track.pitch_of(n)).min();
-        assert_ne!(high, low);
-        let picked = top
-            .events
-            .iter()
-            .find(|e| (e.bar, e.beat) == (1, 1))
-            .unwrap();
-        assert_eq!(Some(picked.pitch), high);
-        let bottom = cecilia_core::melody::ChantView::build(
-            score,
-            track,
-            cecilia_core::melody::ChordPolicy::Bottom,
-        )
-        .unwrap();
-        let picked = bottom
-            .events
-            .iter()
-            .find(|e| (e.bar, e.beat) == (1, 1))
-            .unwrap();
-        assert_eq!(Some(picked.pitch), low);
-        // The error policy names the chord instead.
-        app.config.file.ui.chant_chords = "error".into();
-        app.message = None;
-        keys(&mut app, "<A-k>");
-        let message = app.message.clone().expect("a message");
-        assert!(message.error);
-        assert!(message.text.contains("bar 2 beat 2"), "{}", message.text);
-        assert!(message.text.contains("monophonic"));
-        // A track without chords is fine whatever the policy.
-        app.buffers[0].score.tracks[0].bars[1].voices[0].beats[1]
-            .notes
-            .truncate(1);
-        assert_eq!(app.chant_staff_problem(), None);
-    }
-
-    #[test]
-    fn entering_a_chant_staff_lands_on_the_beats_note() {
-        let mut app = test_app();
-        app.buffers[0].score.tracks[0].staves = vec![Staff::Tab, Staff::Chant];
-        keys(&mut app, "<A-j>");
-        let c = app.pane().cursor;
-        let (score, track) = (&app.buffers[0].score, &app.buffers[0].score.tracks[0]);
-        let v = cecilia_core::melody::ChantView::build(score, track, Default::default()).unwrap();
-        assert_eq!(c.staff, 1);
-        assert_eq!(c.line, v.notes[0].pitch as i32);
     }
 
     #[test]

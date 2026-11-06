@@ -110,8 +110,6 @@ pub enum Field {
     Pan,
     Mute,
     Solo,
-    /// Whether the lyrics text area shows the raw gabc+ (GABC groups and clef).
-    LyricsGabc,
     /// All the track's lyrics as one gabc+ text.
     Lyrics,
 }
@@ -119,7 +117,7 @@ pub enum Field {
 impl Field {
     /// A switch: on or off, flipped by a click or `<CR>`.
     pub fn is_switch(self) -> bool {
-        matches!(self, Field::Mute | Field::Solo | Field::LyricsGabc)
+        matches!(self, Field::Mute | Field::Solo)
     }
 }
 
@@ -596,8 +594,6 @@ pub struct PropsState {
     /// The `/` register: what `n` and `N` look for.
     pub last_search: String,
     pub tab: PropTab,
-    /// The lyrics text area shows the raw gabc+ (its `(…)` GABC groups and clef).
-    pub gabc: bool,
     /// Selected row of the tab's [`App::property_rows`].
     pub selected: usize,
     pub folded: HashSet<Section>,
@@ -834,40 +830,40 @@ impl App {
                         );
                         field(&mut rows, Field::Capo, "Capo", t.capo.to_string(), true);
                     }
-                    let staves = t.staves();
-                    // One key, "Staves", over a field per staff and an empty one to add another.
-                    for (i, s) in staves.iter().enumerate() {
-                        let label = if i == 0 { "Staves" } else { "" };
+                    if let Some(clef) = crate::picker::chant_clef_now(t) {
+                        // A chant track has one square-notation staff; only its clef changes.
+                        field(&mut rows, Field::StaffAt(0), "Staves", "chant".into(), true);
+                        let row = rows.last_mut().unwrap();
+                        row.icon = Some(crate::icons::Icon::Chant);
+                        row.value2 = clef.gabc();
+                        row.icon2 = Some(crate::icons::Icon::of_chant_clef(clef.kind));
+                    } else {
+                        let staves = t.staves();
+                        // One key, "Staves", over a field per staff and an empty one to add
+                        // another.
+                        for (i, s) in staves.iter().enumerate() {
+                            let label = if i == 0 { "Staves" } else { "" };
+                            field(
+                                &mut rows,
+                                Field::StaffAt(i),
+                                label,
+                                crate::picker::notation_label(*s).into(),
+                                true,
+                            );
+                            let row = rows.last_mut().unwrap();
+                            row.icon = Some(crate::icons::Icon::of_notation(*s));
+                            row.value2 = crate::picker::clef_label(*s);
+                            row.icon2 = crate::icons::Icon::of_clef(*s);
+                        }
                         field(
                             &mut rows,
-                            Field::StaffAt(i),
-                            label,
-                            crate::picker::notation_label(*s).into(),
+                            Field::StaffAt(staves.len()),
+                            "",
+                            String::new(),
                             true,
                         );
-                        let row = rows.last_mut().unwrap();
-                        row.icon = Some(crate::icons::Icon::of_notation(*s));
-                        row.value2 = match s.chant_family() {
-                            Some(_) => {
-                                let c = crate::picker::chant_clef_now(
-                                    &self.buffer().score,
-                                    t,
-                                    self.chord_policy(),
-                                );
-                                c.gabc()
-                            }
-                            None => crate::picker::clef_label(*s),
-                        };
-                        row.icon2 = crate::icons::Icon::of_clef(*s);
+                        rows.last_mut().unwrap().placeholder = "Add Staff";
                     }
-                    field(
-                        &mut rows,
-                        Field::StaffAt(staves.len()),
-                        "",
-                        String::new(),
-                        true,
-                    );
-                    rows.last_mut().unwrap().placeholder = "Add Staff";
                 }
                 if section(&mut rows, Section::TrackSound) {
                     field(
@@ -914,13 +910,6 @@ impl App {
                     t.name.trim().to_string()
                 };
                 rows.push(note(&name));
-                field(
-                    &mut rows,
-                    Field::LyricsGabc,
-                    "GABC",
-                    onoff(self.props.gabc),
-                    true,
-                );
                 // The text area has no label.
                 field(
                     &mut rows,
@@ -934,47 +923,15 @@ impl App {
         rows
     }
 
-    /// With GABC on, an ordinary track's text area shows the GABC its chant staff shows: the
-    /// notes and syllables as chant, written the way a `.gabc` file is, from the score as it is
-    /// now. `None` for a chant track (its own GABC shows), with GABC off, and when the track
-    /// can't be made chant (no notes, drums, chords the `chant_chords` policy refuses).
-    pub fn inferred_gabc(&self, track: usize) -> Option<String> {
-        if !self.props.gabc {
-            return None;
-        }
-        let score = &self.buffer().score;
-        if score.tracks.get(track)?.chant.is_some() {
-            return None;
-        }
-        let made =
-            cecilia_convert::chant::modern_to_chant(score, track, self.chord_policy()).ok()?;
-        let gabc = cecilia_formats::gabc::write(&made.chant, "");
-        let body = gabc.split_once("%%\n").map_or(gabc.as_str(), |(_, b)| b);
-        Some(body.trim_end().to_string())
-    }
-
-    /// The lyrics text area's text for a track: the gabc+ starting with its clef with GABC on,
-    /// else without its GABC groups.
+    /// The lyrics text area's text for a track: a chant track's GABC (with its clef), else the
+    /// lyrics text without its GABC groups.
     pub fn shown_lyrics(&self, track: usize) -> String {
         let score = &self.buffer().score;
-        if let Some(g) = self.inferred_gabc(track) {
-            return g;
-        }
         let full = full_lyrics(score, track);
-        if !self.props.gabc {
-            return cecilia_core::gabcplus::plain(&full).text;
-        }
-        let clef = || match score.tracks.get(track) {
-            Some(t) => crate::picker::chant_clef_now(score, t, self.chord_policy()).gabc(),
-            None => "c4".into(),
-        };
-        let starts = cecilia_core::gabcplus::spans(full.trim_start())
-            .first()
-            .is_some_and(|s| s.2 == cecilia_core::gabcplus::SpanKind::Gabc);
-        if starts {
+        if score.tracks.get(track).is_some_and(|t| t.chant.is_some()) {
             full
         } else {
-            cecilia_core::gabcplus::with_clef(&full, &clef())
+            cecilia_core::gabcplus::plain(&full).text
         }
     }
 
@@ -1335,7 +1292,6 @@ impl App {
         let t = self.pane().cursor.track;
         match field {
             _ if !editable => self.info(format!("{}: can't be edited here", row.label)),
-            Field::LyricsGabc => self.props.gabc = !self.props.gabc,
             Field::Mute => self.run(Command::Mute(Some(Strip::Track(t)))),
             Field::Solo => self.run(Command::Solo(Some(Strip::Track(t)))),
             Field::Program => self.run(Command::TrackInstrument(None)),
@@ -1394,49 +1350,6 @@ impl App {
     /// Keys while a property is typed. A single line is in insert mode: `<CR>` keeps the text,
     /// `<Esc>` and `<C-c>` cancel. The lyrics are edited like vim.
     pub(crate) fn props_edit_key(&mut self, key: Key) {
-        // The GABC inferred from the notes can be moved through, selected and copied, not
-        // changed: what a key changed in it is put back.
-        let track = self.pane().cursor.track;
-        let Some(inferred) = self
-            .props
-            .edit
-            .as_ref()
-            .filter(|e| e.field == Field::Lyrics)
-            .and_then(|_| self.inferred_gabc(track))
-        else {
-            return self.props_edit_key_inner(key);
-        };
-        if let Some(e) = self.props.edit.as_mut() {
-            e.text = inferred.clone();
-            e.caret = e.caret.min(e.len());
-        }
-        self.props_edit_key_inner(key);
-        let mut refused = false;
-        if let Some(e) = self
-            .props
-            .edit
-            .as_mut()
-            .filter(|e| e.field == Field::Lyrics)
-        {
-            if e.text != inferred {
-                e.text = inferred;
-                e.caret = e.caret.min(e.len());
-                e.anchor = None;
-                e.visual = None;
-                refused = true;
-            }
-            if e.insert {
-                e.insert = false;
-                e.rest();
-                self.ed.group = None;
-            }
-        }
-        if refused {
-            self.info("the GABC follows the notes; switch GABC off to edit the lyrics");
-        }
-    }
-
-    fn props_edit_key_inner(&mut self, key: Key) {
         if self.text_global_key(key) {
             return;
         }
@@ -1467,10 +1380,6 @@ impl App {
             }
             KeyCode::Esc => return self.end_edit(true),
             KeyCode::Char('c') if key.ctrl => return self.end_edit(true),
-            KeyCode::Char('k') if key.ctrl && multiline => {
-                self.ed.group = None;
-                return self.text_to_switch();
-            }
             KeyCode::Enter if !multiline => {
                 let PropEdit { field, text, .. } = edit.clone();
                 let ok = self.commit_property(field, text.trim(), false);
@@ -1556,14 +1465,6 @@ impl App {
         true
     }
 
-    /// Ctrl-K: up from the text area to the GABC switch.
-    fn text_to_switch(&mut self) {
-        self.end_edit(false);
-        if let Some(r) = self.field_row(Field::LyricsGabc) {
-            self.props.selected = r;
-        }
-    }
-
     /// Keys in the lyrics text area's normal mode: a vim subset, with operators (`d`, `c`, `y`)
     /// over motions and text objects. Each change is its own undo step, and `<Esc>` leaves the
     /// text area.
@@ -1586,7 +1487,6 @@ impl App {
                 }
                 return;
             }
-            KeyCode::Char('k') if key.ctrl => return self.text_to_switch(),
             KeyCode::Char('r') if key.ctrl => return self.text_history(Command::Redo),
             // The pane's tab keys (`H` `L`) work as in the rest of
             // the pane; the text area is entered again afterwards where it is still selected.
@@ -1775,7 +1675,6 @@ impl App {
                 edit.select_all();
                 return;
             }
-            KeyCode::Char('k') if key.ctrl => return self.text_to_switch(),
             KeyCode::Left if key.ctrl => Typed::Move(Motion::Back(false)),
             KeyCode::Right if key.ctrl => Typed::Move(Motion::Word(false)),
             KeyCode::Left => Typed::Move(Motion::Left),
@@ -2059,7 +1958,6 @@ impl App {
             | Field::Tuning
             | Field::Mute
             | Field::Solo
-            | Field::LyricsGabc
             | Field::Program => {}
         }
         valid.get()
@@ -2070,10 +1968,6 @@ impl App {
     /// still are. The syllables are laid onto the notes again; a chant track's chant is read
     /// from it. One undo step per edit session.
     fn set_lyrics(&mut self, track: usize, shown: &str, live: bool) {
-        // The GABC inferred from the notes is not edited.
-        if self.inferred_gabc(track).is_some() {
-            return;
-        }
         let typed = self
             .props
             .edit
@@ -2081,11 +1975,6 @@ impl App {
             .filter(|e| e.field == Field::Lyrics)
             .and_then(|e| e.full.clone());
         let old = typed.unwrap_or_else(|| full_lyrics(&self.buffer().score, track));
-        let full = if self.props.gabc {
-            shown.to_string()
-        } else {
-            cecilia_core::gabcplus::plain(&old).edit(&old, shown)
-        };
         let chant = self
             .buffer()
             .score
@@ -2093,6 +1982,13 @@ impl App {
             .get(track)
             .and_then(|t| t.chant.as_deref())
             .cloned();
+        // A chant track's text is its GABC; else the GABC groups of the old text are kept
+        // where their syllables still are.
+        let full = if chant.is_some() {
+            shown.to_string()
+        } else {
+            cecilia_core::gabcplus::plain(&old).edit(&old, shown)
+        };
         if let Some(chant) = chant {
             // The chant's header stays; the body is read again.
             let mut gabc = String::new();
@@ -2117,21 +2013,15 @@ impl App {
                 Err(_) => {}
             }
             // The text area keeps the text as typed.
-            let gabc = self.props.gabc;
             if let Some(e) = self
                 .props
                 .edit
                 .as_mut()
                 .filter(|e| e.field == Field::Lyrics)
             {
-                let now = if gabc {
-                    full.clone()
-                } else {
-                    cecilia_core::gabcplus::plain(&full).text
-                };
-                e.full = Some(full);
-                if e.text != now {
-                    e.text = now;
+                e.full = Some(full.clone());
+                if e.text != full {
+                    e.text = full;
                     e.caret = e.caret.min(e.len());
                     e.anchor = None;
                 }
@@ -2168,13 +2058,6 @@ impl App {
         }
     }
 
-    /// The row of a field in the shown tab.
-    fn field_row(&self, f: Field) -> Option<usize> {
-        self.property_rows()
-            .iter()
-            .position(|r| matches!(r.kind, RowKind::Field { field, .. } if field == f))
-    }
-
     /// With the lyrics text area selected, its text is edited at once, in normal mode (the
     /// block caret shows), the caret where it was when the text area was last left.
     pub(crate) fn enter_text_area(&mut self) {
@@ -2206,7 +2089,6 @@ impl App {
         let on = by > 0;
         let track = self.buffer().score.tracks.get(t);
         match field {
-            Field::LyricsGabc => self.props.gabc = on,
             Field::Mute | Field::Solo => {
                 let now = track.is_some_and(|k| if field == Field::Mute { k.mute } else { k.solo });
                 if now != on {
@@ -2572,18 +2454,6 @@ impl App {
 
     /// Keys while the properties pane has the focus: its own keymap (`[keymap.properties]`).
     pub(crate) fn properties_key(&mut self, key: Key) {
-        // Ctrl-J from the GABC switch goes down into the text area.
-        if self.pending.is_empty()
-            && key.ctrl
-            && key.code == KeyCode::Char('j')
-            && matches!(self.selected_field(), Some((Field::LyricsGabc, _)))
-        {
-            if let Some(r) = self.field_row(Field::Lyrics) {
-                self.props.selected = r;
-                self.enter_text_area();
-            }
-            return;
-        }
         self.pending.push(key);
         let cmds = match self.config.keymap(Mode::Properties).lookup(&self.pending) {
             crate::config::Lookup::Exact(cmds) => cmds.to_vec(),
@@ -2672,10 +2542,8 @@ impl App {
             PropertiesSearch(dir) => self.search_step(*dir, None),
             PropertiesChange => {
                 self.edit_property();
-                let t = self.pane().cursor.track;
-                let fixed = self.inferred_gabc(t).is_some();
                 // Text is cleared (as the score follows); pickers and toggles just open.
-                if let Some(e) = self.props.edit.as_mut().filter(|e| !(fixed && e.modal)) {
+                if let Some(e) = self.props.edit.as_mut() {
                     e.text.clear();
                     e.caret = 0;
                     self.apply_live();
@@ -2981,24 +2849,18 @@ mod tests {
         lyrics_text(&mut app, "Hel-lo world");
         app.set_property_tab(PropTab::Lyrics);
         let rows = app.property_rows();
-        // A GABC switch over the text area, which has no label.
+        // The text area has no label.
         let area = &rows[field_row(&app, Field::Lyrics)];
         assert_eq!(
             (area.label.as_str(), area.value.as_str()),
             ("", "Hel-lo world")
         );
         assert!(!rows.iter().any(|r| r.label == "Lyrics"), "{rows:?}");
-        assert_eq!(
-            field_row(&app, Field::LyricsGabc) + 1,
-            field_row(&app, Field::Lyrics)
-        );
         let verse = |app: &App, v| {
             cecilia_core::lyrics::verse_line(&app.buffer().score.tracks[0], v).map(|l| l.text)
         };
+        // The text area, in normal mode (the block caret).
         keys(&mut app, "<leader>P");
-        assert!(app.props.edit.is_none(), "the switch is selected first");
-        // Down from the switch: the text area, in normal mode (the block caret).
-        keys(&mut app, "j");
         assert!(
             app.props
                 .edit
@@ -3042,13 +2904,6 @@ mod tests {
         assert_eq!(verse(&app, 0).as_deref(), Some("Hel-o world"));
         keys(&mut app, "ix<Esc>");
         assert_eq!(app.props.edit.as_ref().unwrap().text, "xHel-o world");
-        // Ctrl-K goes up to the switch, Ctrl-J back into the text.
-        keys(&mut app, "<C-k>");
-        assert!(app.props.edit.is_none());
-        assert_eq!(app.property_selected(), field_row(&app, Field::LyricsGabc));
-        assert_eq!(app.focused_kind(), PaneKind::Properties);
-        keys(&mut app, "<C-j>");
-        assert!(app.props.edit.as_ref().is_some_and(|e| !e.insert));
         // Escape in normal mode leaves the text area and the pane.
         keys(&mut app, "<Esc>");
         assert!(app.props.edit.is_none(), "Escape in normal mode leaves");
@@ -3073,26 +2928,26 @@ mod tests {
                 .value
                 .clone()
         };
-        assert_eq!(shown(&app), "Al-le lu-ia. ");
-        app.props.gabc = true;
+        // A chant track's text is always its GABC; there is no switch.
+        assert!(
+            !app.property_rows().iter().any(|r| r.label == "GABC"),
+            "no GABC switch"
+        );
         assert_eq!(shown(&app), "(c4) Al(fg)le(h) lu(g)ia.(f.) (::)");
         // Raw edits are read as GABC: the chant (and what plays) follows.
-        keys(&mut app, "<leader>Pj0llllllllll");
+        keys(&mut app, "<leader>P0llllllllll");
         assert_eq!(app.props.edit.as_ref().unwrap().caret, 10);
         keys(&mut app, "i h<Esc>");
         let chant = app.buffer().score.tracks[0].chant.clone().unwrap();
         assert_eq!(chant.syllables[1].gabc_notes(), "fg h");
         assert_eq!(chant.header("name"), Some("t"), "the header stays");
-        // Plain edits keep the notes of the syllables left.
-        app.props.gabc = false;
-        keys(&mut app, "<C-k><C-j>0iH<Esc>");
+        // Text typed at the start of the GABC is read too.
+        keys(&mut app, "0iH<Esc>");
         let chant = app.buffer().score.tracks[0].chant.clone().unwrap();
-        assert_eq!(chant.syllables[1].text, "HAl");
-        assert_eq!(chant.syllables[1].gabc_notes(), "fg h");
+        assert_ne!(chant.syllables[1].gabc_notes(), "");
         // A syllable typed key by key: the text keeps what is typed (a space at the end, a
         // group not closed yet) and the chant follows once it reads as GABC.
-        app.props.gabc = true;
-        keys(&mut app, "<C-k><C-j>A Ky(");
+        keys(&mut app, "A Ky(");
         assert!(app.props.edit.as_ref().unwrap().text.ends_with("(::) Ky("));
         keys(&mut app, "f)<Esc>");
         let chant = app.buffer().score.tracks[0].chant.clone().unwrap();
@@ -3122,7 +2977,7 @@ mod tests {
     }
 
     #[test]
-    fn the_gabc_switch_shows_the_groups_and_plain_typing_keeps_them() {
+    fn plain_typing_over_a_tracks_text_keeps_its_gabc_groups() {
         let mut app = with_props();
         lyrics_text(&mut app, "(c4) Ky(f)ri(gh)e(h) e(g)le(f)i(e)son(d)");
         app.set_property_tab(PropTab::Lyrics);
@@ -3131,7 +2986,12 @@ mod tests {
                 .value
                 .clone()
         };
+        // A staff track's text area shows the text without its GABC groups.
         assert_eq!(shown(&app), "Ky-ri-e e-le-i-son");
+        assert!(
+            !app.property_rows().iter().any(|r| r.label == "GABC"),
+            "no GABC switch"
+        );
         let s = |app: &App, b: usize, i: usize| {
             app.buffer().score.tracks[0].bars[b].voices[0].beats[i]
                 .lyrics
@@ -3141,35 +3001,13 @@ mod tests {
         };
         assert_eq!(s(&app, 0, 0), "Ky-");
         // Typing over the plain text keeps the notes of the syllables still there.
-        keys(&mut app, "<leader>Pj$i,<Esc>");
+        keys(&mut app, "<leader>P$i,<Esc>");
         assert_eq!(
             app.buffer().score.tracks[0].lyrics_text,
             "(c4) Ky(f)ri(gh)e(h) e(g)le(f)i(e)so,n(d)"
         );
         keys(&mut app, "u");
-        // The switch (a click flips it): the GABC the chant staff shows, from the notes.
-        keys(&mut app, "<C-k>");
-        let gabc = field_row(&app, Field::LyricsGabc);
-        app.click_property(gabc, false);
-        assert!(app.props.gabc);
-        let inferred = shown(&app);
-        assert!(inferred.starts_with("(c"), "{inferred}");
-        assert!(
-            inferred.contains("Ky(") && inferred.contains("son("),
-            "{inferred}"
-        );
-        // It is not typed over, and follows the lyrics.
-        let kept = app.buffer().score.tracks[0].lyrics_text.clone();
-        keys(&mut app, "<C-j>A(e)");
-        assert_eq!(app.buffer().score.tracks[0].lyrics_text, kept);
-        assert_eq!(edit_of(&app).text, inferred);
-        keys(&mut app, "<C-k>");
-        lyrics_text(&mut app, "la la");
-        let now = shown(&app);
-        assert!(now.contains("la(") && !now.contains("Ky"), "{now}");
-        keys(&mut app, "<A-h>");
-        assert!(!app.props.gabc);
-        assert_eq!(shown(&app), "la la");
+        assert_eq!(shown(&app), "Ky-ri-e e-le-i-son");
     }
 
     #[test]
@@ -3298,14 +3136,7 @@ mod tests {
         app.run(Command::PropertiesEdit);
         assert_eq!(app.palette().unwrap().title, "Notation");
         keys(&mut app, "<Esc>");
-        // Back to standard gives the default clef; chant has do and fa.
-        app.run(Command::Notation("chant".into()));
-        keys(&mut app, "l");
-        app.run(Command::PropertiesEdit);
-        let titles = app.palette().unwrap().title;
-        assert_eq!(titles, "Clefs");
-        keys(&mut app, "fa<CR>");
-        assert_eq!(app.buffer().score.tracks[0].staves()[0], Staff::ChantFa);
+        // Back to standard gives the default clef.
         app.run(Command::Notation("standard".into()));
         assert_eq!(
             app.buffer().score.tracks[0].staves()[0].notation(),
@@ -3434,7 +3265,7 @@ mod tests {
         let mut app = with_props();
         lyrics_text(&mut app, "aa bb cc dd");
         app.set_property_tab(PropTab::Lyrics);
-        keys(&mut app, "<leader>Pj");
+        keys(&mut app, "<leader>P");
         // As drawn: two visual lines of one logical line.
         *app.props.visual.borrow_mut() = vec![(0, 5), (6, 11)];
         app.props.edit.as_mut().unwrap().caret = 1;
@@ -3540,7 +3371,7 @@ mod tests {
         // The score keeps the text as it was given, with its line breaks.
         app.set_property_tab(PropTab::Lyrics);
         keys(&mut app, "<leader>P");
-        keys(&mut app, "j<CR><C-u>Hel-lo<CR>world<Esc>");
+        keys(&mut app, "<CR><C-u>Hel-lo<CR>world<Esc>");
         let rows = app.property_rows();
         let lyrics = &rows[field_row(&app, Field::Lyrics)];
         assert_eq!(lyrics.value, "Hel-lo\nworld");
@@ -3561,7 +3392,7 @@ mod tests {
         app.props.selected = field_row(&app, Field::StaffAt(2));
         keys(&mut app, "<A-h>");
         let staves = app.buffer().score.tracks[0].staves();
-        assert_eq!(staves[2], Staff::Chant);
+        assert_eq!(staves[2], Staff::Slash);
         app.props.selected = field_row(&app, Field::StaffAt(3));
         keys(&mut app, "<A-l>");
         let staves = app.buffer().score.tracks[0].staves();
@@ -3602,7 +3433,7 @@ mod tests {
         let mut app = with_props();
         lyrics_text(&mut app, "one two three");
         app.set_property_tab(PropTab::Lyrics);
-        keys(&mut app, "<leader>Pj");
+        keys(&mut app, "<leader>P");
         let row = app.props.selected;
         assert!(app.text_editing(row));
         let edit = |app: &App| app.props.edit.clone().unwrap();
@@ -3647,7 +3478,7 @@ mod tests {
         let mut app = with_props();
         lyrics_text(&mut app, "one two three");
         app.set_property_tab(PropTab::Lyrics);
-        keys(&mut app, "<leader>Pj<CR>");
+        keys(&mut app, "<leader>P<CR>");
         let edit = |app: &App| app.props.edit.clone().unwrap();
         // In insert mode a double click selects the word; in normal mode it enters insert mode.
         app.text_double_click(5);
@@ -3704,7 +3535,7 @@ mod tests {
         let mut app = with_props();
         lyrics_text(&mut app, "one two three\nfour five\n\nsix seven");
         app.set_property_tab(PropTab::Lyrics);
-        keys(&mut app, "<leader>Pj");
+        keys(&mut app, "<leader>P");
         let text = |app: &App| edit_of(app).text;
         let words = |app: &App| edit_of(app).text.replace('\n', "|");
         keys(&mut app, "wdiw");
@@ -3749,7 +3580,7 @@ mod tests {
         let mut app = with_props();
         lyrics_text(&mut app, "one two three");
         app.set_property_tab(PropTab::Lyrics);
-        keys(&mut app, "<leader>Pj<CR><End>");
+        keys(&mut app, "<leader>P<CR><End>");
         keys(&mut app, "<C-Left>");
         assert_eq!(edit_of(&app).caret, 8);
         keys(&mut app, "<C-Left><C-Right>");
@@ -3774,7 +3605,7 @@ mod tests {
         lyrics_text(&mut app, "one two three");
         app.set_property_tab(PropTab::Lyrics);
         let score = app.focused();
-        keys(&mut app, "<leader>Pj$");
+        keys(&mut app, "<leader>P$");
         let caret = edit_of(&app).caret;
         // A focus key bound in the normal keymap leaves the pane from the text area.
         let km = crate::keys::parse_keys("<c-h>", &[]).unwrap();
@@ -3790,49 +3621,17 @@ mod tests {
         keys(&mut app, "<leader>P");
         assert_eq!(app.focused_kind(), PaneKind::Properties);
         assert_eq!(edit_of(&app).caret, caret, "the caret is where it was");
-        // On the switch, the switch is what comes back.
-        keys(&mut app, "<C-k><Esc>");
-        keys(&mut app, "<leader>P");
-        assert!(app.props.edit.is_none());
-        assert_eq!(app.property_selected(), field_row(&app, Field::LyricsGabc));
     }
 
     #[test]
     fn h_and_l_change_tabs_from_the_text_area() {
         let mut app = with_props();
         app.set_property_tab(PropTab::Lyrics);
-        keys(&mut app, "<leader>Pj");
+        keys(&mut app, "<leader>P");
         assert!(app.props.edit.is_some());
         keys(&mut app, "H");
         assert_eq!(app.props.tab, PropTab::Tracks);
         keys(&mut app, "L");
         assert_eq!(app.props.tab, PropTab::Lyrics);
-    }
-
-    #[test]
-    fn gabc_on_shows_the_chant_the_notes_make_and_follows_them() {
-        let mut app = with_props();
-        keys(&mut app, "i3<Space>12<Space>5<Space>7<Esc>0");
-        app.run(Command::Lyrics("Hel-lo _ world".into()));
-        app.set_property_tab(PropTab::Lyrics);
-        app.props.gabc = true;
-        let shown = |app: &App| {
-            app.property_rows()[field_row(app, Field::Lyrics)]
-                .value
-                .clone()
-        };
-        let first = shown(&app);
-        assert!(first.contains("Hel(") || first.contains("Hel"), "{first}");
-        assert!(first.starts_with("(c") || first.starts_with("("), "{first}");
-        // Edits of the score show at once.
-        app.run(Command::LyricsClear(None));
-        let second = shown(&app);
-        assert_ne!(first, second);
-        assert!(!second.contains("Hel"), "{second}");
-        // It is not edited from the text area.
-        let kept = app.buffer().score.tracks[0].lyrics_text.clone();
-        keys(&mut app, "<leader>Pj<CR>abc<Esc>");
-        assert_eq!(app.buffer().score.tracks[0].lyrics_text, kept);
-        assert_eq!(edit_of(&app).text, second);
     }
 }

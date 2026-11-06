@@ -217,8 +217,8 @@ pub struct UiConfig {
     pub layout: String,
     /// GUI zoom factor.
     pub zoom: f64,
-    /// Which note of a chord a chant staff of an ordinary track shows (chant is monophonic):
-    /// "top" (the default), "bottom", or "error" (no chant staff: a message names the chord).
+    /// Which note of a chord `:modern-to-chant` keeps (chant is monophonic): "top" (the
+    /// default), "bottom", or "error" (the conversion refuses, a message names the chord).
     pub chant_chords: String,
     /// Bar numbers on the score: `"system"` (the first bar of each line) or `"every"` bar.
     pub bar_numbers: String,

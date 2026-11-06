@@ -3,7 +3,6 @@
 
 use std::collections::HashMap;
 
-use cecilia_core::chant::ClefKind;
 use cecilia_core::*;
 
 use crate::app::{beats, clamp_cursor};
@@ -556,7 +555,7 @@ impl App {
         };
         match t.staves().get(crate::app::staff_index(t, c.staff)).copied() {
             Some(s) if crate::app::uses_strings(t, s) => InsertKind::Tab,
-            Some(Staff::Chant | Staff::ChantFa) => InsertKind::Chant,
+            Some(_) if t.chant.is_some() => InsertKind::Chant,
             Some(Staff::Slash) => InsertKind::Slash,
             _ => InsertKind::Standard,
         }
@@ -1858,10 +1857,6 @@ impl App {
         };
         let arg = arg.trim();
         match Staff::parse(arg, clef) {
-            // A plain `chant` keeps a fa clef.
-            Ok(Staff::Chant) if arg == "chant" && here == Some(Staff::ChantFa) => {
-                Some(Staff::ChantFa)
-            }
             Ok(s) => self.fit_clef(track.map(|t| t.kind), s),
             Err(e) => {
                 self.error(format!("notation: {e}"));
@@ -1896,6 +1891,9 @@ impl App {
     /// Shows the cursor's staff in another notation. The notes stay as they are; a tab on a
     /// track without strings first puts them on strings (refused if any would not fit).
     fn set_notation(&mut self, arg: &str) {
+        if self.on_chant_track("notation") {
+            return;
+        }
         let Some(staff) = self.parse_staff(arg) else {
             return;
         };
@@ -1917,33 +1915,40 @@ impl App {
         }
     }
 
-    /// Puts a chant staff of an ordinary track in the cursor's place, with its clef on a staff
-    /// line (the track's `chant_line`; `None` lets the engraver choose).
-    fn put_chant_staff(&mut self, staff: Staff, line: Option<u8>) {
-        let done = self.edit(|cx| {
-            let (i, t) = (cx.cursor.staff, cx.cursor.track);
-            let track = &mut cx.whole().tracks[t];
-            fret_for_tab(track, staff)?;
-            track.chant_line = line;
-            let staves = track.staves_mut();
-            let i = i.min(staves.len() - 1);
-            staves[i] = staff;
-            Ok(i)
-        });
-        if let Some(i) = done {
-            self.info(format!("staff {}: {}", i + 1, staff.name()));
+    /// Whether the cursor is on a chant track, whose single square-notation staff cannot be
+    /// changed (`what` is the command refused); says so if it is.
+    fn on_chant_track(&mut self, what: &str) -> bool {
+        let chant = self
+            .buffer()
+            .score
+            .tracks
+            .get(self.pane().cursor.track)
+            .is_some_and(|t| t.chant.is_some());
+        if chant {
+            self.error(format!(
+                "{what}: a chant track has one square-notation staff"
+            ));
         }
+        chant
     }
 
     /// Sets the clef of the cursor's staff, among those its notation has: treble, bass, grand
-    /// or neutral for standard notation; c1–c4 or f1–f4 for chant. Tab and slash have none.
+    /// or neutral for standard notation. Tab and slash have none. A chant track takes c1–c4 or
+    /// f1–f4.
     fn set_clef(&mut self, arg: &str) {
         let arg = arg.trim();
         let (track, here) = self.cursor_staff();
         let (Some(track), Some(here)) = (track, here) else {
             return;
         };
-        let chant_track = track.chant.is_some();
+        if track.chant.is_some() {
+            if cecilia_core::chant::ChantClef::parse(arg).is_some() {
+                self.run(Command::ChantClef(arg.to_string()));
+            } else {
+                self.error(format!("clef: '{arg}' is not a chant clef (c1–c4, f1–f4)"));
+            }
+            return;
+        }
         let kind = track.kind;
         match here.notation() {
             Notation::Tab | Notation::Slash => {
@@ -1959,35 +1964,6 @@ impl App {
                     "clef: '{arg}' is not a standard clef (treble, bass, grand [split], neutral)"
                 )),
             },
-            Notation::Chant => {
-                let family = match arg.chars().next() {
-                    Some('c') => Some(ClefKind::Do),
-                    Some('f') => Some(ClefKind::Fa),
-                    _ => None,
-                };
-                let parsed = cecilia_core::chant::ChantClef::parse(arg);
-                let (Some(family), Some(c)) = (family, parsed) else {
-                    self.error(format!("clef: '{arg}' is not a chant clef (c1–c4, f1–f4)"));
-                    return;
-                };
-                if chant_track {
-                    self.run(Command::ChantClef(arg.to_string()));
-                } else if c.flat || !(1..=4).contains(&c.line) {
-                    self.error(format!(
-                        "clef: '{arg}' is not a clef for this staff (c1–c4, f1–f4)"
-                    ));
-                } else {
-                    // `c3`, `f2` …: the notes keep their pitch, so the engraver re-places them.
-                    self.put_chant_staff(
-                        if family == ClefKind::Do {
-                            Staff::Chant
-                        } else {
-                            Staff::ChantFa
-                        },
-                        Some(c.line),
-                    );
-                }
-            }
         }
     }
 
@@ -2040,6 +2016,9 @@ impl App {
 
     /// Adds one or more staves at the bottom of the cursor's track, in the order given.
     fn add_staff(&mut self, arg: Option<&str>) {
+        if self.on_chant_track("staff-add") {
+            return;
+        }
         let default = self.config.default_clef();
         let parsed = match arg.filter(|a| !a.trim().is_empty()) {
             Some(a) => Staff::parse_list(a, default),
@@ -2471,17 +2450,11 @@ mod tests {
         a.run(Command::Notation("slash".into()));
         a.run(Command::Clef("treble".into()));
         assert_eq!(staves(&a)[0], Staff::Slash);
-        // Chant staves take c1–c4 or f1–f4, and keep fa when asked for `chant` again.
+        // There is no chant staff: square notation is a chant track's.
         a.run(Command::Notation("chant".into()));
-        assert_eq!(staves(&a)[0], Staff::Chant);
+        assert_eq!(staves(&a)[0], Staff::Slash);
         a.run(Command::Clef("f3".into()));
-        assert_eq!(staves(&a)[0], Staff::ChantFa);
-        a.run(Command::Clef("treble".into()));
-        assert_eq!(staves(&a)[0], Staff::ChantFa);
-        a.run(Command::Notation("chant".into()));
-        assert_eq!(staves(&a)[0], Staff::ChantFa);
-        a.run(Command::Clef("c3".into()));
-        assert_eq!(staves(&a)[0], Staff::Chant);
+        assert_eq!(staves(&a)[0], Staff::Slash);
         // Drums read the neutral clef, whatever is asked.
         a.run(Command::TrackAdd("drums".into()));
         let t = a.pane().cursor.track;
@@ -2615,160 +2588,6 @@ mod tests {
     }
 
     #[test]
-    fn chant_staff_on_an_ordinary_track() {
-        let mut a = app();
-        a.run(Command::StaffAdd(Some("chant".into())));
-        assert_eq!(a.pane().cursor.staff, 2);
-        // Position 8 under the c4 clef is B4 (ti, one step below do = C5); the guitar plays it.
-        a.pane_mut().cursor.line = 8;
-        keys(&mut a, "i<CR>hv");
-        let t = a.buffer().score.tracks[0].clone();
-        let beat =
-            |a: &App, i: usize| a.buffer().score.tracks[0].bars[0].voices[0].beats[i].clone();
-        let n = &beat(&a, 0).notes[0];
-        assert_eq!(t.pitch_of(n), 71);
-        assert_eq!(n.chant.as_ref().unwrap().mods, vec!["v".to_string()]);
-        assert_eq!(a.pane().cursor.line, 8);
-        // A note two steps lower in the next beat, then one starting a new neume, a division
-        // after that.
-        keys(&mut a, "ljj<CR>h/;<Esc>");
-        assert_eq!(t.pitch_of(&beat(&a, 1).notes[0]), 67);
-        let third = beat(&a, 2);
-        assert!(third.notes[0].chant.as_ref().unwrap().neume_start);
-        assert_eq!(third.chant_division.as_deref(), Some(";"));
-        // The other staves show the same notes.
-        assert_eq!(a.buffer().score.tracks[0].staves().len(), 3);
-    }
-
-    #[test]
-    fn enter_on_a_chant_staff_enters_punctums_and_lyrics_condense_them() {
-        use cecilia_core::melody::ChantView;
-        let mut a = app();
-        a.run(Command::StaffAdd(Some("chant".into())));
-        let track = |a: &App| a.buffer().score.tracks[0].clone();
-        let beats = |a: &App| -> usize {
-            track(a)
-                .bars
-                .iter()
-                .flat_map(|b| &b.voices[0].beats)
-                .filter(|b| !b.notes.is_empty())
-                .count()
-        };
-        // Eighth notes: c, d (up), c, then Enter-created punctums.
-        a.run(Command::Duration(8));
-        a.pane_mut().cursor.line = 2;
-        keys(&mut a, "i<CR>");
-        // A plain punctum in the first beat; the cursor moved on, keeping its position.
-        let first = track(&a).bars[0].voices[0].beats[0].clone();
-        assert_eq!(first.notes[0].chant.as_ref().map(|m| m.punctum), Some(true));
-        assert_eq!(a.pane().cursor.beat, 1);
-        assert_eq!(a.pane().cursor.line, 2);
-        assert_eq!(beats(&a), 1);
-        keys(&mut a, "k<CR>j<CR><Esc>"); // c d c
-        assert_eq!(beats(&a), 3);
-        let view = |a: &App| {
-            let t = track(a);
-            ChantView::build(&a.buffer().score, &t, Default::default()).unwrap()
-        };
-        // No lyrics: every punctum is its own neume.
-        assert!(view(&a).neumes.iter().all(|n| n.len() == 1));
-        // Lyrics: one syllable over the first three notes makes a torculus-shaped neume run,
-        // the punctum flags no longer split it.
-        let mut s = a.buffer().score.clone();
-        s.tracks[0].bars[0].voices[0].beats[0].lyrics = vec!["Ky".into()];
-        let sc = s.clone();
-        let v = ChantView::build(&sc, &s.tracks[0], Default::default()).unwrap();
-        let first_neume = &v.neumes[0];
-        assert_eq!(first_neume.len(), 3, "{:?}", v.neumes);
-    }
-
-    #[test]
-    fn enter_moves_the_note_a_chant_beat_already_has() {
-        let mut a = app();
-        a.run(Command::StaffAdd(Some("chant".into())));
-        a.pane_mut().cursor.line = 6;
-        keys(&mut a, "i<CR>h");
-        let beat = |a: &App| a.buffer().score.tracks[0].bars[0].voices[0].beats[0].clone();
-        let before = a.buffer().score.tracks[0].pitch_of(&beat(&a).notes[0]);
-        // Two positions up, Enter: the same note moves there (chant is monophonic).
-        keys(&mut a, "kk<CR>");
-        let t = &a.buffer().score.tracks[0];
-        let now = beat(&a);
-        assert_eq!(now.notes.len(), 1);
-        assert!(t.pitch_of(&now.notes[0]) > before);
-        assert!(now.notes[0].chant.as_ref().unwrap().punctum);
-        assert_eq!(a.pane().cursor.beat, 1);
-    }
-
-    #[test]
-    fn colon_cycles_the_major_and_double_division_and_off() {
-        let mut a = app();
-        a.run(Command::StaffAdd(Some("chant".into())));
-        let division = |a: &App| {
-            a.buffer().score.tracks[0].bars[0].voices[0].beats[0]
-                .chant_division
-                .clone()
-        };
-        keys(&mut a, "i<CR>h:");
-        assert_eq!(division(&a).as_deref(), Some(":"));
-        keys(&mut a, ":");
-        assert_eq!(division(&a).as_deref(), Some("::"));
-        keys(&mut a, ":");
-        assert_eq!(division(&a), None);
-    }
-
-    #[test]
-    fn w_e_b_jump_between_the_notes_on_the_chant_staffs_cursor_position() {
-        let mut a = app();
-        a.run(Command::StaffAdd(Some("chant".into())));
-        a.pane_mut().cursor.line = 6;
-        keys(&mut a, "i<CR>k<CR>j<CR><Esc>"); // positions 6, 7, 6
-        {
-            let c = &mut a.pane_mut().cursor;
-            c.beat = 0;
-            c.line = 6;
-        }
-        keys(&mut a, "w");
-        assert_eq!(a.pane().cursor.beat, 2);
-        keys(&mut a, "b");
-        assert_eq!(a.pane().cursor.beat, 0);
-        keys(&mut a, "e");
-        assert_eq!(a.pane().cursor.beat, 2);
-    }
-
-    #[test]
-    fn a_melody_is_built_on_a_chant_staff_alone() {
-        let mut a = app();
-        a.run(Command::StaffAdd(Some("chant".into())));
-        let notes = |a: &App| -> Vec<(usize, usize)> {
-            let mut out = Vec::new();
-            for (bi, b) in a.buffer().score.tracks[0].bars.iter().enumerate() {
-                for (i, beat) in b.voices[0].beats.iter().enumerate() {
-                    if !beat.notes.is_empty() {
-                        out.push((bi, i));
-                    }
-                }
-            }
-            out
-        };
-        // Quarter notes: four fill a 4/4 bar.
-        a.pane_mut().cursor.line = 6;
-        keys(&mut a, "i<CR><CR><CR><CR>");
-        assert_eq!(notes(&a), vec![(0, 0), (0, 1), (0, 2), (0, 3)]);
-        assert_eq!(a.pane().cursor.bar, 1);
-        // Up / down moves by staff position; Enter enters there.
-        let line = a.pane().cursor.line;
-        keys(&mut a, "<Up><CR>");
-        assert_eq!(a.pane().cursor.line, line + 1);
-        assert_eq!(notes(&a).len(), 5);
-        // Backspace deletes the note; undo takes back the whole insert session.
-        keys(&mut a, "h<BS>");
-        assert_eq!(notes(&a).len(), 4);
-        keys(&mut a, "<Esc>u");
-        assert!(notes(&a).is_empty());
-    }
-
-    #[test]
     fn default_clef_from_config() {
         let (cfg, errors) = Config::parse("[score]\nclef = \"bass\"\n").unwrap();
         assert!(errors.is_empty());
@@ -2871,18 +2690,18 @@ mod tests {
     fn staff_add_takes_several_staves_in_order() {
         let mut a = app();
         let before = a.buffer().score.tracks[0].staves().len();
-        a.run(Command::parse("staff-add slash grand G3 tab+ chant").unwrap());
+        a.run(Command::parse("staff-add slash grand G3 tab+").unwrap());
         let staves = a.buffer().score.tracks[0].staves().to_vec();
-        assert_eq!(staves.len(), before + 4);
+        assert_eq!(staves.len(), before + 3);
         assert_eq!(
             staves[before..]
                 .iter()
                 .map(|s| s.name())
                 .collect::<Vec<_>>(),
-            ["slash", "grand G3", "tab+", "chant"]
+            ["slash", "grand G3", "tab+"]
         );
         // The cursor goes to the last one; the whole command is one undo step.
-        assert_eq!(a.pane().cursor.staff, before + 3);
+        assert_eq!(a.pane().cursor.staff, before + 2);
         a.run(Command::Undo);
         assert_eq!(a.buffer().score.tracks[0].staves().len(), before);
         // A bad word adds none of them.

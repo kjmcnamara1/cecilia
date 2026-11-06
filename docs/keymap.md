@@ -42,8 +42,8 @@ only be used in the GUI there, and `<D-…>` bindings never fire.
 | ------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------- | ------ |
 | `h` / `l`                 | previous / next beat, staying on the same string, line or space                                                                                          | _(M1)_ |
 | `j` / `k`                 | next / previous row on the cursor's staff: tab strings, or staff lines and spaces, with four ledger-line positions beyond the staff's edges to place extra notes. With `ui.jk_moves_between_staves = true` they go on into the next / previous staff instead (`:string-down`, `:string-up`) | _(M1)_ |
-| `<A-j>` / `<A-k>`         | cursor to the next / previous staff of the part (`:staff-next`, `:staff-prev`). Onto a chant staff it lands on the position of the beat's note, and the cursor there is a square on that one position of that staff only | |
-| `w`                       | next note on the cursor's string (tab) or line / space (standard) that does not continue a tie. On a slash or chant staff, the next beat with a note (`:note-row-next`) | |
+| `<A-j>` / `<A-k>`         | cursor to the next / previous staff of the part (`:staff-next`, `:staff-prev`) | |
+| `w`                       | next note on the cursor's string (tab) or line / space (standard) that does not continue a tie. On a slash staff or a chant track, the next beat with a note (`:note-row-next`) | |
 | `e`                       | end of the tie the cursor note is in (its last note); on a note that is not tied on, or off a note, the end of the next note's tie on the row (`:note-row-end`) | |
 | `b`                       | start of the tie the cursor note is in; on the first note of a tie, or off a note, the start of the previous note's tie on the row (`:note-row-prev`)    | |
 | `W` / `B`                 | next / previous beat with a note on any string or line (the old `w` / `b`; `:note-next`, `:note-prev`)                                                    | _(M1)_ |
@@ -129,7 +129,7 @@ bar line can be dragged sideways (a column is several points of page, so it is c
 `<` for fine control). Dragging a beat has no terminal equivalent: nudge it with `<A-l>` / `<A-h>`.
 
 Limits: only the page layout is affected (the vertical and horizontal layouts and square-notation
-chant staves ignore the adjustments); lyrics attached from another track do not follow a nudged
+chant tracks ignore the adjustments); lyrics attached from another track do not follow a nudged
 beat; adjustments are keyed by bar number, so they follow bars through inserting, deleting and
 pasting bars, but a beat nudge stays on its beat number when beats are added or removed.
 
@@ -252,7 +252,7 @@ is typed after it, is one undo step.
 | `ZZ`                                                   | write and close                                                                                   |
 
 The `t` keys depend on the notation under the cursor (`[keymap.normal-tab]`, `-standard`,
-`-slash`, `-chant`, looked up before `[keymap.normal]`; `<F1>` and the keymaps picker list the
+`-slash`, looked up before `[keymap.normal]`; `<F1>` and the keymaps picker list the
 current ones):
 
 | notation | keys |
@@ -260,7 +260,7 @@ current ones):
 | tab | `th` `tb` `ts` `tv` `tx` `tm` `tl` `tg` `ta` `tn` `tt`: toggle hammer/pull, bend, slide, vibrato, dead, palm mute, let ring, ghost, accent, harmonic, tie |
 | standard | `th` `ts` `tv` `tx` `tg` `ta` `tt` (hammer/pull, slide, vibrato, dead, ghost, accent, tie), `t#` `t&` `t=` (sharp, flat, natural) |
 | slash | `ta` `tt` (accent, tie) |
-| chant | none (chant signs are typed in Insert mode) |
+| chant track | none (chant signs are typed in Insert mode) |
 
 **Visual mode** (`v` beats, `V` bars; a `d` `y` `c` `x` act on the selection, motions extend it):
 
@@ -415,20 +415,18 @@ have a narrower box with the color's hex code or the strings' pitches beside it 
   instructions) and *Page* (page size, margins and scale, as Guitar Pro 5 files keep them; cecilia
   doesn't print with them yet). Tempo and the pickup bar are edited in the score itself.
 - **TRACK** — the track under the score cursor (`n`/`p` change it): *Info* (name, kind, color),
-  *Notation* (tuning, frets, capo, and the key *Staves* over one field per staff, top to bottom, with an empty "Add Staff" field at the bottom; each opens a picker of staff kinds, shown with an icon, and a field's handle drags it to another place, a line showing where it lands) and *Sound*
+  *Notation* (tuning, frets, capo, and the key *Staves* over one field per staff, top to bottom, with an empty "Add Staff" field at the bottom; each opens a picker of staff kinds, shown with an icon, and a field's handle drags it to another place, a line showing where it lands; a chant track has one *chant* row, whose second box opens its clef picker) and *Sound*
   (instrument, MIDI channel, bank, volume, pan, mute, solo).
 - **LYRICS** — the cursor track's lyrics as one text area in *gabc+* (below; full reference in
   [LYRICS.md](LYRICS.md)), the single source
-  of the syllables on its notes, under a **GABC** switch. With GABC off the text shows without
-  its GABC: no `(…)` groups and no clef (a group between two letters shows as a hyphen), and
-  whatever is typed keeps the groups of the syllables still there. With GABC on it is the raw
-  gabc+, starting with the clef (`(c4)`; a track without one is shown with its chant staff's
-  clef). The text area has no label, box or background; it is in the app's text font (GUI:
-  `ui.lyrics_font`, any installed family, at `ui.lyrics_font_size`, 12 pt) and colored by the theme:
-  words `lyrics_text` (dimmed, `lyrics_text_dim`, while GABC shows), GABC groups `lyrics_gabc`
-  and `[labels]` `lyrics_label` in bold, `<bar:beat>` anchors `lyrics_anchor`. A chant track's
-  lyrics are its chant: the GABC body of the chant (its header is kept), read back as GABC
-  when edited.
+  of the syllables on its notes. The text shows without its GABC: no `(…)` groups and no clef
+  (a group between two letters shows as a hyphen), and whatever is typed keeps the groups of the
+  syllables still there. The text area has no label, box or background; it is in the app's text
+  font (GUI: `ui.lyrics_font`, any installed family, at `ui.lyrics_font_size`, 12 pt) and colored
+  by the theme: words `lyrics_text`, `[labels]` `lyrics_label` in bold, `<bar:beat>` anchors
+  `lyrics_anchor`. A chant track's lyrics are its chant: its text area always shows the GABC body
+  of the chant (its header is kept; clefs, notes and groups in the `lyrics_clef` … colors), read
+  back as GABC when edited.
 
 ### gabc+
 
@@ -445,12 +443,11 @@ score pane). It stays Normal mode; while the pane has the focus its keys are
 
 | keys | command |
 | --- | --- |
-| `j` `<Down>` `<Tab>` / `k` `<Up>` `<S-Tab>` | select the next / previous property; down from the GABC switch the lyrics text area gets the caret, in normal mode (a block) |
-| `<C-j>` | on the GABC switch: into the lyrics text area (normal mode) |
+| `j` `<Down>` `<Tab>` / `k` `<Up>` `<S-Tab>` | select the next / previous property; selecting the lyrics text area gives it the caret, in normal mode (a block) |
 | `gg` / `G` | select the first / last property |
 | `zz` | scroll so the selected property is in the middle of the pane (`:properties-center`) |
 | `L` `<C-Tab>` / `H` `<C-S-Tab>`, `1` `2` `3` | next / previous tab, the score / track / lyrics tab |
-| `<CR>` `i` `a` | edit the property (insert mode). The score updates as you type, and the edit is one undo step. `<CR>` keeps a single line, `<Esc>` and `<C-c>` cancel it; `<Left>` `<Right>` `<Home>` `<End>` move, `<C-u>` clears. The lyrics text area is edited like vim: `<Esc>` goes to normal mode (`h` `j` `k` `l` `w` `b` `e` `W` `B` `E` `0` `^` `$` `gg` `G` move; `d` `c` `y` over motions and text objects (`dw` `diw` `daw` `dap` `ci"` `yip` …), `dd` `x` `D` delete; `v` `V` Visual mode; `i` `a` `I` `A` `o` `O` `<CR>` insert; `u` `<C-r>` undo and redo; `H` `L` change tab; a focus key such as `<C-h>` leaves the text area, and focusing the pane again restores the caret; in insert mode `<C-Left>` `<C-Right>` jump words, `<C-BS>` `<C-Del>` delete by word; see LYRICS.md for all), each change and each insert session an undo step; `<CR>` in normal mode is `i`; `<Esc>` in normal mode leaves the text area and the pane, `<C-k>` goes up to the GABC switch (`<C-j>` back). While it has the caret the text area takes every key (`<Esc>` first for `:` and `<leader>` keys); in insert mode `<C-u>` clears all of it and `<C-c>` copies. The status line shows the current mode. Color opens a picker of named colors, each with a swatch and its hex code; type `#rrggbb` or `rgb(r,g,b)` for your own. Tuning opens a picker of common tunings of the track's instrument (Drop D, DADGAD, Open C …), searchable by name or description; type the notes (`D2 A2 D3 G3 B3 E4`) for your own. Instrument opens its picker; mute, solo and GABC are switches (a click flips them, with on/off beside them); a section header folds |
+| `<CR>` `i` `a` | edit the property (insert mode). The score updates as you type, and the edit is one undo step. `<CR>` keeps a single line, `<Esc>` and `<C-c>` cancel it; `<Left>` `<Right>` `<Home>` `<End>` move, `<C-u>` clears. The lyrics text area is edited like vim: `<Esc>` goes to normal mode (`h` `j` `k` `l` `w` `b` `e` `W` `B` `E` `0` `^` `$` `gg` `G` move; `d` `c` `y` over motions and text objects (`dw` `diw` `daw` `dap` `ci"` `yip` …), `dd` `x` `D` delete; `v` `V` Visual mode; `i` `a` `I` `A` `o` `O` `<CR>` insert; `u` `<C-r>` undo and redo; `H` `L` change tab; a focus key such as `<C-h>` leaves the text area, and focusing the pane again restores the caret; in insert mode `<C-Left>` `<C-Right>` jump words, `<C-BS>` `<C-Del>` delete by word; see LYRICS.md for all), each change and each insert session an undo step; `<CR>` in normal mode is `i`; `<Esc>` in normal mode leaves the text area and the pane. While it has the caret the text area takes every key (`<Esc>` first for `:` and `<leader>` keys); in insert mode `<C-u>` clears all of it and `<C-c>` copies. The status line shows the current mode. Color opens a picker of named colors, each with a swatch and its hex code; type `#rrggbb` or `rgb(r,g,b)` for your own. Tuning opens a picker of common tunings of the track's instrument (Drop D, DADGAD, Open C …), searchable by name or description; type the notes (`D2 A2 D3 G3 B3 E4`) for your own. Instrument opens its picker; mute and solo are switches (a click flips them, with on/off beside them); a section header folds |
 | `<A-h>` / `<A-l>` | step the selected property down / up: a switch off / on; a choice (color, tuning, instrument, a staff's notation or clef) the previous / next one, without wrapping; a number down / up by one |
 | `c` / `d` | clear the property's text and edit it / just clear it (in the lyrics text area these are its own vim keys; `:properties-clear` there clears the lyrics) |
 | `l` `<Right>` / `h` `<Left>` | on a staff row, select the clef box / the notation box (a click on a box selects it too); tab and slash staves have no clef |
@@ -514,7 +511,7 @@ ring, tap / slap / pop, fades or left-hand tapping); on a **slash** staff the no
 tie, accents, staccato, dynamics, hairpins, fermata and beams; on **chant** the note values and
 the clef; in **Visual** mode (see below) every tool that makes sense over a range, for the
 staff's notation. The bar and repeat tools (everything but the clef) apply on every notation but
-chant; the clef on standard and chant staves, stems on standard staves only. It follows the
+chant tracks; the clef on standard staves and chant tracks, stems on standard staves only. It follows the
 cursor from one staff to another.
 
 **Over a Visual selection** (`v` beats, `V` bars) the palette's tools, `+` / `-`, and the same
@@ -579,7 +576,7 @@ shows ▶ (⏸ when paused) in place of its file-type icon.
 ## Insert mode (M4, done)
 
 Insert-mode keys depend on where the cursor is: on a **tab** (or drum lanes), on a **standard**
-staff, on a **slash** staff or on **chant**. Each has its own keymap, looked up first
+staff, on a **slash** staff or on a **chant track**. Each has its own keymap, looked up first
 (`[keymap.insert-tab]`, `[keymap.insert-standard]`, `[keymap.insert-slash]`,
 `[keymap.insert-chant]` in `config.toml`), then the keys shared by all (`[keymap.insert]`).
 The status line shows where the cursor is (`string 3`, `G4`, `slash`, `do`, `re` … `ti` on chant) and,
@@ -629,18 +626,15 @@ the staff they go on to the tab below or the next staff):
 
 On a **slash** staff: `/` puts a slash on the beat (`:slash`; `<CR>` does as well); `t` tie, `>` accent.
 
-On **chant**, the cursor is on a note: a single square on that position of the chant staff. On a chant track (opened from GABC) these edit the chant
-itself; on any other track they edit the track's notes (shown on its other staves too) and keep
-the chant signs with them, the syllables coming from its lyrics. A punctum entered with `<CR>` is its own neume while the track has no lyrics; once lyrics exist, each syllable's notes condense into neumes by contour (pes, clivis, torculus …) and `<CR>` punctums no longer split them (`/` neume breaks still do). Chant is monophonic, so with a
-chord the staff shows and edits one note of it (`ui.chant_chords`: the top note by default, or the
-bottom one; `error` refuses chords and the status line names the first one):
+On a **chant track** (opened from GABC; there is no chant staff on other tracks), the cursor is
+on a note: a single square on that position of the chant staff. These keys edit the chant itself:
 
 | keys                                      | command                                                                         |
 | ----------------------------------------- | ------------------------------------------------------------------------------- |
 | `h` `j` `k` `l`                           | move the cursor, as on a standard staff (beat back / position down / up / beat on); a pitch is entered by moving to its position and `<CR>` |
-| `<Space>`                                 | next beat, as on a standard staff (`:insert-next`). Chant track: a new note after the cursor note, in the same neume |
+| `<Space>`                                 | a new note after the cursor note, in the same neume (`:chant-append`) |
 | `/`                                       | a new note after the cursor note, starting a new neume                          |
-| `<CR>`                                    | chant track: a new syllable after the cursor syllable. Other tracks, as on a standard staff: a plain punctum at the cursor's staff position with the insert duration, then on to the next beat; chant being monophonic, a note the beat already has moves to the cursor's position, keeping its signs (`:chant-syllable`) |
+| `<CR>`                                    | a new syllable after the cursor syllable (`:chant-syllable`) |
 | `v` `s` `o` `q` `w` `~`                   | virga, stropha, oriscus, quadratum, quilisma, liquescent (toggles, `:chant-mod`) |
 | `.` `_` `'` `-`                           | mora, episema, ictus, initio debilis                                            |
 | `,` `;` `:`                               | a division after the syllable (`:` cycles major, double, none; `:chant-bar`)    |
@@ -695,11 +689,11 @@ e.g. `"<C-g>" = "completion-ignore-case"`, `"<C-f>" = "completion-fuzzy"`.
 | `:staff-add [staff…]`                                               | add one or more staves at the bottom of the cursor's track, in the order given (`:staff-add treble tab slash`); staves only show the track's notes, so each track can have as many as you like |
 | `:incomplete-bars [on\|off\|toggle]` | draw the staff lines of bars that don't hold their full count in red (`theme.incomplete_bar`; `ui.highlight_incomplete_bars = true` sets it at start-up). A bar is flagged when any of its voices that holds notes or rests is shorter or longer than the time signature (tuplets and dots counted exactly, a few ticks of rounding allowed); bars with nothing in them, free-time bars and a pickup first bar are never flagged. All staff kinds are marked in the GUI engraving; the TUI tab view colors the bar's dashed staff lines |
 | `:bar-numbers [every\|system\|toggle]` | number every bar, or only the first bar of each line (the default; `ui.bar_numbers = "every"` in `config.toml` sets it at start-up). The GUI engraving shows the numbers; the TUI tab view always numbers every bar |
-| `:notation {notation}` | show the cursor's staff in another notation: `standard` (keeps the staff's clef), `tab`, `tab+` (tab with a rhythm row of note glyphs), `slash`, `chant`; a clef name (`treble`, `bass`, `grand [split]`, `neutral`, `chant fa`) is accepted too and sets it. A tab on a track without strings puts its notes on strings (refused if one would not fit). `:staff` is the old name |
-| `:clef {clef}` | the clef of the cursor's staff, by its notation. Standard: `treble`, `bass`, `grand [split]` (a grand staff splits at C3 unless a note such as `G3` is given) or `neutral` (percussion clef: drum tracks only, and the only clef they take). Chant: `c1`–`c4` / `f1`–`f4` (the staff line, 1 is the bottom one) (line 1 is the bottom one). On a staff of an ordinary track the notes keep their pitch and are re-placed at the new clef; on a chant track they keep their staff positions, and `cb3` (flat clef) is also accepted. Tab and slash staves have no clef |
+| `:notation {notation}` | show the cursor's staff in another notation: `standard` (keeps the staff's clef), `tab`, `tab+` (tab with a rhythm row of note glyphs), `slash`; a clef name (`treble`, `bass`, `grand [split]`, `neutral`) is accepted too and sets it. A chant track has one square-notation staff, which this refuses to change; convert it with `:chant-to-modern` first. A tab on a track without strings puts its notes on strings (refused if one would not fit). `:staff` is the old name |
+| `:clef {clef}` | the clef of the cursor's staff, by its notation. Standard: `treble`, `bass`, `grand [split]` (a grand staff splits at C3 unless a note such as `G3` is given) or `neutral` (percussion clef: drum tracks only, and the only clef they take). Tab and slash staves have no clef. A chant track takes `c1`–`c4` / `f1`–`f4` (the staff line, 1 is the bottom one) and `cb3` (flat clef); its notes keep their staff positions |
 | `:lyrics-attach {above\|below} [track]` / `:lyrics-attach none` | attach lyrics to the cursor's staff, above or below it (not both), taken from the given track (number; the staff's own track by default) and aligned with the staff's beats by their position in the bar. A track whose staves have none attached shows its own lyrics below its top staff; once any staff has some, only those staves show lyrics |
 | `:staff-remove [n]` / `:staff-move {n\|+N\|-N}`                      | remove a staff (1 = top; the cursor's by default; the last one stays) / move the cursor's staff to position n, or down / up |
-| `:lyrics TEXT`                                                       | add lyrics from the cursor on: `<bar:beat>` (the cursor's, as a beat of the first voice) and the words go at the end of the track's gabc+ text, as if typed in the lyrics text area with GABC off (`\n` is a line break). If the text already reaches past the cursor the words go on the next verse row ([LYRICS.md](LYRICS.md#6-commands)) |
+| `:lyrics TEXT`                                                       | add lyrics from the cursor on: `<bar:beat>` (the cursor's, as a beat of the first voice) and the words go at the end of the track's gabc+ text, as if typed in the lyrics text area (`\n` is a line break). If the text already reaches past the cursor the words go on the next verse row ([LYRICS.md](LYRICS.md#6-commands)) |
 | `:lyrics-clear [verse]`                                              | remove the track's lyrics, or the syllables (with their labels, dashes and gaps) on one verse row; later rows move up                                                                     |
 | `:speed 75`                                                          | playback speed in percent                                                                                                                                                                   |
 
@@ -783,7 +777,7 @@ flat or natural when needed), `x` deletes it and `u` undoes, as on any track.
 | `:interpretation [equalist\|solesmes]`       | rhythm used for playback and the modern transcription                                                 |
 | `:clef c3`                                   | change the chant clef (`c1`–`c4`, `f1`–`f4`, `cb3` for a flat clef); notes keep their staff positions |
 | `:chant-view`                                | square notation / modern transcription of chant tracks                                                |
-| `:modern-to-chant`                           | open the cursor track's melody as chant in a new buffer (syllables from lyrics)                       |
+| `:modern-to-chant`                           | open the cursor track's melody as chant in a new buffer (syllables from lyrics; a chord keeps the note `ui.chant_chords` picks) |
 | `:chant-to-modern`                           | turn the chant track into an ordinary staff track                                                     |
 
 ### Play-along _(M5)_

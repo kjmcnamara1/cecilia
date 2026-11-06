@@ -129,10 +129,7 @@ impl App {
             InsertKind::Tab => format!("string {}", c.string + 1),
             InsertKind::Slash => "slash".into(),
             InsertKind::Chant => {
-                let clef = match track.chant.as_deref() {
-                    Some(ch) => clef_at(ch, c.bar, c.beat),
-                    None => crate::edit::chant_clef_of(score, track, self.chord_policy()).0,
-                };
+                let clef = clef_at(track.chant.as_deref()?, c.bar, c.beat);
                 SOLFEGE[clef.degree(c.line.clamp(0, 13)) as usize].into()
             }
             InsertKind::Standard => {
@@ -500,24 +497,5 @@ mod tests {
             c.beat = 0;
         }
         assert_eq!(place(&app), "mi");
-    }
-
-    #[test]
-    fn chant_staff_of_an_ordinary_track_uses_the_fitted_clef() {
-        let mut app = App::new(Config::default(), None);
-        app.run(crate::Command::New);
-        app.run(crate::Command::StaffAdd(Some("chant".into())));
-        app.run(crate::Command::StaffNext);
-        app.mode = Mode::Insert;
-        assert_eq!(app.insert_kind(), InsertKind::Chant);
-        let (clef, _) = crate::edit::chant_clef_of(
-            &app.buffer().score,
-            &app.buffer().score.tracks[0],
-            app.chord_policy(),
-        );
-        for line in [2, 5, 9, 13] {
-            app.pane_mut().cursor.line = line;
-            assert_eq!(place(&app), SOLFEGE[clef.degree(line) as usize]);
-        }
     }
 }

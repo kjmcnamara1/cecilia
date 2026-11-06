@@ -357,7 +357,7 @@ mod tests {
         assert_eq!(ons, 2);
     }
 
-    /// A chant staff only draws the track's notes: playback is the same whichever staves the
+    /// Staves only draw the track's notes: playback is the same whichever staves the
     /// track shows, and a chord still sounds as a chord with one note engraved.
     #[test]
     fn playback_ignores_the_staff_kind() {
@@ -405,14 +405,13 @@ mod tests {
         assert!(standard.events.len() >= 10, "the chord's three notes sound");
         for staves in [
             vec![Staff::Tab],
-            vec![Staff::Chant],
-            vec![Staff::Standard(Clef::Treble), Staff::Chant, Staff::Tab],
+            vec![Staff::Standard(Clef::Treble), Staff::Tab],
         ] {
             let (score, seq) = build(staves);
             assert_eq!(seq.events, standard.events);
             assert_eq!(seq.duration, standard.duration);
             assert_eq!(seq.beats, standard.beats);
-            // Building the chant view for the staff leaves the track alone.
+            // Building the chant view (for `:modern-to-chant`) leaves the track alone.
             let before = score.tracks[0].clone();
             let _ = cecilia_core::melody::ChantView::build(
                 &score,

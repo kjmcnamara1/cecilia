@@ -68,7 +68,10 @@ pub fn read_cecilia(bytes: &[u8]) -> Result<Score> {
     zip.by_name("score.json")
         .map_err(|e| err(e.to_string()))?
         .read_to_end(&mut json)?;
-    let mut score: Score = serde_json::from_slice(&json).map_err(|e| err(e.to_string()))?;
+    let mut value: serde_json::Value =
+        serde_json::from_slice(&json).map_err(|e| err(e.to_string()))?;
+    drop_chant_staves(&mut value);
+    let mut score: Score = serde_json::from_value(value).map_err(|e| err(e.to_string()))?;
     if let Some(audio) = score.audio.as_mut() {
         let base = audio
             .file
@@ -84,6 +87,41 @@ pub fn read_cecilia(bytes: &[u8]) -> Result<Score> {
     }
     score.normalize_dynamics();
     Ok(score)
+}
+
+/// Files written before chant staves were removed from ordinary tracks may name one
+/// (`"Chant"`, `"ChantFa"`) among a track's staves, with a clef line (`chant_line`). The staff is
+/// dropped (with the lyrics attached to it); the track keeps its other staves, or the default
+/// ones if it had no other. Chant tracks (`chant` set) have no staves of their own to keep.
+fn drop_chant_staves(score: &mut serde_json::Value) {
+    let Some(tracks) = score.get_mut("tracks").and_then(|t| t.as_array_mut()) else {
+        return;
+    };
+    for track in tracks {
+        let Some(track) = track.as_object_mut() else {
+            continue;
+        };
+        track.remove("chant_line");
+        let Some(staves) = track.get("staves").and_then(|s| s.as_array()) else {
+            continue;
+        };
+        let dropped: Vec<usize> = staves
+            .iter()
+            .enumerate()
+            .filter(|(_, s)| matches!(s.as_str(), Some("Chant" | "ChantFa")))
+            .map(|(i, _)| i)
+            .collect();
+        for &i in dropped.iter().rev() {
+            if let Some(a) = track.get_mut("staves").and_then(|s| s.as_array_mut()) {
+                a.remove(i);
+            }
+            if let Some(a) = track.get_mut("staff_lyrics").and_then(|s| s.as_array_mut()) {
+                if i < a.len() {
+                    a.remove(i);
+                }
+            }
+        }
+    }
 }
 
 /// Whether bytes look like a `.cc` archive (a zip with a cecilia manifest).
@@ -123,6 +161,43 @@ mod tests {
         let bytes = write_cecilia(&score).unwrap();
         assert!(is_cecilia(&bytes));
         assert_eq!(read_cecilia(&bytes).unwrap(), score);
+    }
+
+    #[test]
+    fn a_chant_staff_of_an_ordinary_track_in_an_old_file_is_dropped() {
+        let track = |staves: Vec<Staff>| Track {
+            name: "t".into(),
+            staves,
+            staff_lyrics: vec![None, None],
+            bars: vec![Bar::default()],
+            ..Track::default()
+        };
+        let score = Score {
+            master_bars: vec![MasterBar::default()],
+            tracks: vec![
+                track(vec![Staff::Tab, Staff::Slash]),
+                track(vec![Staff::Slash]),
+            ],
+            ..Score::default()
+        };
+        // What an old version wrote: a chant staff among the staves, and its clef line.
+        let mut json = serde_json::to_value(&score).unwrap();
+        let t = json["tracks"][0].as_object_mut().unwrap();
+        t["staves"] = serde_json::json!(["Chant", "Tab", "ChantFa"]);
+        t["staff_lyrics"] = serde_json::json!([null, null, {"track": null}]);
+        t.insert("chant_line".into(), serde_json::json!(3));
+        json["tracks"][1]["staves"] = serde_json::json!(["ChantFa"]);
+        drop_chant_staves(&mut json);
+        let back: Score = serde_json::from_value(json).unwrap();
+        assert_eq!(back.tracks[0].staves, [Staff::Tab]);
+        assert_eq!(
+            back.tracks[0].staff_lyrics,
+            [None],
+            "the lyrics of a dropped staff go"
+        );
+        // Only a chant staff: the track gets its default staves again.
+        assert!(back.tracks[1].staves.is_empty());
+        assert!(!back.tracks[1].staves().is_empty());
     }
 
     #[test]

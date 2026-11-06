@@ -71,7 +71,7 @@ Score
 │  ├─ name, instrument kind (Fretted | Drums | Pitched | Chant), MIDI program/channel/bank,
 │  │  volume/pan, color, mute/solo
 │  ├─ fretted: strings (tuning, MIDI pitch per string), fret count, capo
-│  ├─ staves: which views are shown (tab, standard, slash, chant)
+│  ├─ staves: which views are shown (tab, tab+, standard, slash)
 │  ├─ lyrics_text: the track's lyrics as gabc+ text (see 4.3), source of the beats' syllables
 │  └─ bars[] (one per master bar; repeat sign `simile`) → voices[] (≥4) → beats[]
 │        beat: duration (value, dots, tuplet), rest/empty, text, chord diagram ref,
@@ -129,19 +129,21 @@ transcription is what plays, exports to modern formats and carries the cursor; e
 (pitch changes, deletions, insertions) are reconciled back into the chant, adding flats or
 naturals where needed.
 
-**Chant staff on ordinary tracks.** Any track can show a chant staff (`:notation chant`, on a C or F clef: `:clef c1`–`c4` / `f1`–`f4`). It is a
-view: the track's notes are never changed and playback (which plays every note of the track,
-chords included) does not depend on which staves are shown. The view is built in `cecilia-core`
-(`melody::ChantView`) and is exactly what `modern-to-chant` converts, so both agree:
+**No chant staff on ordinary tracks.** Square notation belongs to chant tracks only (a track with
+`chant` set, e.g. read from a `.gabc` file). An ordinary track has standard, tab, tab+ and slash
+staves (`:notation chant` and `:staff-add chant` are gone; a `.cc` file that still names a chant
+staff on an ordinary track loses it on load). To see a hymn in square notation, convert it with
+`:modern-to-chant` (a new buffer) or `cecilia convert in.gp5 out.gabc`. The conversion is built in
+`cecilia-core` (`melody::ChantView`):
 
 - Only the first voice is read. Chant is monophonic, so a chord shows one note, chosen by
   `ui.chant_chords`: `top` (default, the highest note: a "skyline"), `bottom`, or `error`. Under
-  `error`, or whenever a melody cannot be chosen, no chant staff is drawn: a message
-  ("Chant staff: chord at bar 12 beat 3 — chant is monophonic") takes its place and appears in the
-  status line, and `:modern-to-chant` refuses.
+  `error`, or whenever a melody cannot be chosen, `:modern-to-chant` refuses with a message
+  ("chord at bar 12 beat 3 — chant is monophonic"). `ui.chant_chords` is used by the conversion
+  only.
 - Syllables start at each lyric (at each quarter note when there are none); notes in a syllable
   form neumes by contour (`cecilia_core::chant::group_neumes`, shared with the GABC engraver), and a
-  note marked `neume_start` (`/`, `:chant-break`) always starts a new one. A note entered with `<CR>` (`:chant-syllable`: a punctum at the cursor position and insert duration, in a new beat after the cursor, the bar filling like other staves) is marked `punctum`: its own neume while the track has no lyrics, and ignored for grouping once any lyric exists, so syllables condense their notes by contour. Tied beats extend the note before them.
+  note marked `neume_start` (`/`, `:chant-break`) always starts a new one. Tied beats extend the note before them.
 - The melody is moved by the same shift to the white-key scale (B♭ allowed) and clef as
   `modern-to-chant`; a note longer than the typical one gets a mora.
 - Breath and phrase marks become divisions: a rest shorter than a quarter note is a divisio
@@ -303,9 +305,7 @@ select, drag pane borders, click tabs, scroll/zoom, context menus that invoke th
   Special lines outrank the dashed one. A wider line takes its columns from the start of the
   bar (or after the last bar of a system), and the beats are placed after it.
 - **TUI** (`cecilia-tui`): chant tracks show as a four-line text staff with clefs, neume glyphs and ligatures, divisions,
-  custodes and the syllables underneath, in the horizontal, vertical and page layouts (also for
-  ordinary tracks with a chant staff, `:notation chant`: all-chant tracks like that, a chant staff
-  among other staves drawn in the tab's systems); read,
+  custodes and the syllables underneath, in the horizontal, vertical and page layouts; read,
   play and basic editing of tablature (frets, durations, ties, rests,
   basic techniques) rendered as text tab. Same keymaps, config and commands as the GUI; commands not
   available in the TUI report an error instead of failing silently.

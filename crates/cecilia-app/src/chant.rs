@@ -95,39 +95,6 @@ impl App {
 
     pub(crate) fn run_chant(&mut self, cmd: &Command) -> bool {
         use Command::*;
-        // A chant staff of an ordinary track edits its notes, keeping chant signs with them.
-        let c = self.pane().cursor;
-        let ordinary = self
-            .buffer()
-            .score
-            .tracks
-            .get(c.track)
-            .is_some_and(|t| t.chant.is_none());
-        let duration = self.insert_duration();
-        let policy = self.chord_policy();
-        match cmd {
-            ChantMod(m) if ordinary => {
-                self.edit(|cx| crate::edit::toggle_chant_mark(cx, policy, m));
-                return true;
-            }
-            ChantBar(sign) if ordinary => {
-                self.edit(|cx| {
-                    crate::edit::set_chant_division(cx, sign);
-                    Ok(())
-                });
-                return true;
-            }
-            ChantAppend | ChantBreak if ordinary => {
-                let neume = matches!(cmd, ChantBreak);
-                self.edit(|cx| crate::edit::append_chant_note(cx, policy, neume, duration));
-                return true;
-            }
-            ChantSyllable if ordinary => {
-                self.edit(|cx| crate::edit::enter_chant_punctum(cx, policy, duration));
-                return true;
-            }
-            _ => {}
-        }
         match cmd {
             ChantMod(m) => {
                 let m = m.clone();
@@ -219,7 +186,7 @@ impl App {
                     Ok(at)
                 });
             }
-            DeleteNote if !ordinary && self.on_staff_kind(InsertKind::Chant) => {
+            DeleteNote if self.on_staff_kind(InsertKind::Chant) => {
                 self.chant_edit(|chant, at| {
                     let (si, ii) = at.ok_or("no note under the cursor")?;
                     let syl = &mut chant.syllables[si];
@@ -463,21 +430,34 @@ mod tests {
     }
 
     #[test]
-    fn chant_staves_are_views() {
+    fn a_chant_track_has_no_staves_to_change() {
         let mut a = app();
-        let chant = a.buffer().score.tracks[0].chant.clone();
-        // Shown as standard notation and tab, the chant itself stays.
+        let before = a.buffer().score.tracks[0].clone();
         a.run(Command::Notation("treble".into()));
-        a.run(Command::StaffAdd(Some("chant".into())));
-        let t = &a.buffer().score.tracks[0];
-        assert_eq!(t.chant, chant);
-        assert_eq!(
-            t.staves(),
-            vec![
-                cecilia_core::Staff::Standard(cecilia_core::Clef::Treble),
-                cecilia_core::Staff::Chant
-            ]
+        assert!(a.message.as_ref().unwrap().error);
+        a.run(Command::StaffAdd(Some("tab".into())));
+        assert!(a.message.as_ref().unwrap().error);
+        assert_eq!(a.buffer().score.tracks[0], before);
+        // `chant` is not a notation of an ordinary track either.
+        a.run(Command::ChantToModern);
+        a.run(Command::Notation("chant".into()));
+        assert!(a.message.as_ref().unwrap().error);
+        assert!(
+            a.buffer().score.tracks[0]
+                .staves()
+                .iter()
+                .all(|s| !s.name().contains("chant"))
         );
+    }
+
+    #[test]
+    fn a_chant_tracks_clef_is_a_chant_clef() {
+        let mut a = app();
+        a.run(Command::Clef("f3".into()));
+        assert!(gabc(&a).starts_with("(f3)"));
+        a.run(Command::Clef("treble".into()));
+        assert!(a.message.as_ref().unwrap().error);
+        assert!(gabc(&a).starts_with("(f3)"));
     }
 
     #[test]
@@ -524,39 +504,5 @@ mod tests {
         app.run(Command::ModernToChant);
         assert_eq!(app.buffers.len(), 2);
         assert!(app.buffer().score.tracks[0].chant.is_some());
-    }
-
-    #[test]
-    fn modern_chant_staff_takes_a_clef_line() {
-        use cecilia_core::chant::ClefKind;
-        let mut app = app();
-        app.run(Command::ChantToModern);
-        app.run(Command::StaffAdd(Some("chant".into())));
-        app.run(Command::StaffNext);
-        let view = |app: &App| {
-            let b = app.buffer();
-            cecilia_core::melody::ChantView::build(&b.score, &b.score.tracks[0], Default::default())
-                .unwrap()
-        };
-        app.run(Command::Clef("c3".into()));
-        assert_eq!(app.buffer().score.tracks[0].chant_line, Some(3));
-        assert_eq!(
-            (view(&app).clef.kind, view(&app).clef.line),
-            (ClefKind::Do, 3)
-        );
-        let pitches = |app: &App| view(app).events.iter().map(|e| e.pitch).collect::<Vec<_>>();
-        let before = pitches(&app);
-        app.run(Command::Clef("f2".into()));
-        assert_eq!(
-            (view(&app).clef.kind, view(&app).clef.line),
-            (ClefKind::Fa, 2)
-        );
-        assert_eq!(pitches(&app), before, "same sounding pitches");
-        app.run(Command::Clef("do".into()));
-        assert_eq!(
-            (view(&app).clef.kind, view(&app).clef.line),
-            (ClefKind::Fa, 2),
-            "do is no longer a clef"
-        );
     }
 }

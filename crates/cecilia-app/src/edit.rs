@@ -3,7 +3,6 @@
 
 use std::collections::BTreeMap;
 
-use cecilia_core::melody::{self, ChordPolicy};
 use cecilia_core::*;
 
 use crate::Cursor;
@@ -207,6 +206,14 @@ impl<'a> EditCx<'a> {
             .copied()
     }
 
+    /// Whether the cursor is on a chant track: one note per beat, at its chant position.
+    fn on_chant(&self) -> bool {
+        self.score
+            .tracks
+            .get(self.cursor.track)
+            .is_some_and(|t| t.chant.is_some())
+    }
+
     /// Whether the cursor is on a staff's lines (not a tab's strings).
     fn on_lines(&self) -> bool {
         let track = &self.score.tracks[self.cursor.track];
@@ -261,7 +268,7 @@ impl<'a> EditCx<'a> {
             .beats
             .get(self.cursor.beat)?;
         // Slashes and chant show one note per beat.
-        if matches!(self.staff(), Some(s) if s == Staff::Slash || s.is_chant()) {
+        if self.on_chant() || matches!(self.staff(), Some(Staff::Slash)) {
             return beat.notes.first().map(|n| n.string);
         }
         beat.notes
@@ -361,148 +368,6 @@ pub fn set_accidental(cx: &mut EditCx, alter: i32) -> Result<(), String> {
         return Err("accidental: no note under the cursor".into());
     }
     put_staff_note(cx, d, alter, Duration::default())
-}
-
-/// The chant clef and shift (semitones) a chant staff of the cursor track shows its notes in:
-/// the one the engraver and modern-to-chant choose for its melody.
-pub fn chant_clef_of(
-    score: &Score,
-    track: &Track,
-    policy: cecilia_core::melody::ChordPolicy,
-) -> (chant::ChantClef, i32) {
-    // Under `error` the staff is not shown with chords; its notes are edited as the top ones.
-    let view = cecilia_core::melody::ChantView::build(score, track, policy)
-        .or_else(|_| cecilia_core::melody::ChantView::build(score, track, Default::default()));
-    view.map_or((chant::ChantClef::default(), 0), |v| (v.clef, v.shift))
-}
-
-/// On a chant staff of an ordinary track: the cursor beat's note at a GABC position (its
-/// first note, added if the beat has none), as an inclinatum or not.
-pub fn put_chant_note(
-    cx: &mut EditCx,
-    policy: ChordPolicy,
-    position: u8,
-    inclinatum: bool,
-    duration: Duration,
-) -> Result<(), String> {
-    let track = cx.track().clone();
-    let (clef, octave) = chant_clef_of(cx.score, &track, policy);
-    let pitch = (clef.midi(position as i32, 0) as i32 - octave).clamp(0, 127) as u8;
-    ensure_real(cx.beat(), duration);
-    let picked = melody::pick(&track, cx.beat(), policy);
-    let first = picked.map(|i| cx.beat().notes[i].string);
-    if track.kind == TrackKind::Fretted {
-        set_pitch_on(cx, pitch, first.unwrap_or(0))?;
-    } else {
-        let beat = cx.beat();
-        match picked {
-            Some(i) => beat.notes[i].fret = pitch,
-            None => beat.notes.push(Note::new(0, pitch)),
-        }
-        renumber_pitched(beat);
-    }
-    // The note that now has the pitch carries the marks.
-    let beat = cx.beat();
-    if let Some(n) = beat.notes.iter_mut().find(|n| track.pitch_of(n) == pitch) {
-        let marks = n.chant.get_or_insert_with(Default::default);
-        marks.inclinatum = inclinatum;
-    }
-    cx.cursor.line = position as i32;
-    Ok(())
-}
-
-/// On a chant staff of an ordinary track: toggles a chant sign of the cursor beat's note
-/// (`-` is the initio debilis, others GABC modifiers).
-pub fn toggle_chant_mark(cx: &mut EditCx, policy: ChordPolicy, mark: &str) -> Result<(), String> {
-    let track = cx.track().clone();
-    let beat = cx.beat();
-    let i = melody::pick(&track, beat, policy).ok_or("no note under the cursor")?;
-    let n = &mut beat.notes[i];
-    let marks = n.chant.get_or_insert_with(Default::default);
-    if mark == "-" {
-        marks.initio_debilis = !marks.initio_debilis;
-    } else if let Some(i) = marks.mods.iter().position(|m| m == mark) {
-        marks.mods.remove(i);
-    } else {
-        marks.mods.push(mark.to_string());
-    }
-    if **marks == ChantMarks::default() {
-        n.chant = None;
-    }
-    Ok(())
-}
-
-/// On a chant staff of an ordinary track: a division after the cursor beat (`:` cycles major,
-/// double, off; the same other sign again removes it).
-pub fn set_chant_division(cx: &mut EditCx, sign: &str) {
-    let beat = cx.beat();
-    beat.chant_division = match (beat.chant_division.as_deref(), sign) {
-        (Some(":"), ":") => Some("::".into()),
-        (Some("::"), ":") => None,
-        (Some(d), s) if d == s => None,
-        _ => Some(sign.to_string()),
-    };
-}
-
-/// On a chant staff of an ordinary track: a new beat after the cursor with the same pitch,
-/// starting a new neume when `neume` is set.
-pub fn append_chant_note(
-    cx: &mut EditCx,
-    policy: ChordPolicy,
-    neume: bool,
-    duration: Duration,
-) -> Result<(), String> {
-    let track = cx.track().clone();
-    let (clef, octave) = chant_clef_of(cx.score, &track, policy);
-    let position = melody::pick(&track, cx.beat(), policy).map_or(6, |i| {
-        clef.place(track.pitch_of(&cx.beat().notes[i]), octave).0
-    });
-    insert_beat(cx, true, duration);
-    put_chant_note(cx, policy, position.clamp(0, 13) as u8, false, duration)?;
-    if neume {
-        let beat = cx.beat();
-        let picked = melody::pick(&track, beat, policy).unwrap_or(0);
-        if let Some(n) = beat.notes.get_mut(picked) {
-            n.chant.get_or_insert_with(Default::default).neume_start = true;
-        }
-    }
-    Ok(())
-}
-
-/// On a chant staff of an ordinary track (Enter, as on a standard staff): a plain punctum at
-/// the cursor's staff position with `duration` in the cursor beat, then on to the next beat
-/// (see [`advance`]). Chant is monophonic: a note the beat already has moves to the cursor's
-/// position instead, keeping its signs. Until the track has lyrics a new punctum is its own
-/// neume.
-pub fn enter_chant_punctum(
-    cx: &mut EditCx,
-    policy: ChordPolicy,
-    duration: Duration,
-) -> Result<(), String> {
-    let track = cx.track().clone();
-    let position = cx.cursor.line.clamp(0, 13) as u8;
-    let existing = {
-        let b = cx.beat();
-        melody::pick(&track, b, policy).map(|i| {
-            b.notes[i]
-                .chant
-                .as_ref()
-                .is_some_and(|marks| marks.inclinatum)
-        })
-    };
-    match existing {
-        Some(inclinatum) => put_chant_note(cx, policy, position, inclinatum, duration)?,
-        None => {
-            put_chant_note(cx, policy, position, false, duration)?;
-            let beat = cx.beat();
-            let picked = melody::pick(&track, beat, policy).unwrap_or(0);
-            if let Some(n) = beat.notes.get_mut(picked) {
-                n.chant.get_or_insert_with(Default::default).punctum = true;
-            }
-        }
-    }
-    advance(cx, duration);
-    Ok(())
 }
 
 /// A slash on a slash staff: the beat gets a note (kept if it has one).
@@ -1106,7 +971,7 @@ pub fn set_dynamic(cx: &mut EditCx, dynamic: &str) -> Result<(), String> {
 pub fn shift_pitch(cx: &mut EditCx, semitones: i32) -> Result<(), String> {
     let string = shift_pitch_notes(cx, semitones)?;
     // On a staff of lines the cursor follows the note to its new position.
-    if cx.on_lines() && !matches!(cx.staff(), Some(s) if s == Staff::Slash || s.is_chant()) {
+    if cx.on_lines() && !cx.on_chant() && !matches!(cx.staff(), Some(Staff::Slash)) {
         let note = cx.beat().notes.iter().find(|n| n.string == string).cloned();
         if let Some(n) = note {
             cx.cursor.line = cx.staff_position(&n);

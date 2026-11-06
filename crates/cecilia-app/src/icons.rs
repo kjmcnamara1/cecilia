@@ -28,14 +28,13 @@ pub enum Icon {
 }
 
 impl Icon {
-    /// The icon of a staff's notation: standard, tab, tab+, slash or chant.
+    /// The icon of a staff's notation: standard, tab, tab+ or slash.
     pub fn of_notation(staff: Staff) -> Icon {
         match staff {
             Staff::Standard(_) => Icon::Standard,
             Staff::Tab => Icon::Tab,
             Staff::TabRhythm => Icon::TabRhythm,
             Staff::Slash => Icon::Slash,
-            Staff::Chant | Staff::ChantFa => Icon::Chant,
         }
     }
 
@@ -47,10 +46,16 @@ impl Icon {
             Staff::Standard(Clef::Bass) => Icon::Bass,
             Staff::Standard(Clef::Neutral) => Icon::Neutral,
             Staff::Standard(Clef::Grand { .. }) => Icon::Grand,
-            Staff::Chant => Icon::ChantDo,
-            Staff::ChantFa => Icon::ChantFa,
             Staff::Tab | Staff::TabRhythm | Staff::Slash => return None,
         })
+    }
+
+    /// The icon of a chant clef's family (do or fa).
+    pub fn of_chant_clef(kind: cecilia_core::chant::ClefKind) -> Icon {
+        match kind {
+            cecilia_core::chant::ClefKind::Do => Icon::ChantDo,
+            cecilia_core::chant::ClefKind::Fa => Icon::ChantFa,
+        }
     }
 
     /// The family of a General MIDI program (0-based): generic, a guitar for every guitar.

@@ -1,23 +1,22 @@
 # Chant ⇄ modern notation
 
-How cecilia turns a modern melody (staff or tab) into a chant staff, and a chant back into modern
-notes. Source: `cecilia-core/src/chant.rs` (the chant model, clefs, transcription),
+How cecilia turns a modern melody (staff or tab) into chant (`:modern-to-chant`), and a chant back
+into modern notes. Source: `cecilia-core/src/chant.rs` (the chant model, clefs, transcription),
 `cecilia-core/src/melody.rs` (`ChantView`, the modern → chant view), `cecilia-convert/src/chant.rs`
 (`modern_to_chant`, `reconcile`), `cecilia-app/src/edit.rs` and `chant.rs` (editing), and
 `cecilia-engrave` (drawing).
 
-## 1. Two kinds of chant
+## 1. Chant tracks only
 
-| | Chant track | Chant staff of an ordinary track |
-| --- | --- | --- |
-| Where it comes from | a `.gabc` file (or `:modern-to-chant`) | `:notation chant`, `:staff-add chant` on any track |
-| Source of truth | `Track.chant`: syllables, neumes, clefs in GABC form | the track's ordinary notes |
-| The bars | a *transcription* of the chant (§5), rewritten after each edit | the real music |
-| Chant specific data | in the chant itself | `Note.chant` (`ChantMarks`), `Beat.chant_division`, `Track.chant_line` |
-| The staff is | the editable notation | a **view**: nothing in it changes the notes' pitches or playback |
+Square notation belongs to **chant tracks** (`Track.chant` set): from a `.gabc` file or made with
+`:modern-to-chant`. Their source of truth is the chant itself (syllables, neumes, clefs in GABC
+form); the track's bars are a *transcription* of it (§4), rewritten after each edit.
 
-A chant staff of an ordinary track and `:modern-to-chant` use the same code (`ChantView`), so what
-you see on the staff is exactly what the conversion writes.
+An ordinary track has no chant staff: `:notation chant` and `:staff-add chant` do not exist, and a
+`.cc` file that still names one drops it on load. To see a melody in square notation, convert it
+(`:modern-to-chant`, or `cecilia convert in.gp5 out.gabc`); the conversion uses `ChantView`, which
+builds the chant from the modern melody as described in §3. `Note.chant` (`ChantMarks`) and
+`Beat.chant_division` are still read by that conversion.
 
 ## 2. The chant pitch model
 
@@ -42,7 +41,7 @@ throughout.
 
 ## 3. Modern → chant (`ChantView::build`)
 
-The chant staff is built in these steps. Each is deterministic; nothing is stored except what is
+The chant is built in these steps. Each is deterministic; nothing is stored except what is
 marked as "kept" below.
 
 ### 3.1 The melody (`melody::melody`)
@@ -51,9 +50,8 @@ Chant is monophonic, so the staff reads **only the first voice** and reduces it 
 *events* (one per sung note):
 
 - **Chords.** One note is picked per beat by the chord policy (`ui.chant_chords`): `top` (the
-  highest note, default), `bottom`, or `error`. Under `error` any chord makes the staff refuse
-  (message "Chant staff: chord at bar N beat M — chant is monophonic") and `:modern-to-chant`
-  fails. If the policy cannot be applied the first note is shown in editing commands.
+  highest note, default), `bottom`, or `error`. Under `error` any chord makes the conversion refuse
+  (message "chord at bar N beat M — chant is monophonic") and `:modern-to-chant` fails.
 - **Ties.** A beat whose notes are all tied extends the previous event (the event remembers the
   beats it continues, so the cursor and highlights map to every beat).
 - **Rests** close a phrase: a division after the previous note, `:` if the rest lasts at least a
@@ -85,9 +83,6 @@ moved by a **shift** (semitones) and given a **clef**:
    Each is tried at octave offsets −24, −12, 0, +12, +24. A note costs 0 on positions 2–10, 1 on
    0–1 and 11–12, and 10 outside 0–12; plus 0.02 per semitone of octave and 0.01 per place down
    the clef list. The cheapest wins.
-3. The track can restrict this: the **family** of the chant staff (`Staff::Chant` = do clefs,
-   `Staff::ChantFa` = fa clefs) and the **clef line** (`Track.chant_line`, set by
-   `:clef c1`–`c4` / `f1`–`f4`) limit the candidates.
 
 The total `shift + octave` is `ChantView.shift`; it is shown in the `:modern-to-chant` message
 ("transposed ±N semitones"). Playback and the notes themselves never use it.
@@ -153,28 +148,7 @@ Always lossy: rhythm (only the mora survives), rests (they become divisions), ch
 the exact pitches (shifted into the scale, chromatic notes rounded), other voices, dynamics and
 tab information. The notes of the original track are never touched by the staff view.
 
-## 4. Editing a chant staff of an ordinary track (chant → modern, per note)
-
-Typing on the chant staff writes ordinary notes. The conversion runs the placement backwards:
-
-- **Position → pitch.** `put_chant_note`: `pitch = clef.midi(position, 0) − shift`, clamped to
-  0–127, where clef and shift come from the same `ChantView` the staff is drawn with (under
-  `error` chords it falls back to `top`). On a fretted track a string that can play the pitch is
-  chosen. Because the view is recomputed from the whole melody, a new note can change the clef or
-  shift for the entire staff.
-- **Enter** (`:chant-syllable`) puts a plain punctum at the cursor's position with the insert
-  duration in the cursor beat, then goes to the next beat (as standard notation). Chant being
-  monophonic, a note the beat already has *moves* to the cursor's position and keeps its signs.
-  The note is flagged `punctum` (§3.6).
-- `/` (`:chant-break`) and `chant-append` insert a beat after the cursor with the same position;
-  `/` flags it `neume_start`.
-- `v s o q w ~ . _ ' -` (`:chant-mod`) toggle signs in `Note.chant`; `, ; :` (`:chant-bar`) set
-  `Beat.chant_division` (`:` cycles major, double, none).
-- The cursor's **line** is a chant position (0–13). Moving onto a chant staff puts it on the
-  position of the beat's note; the other staves of the track light the note only while the
-  cursor is on that position. `w e b` jump between notes at the cursor's position.
-
-## 5. Chant → modern (a chant track's transcription, `chant::transcribe`)
+## 4. Chant → modern (a chant track's transcription, `chant::transcribe`)
 
 A chant track keeps an ordinary rendering of the chant in its bars so playback, the cursor, audio
 sync and the modern file formats work on it.
@@ -207,7 +181,7 @@ alteration in force differs), a deletion removes the note, and an insertion adds
 the previous note's syllable (before the first note, if none). Changes are applied from the end so
 indices stay valid, and the chant is transcribed again.
 
-## 6. Drawing (`cecilia-engrave`)
+## 5. Drawing (`cecilia-engrave`)
 
 - Heads, from the note's marks: `~` or initio debilis a small head, inclinatum a diamond, `v` a
   virga, `s…` a stropha (`ss`/`sss` draw two or three heads on the pitch), otherwise a punctum.
@@ -220,14 +194,13 @@ indices stay valid, and the chant is transcribed again.
   other line counts they are drawn as lines.
 - The staff gap is 4/3 of a modern one, so four lines take the height of five.
 
-## 7. Settings and commands
+## 6. Settings and commands
 
 | | |
 | --- | --- |
-| `ui.chant_chords` | `top` (default), `bottom` or `error`: which note of a chord a chant staff shows |
-| `:notation chant`, `:staff-add chant` | show a chant staff for the track |
-| `:clef c1`–`c4`, `f1`–`f4` | the chant clef and its line (`Track.chant_line`; the tracks pane's clef box does the same) |
-| `:modern-to-chant` | the track's chant view as a new chant buffer |
+| `ui.chant_chords` | `top` (default), `bottom` or `error`: which note of a chord `:modern-to-chant` and `cecilia convert … .gabc` keep |
+| `:clef c1`–`c4`, `f1`–`f4` | the clef of a chant track (the tracks pane's clef box does the same) |
+| `:modern-to-chant` | the track's melody as a new chant buffer |
 | `:chant-to-modern` | a chant track becomes an ordinary track (its transcription) |
 | `:interpretation equalist\|solesmes` | rhythm used for transcription and playback |
-| `:chant-mod`, `:chant-bar`, `:chant-break`, `:chant-append`, `:chant-syllable` | editing (§4) |
+| `:chant-mod`, `:chant-bar`, `:chant-break`, `:chant-append`, `:chant-syllable` | editing a chant track |

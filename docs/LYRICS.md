@@ -33,9 +33,9 @@ is laid out.
 
 ### Ordinary tracks and chant tracks
 
-- **Ordinary tracks** (guitar, voice, piano …) keep the text in the track (`lyrics_text`). Its
-  GABC groups `(…)` are kept and shown in the text area, but are not used for anything yet
-  (section 8).
+- **Ordinary tracks** (guitar, voice, piano …) keep the text in the track (`lyrics_text`). They
+  have no chant staff: square notation belongs to chant tracks, and `:modern-to-chant` opens a
+  track's melody as chant in a new buffer.
 - **Chant tracks** (opened from a `.gabc` file, or made with `:modern-to-chant`) have their chant
   notation as their lyrics: the text area shows the chant's GABC body (its header, `name:` and so
   on, is kept apart). Editing it changes the chant itself, which is read again as GABC, and the
@@ -139,7 +139,7 @@ The spec's examples, on a bar of four quarter notes:
 
 "(dash)" beats hold no text; the score draws one hyphen centred between `some` and `one`.
 
-A hymn with two verses, as typed with GABC off:
+A hymn with two verses, as typed in the text area:
 
 ```
 <1:1> [1.] Let all mor-tal flesh keep _ si-lence,
@@ -248,25 +248,16 @@ step.
 - The tab view shows up to five verse rows under the tab, in the theme's `lyrics` color, each
   syllable as stored (`mor-` with its hyphen) at its beat's column; columns widen to fit them.
 - Labels, italics and ✻ are **not** shown there, nor lyrics attached to other staves.
-- A chant staff (a chant track, or `:notation chant` on an ordinary track) shows its syllables
-  under the neumes with hyphens and extenders.
-
-### Chant staves
-
-The chant staff of an ordinary track takes its syllables from the first verse row: a syllable
-starts at each note that has one, and its notes form neumes by contour. `:modern-to-chant` does
-the same.
+- A chant track shows its syllables under the neumes with hyphens and extenders.
 
 ## 5. The LYRICS tab of the properties pane
 
 `<leader>p` shows the properties pane, `<leader>P` focuses it, `3` (or `L`/`H`, or
 `:properties-tab lyrics`) shows the LYRICS tab. The tab is about the track under the score
-cursor (its name at the top) and has two rows:
+cursor (its name at the top) and has one row, the **text area** with the track's lyrics. It has no
+label, box or background. What it shows depends on the kind of track:
 
-1. **GABC**, a switch: off (the default) or on.
-2. The **text area** with the track's lyrics. It has no label, box or background.
-
-### GABC off: the text without its GABC
+### An ordinary track: the text without its GABC
 
 The text area shows the text without its GABC groups: no `(…)`, and no clef (the group the text
 starts with, and the space after it). A group between two letters shows as a hyphen, so
@@ -279,31 +270,22 @@ What you type is put back into the full text where you typed it:
   `somes(g)`; changing a syllable's letters keeps its notes;
 - a group goes only when every letter of its syllable is removed (deleting the word deletes its
   notes);
-- the hyphen that stands for a group can't be deleted on its own (it comes back): to join such
-  syllables, switch GABC on;
 - a `(` stays visible as text until its `)` is typed; then it is a group, and disappears from
-  view (switch GABC on to type notes).
+  view.
 
-### GABC on: the chant the notes make
+### A chant track: its GABC
 
-For an ordinary track the text area shows the GABC its **chant staff** shows: the track's notes
-and syllables as chant (clef, neumes, divisions), written the way a `.gabc` file is. It is made
-from the score as it is now, so it changes live with every edit in a score pane, `:lyrics`,
-`:lyrics-clear` and so on. It can be moved through, searched, selected and copied, but not edited
-(a key that would change it is refused; switch GABC off to edit the lyrics). It is empty when the
-track can't be chant (no notes, a drum track, chords the `ui.chant_chords` policy refuses).
-
-For a **chant track** the text is the chant's GABC and is edited. Each key reads it again as GABC;
-while it doesn't read (an unclosed `(` half typed) the chant stays as it was, and the text area
-keeps what you type either way. Leaving the text area and coming back shows the chant as cecilia
-writes GABC (single spaces, line breaks every 72 characters or so).
+The text is the chant's GABC and is edited; it is always shown as GABC (there is no switch). Each
+key reads it again as GABC; while it doesn't read (an unclosed `(` half typed) the chant stays as
+it was, and the text area keeps what you type either way. Leaving the text area and coming back
+shows the chant as cecilia writes GABC (single spaces, line breaks every 72 characters or so).
 
 ### Colors and font
 
-| piece | GABC off | GABC on |
+| piece | ordinary track | chant track |
 | --- | --- | --- |
-| words | `lyrics_text` | `lyrics_text_dim` (dimmed) |
-| `(…)` groups and the clef | — (hidden) | `lyrics_gabc`, bold |
+| words | `lyrics_text` | `lyrics_text` |
+| `(…)` groups and the clef | — (hidden) | shown, in the colors below |
 | `[labels]` | `lyrics_label`, bold | `lyrics_label`, bold |
 | `<bar:beat>` anchors | `lyrics_anchor` | `lyrics_anchor` |
 | GABC clefs / divisions / notes | — | `lyrics_clef` (purple) / `lyrics_division` (red) / `lyrics_note` (blue) |
@@ -318,16 +300,14 @@ font, with bold where the table says. The text wraps at the pane's width, at spa
 ### Getting into the text area
 
 The text area is edited the way vim edits text, with a normal mode (a block caret) and an insert
-mode (a bar caret); the status line shows NORMAL or INSERT. Moving onto it gives it the block
+mode (a bar caret); the status line shows NORMAL or INSERT. Moving onto it (it is the first row you can select) gives it the block
 caret at once:
 
 | keys | |
 | --- | --- |
-| `j` `<Down>` `<Tab>`, `<C-j>` (on the switch) | from the GABC switch into the text area, normal mode |
 | `G` | the last row: the text area |
 | `<leader>P` | focus the pane; with the text area selected it gets the caret |
 | a click in the text | the caret goes there, normal mode |
-| `<CR>` `i` `a` on the switch, `<A-h>` / `<A-l>`, a click on it | flip the switch / set it off / on |
 
 While the text area has the caret **it takes every key**, so press `<Esc>` before `:` commands
 and `<leader>` keys.
@@ -355,11 +335,9 @@ and `<leader>` keys.
 | `:`, `<C-s>` … | `:` opens the command line and any Ctrl / Alt key your keymap binds works as elsewhere (`<C-s>` save …) |
 | `<C-h>` `<C-j>` … | a focus key of your keymap (`focus-left` …) leaves the text area for that pane; coming back puts the caret where it was |
 | `<Esc>` | forget a command begun; clear the selection; else leave the text area **and the pane** (back to the score) |
-| `<C-k>` | up to the GABC switch (`<C-j>` comes back) |
 
 What `d` and `c` remove is also copied, so `p` puts it back. There are no counts. Leaving the pane
-and focusing it again returns to what was focused last: the text area, with its caret, or the GABC
-switch.
+and focusing it again puts the caret back where it was in the text area.
 
 ### Visual mode
 
@@ -436,7 +414,7 @@ its palette:
 | key | used for |
 | --- | --- |
 | `lyrics_text` | words in the lyrics text area |
-| `lyrics_text_dim` | words while GABC is shown |
+| `lyrics_text_dim` | the parentheses of GABC groups (chant tracks) |
 | `lyrics_gabc` | GABC groups and the clef (bold) |
 | `lyrics_label` | `[labels]` (bold) |
 | `lyrics_anchor` | `<bar:beat>` anchors |
@@ -468,13 +446,7 @@ lyrics_anchor = "#bf616a"
 
 ## 8. Limitations and plans
 
-- **GABC groups on ordinary tracks** are kept, shown and edited, but the chant staff of an
-  ordinary track still shows the track's notes, not the groups. Planned: `some(g)---one(e)` as two
-  descending punctums under "some - one", `some(gh) -- one(e)` a pes on "some" and a punctum on
-  "one", and `some(gh) --- one(e)` (a note short) filled in as `(ghh)` ([TODO.md](../TODO.md),
-  Chant).
 - The terminal's score views don't show labels, italics, ✻ or attached lyrics.
-- The GABC switch is not saved in workspaces; it starts off.
 - Guitar Pro 6–8 files can also keep lyric lines on the track (Guitar Pro 3–5 style); those are
   not placed on the notes: cecilia reads the syllables stored on the beats.
 - Labels, italics and ✻ are kept only by `.cc` (section 1).

@@ -689,10 +689,20 @@ fn enter_on_a_slash_staff_puts_a_slash() {
     assert_eq!(at(&a), (0, 2));
 }
 
+/// An app showing a chant track (a score read from GABC).
+fn chant_app() -> App {
+    let mut a = app();
+    let chant =
+        cecilia_formats::gabc::parse("name: t;\n%%\n(c4) Al(fg)le(h) lu(g)ia.(f.) (::)\n").unwrap();
+    let b = a.pane().buffer;
+    a.buffers[b].score = cecilia_formats::gabc::chant_score(chant);
+    a.pane_mut().cursor = Cursor0::default();
+    a
+}
+
 #[test]
 fn chant_insert_moves_like_standard_and_keeps_its_letters() {
-    let mut a = app();
-    a.run(Command::StaffAdd(Some("chant".into())));
+    let a = chant_app();
     assert_eq!(a.insert_kind(), InsertKind::Chant);
     let (c, _) = Config::parse("").unwrap();
     let chant = c.insert_keymap(InsertKind::Chant);
@@ -708,33 +718,6 @@ fn chant_insert_moves_like_standard_and_keeps_its_letters() {
     assert_eq!(names("v"), vec!["chant-mod v".to_string()]);
     assert_eq!(names("<CR>"), vec!["chant-syllable".to_string()]);
     assert_eq!(names("<Space>"), vec!["insert-next".to_string()]);
-}
-
-#[test]
-fn enter_and_space_on_a_chant_staff_of_an_ordinary_track() {
-    let mut a = app();
-    a.run(Command::StaffAdd(Some("chant".into())));
-    a.pane_mut().cursor.line = 6;
-    keys(&mut a, "i<CR>");
-    // A punctum at the cursor's position in the beat, then on to the next beat.
-    assert_eq!(bar_beats(&a, 0)[0].notes.len(), 1);
-    assert!(bar_beats(&a, 0)[0].notes[0].chant.as_ref().unwrap().punctum);
-    assert_eq!(at(&a), (0, 1));
-    // k moves the cursor up a position; Enter puts the next punctum there.
-    keys(&mut a, "k");
-    let line = a.pane().cursor.line;
-    assert_eq!(a.pane().cursor.beat, 1);
-    keys(&mut a, "<CR>");
-    assert_eq!(bar_beats(&a, 0)[1].notes.len(), 1);
-    assert_eq!(at(&a), (0, 2));
-    assert_ne!(line, 6);
-    // Space moves on without a note.
-    keys(&mut a, "<Space>");
-    assert!(bar_beats(&a, 0)[2].notes.is_empty());
-    assert_eq!(at(&a), (0, 3));
-    // h goes back a beat.
-    keys(&mut a, "h");
-    assert_eq!(at(&a), (0, 2));
 }
 
 #[test]
@@ -803,13 +786,15 @@ fn the_palette_lists_the_tools_of_the_notation_and_mode() {
     assert!(!slash.contains(&"toggle bend"));
     assert!(!slash.contains(&"accidental sharp"));
     assert!(!slash.contains(&"octave-up"));
-    // Chant: note values and the clef; sections with nothing left are gone.
-    a.run(Command::StaffAdd(Some("chant".into())));
-    let chant = commands(&a);
-    assert!(chant.iter().all(|c| c.starts_with("duration")
-        || matches!(*c, "dot" | "double-dot" | "clef ")
-        || c.starts_with("tuplet")));
-    assert_eq!(titles(&a), vec!["Duration", "Bar"]);
+    // A chant track: note values and the clef; sections with nothing left are gone.
+    {
+        let c = chant_app();
+        let chant = commands(&c);
+        assert!(chant.iter().all(|c| c.starts_with("duration")
+            || matches!(*c, "dot" | "double-dot" | "clef ")
+            || c.starts_with("tuplet")));
+        assert_eq!(titles(&c), vec!["Duration", "Bar"]);
+    }
     // Visual mode: the range tools, on any staff.
     a.pane_mut().cursor.staff = Cursor0::HOME;
     assert!(commands(&a).contains(&"toggle bend"));
@@ -828,11 +813,9 @@ fn the_palette_lists_the_tools_of_the_notation_and_mode() {
 
 #[test]
 fn folding_survives_a_notation_that_hides_sections() {
-    let mut a = app();
+    let mut a = chant_app();
     // Section 1 is Duration (0 is the voice selector).
     a.palette.folded.insert(1);
-    a.pane_mut().cursor.staff = 0;
-    a.run(Command::StaffAdd(Some("chant".into())));
     // Only the Duration and Bar sections are left (no voices), and Duration is still folded.
     let rows = a.palette_rows();
     assert_eq!(rows.len(), 3);

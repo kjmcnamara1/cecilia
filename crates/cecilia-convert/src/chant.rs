@@ -455,7 +455,7 @@ mod tests {
         );
     }
 
-    /// The chant staff of an ordinary track and modern-to-chant group notes into the same neumes
+    /// Modern-to-chant groups notes into neumes
     /// (pes, clivis, torculus, porrectus, climacus, scandicus, a stropha's repeated notes).
     #[test]
     fn staff_view_and_conversion_share_neumes() {

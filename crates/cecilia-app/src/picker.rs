@@ -157,31 +157,23 @@ pub(crate) fn notation_label(staff: cecilia_core::Staff) -> &'static str {
         cecilia_core::Staff::Tab => "tab",
         cecilia_core::Staff::TabRhythm => "tab+",
         cecilia_core::Staff::Slash => "slash",
-        cecilia_core::Staff::Chant | cecilia_core::Staff::ChantFa => "chant",
     }
 }
 
 /// The clef of a staff as the properties pane shows it: `treble`, `bass`, `grand`, `neutral`,
-/// `do`, `fa`; empty for tab and slash, which have none.
+/// empty for tab and slash, which have none.
 pub(crate) fn clef_label(staff: cecilia_core::Staff) -> String {
     match staff {
         cecilia_core::Staff::Standard(c) => c.name(),
-        cecilia_core::Staff::Chant => "do".into(),
-        cecilia_core::Staff::ChantFa => "fa".into(),
         _ => String::new(),
     }
 }
 
-/// The chant clef a chant staff of `track` shows: the chant's own, else the engraver's pick.
+/// The initial clef of a chant track (`None` for any other track).
 pub(crate) fn chant_clef_now(
-    score: &cecilia_core::Score,
     track: &cecilia_core::Track,
-    policy: cecilia_core::melody::ChordPolicy,
-) -> cecilia_core::chant::ChantClef {
-    match track.chant.as_deref() {
-        Some(c) => c.initial_clef(),
-        None => crate::edit::chant_clef_of(score, track, policy).0,
-    }
+) -> Option<cecilia_core::chant::ChantClef> {
+    track.chant.as_deref().map(|c| c.initial_clef())
 }
 
 /// The name of a color of the picker's list.
@@ -623,7 +615,6 @@ impl App {
                     ("tab", "Tablature"),
                     ("tab+", "Tablature with rhythm"),
                     ("slash", "Rhythm slashes"),
-                    ("chant", "Gregorian square notation"),
                 ];
                 let mut out: Vec<Entry> = kinds
                     .into_iter()
@@ -637,13 +628,7 @@ impl App {
                                 _ => self.config.default_clef(),
                             },
                         )
-                        .ok()
-                        .map(|s| match (s, here) {
-                            (cecilia_core::Staff::Chant, Some(cecilia_core::Staff::ChantFa)) => {
-                                cecilia_core::Staff::ChantFa
-                            }
-                            (s, _) => s,
-                        });
+                        .ok();
                         let same = here.is_some_and(|h| {
                             staff.is_some_and(|s| notation_label(s) == notation_label(h))
                         });
@@ -685,20 +670,20 @@ impl App {
                 };
                 let here = track.staves().get(i).copied();
                 let drums = track.kind == cecilia_core::TrackKind::Drums;
+                use cecilia_core::chant::ClefKind;
                 use cecilia_core::{Clef, Staff};
-                if here.is_some_and(|h| h.is_chant()) {
+                if let Some(now) = chant_clef_now(track) {
                     // A clef per kind and line, from the bottom line up: c1 … c4, f1 … f4.
-                    let now = chant_clef_now(&self.buffer().score, track, self.chord_policy());
-                    return [Staff::Chant, Staff::ChantFa]
+                    return [ClefKind::Do, ClefKind::Fa]
                         .into_iter()
-                        .flat_map(|staff| (1..=4u8).map(move |line| (staff, line)))
-                        .map(|(staff, line)| {
-                            let (k, name) = if staff == Staff::Chant {
+                        .flat_map(|kind| (1..=4u8).map(move |line| (kind, line)))
+                        .map(|(kind, line)| {
+                            let (k, name) = if kind == ClefKind::Do {
                                 ("Do (C)", 'c')
                             } else {
                                 ("Fa (F)", 'f')
                             };
-                            let same = staff.chant_family() == Some(now.kind) && line == now.line;
+                            let same = kind == now.kind && line == now.line;
                             let about = format!("{k} clef on line {line} from the bottom");
                             Entry {
                                 label: format!("{name}{line}"),
@@ -710,7 +695,7 @@ impl App {
                                 action: Command::Clef(format!("{name}{line}")),
                                 search_description: true,
                                 swatch: None,
-                                icon: Icon::of_clef(staff),
+                                icon: Some(Icon::of_chant_clef(kind)),
                                 current: same,
                             }
                         })

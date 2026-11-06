@@ -2487,17 +2487,14 @@ fn draw_pane_content(
         let alpha = if focused { 110 } else { 45 };
         let color = tc(|t| t.mode_color(app.mode).with_alpha(alpha));
         // A square over the cursor's string or staff position. Chant positions only match
-        // the square-notation layout (a chant track whose one staff is chant).
+        // the square-notation layout (a chant track in square notation).
         let c = pane.cursor;
         let track = score.tracks.get(c.track);
         let c = cecilia_app::Cursor {
             staff: track.map_or(0, |t| cecilia_app::staff_index(t, c.staff)),
             ..c
         };
-        let staff = track.and_then(|t| t.staves().get(c.staff).copied());
-        let chant_layout = track.is_some_and(|t| {
-            t.chant.is_some() && app.chant_view && t.staves() == [cecilia_core::Staff::Chant]
-        });
+        let chant_layout = track.is_some_and(|t| t.chant.is_some() && app.chant_view);
         let square = |cx: f64, y: f64, side: f64| {
             RoundedRect::new(
                 cx - side / 2.0,
@@ -2526,9 +2523,6 @@ fn draw_pane_content(
             // start 0.4 spaces before the head.
             let cx = if chant_layout { x + w / 2.0 } else { pos.head };
             square(cx, y, (step * 3.0).clamp(10.0, 22.0))
-        } else if staff.is_some_and(|s| s.is_chant()) && !chant_layout {
-            // A chant staff that is not drawn (a chord under the error policy): no position.
-            whole
         } else {
             whole
         };
