@@ -981,13 +981,13 @@ pub fn plain(full: &str) -> Plain {
                 }
             }
             _ => {
-                for i in a..b {
+                for (i, &ch) in c.iter().enumerate().take(b).skip(a) {
                     if skip_space && kind == SpanKind::Space {
                         skip_space = false;
                         continue;
                     }
                     skip_space = false;
-                    p.text.push(c[i]);
+                    p.text.push(ch);
                     p.ranges.push((i, i + 1));
                 }
             }

@@ -229,11 +229,7 @@ fn is_font(p: &Path) -> bool {
 }
 
 fn file_key(p: &Path) -> String {
-    key(&p
-        .file_stem()
-        .and_then(|s| s.to_str())
-        .unwrap_or_default()
-        .to_string())
+    key(p.file_stem().and_then(|s| s.to_str()).unwrap_or_default())
 }
 
 #[cfg(test)]
