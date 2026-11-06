@@ -446,9 +446,11 @@ fn event_loop(terminal: &mut DefaultTerminal, app: &mut App) -> Result<()> {
                             _ => {
                                 let double = is_double(&mut ui, m.column, m.row);
                                 click_properties(app, hit, double);
-                                // A double click in the lyrics puts the caret where it landed.
+                                // A click in the lyrics (which gives it the caret) puts the
+                                // caret where it landed.
+                                let typing = app.props.edit.as_ref().is_some_and(|e| e.modal);
                                 if let (true, Some((x, y, h, lines, skip))) =
-                                    (double, ui.props_text.as_ref())
+                                    (double || typing, ui.props_text.as_ref())
                                 {
                                     if m.row >= *y && m.row < y + h && m.column >= *x {
                                         let row = (*skip + (m.row - y) as usize)

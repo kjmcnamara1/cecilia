@@ -1396,7 +1396,8 @@ impl App {
                     if !full.is_empty() {
                         full.push('\n');
                     }
-                    full.push_str(&format!("<{}:{}> {words}", c.bar + 1, c.beat + 1));
+                    let beat = anchor_beat(&t.bars[c.bar], c.voice, c.beat);
+                    full.push_str(&format!("<{}:{}> {words}", c.bar + 1, beat + 1));
                     t.lyrics_text = full;
                     let lay = cecilia_core::gabcplus::apply(score, c.track);
                     refresh_lyric_lines(score, c.track);
@@ -2163,6 +2164,27 @@ impl App {
     }
 }
 
+/// The beat of a bar's first voice that a lyrics anchor at beat `beat` of voice `voice` names
+/// (anchors count the beats of the first voice): the first one starting at or after it (one
+/// past the last when none does, which goes on to the next bar).
+fn anchor_beat(bar: &cecilia_core::Bar, voice: usize, beat: usize) -> usize {
+    let start = |v: &cecilia_core::Voice, i: usize| -> u32 {
+        v.beats[..i.min(v.beats.len())]
+            .iter()
+            .map(|b| b.ticks())
+            .sum()
+    };
+    match (bar.voices.get(voice), bar.voices.first()) {
+        (Some(v), Some(first)) if voice > 0 => {
+            let tick = start(v, beat);
+            (0..first.beats.len())
+                .find(|&i| start(first, i) >= tick)
+                .unwrap_or(first.beats.len())
+        }
+        _ => beat,
+    }
+}
+
 /// Keeps a score's stored lyric lines (Guitar Pro 3–5 form) in step with the syllables of the
 /// track they belong to.
 pub(crate) fn refresh_lyric_lines(score: &mut Score, track: usize) {
@@ -2409,6 +2431,36 @@ mod tests {
             a.buffer().score.tracks[t].staves(),
             vec![Staff::Standard(cecilia_core::Clef::Neutral)]
         );
+    }
+
+    #[test]
+    fn lyrics_anchors_count_the_first_voices_beats() {
+        use cecilia_core::{Bar, Beat, Duration, DurationValue, Voice};
+        let beats = |d: DurationValue, n: usize| Voice {
+            beats: vec![
+                Beat {
+                    duration: Duration::new(d),
+                    ..Beat::default()
+                };
+                n
+            ],
+        };
+        let bar = Bar {
+            voices: vec![
+                beats(DurationValue::Half, 2),
+                beats(DurationValue::Quarter, 4),
+            ],
+            ..Default::default()
+        };
+        // The third quarter of voice 2 starts with the second half of voice 1.
+        assert_eq!(anchor_beat(&bar, 1, 2), 1);
+        assert_eq!(
+            anchor_beat(&bar, 1, 1),
+            1,
+            "the next beat of voice 1 from there"
+        );
+        assert_eq!(anchor_beat(&bar, 1, 3), 2, "none: past the last");
+        assert_eq!(anchor_beat(&bar, 0, 1), 1);
     }
 
     #[test]
