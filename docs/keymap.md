@@ -417,9 +417,54 @@ have a narrower box with the color's hex code or the strings' pitches beside it 
 - **TRACK** — the track under the score cursor (`n`/`p` change it): *Info* (name, kind, color),
   *Notation* (tuning, frets, capo, and the key *Staves* over one field per staff, top to bottom, with an empty "Add Staff" field at the bottom; each opens a picker of staff kinds, shown with an icon, and a field's handle drags it to another place, a line showing where it lands) and *Sound*
   (instrument, MIDI channel, bank, volume, pan, mute, solo).
-- **LYRICS** — the cursor track's lyrics as one text area, in Guitar Pro lyric syntax: syllables
-  split by spaces and hyphens, laid onto the notes from the bar they started at (the cursor's
-  bar for new ones). As in Guitar Pro, line breaks are spaces.
+- **LYRICS** — the cursor track's lyrics as one text area in *gabc+* (below), the single source
+  of the syllables on its notes, under a **GABC** switch. With GABC off the text shows without
+  its GABC: no `(…)` groups and no clef (a group between two letters shows as a hyphen), and
+  whatever is typed keeps the groups of the syllables still there. With GABC on it is the raw
+  gabc+, starting with the clef (`(c4)`; a track without one is shown with its chant staff's
+  clef). The text area has no label, box or background; it is monospaced (GUI:
+  `ui.lyrics_font`, JetBrains Mono, at `ui.lyrics_font_size`, 14 pt) and colored by the theme:
+  words `lyrics_text` (dimmed, `lyrics_text_dim`, while GABC shows), GABC groups `lyrics_gabc`
+  and `[labels]` `lyrics_label` in bold, `<bar:beat>` anchors `lyrics_anchor`. A chant track's
+  lyrics are its chant: the GABC body of the chant (its header is kept), read back as GABC
+  when edited.
+
+### gabc+
+
+GABC (Gregorio's chant notation, `text(notes)`) with additions for modern scores. Line breaks and
+runs of spaces only separate words.
+
+| text | means |
+| --- | --- |
+| `someone` | one syllable, one beat |
+| `some one`, `some_one` | two syllables (two beats) separated by a space: `_` between letters separates words |
+| `some-one`, `some--one`, `some- one`, `some -one` | two syllables joined by a hyphen (a dash takes no beat) |
+| `some - one`, `some -- one` | a word of dashes covers that many beats under the dash: 3 and 4 beats |
+| `some _ one`, `some __ one` | a word of underscores leaves that many beats without text: 3 and 4 beats |
+| `_si-lence`, `a-_men` | `_` at the start of a syllable prints it in italics (a word of only `_` is a skip, above) |
+| `[1.]` | shown before the next syllable without taking a beat (verse numbers) |
+| `*` | alone, printed ✻ after the syllable before it, taking no beat |
+| `<5:3>` | the following syllables start at bar 5, beat 3 (as the status line counts beats), or the first note after it; one that goes back in the music starts the next verse row |
+| `Ky(f)ri(gh)e(h)` | GABC groups: used only for chant notation; text after a group is the next syllable of the word (`Ky-ri-e`) |
+| `(c4)`, `(,)` | a group without text (a clef, a division) takes no beat |
+| `a+b` | one syllable shown `a b` (Guitar Pro's word joiner) |
+
+Without an anchor the lyrics start at the first note (a pickup too). Syllables go one to a note
+(rests take none; tied notes take one, as in Guitar Pro) in the order the music is played:
+repeats, alternate endings, D.C. and D.S. (al Fine, al Coda) are followed, so the second time
+through a repeat sings the next words, shown on the second verse row. Syllables past the last
+note stay in the text but are not shown. Guitar Pro lyrics (all versions) and lyrics read per
+note from GP6–8 and MusicXML become gabc+ text, with anchors where the music jumps.
+
+Example (with GABC off):
+
+```
+<1:1> [1.] Let all mor-tal flesh keep _ si-lence,
+And with fear and trem-bling _ stand;
+
+[2.] Rank on rank the host of _ hea-ven
+Spreads its van-guard on the _ way,
+```
 
 Every edit is an ordinary, undoable score edit. `<leader>P` focuses the pane (again: back to the
 score pane). It stays Normal mode; while the pane has the focus its keys are
@@ -427,23 +472,24 @@ score pane). It stays Normal mode; while the pane has the focus its keys are
 
 | keys | command |
 | --- | --- |
-| `j` `<Down>` `<Tab>` / `k` `<Up>` `<S-Tab>` | select the next / previous property |
+| `j` `<Down>` `<Tab>` / `k` `<Up>` `<S-Tab>` | select the next / previous property; down from the GABC switch the lyrics text area gets the caret, in normal mode (a block) |
+| `<C-j>` | on the GABC switch: into the lyrics text area (normal mode) |
 | `gg` / `G` | select the first / last property |
 | `zz` | scroll so the selected property is in the middle of the pane (`:properties-center`) |
 | `L` `<C-Tab>` / `H` `<C-S-Tab>`, `1` `2` `3` | next / previous tab, the score / track / lyrics tab |
-| `<CR>` `i` `a` | edit the property (insert mode). The score updates as you type, and the edit is one undo step. `<CR>` keeps a single line, `<Esc>` and `<C-c>` cancel it; `<Left>` `<Right>` `<Home>` `<End>` move, `<C-u>` clears. The lyrics text area is edited like vim: `<Esc>` goes to normal mode (`h` `j` `k` `l` `w` `b` `e` `0` `^` `$` `gg` `G` move; `x` `D` `dd` delete; `i` `a` `I` `A` `o` `O` `<CR>` insert; `u` `<C-r>` undo and redo), each change and each insert session an undo step; `<Esc>` in normal mode leaves it. The status line shows the current mode. Color opens a picker of named colors, each with a swatch and its hex code; type `#rrggbb` or `rgb(r,g,b)` for your own. Tuning opens a picker of common tunings of the track's instrument (Drop D, DADGAD, Open C …), searchable by name or description; type the notes (`D2 A2 D3 G3 B3 E4`) for your own. Instrument opens its picker; mute and solo are switches (a click flips them, with on/off beside them); a section header folds |
+| `<CR>` `i` `a` | edit the property (insert mode). The score updates as you type, and the edit is one undo step. `<CR>` keeps a single line, `<Esc>` and `<C-c>` cancel it; `<Left>` `<Right>` `<Home>` `<End>` move, `<C-u>` clears. The lyrics text area is edited like vim: `<Esc>` goes to normal mode (`h` `j` `k` `l` `w` `b` `e` `0` `^` `$` `gg` `G` move; `x` `D` `dd` delete; `i` `a` `I` `A` `o` `O` `<CR>` insert; `u` `<C-r>` undo and redo), each change and each insert session an undo step; `<CR>` in normal mode is `i`; `<Esc>` in normal mode leaves the text area and the pane, `<C-k>` goes up to the GABC switch (`<C-j>` back). The status line shows the current mode. Color opens a picker of named colors, each with a swatch and its hex code; type `#rrggbb` or `rgb(r,g,b)` for your own. Tuning opens a picker of common tunings of the track's instrument (Drop D, DADGAD, Open C …), searchable by name or description; type the notes (`D2 A2 D3 G3 B3 E4`) for your own. Instrument opens its picker; mute, solo and GABC are switches (a click flips them, with on/off beside them); a section header folds |
 | `<A-h>` / `<A-l>` | step the selected property down / up: a switch off / on; a choice (color, tuning, instrument, a staff's notation or clef) the previous / next one, without wrapping; a number down / up by one |
 | `c` / `d` | clear the property's text and edit it / just clear it |
 | `l` `<Right>` / `h` `<Left>` | on a staff row, select the clef box / the notation box (a click on a box selects it too); tab and slash staves have no clef |
 | `<A-j>` `<A-k>` | swap the selected staff with the one below / above |
 | `za` `zc` `zo` | toggle / close / open the section |
-| `x` | same as `d`: clear the text, lyrics or the track's own color, or remove the selected staff |
+| `x` | same as `d`: clear the text, the track's lyrics or its own color, or remove the selected staff |
 | `/` | search: a field opens at the bottom of the pane and jumps to the first key or value with what is typed (any case, unless a capital is typed); `<CR>` keeps the jump and sets the `/` register, `<Esc>` goes back |
 | `n` `N` | jump to the next / previous match of the `/` register (in the lyrics text area, normal mode: through the text, `/` too) |
 | `<Esc>` `q` | back to the score pane |
 | `<leader><leader>` `<leader>s` `<leader>f` `:` | play/pause, stop, follow, command line |
 
-Clicking a tab shows it, a row selects it and a double click edits it; a click on a switch flips it. Instruments and staves are shown with an icon (a guitar for every kind of guitar, and so on). In the lyrics text area being edited the mouse works as in any text field: a click places the caret, a drag selects (past the top or bottom it scrolls), a double click in insert mode selects the word (in normal mode it enters insert mode at the click), typing replaces the selection, `<BS>`, `<Del>` and in normal mode `d` `x` remove it and `c` changes it. `<C-a>` selects all; `<C-c>` copies, `<C-x>` cuts and `<C-v>` pastes through the system clipboard (`wl-copy`/`wl-paste`, `xclip`, `xsel`, `pbcopy`/`pbpaste` or PowerShell, whichever is there); in normal mode `y` copies a selection, `yy` the line, and `p` / `P` paste after / before the caret. The wheel scrolls the pane and moves the selection in pickers. In the lyrics text area `j` and `k` move by the lines as wrapped on screen.
+Clicking a tab shows it, a row selects it and a double click edits it; a click on a switch flips it, and a click in the lyrics text area gives it the caret there, in normal mode. Instruments and staves are shown with an icon (a guitar for every kind of guitar, and so on). In the lyrics text area being edited the mouse works as in any text field: a click places the caret, a drag selects (past the top or bottom it scrolls), a double click in insert mode selects the word (in normal mode it enters insert mode at the click), typing replaces the selection, `<BS>`, `<Del>` and in normal mode `d` `x` remove it and `c` changes it. `<C-a>` selects all; `<C-c>` copies, `<C-x>` cuts and `<C-v>` pastes through the system clipboard (`wl-copy`/`wl-paste`, `xclip`, `xsel`, `pbcopy`/`pbpaste` or PowerShell, whichever is there); in normal mode `y` copies a selection, `yy` the line, and `p` / `P` paste after / before the caret. The wheel scrolls the pane and moves the selection in pickers. In the lyrics text area `j` and `k` move by the lines as wrapped on screen.
 
 | command | |
 | --- | --- |
@@ -680,8 +726,8 @@ e.g. `"<C-g>" = "completion-ignore-case"`, `"<C-f>" = "completion-fuzzy"`.
 | `:clef {clef}` | the clef of the cursor's staff, by its notation. Standard: `treble`, `bass`, `grand [split]` (a grand staff splits at C3 unless a note such as `G3` is given) or `neutral` (percussion clef: drum tracks only, and the only clef they take). Chant: `c1`–`c4` / `f1`–`f4` (the staff line, 1 is the bottom one) (line 1 is the bottom one). On a staff of an ordinary track the notes keep their pitch and are re-placed at the new clef; on a chant track they keep their staff positions, and `cb3` (flat clef) is also accepted. Tab and slash staves have no clef |
 | `:lyrics-attach {above\|below} [track]` / `:lyrics-attach none` | attach lyrics to the cursor's staff, above or below it (not both), taken from the given track (number; the staff's own track by default) and aligned with the staff's beats by their position in the bar. A track whose staves have none attached shows its own lyrics below its top staff; once any staff has some, only those staves show lyrics |
 | `:staff-remove [n]` / `:staff-move {n\|+N\|-N}`                      | remove a staff (1 = top; the cursor's by default; the last one stays) / move the cursor's staff to position n, or down / up |
-| `:lyrics [verse] TEXT` _(M7)_                                        | syllables from the cursor on, one per note, in Guitar Pro syntax: spaces and hyphens separate syllables (`he-si-tate`), an extra space skips a note, `+` joins words on one note; verse 1–5 |
-| `:lyrics-clear [verse]` _(M7)_                                       | remove a verse (all verses without a number) from the track                                                                                                                                 |
+| `:lyrics TEXT`                                                       | add lyrics from the cursor on: `<bar:beat>` (the cursor's) and the words go at the end of the track's gabc+ text, as if typed in the lyrics text area with GABC off (`\n` is a line break). Words over notes that already have some go on the next verse row |
+| `:lyrics-clear [verse]`                                              | remove the track's lyrics, or the syllables (with their labels, dashes and gaps) on one verse row; later rows move up                                                                     |
 | `:speed 75`                                                          | playback speed in percent                                                                                                                                                                   |
 
 With the cursor on a note on any staff, the same note on the track's other staves is drawn in the current mode's color (GUI): the notehead, slash or square note on staves of lines, the fret number in bold on other tabs. A chord lights only the note under the cursor; nothing is lit on a rest or an empty position.

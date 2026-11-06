@@ -7,6 +7,35 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- Lyrics are one gabc+ text per track, the single source of the syllables on its notes: GABC
+  (`text(notes)`) with dashes and skips that cover beats (`some -- one`, `some __ one`), `_`
+  italics, `[labels]` shown before a syllable (verse numbers), `*` printed ✻, and `<bar:beat>`
+  anchors. Syllables are sung in the order the music is played: repeats, alternate endings,
+  D.C./D.S. al Fine/al Coda; the second pass of a repeat sings the next words on the second verse
+  row. After every edit the text is laid out on the notes again. Guitar Pro lyrics (all
+  versions) and lyrics read per note (GP6–8, MusicXML) become gabc+ text, every syllable staying
+  on its beat. The score shows the labels, italics and ✻.
+- The LYRICS tab of the properties pane edits that text under a GABC switch: off, the text shows
+  without its GABC groups and clef (what is typed keeps the groups of the syllables still there);
+  on, the raw gabc+ from its clef `(c4)`. A chant track's lyrics are its chant's GABC. The text
+  area has no label, box or background, is monospaced (`ui.lyrics_font`, bundled JetBrains Mono,
+  and `ui.lyrics_font_size`, 14 pt) and colored by new theme colors in every built-in theme:
+  `lyrics_text`, `lyrics_text_dim`, `lyrics_gabc` (bold), `lyrics_label` (bold) and
+  `lyrics_anchor`.
+
+### Changed
+
+- Moving down from the GABC switch puts the normal-mode (block) caret in the lyrics text area,
+  as does a click in it; `<CR>` there is `i`, `<Esc>` in normal mode leaves the text area and the
+  properties pane, `<C-k>` goes up to the switch and `<C-j>` back.
+- `:lyrics TEXT` adds an anchor at the cursor and the words to the track's gabc+ text (`\n` a line
+  break); words over notes that already have some go on the next verse row. The verse number
+  argument is gone. `:lyrics-clear` clears the text; `:lyrics-clear N` removes a verse row.
+- Syllables past the last note are kept in the track's gabc+ text (they were kept in the score's
+  Guitar Pro lyric lines).
+
 ## [0.32.0] - 2026-11-06
 
 ### Added
