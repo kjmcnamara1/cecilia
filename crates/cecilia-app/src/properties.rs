@@ -193,6 +193,10 @@ pub struct PropEdit {
     pending: Option<char>,
     /// Where a selection (made with the mouse) began; it runs to the caret.
     pub anchor: Option<usize>,
+    /// A chant track's lyrics as typed (GABC), which the text area shows while it is edited:
+    /// the chant read from it is written back in its own layout, and half-typed GABC (an
+    /// unclosed group) can't be read yet.
+    full: Option<String>,
 }
 
 fn is_word(c: char) -> bool {
@@ -210,6 +214,7 @@ impl PropEdit {
             insert: true,
             pending: None,
             anchor: None,
+            full: None,
         }
     }
 
@@ -1358,6 +1363,7 @@ impl App {
         let text = Some(self.shown_lyrics(t));
         if let (Some(text), Some(edit)) = (text, self.props.edit.as_mut()) {
             edit.text = text;
+            edit.full = None;
             edit.caret = edit.caret.min(edit.len());
             edit.rest();
         }
@@ -1497,7 +1503,13 @@ impl App {
     /// still are. The syllables are laid onto the notes again; a chant track's chant is read
     /// from it. One undo step per edit session.
     fn set_lyrics(&mut self, track: usize, shown: &str, live: bool) {
-        let old = full_lyrics(&self.buffer().score, track);
+        let typed = self
+            .props
+            .edit
+            .as_ref()
+            .filter(|e| e.field == Field::Lyrics)
+            .and_then(|e| e.full.clone());
+        let old = typed.unwrap_or_else(|| full_lyrics(&self.buffer().score, track));
         let full = if self.props.gabc {
             shown.to_string()
         } else {
@@ -1533,6 +1545,27 @@ impl App {
                 Err(e) if !live => self.error(format!("lyrics: {e}")),
                 Err(_) => {}
             }
+            // The text area keeps the text as typed.
+            let gabc = self.props.gabc;
+            if let Some(e) = self
+                .props
+                .edit
+                .as_mut()
+                .filter(|e| e.field == Field::Lyrics)
+            {
+                let now = if gabc {
+                    full.clone()
+                } else {
+                    cecilia_core::gabcplus::plain(&full).text
+                };
+                e.full = Some(full);
+                if e.text != now {
+                    e.text = now;
+                    e.caret = e.caret.min(e.len());
+                    e.anchor = None;
+                }
+            }
+            return;
         } else if old != full {
             let placed = self.edit(|cx| {
                 let score = cx.whole();
@@ -2474,6 +2507,20 @@ mod tests {
         let chant = app.buffer().score.tracks[0].chant.clone().unwrap();
         assert_eq!(chant.syllables[1].text, "HAl");
         assert_eq!(chant.syllables[1].gabc_notes(), "fg h");
+        // A syllable typed key by key: the text keeps what is typed (a space at the end, a
+        // group not closed yet) and the chant follows once it reads as GABC.
+        app.props.gabc = true;
+        keys(&mut app, "<C-k><C-j>A Ky(");
+        assert!(app.props.edit.as_ref().unwrap().text.ends_with("(::) Ky("));
+        keys(&mut app, "f)<Esc>");
+        let chant = app.buffer().score.tracks[0].chant.clone().unwrap();
+        let ky = chant.syllables.last().unwrap();
+        assert_eq!((ky.text.as_str(), ky.gabc_notes().as_str()), ("Ky", "f"));
+        assert!(ky.word_start);
+        keys(&mut app, "u");
+        let chant = app.buffer().score.tracks[0].chant.clone().unwrap();
+        assert_ne!(chant.syllables.last().unwrap().text, "Ky", "one undo step");
+        assert!(!app.props.edit.as_ref().unwrap().text.contains("Ky("));
     }
 
     #[test]
