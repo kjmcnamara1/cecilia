@@ -532,6 +532,11 @@ pub fn full_lyrics(score: &cecilia_core::Score, track: usize) -> String {
             let body = gabc.split_once("%%\n").map_or(gabc.as_str(), |(_, b)| b);
             body.trim_end().to_string()
         }
+        // Syllables only on the beats (a chant track just made a staff track) get their text
+        // written from them, as the next edit does.
+        None if t.lyrics_text.trim().is_empty() && cecilia_core::lyrics::has_lyrics(t) => {
+            cecilia_core::gabcplus::text_from_beats(score, track)
+        }
         None => t.lyrics_text.clone(),
     }
 }
@@ -2521,6 +2526,22 @@ mod tests {
         let chant = app.buffer().score.tracks[0].chant.clone().unwrap();
         assert_ne!(chant.syllables.last().unwrap().text, "Ky", "one undo step");
         assert!(!app.props.edit.as_ref().unwrap().text.contains("Ky("));
+    }
+
+    #[test]
+    fn a_chant_track_made_a_staff_track_keeps_showing_its_lyrics() {
+        let mut app = with_props();
+        let chant =
+            cecilia_formats::gabc::parse("name: t;\n%%\n(c4) Al(fg)le(h) lu(g)ia.(f.)\n").unwrap();
+        app.buffers[0].score = cecilia_formats::gabc::chant_score(chant);
+        app.run(Command::ChantToModern);
+        assert!(app.buffer().score.tracks[0].chant.is_none());
+        app.set_property_tab(PropTab::Lyrics);
+        let shown = app.property_rows()[field_row(&app, Field::Lyrics)]
+            .value
+            .clone();
+        // "Al" is sung on two notes: a dash covers the second.
+        assert_eq!(shown, "Al- - le lu-ia.");
     }
 
     #[test]
