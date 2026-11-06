@@ -417,6 +417,10 @@ pub struct Track {
     /// the rest). Without any attached lyrics a track shows its own below its top staff.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub staff_lyrics: Vec<Option<StaffLyrics>>,
+    /// The track's lyrics as gabc+ text ([`crate::gabcplus`]): the source of the syllables
+    /// on its beats, which are laid out from it again after every edit.
+    #[serde(default, skip_serializing_if = "String::is_empty")]
+    pub lyrics_text: String,
     /// Staff line (1 = bottom) the chant staves of a staff track put their clef on; `None`
     /// lets the engraver pick the line that fits the melody.
     #[serde(default, skip_serializing_if = "Option::is_none")]

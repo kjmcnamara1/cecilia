@@ -8,6 +8,7 @@ pub mod chant;
 pub mod design;
 pub mod drums;
 mod duration;
+pub mod gabcplus;
 pub mod lyrics;
 pub mod melody;
 pub mod performance;

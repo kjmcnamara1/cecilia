@@ -178,10 +178,11 @@ impl Writer {
                     b.lyrics.clear();
                 }
                 cecilia_core::lyrics::attach(&mut check);
+                // As gabc+ lays them out (`side---` is `side-`, a beat of dashes is a dash).
                 let syllables = |s: &Score| {
                     s.tracks
                         .get(lyrics.track.unwrap_or(0))
-                        .map(cecilia_core::lyrics::lines_from_beats)
+                        .map(cecilia_core::lyrics::normalized)
                 };
                 if syllables(&check) != syllables(score) {
                     lyrics.lines.clear();

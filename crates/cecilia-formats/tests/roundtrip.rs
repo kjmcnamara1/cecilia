@@ -8,11 +8,20 @@ use common::corpus_files;
 /// Removes differences that GP5 cannot represent or that do not matter.
 fn normalize_gp5(s: &mut Score) {
     s.extras.clear();
+    // The lyric lines are only how GP5 stores the lyrics: the beats and the tracks' gabc+ text
+    // are compared instead (lines are rebuilt from the beats where those can't say the same).
+    s.lyrics = None;
     if s.lyrics.as_ref().is_some_and(|l| l.lines.is_empty()) {
         s.lyrics = None;
     }
     let q = |v: u8| ((v as u32 + 4) / 8 * 8).min(127) as u8;
     for t in &mut s.tracks {
+        // gabc+ text: line breaks (kept from Guitar Pro 3–5 lyric lines) are only spaces.
+        t.lyrics_text = t
+            .lyrics_text
+            .split_whitespace()
+            .collect::<Vec<_>>()
+            .join(" ");
         t.extras.clear();
         t.midi.channel = 0;
         t.midi.effect_channel = 0;
@@ -64,6 +73,20 @@ fn normalize_gpif(s: &mut Score) {
         mb.tempo_changes.retain(|c| c.tick > 0 || c.bpm > 0.0);
     }
     for t in &mut s.tracks {
+        // gabc+ text: line breaks (kept from Guitar Pro 3–5 lyric lines) are only spaces.
+        // Lyrics are kept per beat, where `[labels]` have no place.
+        let text: String = cecilia_core::gabcplus::spans(&t.lyrics_text)
+            .into_iter()
+            .filter(|s| s.2 != cecilia_core::gabcplus::SpanKind::Label)
+            .flat_map(|(a, b, _)| {
+                t.lyrics_text
+                    .chars()
+                    .skip(a)
+                    .take(b - a)
+                    .collect::<Vec<_>>()
+            })
+            .collect();
+        t.lyrics_text = text.split_whitespace().collect::<Vec<_>>().join(" ");
         t.extras.clear();
         t.midi.channel = 0;
         t.midi.effect_channel = 0;
@@ -255,6 +278,8 @@ fn gp3_to_gp5_survive_gp5_round_trip() {
                 continue;
             }
         };
+        // As reading the file would: the lyrics become gabc+ text.
+        cecilia_formats::lyrics_to_text(&mut back, true);
         normalize_gp5(&mut original);
         normalize_gp5(&mut back);
         if original != back {
@@ -307,7 +332,10 @@ fn corpus_survives_gp7_round_trip() {
         let original = cecilia_formats::read_file(&f).unwrap();
         let bytes = cecilia_formats::gpif_write::write_gp7(&original).unwrap();
         let back = match cecilia_formats::gpif::read_gp7(&bytes) {
-            Ok(s) => s,
+            Ok(mut s) => {
+                cecilia_formats::lyrics_to_text(&mut s, false);
+                s
+            }
             Err(e) => {
                 failures.push(format!("{}: {e}", f.display()));
                 continue;
@@ -340,7 +368,10 @@ fn corpus_survives_gpx_round_trip() {
         let original = cecilia_formats::read_file(&f).unwrap();
         let bytes = cecilia_formats::gpif_write::write_gpx(&original).unwrap();
         let back = match cecilia_formats::gpif::read_gpx(&bytes) {
-            Ok(s) => s,
+            Ok(mut s) => {
+                cecilia_formats::lyrics_to_text(&mut s, false);
+                s
+            }
             Err(e) => {
                 failures.push(format!("{}: {e}", f.display()));
                 continue;

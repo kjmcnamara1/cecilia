@@ -90,7 +90,32 @@ pub fn detect(bytes: &[u8], path: Option<&Path>) -> Option<Format> {
 /// Reads a score from bytes, detecting the format. Readers of multi-staff instruments give
 /// one track each ([`Score::merge_staves`]).
 pub fn read_bytes(bytes: &[u8], path: Option<&Path>) -> Result<Score> {
-    match detect(bytes, path) {
+    let format = detect(bytes, path);
+    let mut score = read_format(bytes, format)?;
+    lyrics_to_text(&mut score, format == Some(Format::GuitarPro3To5));
+    Ok(score)
+}
+
+/// Gives the tracks' lyrics their gabc+ text ([`cecilia_core::gabcplus`]), which the syllables
+/// on the beats are then laid out from: a Guitar Pro 3–5 file's lyric lines (`lines`), else
+/// the syllables the file put on the beats.
+pub fn lyrics_to_text(score: &mut Score, lines: bool) {
+    use cecilia_core::gabcplus;
+    if lines {
+        if let Some((t, text)) = gabcplus::text_from_lines(score) {
+            score.tracks[t].lyrics_text = text;
+        }
+    }
+    gabcplus::ensure_text(score);
+    for t in 0..score.tracks.len() {
+        if !score.tracks[t].lyrics_text.is_empty() && score.tracks[t].chant.is_none() {
+            gabcplus::apply(score, t);
+        }
+    }
+}
+
+fn read_format(bytes: &[u8], format: Option<Format>) -> Result<Score> {
+    match format {
         Some(Format::GuitarPro3To5) => gp::read(bytes),
         Some(Format::Gpx) => gpif::read_gpx(bytes),
         Some(Format::Gp7) => gpif::read_gp7(bytes),

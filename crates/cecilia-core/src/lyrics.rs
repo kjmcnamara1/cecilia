@@ -13,6 +13,21 @@ use crate::{Beat, LyricLine, Score, Track};
 /// `[…]` at the start of a syllable is a comment; `+` joins words on one note; trailing `_` are
 /// dropped.
 pub fn syllables(text: &str) -> Vec<String> {
+    chunks(text).into_iter().map(|c| c.text).collect()
+}
+
+/// A syllable of Guitar Pro lyric text, with what came before it.
+#[derive(Debug, Clone, Default, PartialEq)]
+pub struct Chunk {
+    pub text: String,
+    /// A line break came before it.
+    pub newline: bool,
+    /// `[…]` comments before it, without the brackets.
+    pub comment: String,
+}
+
+/// [`syllables`], with the line breaks and comments before each.
+pub fn chunks(text: &str) -> Vec<Chunk> {
     #[derive(PartialEq)]
     enum State {
         Between,
@@ -23,19 +38,27 @@ pub fn syllables(text: &str) -> Vec<String> {
     }
     let c: Vec<char> = text.chars().collect();
     let mut out = Vec::new();
-    let push = |out: &mut Vec<String>, s: &[char]| {
+    let mut newline = false;
+    let mut comment = String::new();
+    let push = |out: &mut Vec<Chunk>, s: &[char], newline: &mut bool, comment: &mut String| {
         let chunk: String = s.iter().map(|&c| if c == '+' { ' ' } else { c }).collect();
-        out.push(chunk.trim_end_matches('_').to_string());
+        out.push(Chunk {
+            text: chunk.trim_end_matches('_').to_string(),
+            newline: std::mem::take(newline),
+            comment: std::mem::take(comment).trim().to_string(),
+        });
     };
     let mut state = State::Start;
     let mut skip_space = false;
     let mut start = 0;
+    let mut comment_start = 0;
     let mut p = 0;
     while p < c.len() {
         let ch = c[p];
         match state {
             State::Between => match ch {
-                '\n' | '\r' | '\t' => {}
+                '\n' | '\r' => newline = true,
+                '\t' => {}
                 ' ' if skip_space => {}
                 _ => {
                     skip_space = false;
@@ -46,6 +69,7 @@ pub fn syllables(text: &str) -> Vec<String> {
             State::Start => {
                 if ch == '[' {
                     state = State::Comment;
+                    comment_start = p + 1;
                 } else {
                     start = p;
                     state = State::Word;
@@ -54,20 +78,27 @@ pub fn syllables(text: &str) -> Vec<String> {
             }
             State::Comment => {
                 if ch == ']' {
+                    if !comment.is_empty() {
+                        comment.push(' ');
+                    }
+                    comment.extend(&c[comment_start..p]);
                     state = State::Start;
                 }
             }
             State::Word => match ch {
                 '-' => state = State::Dashes,
                 '\r' | '\n' | ' ' => {
-                    push(&mut out, &c[start..p]);
+                    push(&mut out, &c[start..p], &mut newline, &mut comment);
+                    if ch != ' ' {
+                        newline = true;
+                    }
                     state = State::Between;
                 }
                 _ => {}
             },
             State::Dashes => {
                 if ch != '-' {
-                    push(&mut out, &c[start..p]);
+                    push(&mut out, &c[start..p], &mut newline, &mut comment);
                     skip_space = true;
                     state = State::Between;
                     continue;
@@ -77,7 +108,7 @@ pub fn syllables(text: &str) -> Vec<String> {
         p += 1;
     }
     if matches!(state, State::Word | State::Dashes) && p != start {
-        push(&mut out, &c[start..p]);
+        push(&mut out, &c[start..p], &mut newline, &mut comment);
     }
     out
 }
@@ -89,7 +120,7 @@ pub fn sings(beat: &Beat) -> bool {
 }
 
 /// The singing beats of a track's first voice from `start_bar`, as (bar, beat) positions.
-fn singing_beats(track: &Track, start_bar: usize) -> Vec<(usize, usize)> {
+pub(crate) fn singing_beats(track: &Track, start_bar: usize) -> Vec<(usize, usize)> {
     track
         .bars
         .iter()
@@ -155,6 +186,40 @@ pub fn attach(score: &mut Score) {
             &syllables(&line.text),
         );
     }
+}
+
+/// A track's syllables as gabc+ lays them out: by beat of the first voice, a run of trailing
+/// hyphens as one and a syllable of dashes as none (a dash word covers that beat).
+pub fn normalized(track: &Track) -> Vec<((usize, usize), Vec<String>)> {
+    let mut out = Vec::new();
+    for (b, bar) in track.bars.iter().enumerate() {
+        let Some(v) = bar.voices.first() else {
+            continue;
+        };
+        for (i, beat) in v.beats.iter().enumerate() {
+            let mut l: Vec<String> = beat
+                .lyrics
+                .iter()
+                .map(|s| {
+                    let s = s.trim();
+                    if s.chars().all(|c| c == '-') {
+                        String::new()
+                    } else if s.ends_with('-') {
+                        format!("{}-", s.trim_end_matches('-'))
+                    } else {
+                        s.to_string()
+                    }
+                })
+                .collect();
+            while l.last().is_some_and(String::is_empty) {
+                l.pop();
+            }
+            if !l.is_empty() {
+                out.push(((b, i), l));
+            }
+        }
+    }
+    out
 }
 
 pub fn has_lyrics(track: &Track) -> bool {
