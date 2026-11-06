@@ -35,6 +35,9 @@ workspace_autosave_on_quit = true # quitting runs :workspace-save for the active
 workspace_restore_last = true # `cecilia` with no arguments loads the last workspace (created as "default" if none is saved); off: the dashboard, with no workspace
 tracks_peek = 1.0        # seconds the tracks show when the track changes, while no tracks pane is
                          # shown (0: never)
+lyrics_font = "JetBrainsMono"   # GUI: monospaced font of the lyrics text area (properties pane);
+                         # JetBrains Mono is bundled, any other installed family can be named
+lyrics_font_size = 14.0  # GUI: its size in points
 
 [tabline]
 new_view = "copy"        # a new view starts with: "copy" (this view's buffers), "current", "empty"
@@ -80,6 +83,11 @@ preset = "dark"
 # error = "#ff6e64"
 # lyrics = "#6ec882"          # terminal score view
 # marker = "#5abed2"          # terminal score view: headings, beat text
+# lyrics_text = "#e1e1e6"     # the lyrics text area (properties pane): the words
+# lyrics_text_dim = "#9698a0" # …the words with GABC shown (dimmed)
+# lyrics_gabc = "#f0f0f4"     # …(GABC) groups, in bold
+# lyrics_label = "#64a0f0"    # …[labels] such as verse numbers, in bold
+# lyrics_anchor = "#f05a5a"   # …<bar:beat> anchors
 # waveform = "#6eaae6"
 # loop_region = "#3cbe6e32"
 # sync_point = "#fabe28"

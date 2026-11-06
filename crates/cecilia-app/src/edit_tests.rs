@@ -1068,10 +1068,10 @@ fn syllables_past_the_last_note_are_kept_and_return_with_new_notes() {
     a.pane_mut().cursor.beat = 1;
     a.mode = Mode::Insert;
     keys(&mut a, "<Del><Esc>");
-    // Three notes, three syllables; "ia" is not shown but the score keeps it.
+    // Three notes, three syllables; "ia" is not shown but the track's text keeps it.
     assert_eq!(syllables(&a), ["A", "le", "lu"]);
-    let kept = a.buffer().score.lyrics.clone().unwrap();
-    assert!(kept.lines[0].text.ends_with("ia"), "{:?}", kept.lines);
+    let kept = a.buffer().score.tracks[0].lyrics_text.clone();
+    assert!(kept.ends_with("ia"), "{kept:?}");
     // A note added takes its place in the text again: no syllable stacks on a beat.
     keys(&mut a, "a3<Esc>");
     assert_eq!(syllables(&a), ["A", "le", "lu", "ia"]);

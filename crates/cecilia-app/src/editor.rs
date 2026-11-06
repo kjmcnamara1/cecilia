@@ -688,23 +688,14 @@ impl App {
             self.error("no score to edit (use :new)");
             return None;
         }
-        // Lyrics follow the notes: laid out again after the edit unless it set them itself.
-        let lyrics_before = buffer.score.lyrics.clone();
-        let track_count = buffer.score.tracks.len();
-        let plans: Vec<(usize, Vec<cecilia_core::lyrics::Verse>)> = (0..buffer.score.tracks.len())
-            .map(|t| (t, cecilia_core::lyrics::plan(&buffer.score, t)))
-            .filter(|(_, v)| !v.is_empty())
-            .collect();
+        // Lyrics follow the notes: each track's gabc+ text is laid out on them again after
+        // the edit. Syllables still only on the beats get their text first.
+        cecilia_core::gabcplus::ensure_text(&mut buffer.score);
         let mut cx = EditCx::new(&mut buffer.score, pane.cursor);
         let result = f(&mut cx);
         cx.sync_chant();
-        if result.is_ok()
-            && cx.score.lyrics == lyrics_before
-            && cx.score.tracks.len() == track_count
-        {
-            for (t, verses) in &plans {
-                cx.relayout_lyrics(*t, verses);
-            }
+        if result.is_ok() {
+            cx.relayout_lyrics();
         }
         let mut cursor = cx.cursor;
         if let Some(change) = cx.finish() {
@@ -1387,42 +1378,52 @@ impl App {
                     Ok(())
                 });
             }
-            Lyrics(verse, text) => {
-                let (verse, syllables) = (*verse, cecilia_core::lyrics::syllables(text));
+            Lyrics(text) => {
+                let words = text.replace("\\n", "\n");
                 let placed = self.edit(|cx| {
                     let c = cx.cursor;
                     let score = cx.whole();
-                    let n = cecilia_core::lyrics::place(
-                        &mut score.tracks[c.track],
-                        verse,
-                        c.bar,
-                        c.beat,
-                        &syllables,
-                    );
-                    refresh_lyric_lines(score, c.track);
-                    // What has no note left stays in the text, to show once there are notes.
-                    if n < syllables.len() {
-                        if let Some(k) = score
-                            .lyrics
-                            .as_mut()
-                            .filter(|l| l.track == Some(c.track))
-                            .and_then(|l| l.lines.get_mut(verse))
-                        {
-                            let mut all = cecilia_core::lyrics::syllables(&k.text);
-                            all.extend(syllables[n..].iter().cloned());
-                            k.text = cecilia_core::lyrics::join(&all);
-                        }
+                    let t = &mut score.tracks[c.track];
+                    if t.chant.is_some() {
+                        return Err(
+                            "lyrics: a chant track's lyrics are its chant notation (the \
+                                    properties pane edits them)"
+                                .into(),
+                        );
                     }
-                    Ok(n)
+                    let mut full = t.lyrics_text.trim_end().to_string();
+                    let before = cecilia_core::gabcplus::tokens(&full).len();
+                    if !full.is_empty() {
+                        full.push('\n');
+                    }
+                    full.push_str(&format!("<{}:{}> {words}", c.bar + 1, c.beat + 1));
+                    t.lyrics_text = full;
+                    let lay = cecilia_core::gabcplus::apply(score, c.track);
+                    refresh_lyric_lines(score, c.track);
+                    let new = |k: usize| k >= before;
+                    let shown = lay.placed.iter().filter(|p| new(p.token)).count();
+                    let all = lay
+                        .tokens
+                        .iter()
+                        .enumerate()
+                        .filter(|(k, t)| {
+                            new(*k)
+                                && matches!(
+                                    t.kind,
+                                    cecilia_core::gabcplus::TokenKind::Syllable { .. }
+                                )
+                        })
+                        .count();
+                    Ok((shown, all))
                 });
-                if let Some(n) = placed {
-                    if n < syllables.len() {
+                if let Some((n, all)) = placed {
+                    if n < all {
                         self.info(format!(
                             "lyrics: {} syllables past the last note are kept, not shown",
-                            syllables.len() - n
+                            all - n
                         ));
                     } else {
-                        self.info(format!("{n} syllables on verse {}", verse + 1));
+                        self.info(format!("{n} syllables"));
                     }
                 }
             }
@@ -1431,24 +1432,20 @@ impl App {
                 self.edit(|cx| {
                     let t = cx.cursor.track;
                     let score = cx.whole();
-                    for b in score.tracks[t]
-                        .bars
-                        .iter_mut()
-                        .flat_map(|b| &mut b.voices)
-                        .flat_map(|v| &mut v.beats)
-                    {
-                        match verse {
-                            Some(v) => {
-                                if let Some(s) = b.lyrics.get_mut(v) {
-                                    s.clear();
-                                }
-                                while b.lyrics.last().is_some_and(String::is_empty) {
-                                    b.lyrics.pop();
-                                }
-                            }
-                            None => b.lyrics.clear(),
-                        }
+                    if score.tracks[t].chant.is_some() {
+                        return Err("lyrics-clear: a chant track's lyrics are its chant".into());
                     }
+                    let text = match verse {
+                        Some(v) => cecilia_core::gabcplus::remove_verse(
+                            score,
+                            t,
+                            &score.tracks[t].lyrics_text,
+                            v,
+                        ),
+                        None => String::new(),
+                    };
+                    score.tracks[t].lyrics_text = text;
+                    cecilia_core::gabcplus::apply(score, t);
                     refresh_lyric_lines(score, t);
                     Ok(())
                 });
@@ -2319,7 +2316,7 @@ mod tests {
     fn lyrics_commands_and_grand_staff() {
         let mut a = app();
         keys(&mut a, "i3<Space>12<Space>5<Space>7<Esc>0");
-        a.run(Command::Lyrics(0, "Hel-lo  world".into()));
+        a.run(Command::Lyrics("Hel-lo _ world".into()));
         let lyr = |a: &App| -> Vec<String> {
             a.buffer().score.tracks[0].bars[0].voices[0]
                 .beats
@@ -2330,14 +2327,27 @@ mod tests {
         assert_eq!(lyr(&a), ["Hel-", "lo", "", "world"]);
         let lines = &a.buffer().score.lyrics.as_ref().unwrap().lines;
         assert_eq!(lines[0].text, "Hel-lo  world");
+        assert_eq!(
+            a.buffer().score.tracks[0].lyrics_text,
+            "<1:1> Hel-lo _ world"
+        );
+        // Words from a beat already sung go on the next verse row.
         keys(&mut a, "l");
-        a.run(Command::Lyrics(1, "two".into()));
+        a.run(Command::Lyrics("two\\nthree".into()));
+        assert_eq!(
+            a.buffer().score.tracks[0].lyrics_text,
+            "<1:1> Hel-lo _ world\n<1:2> two\nthree"
+        );
         assert_eq!(
             a.buffer().score.tracks[0].bars[0].voices[0].beats[1].lyrics,
             ["lo", "two"]
         );
+        // Removing the first row: the second takes its place.
         a.run(Command::LyricsClear(Some(0)));
+        assert_eq!(lyr(&a), ["", "two", "three", ""]);
+        a.run(Command::LyricsClear(None));
         assert_eq!(lyr(&a), ["", "", "", ""]);
+        keys(&mut a, "u");
         keys(&mut a, "u");
         assert_eq!(lyr(&a)[0], "Hel-");
 

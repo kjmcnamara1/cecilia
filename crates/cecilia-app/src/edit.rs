@@ -82,51 +82,46 @@ impl<'a> EditCx<'a> {
         cecilia_core::chant::retranscribe(score, t);
     }
 
-    /// Lays the lyrics of `verses` (of track `t`) out on the notes again after an edit changed
-    /// which beats sing: the syllables follow the text, one to a note in order, so a deleted note
-    /// hands its syllable on, new notes take the next ones, and syllables past the last note are
-    /// kept but not shown.
-    pub fn relayout_lyrics(&mut self, t: usize, verses: &[cecilia_core::lyrics::Verse]) {
-        for v in verses {
-            let target =
-                cecilia_core::lyrics::layout(&self.score.tracks[t], v.start_bar, &v.syllables);
-            let sung = target.iter().filter(|(_, s)| !s.is_empty()).count();
-            for ((b, i), text) in target {
-                let beat = &self.score.tracks[t].bars[b].voices[0].beats[i];
-                if beat.lyrics.get(v.verse).map_or("", String::as_str) == text {
+    /// Lays every track's gabc+ text out on its beats again (an edit may have changed which
+    /// beats sing): the syllables follow the text one to a note in sung order, so a deleted
+    /// note hands its syllable on, new notes take the next ones, and syllables past the last
+    /// note stay in the text but are not shown. Chant tracks keep their own.
+    pub fn relayout_lyrics(&mut self) {
+        for t in 0..self.score.tracks.len() {
+            let track = &self.score.tracks[t];
+            if track.lyrics_text.is_empty() || track.chant.is_some() {
+                continue;
+            }
+            let text = track.lyrics_text.clone();
+            let (rows, _) = cecilia_core::gabcplus::beat_lyrics(self.score, t, &text);
+            for (b, beats) in rows.into_iter().enumerate() {
+                let want = |v: usize, i: usize| -> Vec<String> {
+                    if v == 0 {
+                        beats.get(i).cloned().unwrap_or_default()
+                    } else {
+                        Vec::new()
+                    }
+                };
+                let same =
+                    self.score.tracks[t].bars[b]
+                        .voices
+                        .iter()
+                        .enumerate()
+                        .all(|(v, voice)| {
+                            voice
+                                .beats
+                                .iter()
+                                .enumerate()
+                                .all(|(i, beat)| beat.lyrics == want(v, i))
+                        });
+                if same {
                     continue;
                 }
-                let beat = &mut self.bar(t, b).voices[0].beats[i];
-                if beat.lyrics.len() <= v.verse {
-                    beat.lyrics.resize(v.verse + 1, String::new());
-                }
-                beat.lyrics[v.verse] = text;
-                while beat.lyrics.last().is_some_and(String::is_empty) {
-                    beat.lyrics.pop();
-                }
-            }
-            // What does not fit stays in the score's text for the lyrics.
-            let spare = v.syllables.iter().filter(|s| !s.is_empty()).count() > sung;
-            let text = cecilia_core::lyrics::join(&v.syllables);
-            let kept = self
-                .score
-                .lyrics
-                .as_ref()
-                .filter(|l| l.track == Some(t))
-                .and_then(|l| l.lines.get(v.verse))
-                .is_some_and(|k| k.text == text);
-            if spare && !kept {
-                let score = self.whole();
-                let lyrics = score.lyrics.get_or_insert_with(Default::default);
-                if lyrics.track.is_none() || lyrics.track == Some(t) || lyrics.lines.is_empty() {
-                    lyrics.track = Some(t);
-                    while lyrics.lines.len() <= v.verse {
-                        lyrics.lines.push(Default::default());
+                let bar = self.bar(t, b);
+                for (v, voice) in bar.voices.iter_mut().enumerate() {
+                    for (i, beat) in voice.beats.iter_mut().enumerate() {
+                        beat.lyrics = want(v, i);
                     }
-                    lyrics.lines[v.verse] = cecilia_core::LyricLine {
-                        start_bar: v.start_bar as u32,
-                        text,
-                    };
                 }
             }
         }

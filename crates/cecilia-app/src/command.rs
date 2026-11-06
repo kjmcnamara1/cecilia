@@ -343,10 +343,10 @@ pub enum Command {
     /// Color of the cursor's track in the tracks panel: `#rrggbb`, `off`, or none for the
     /// next color of the theme's palette.
     TrackColor(Option<String>),
-    /// Lyrics from the cursor on (verse 1–5, default 1), in Guitar Pro syntax: spaces and
-    /// hyphens separate syllables, one per note.
-    Lyrics(usize, String),
-    /// Remove a verse of lyrics from the cursor track (all verses without a number).
+    /// Lyrics from the cursor on, in gabc+ (`\n` a line break): added to the track's lyrics
+    /// text after an anchor at the cursor (`<bar:beat>`), as if typed in the lyrics pane.
+    Lyrics(String),
+    /// Remove a verse row of lyrics from the cursor track (all lyrics without a number).
     LyricsClear(Option<usize>),
     /// Whether command-line completion ignores case: on, off, or toggle (None).
     CompletionIgnoreCase(Option<bool>),
@@ -938,15 +938,7 @@ impl Command {
                     pct.trim().parse().map_err(|_| "volume: bad percent")?,
                 )
             }
-            "lyrics" => {
-                let a = arg.ok_or("lyrics: expected [verse] TEXT")?;
-                match a.split_once(' ') {
-                    Some((n, rest)) if n.parse::<usize>().is_ok_and(|n| (1..=5).contains(&n)) => {
-                        Lyrics(n.parse::<usize>().unwrap() - 1, rest.to_string())
-                    }
-                    _ => Lyrics(0, a.to_string()),
-                }
-            }
+            "lyrics" => Lyrics(arg.ok_or("lyrics: expected TEXT")?.to_string()),
             "lyrics-clear" => LyricsClear(
                 arg.map(|a| {
                     a.trim()

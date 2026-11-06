@@ -228,6 +228,11 @@ pub struct UiConfig {
     pub focus_ring_width: f64,
     /// Color of that ring (`#rgb`, `#rrggbb` or `#rrggbbaa`); unset: the current mode's color.
     pub focus_ring_color: Option<String>,
+    /// GUI: the font family of the lyrics text area in the properties pane (monospaced; the
+    /// bundled JetBrains Mono unless another installed family is named).
+    pub lyrics_font: String,
+    /// GUI: its size in points.
+    pub lyrics_font_size: f64,
 }
 
 impl Default for UiConfig {
@@ -265,6 +270,8 @@ impl Default for UiConfig {
             focus_ring_width: 4.0,
             focus_ring_color: None,
             zoom: 1.0,
+            lyrics_font: "JetBrainsMono".into(),
+            lyrics_font_size: 14.0,
         }
     }
 }

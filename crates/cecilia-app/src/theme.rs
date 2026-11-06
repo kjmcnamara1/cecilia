@@ -150,6 +150,13 @@ pub struct Theme {
     /// Terminal score views: lyrics, and bar/section headings and beat text.
     pub lyrics: Rgba,
     pub marker: Rgba,
+    /// The lyrics text area: the words, and with GABC shown the words dimmed, the GABC
+    /// groups (bold), the `[labels]` (bold) and the `<bar:beat>` anchors.
+    pub lyrics_text: Rgba,
+    pub lyrics_text_dim: Rgba,
+    pub lyrics_gabc: Rgba,
+    pub lyrics_label: Rgba,
+    pub lyrics_anchor: Rgba,
     /// Waveforms, the loop region on them, and sync points.
     pub waveform: Rgba,
     pub loop_region: Rgba,
@@ -206,6 +213,11 @@ pub const COLOR_NAMES: &[&str] = &[
     "error",
     "lyrics",
     "marker",
+    "lyrics_text",
+    "lyrics_text_dim",
+    "lyrics_gabc",
+    "lyrics_label",
+    "lyrics_anchor",
     "waveform",
     "loop_region",
     "sync_point",
@@ -251,6 +263,11 @@ impl Theme {
             popover: Rgba::rgb(36, 38, 44),
             error: Rgba::rgb(255, 110, 100),
             lyrics: Rgba::rgb(110, 200, 130),
+            lyrics_text: Rgba::rgb(225, 225, 230),
+            lyrics_text_dim: Rgba::rgb(150, 152, 160),
+            lyrics_gabc: Rgba::rgb(240, 240, 244),
+            lyrics_label: Rgba::rgb(100, 160, 240),
+            lyrics_anchor: Rgba::rgb(240, 90, 90),
             marker: Rgba::rgb(90, 190, 210),
             waveform: Rgba::rgb(110, 170, 230),
             loop_region: Rgba::rgb(60, 190, 110).with_alpha(50),
@@ -293,6 +310,11 @@ impl Theme {
             popover: Rgba::rgb(252, 252, 253),
             error: Rgba::rgb(200, 40, 30),
             lyrics: Rgba::rgb(40, 140, 80),
+            lyrics_text: Rgba::rgb(36, 38, 44),
+            lyrics_text_dim: Rgba::rgb(130, 134, 144),
+            lyrics_gabc: Rgba::rgb(20, 20, 24),
+            lyrics_label: Rgba::rgb(40, 100, 200),
+            lyrics_anchor: Rgba::rgb(200, 40, 40),
             marker: Rgba::rgb(30, 130, 150),
             waveform: Rgba::rgb(40, 110, 200),
             loop_region: Rgba::rgb(40, 160, 90).with_alpha(50),
@@ -333,6 +355,11 @@ impl Theme {
             popover: hex("#3b4252"),
             error: hex("#bf616a"),
             lyrics: hex("#a3be8c"),
+            lyrics_text: hex("#e5e9f0"),
+            lyrics_text_dim: hex("#7b88a1"),
+            lyrics_gabc: hex("#eceff4"),
+            lyrics_label: hex("#81a1c1"),
+            lyrics_anchor: hex("#bf616a"),
             marker: hex("#88c0d0"),
             waveform: hex("#81a1c1"),
             loop_region: hex("#a3be8c").with_alpha(50),
@@ -377,6 +404,11 @@ impl Theme {
             popover: hex("#3c3836"),
             error: hex("#fb4934"),
             lyrics: hex("#b8bb26"),
+            lyrics_text: hex("#ebdbb2"),
+            lyrics_text_dim: hex("#928374"),
+            lyrics_gabc: hex("#fbf1c7"),
+            lyrics_label: hex("#83a598"),
+            lyrics_anchor: hex("#fb4934"),
             marker: hex("#8ec07c"),
             waveform: hex("#83a598"),
             loop_region: hex("#b8bb26").with_alpha(50),
@@ -421,6 +453,11 @@ impl Theme {
             popover: hex("#073642"),
             error: hex("#dc322f"),
             lyrics: hex("#859900"),
+            lyrics_text: hex("#93a1a1"),
+            lyrics_text_dim: hex("#586e75"),
+            lyrics_gabc: hex("#eee8d5"),
+            lyrics_label: hex("#268bd2"),
+            lyrics_anchor: hex("#dc322f"),
             marker: hex("#2aa198"),
             waveform: hex("#268bd2"),
             loop_region: hex("#859900").with_alpha(50),
@@ -456,6 +493,9 @@ impl Theme {
             empty_bar: hex("#e4ddc8"),
             incomplete_bar: Rgba::rgb(214, 40, 40),
             popover: hex("#fdf6e3"),
+            lyrics_text: hex("#586e75"),
+            lyrics_text_dim: hex("#93a1a1"),
+            lyrics_gabc: hex("#073642"),
             track_colors: spectrum(hex("#b58900"), 8, 0.45),
             ..Self::solarized_dark()
         }
@@ -499,6 +539,11 @@ impl Theme {
             "error" => &mut self.error,
             "lyrics" => &mut self.lyrics,
             "marker" => &mut self.marker,
+            "lyrics_text" => &mut self.lyrics_text,
+            "lyrics_text_dim" => &mut self.lyrics_text_dim,
+            "lyrics_gabc" => &mut self.lyrics_gabc,
+            "lyrics_label" => &mut self.lyrics_label,
+            "lyrics_anchor" => &mut self.lyrics_anchor,
             "waveform" => &mut self.waveform,
             "loop_region" => &mut self.loop_region,
             "sync_point" => &mut self.sync_point,
@@ -754,6 +799,22 @@ mod tests {
             for name in COLOR_NAMES {
                 assert!(t.color_mut(name).is_some(), "{name}");
             }
+            // The lyrics text area's colors read on the panel; the dimmed words less so.
+            let luma = |c: Rgba| 0.299 * c.r as f32 + 0.587 * c.g as f32 + 0.114 * c.b as f32;
+            let contrast = |c: Rgba| (luma(c) - luma(t.panel)).abs();
+            for c in [
+                t.lyrics_text,
+                t.lyrics_gabc,
+                t.lyrics_label,
+                t.lyrics_anchor,
+            ] {
+                assert!(contrast(c) > 50.0, "{p}: {c:?} on {:?}", t.panel);
+            }
+            assert!(contrast(t.lyrics_text_dim) < contrast(t.lyrics_text), "{p}");
+            assert!(
+                contrast(t.lyrics_gabc) >= contrast(t.lyrics_text_dim),
+                "{p}"
+            );
         }
         assert!(Theme::preset("nope").is_none());
     }
