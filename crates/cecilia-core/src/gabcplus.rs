@@ -533,13 +533,35 @@ pub const STAR: &str = "✻";
 
 /// Lays gabc+ `text` out on track `track` of `score`.
 pub fn layout(score: &Score, track: usize, text: &str) -> Layout {
-    let tokens = tokens(text);
-    let Some(t) = score.tracks.get(track) else {
-        return Layout {
-            tokens,
+    match score.tracks.get(track) {
+        Some(t) => layout_on(score, t, text),
+        None => Layout {
+            tokens: tokens(text),
             ..Layout::default()
-        };
-    };
+        },
+    }
+}
+
+/// How the syllables of a track's own gabc+ text are shown: by (bar, beat, verse), whether in
+/// italics, and the labels before and ✻ after them. Empty without text (or for a chant track).
+pub fn decorations(
+    score: &Score,
+    t: &Track,
+) -> std::collections::HashMap<(usize, usize, usize), (bool, String, String)> {
+    if t.lyrics_text.is_empty() || t.chant.is_some() {
+        return Default::default();
+    }
+    layout_on(score, t, &t.lyrics_text)
+        .placed
+        .into_iter()
+        .filter(|p| p.italic || !p.before.is_empty() || !p.after.is_empty())
+        .map(|p| ((p.bar, p.beat, p.verse), (p.italic, p.before, p.after)))
+        .collect()
+}
+
+/// [`layout`] on a track.
+pub fn layout_on(score: &Score, t: &Track, text: &str) -> Layout {
+    let tokens = tokens(text);
     let (occ, bars) = occurrences(score, t);
     let mut placed: Vec<Placed> = Vec::new();
     let mut unplaced = 0;

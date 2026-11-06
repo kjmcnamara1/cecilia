@@ -2150,10 +2150,8 @@ fn draw_properties(f: &mut Frame, app: &App, area: Rect, ui: &mut Ui) {
                     1
                 };
                 // A property with text beside it has a narrower box, the text dim to its right.
-                let toggle = matches!(
-                    field,
-                    cecilia_app::properties::Field::Mute | cecilia_app::properties::Field::Solo
-                );
+                let toggle = field.is_switch();
+                let area = *field == cecilia_app::properties::Field::Lyrics;
                 let aside = row.aside.chars().count();
                 let box_w = if toggle {
                     6
@@ -2167,7 +2165,8 @@ fn draw_properties(f: &mut Frame, app: &App, area: Rect, ui: &mut Ui) {
                         .saturating_sub(aside + 2 + (bx - x0) as usize)
                         .min(width * 62 / 100)
                 };
-                for dy in 0..box_h {
+                // The lyrics text area has no box: its text sits on the pane.
+                for dy in (0..box_h).filter(|_| !area) {
                     buf.set_string(bx, by + dy, " ".repeat(box_w), text_style);
                 }
                 if aside > 0 {
@@ -2211,7 +2210,9 @@ fn draw_properties(f: &mut Frame, app: &App, area: Rect, ui: &mut Ui) {
                     };
                 }
                 let inner = box_w.saturating_sub((text_x - bx) as usize + 1);
-                if *field == cecilia_app::properties::Field::Lyrics {
+                if area {
+                    use cecilia_core::gabcplus::SpanKind;
+                    let inner = box_w;
                     let text = typing.map_or(row.value.as_str(), |e| e.text.as_str());
                     let lines = wrap_ranges(text, |l| l.chars().count() <= inner);
                     *app.props.visual.borrow_mut() = lines.clone();
@@ -2223,36 +2224,44 @@ fn draw_properties(f: &mut Frame, app: &App, area: Rect, ui: &mut Ui) {
                         lines.len(),
                         box_h as usize,
                     );
-                    ui.props_text = Some((bx + 1, by, box_h, lines.clone(), skip));
-                    // The selection, behind the text.
-                    let selection = typing.and_then(|e| e.selection());
-                    for (n, &(s, e)) in lines.iter().enumerate().skip(skip).take(box_h as usize) {
-                        let line: String = chars[s..e].iter().collect();
-                        buf.set_string(bx + 1, by + (n - skip) as u16, line, text_style);
-                        if let Some((a, z)) = selection {
-                            let (lo, hi) = (a.max(s), z.min(e));
-                            if lo < hi {
-                                buf.set_style(
-                                    Rect {
-                                        x: bx + 1 + (lo - s) as u16,
-                                        y: by + (n - skip) as u16,
-                                        width: (hi - lo) as u16,
-                                        height: 1,
-                                    },
-                                    Style::default().bg(rc(t.mode_normal.with_alpha(255))),
-                                );
-                            }
+                    ui.props_text = Some((bx, by, box_h, lines.clone(), skip));
+                    // The text in its colors: words (dimmed while GABC shows), GABC groups and
+                    // labels in bold, anchors.
+                    let mut kinds = vec![SpanKind::Text; chars.len()];
+                    for (a, z, k) in cecilia_core::gabcplus::spans(text) {
+                        for slot in &mut kinds[a..z] {
+                            *slot = k;
                         }
                     }
-                    if let Some((r, c)) = caret.filter(|&(r, _)| r >= skip) {
-                        let (cx, cy) = (bx + 1 + c as u16, by + (r - skip) as u16);
+                    let style = |k: SpanKind| match k {
+                        SpanKind::Gabc => base.fg(rc(t.lyrics_gabc)).add_modifier(Modifier::BOLD),
+                        SpanKind::Label => base.fg(rc(t.lyrics_label)).add_modifier(Modifier::BOLD),
+                        SpanKind::Anchor => base.fg(rc(t.lyrics_anchor)),
+                        _ if app.props.gabc => base.fg(rc(t.lyrics_text_dim)),
+                        _ => base.fg(rc(t.lyrics_text)),
+                    };
+                    let selection = typing.and_then(|e| e.selection());
+                    for (n, &(s, e)) in lines.iter().enumerate().skip(skip).take(box_h as usize) {
+                        let y = by + (n - skip) as u16;
+                        for i in s..e {
+                            let mut st = style(kinds[i]);
+                            if selection.is_some_and(|(a, z)| (a..z).contains(&i)) {
+                                st = st.bg(rc(t.mode_normal.with_alpha(255)));
+                            }
+                            buf.set_string(bx + (i - s) as u16, y, chars[i].to_string(), st);
+                        }
+                    }
+                    if let Some((r, c)) =
+                        caret.filter(|&(r, _)| r >= skip && r < skip + box_h as usize)
+                    {
+                        let (cx, cy) = (bx + c as u16, by + (r - skip) as u16);
                         if typing.is_some_and(|e| e.modal && !e.insert) {
                             // Normal mode: the character under the caret is a block.
                             let under = lines.get(r).and_then(|&(s, _)| chars.get(s + c));
                             let ch = under.filter(|c| **c != '\n').copied().unwrap_or(' ');
                             buf.set_string(cx, cy, ch.to_string(), on(app, t.mode_normal));
                         } else {
-                            buf.set_string(cx, cy, "▏", text_style.fg(rc(t.mode_normal)));
+                            buf.set_string(cx, cy, "▏", base.fg(rc(t.mode_normal)));
                         }
                     }
                 } else {
@@ -3167,6 +3176,60 @@ mod render_tests {
         assert!(app.props.edit.is_some());
         let screen = render(&mut app, 100, 30);
         assert!(screen.contains('▏'), "{screen}");
+    }
+
+    /// The lyrics tab: a GABC switch over a text area with no label or box, its words, labels,
+    /// anchors and GABC in their theme colors.
+    #[test]
+    fn the_lyrics_text_area_shows_gabc_in_colors() {
+        let mut app = App::new(cecilia_app::Config::default(), None);
+        app.run(cecilia_app::Command::New);
+        app.run(cecilia_app::Command::Properties(Some(true)));
+        app.run(cecilia_app::Command::PropertiesTab(Some(
+            cecilia_app::properties::PropTab::Lyrics,
+        )));
+        let b = app.pane().buffer;
+        app.buffers[b].score.tracks[0].lyrics_text = "<1:1> [1.] Ky(f)ri(g)e".into();
+        let (w, h) = (100, 30);
+        let mut terminal = Terminal::new(TestBackend::new(w, h)).unwrap();
+        let mut ui = Ui::default();
+        terminal.draw(|f| draw(f, &mut app, None, &mut ui)).unwrap();
+        let buf = terminal.backend().buffer().clone();
+        let screen = render(&mut app, w, h);
+        assert!(
+            screen.contains("GABC") && !screen.contains("Lyrics"),
+            "{screen}"
+        );
+        assert!(screen.contains("<1:1> [1.] Ky-ri-e"), "{screen}");
+        let th = app.config.theme.clone();
+        let find = |s: &str, screen: &str| -> (u16, u16) {
+            let (y, line) = screen
+                .lines()
+                .enumerate()
+                .find(|(_, l)| l.contains(s))
+                .unwrap();
+            let x = line[..line.find(s).unwrap()].chars().count();
+            (x as u16, y as u16)
+        };
+        let (x, y) = find("<1:1>", &screen);
+        assert_eq!(buf[(x, y)].fg, rc(th.lyrics_anchor));
+        assert_eq!(buf[(x, y)].bg, buf[(x - 1, y)].bg, "no box behind the text");
+        let (x, y) = find("[1.]", &screen);
+        assert_eq!(buf[(x, y)].fg, rc(th.lyrics_label));
+        assert!(buf[(x, y)].modifier.contains(Modifier::BOLD));
+        let (x, y) = find("Ky", &screen);
+        assert_eq!(buf[(x, y)].fg, rc(th.lyrics_text));
+        // With GABC on: the clef and groups in bold, the words dimmed.
+        app.props.gabc = true;
+        terminal.draw(|f| draw(f, &mut app, None, &mut ui)).unwrap();
+        let buf = terminal.backend().buffer().clone();
+        let screen = render(&mut app, w, h);
+        assert!(screen.contains("(c4) <1:1> [1.] Ky(f)ri(g)e"), "{screen}");
+        let (x, y) = find("(f)", &screen);
+        assert_eq!(buf[(x, y)].fg, rc(th.lyrics_gabc));
+        assert!(buf[(x, y)].modifier.contains(Modifier::BOLD));
+        let (x, y) = find("Ky", &screen);
+        assert_eq!(buf[(x, y)].fg, rc(th.lyrics_text_dim));
     }
 
     #[test]

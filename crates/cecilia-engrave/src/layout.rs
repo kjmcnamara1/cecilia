@@ -420,6 +420,9 @@ struct Ctx<'a> {
     /// staff's columns by their tick in the bar). Without it a track's own lyrics go under its
     /// top staff.
     lyric_source: Option<&'a Track>,
+    /// How the syllables drawn are shown, from their track's gabc+ text: by (bar, beat,
+    /// verse), italics, and the labels before and ✻ after them.
+    lyric_deco: HashMap<(usize, usize, usize), (bool, String, String)>,
     nh_width: f64,
     /// Syllables drawn so far, for hyphens: (page, verse y, left, right, continues).
     syllables: std::cell::RefCell<Vec<Syllable>>,
@@ -859,6 +862,13 @@ fn make_ctx<'a>(
         lyric_spans: Default::default(),
         lyric_end: Default::default(),
         lyric_source,
+        lyric_deco: match role {
+            LyricsRole::None => HashMap::new(),
+            LyricsRole::Own => cecilia_core::gabcplus::decorations(score, track),
+            LyricsRole::Attached { source, .. } => {
+                cecilia_core::gabcplus::decorations(score, source)
+            }
+        },
         nh_width,
         syllables: Default::default(),
         dynamics: track
@@ -1834,17 +1844,45 @@ impl Ctx<'_> {
         self.origin.get() + self.lyric_rel.get() - (self.lyrics_above - 1 - li) as f64 * 1.8 * sp
     }
 
-    /// Draws the verses of lyrics of a beat, centred on `cx`.
-    fn draw_syllables(&self, page: &mut Page, verses: &[String], cx: f64, page_index: usize) {
+    /// Draws the verses of lyrics of beat `at` (bar, beat), centred on `cx`: each syllable
+    /// with its labels before it and ✻ after it, in italics where its text says so.
+    fn draw_syllables(
+        &self,
+        page: &mut Page,
+        verses: &[String],
+        cx: f64,
+        page_index: usize,
+        at: (usize, usize),
+    ) {
         let sp = self.sp;
         let measuring = self.measuring.get();
+        let size = 1.9 * sp;
         for (li, syl) in verses.iter().enumerate() {
             // A trailing hyphen is drawn between this syllable and the next.
             let continues = syl.ends_with('-');
             let text = syl.trim_end_matches('-');
             if !text.is_empty() {
                 let y = self.lyric_y(li);
-                let w = fonts().text_width(FontKind::Text, text, 1.9 * sp);
+                let deco = self.lyric_deco.get(&(at.0, at.1, li));
+                let font = match deco {
+                    Some((true, _, _)) => FontKind::Italic,
+                    _ => FontKind::Text,
+                };
+                let w = fonts().text_width(font, text, size);
+                let gap = 0.5 * sp;
+                let (before, after) = match deco {
+                    Some((_, b, a)) => (b.as_str(), a.as_str()),
+                    None => ("", ""),
+                };
+                // ✻ after a syllable is drawn (the text fonts lack it); among labels it is `*`.
+                let stars = after.matches(cecilia_core::gabcplus::STAR).count();
+                let before = before.replace(cecilia_core::gabcplus::STAR, "*");
+                let bw = if before.is_empty() {
+                    0.0
+                } else {
+                    fonts().text_width(FontKind::Text, &before, size) + gap
+                };
+                let aw = stars as f64 * 1.3 * sp + if stars > 0 { gap } else { 0.0 };
                 // Syllables taken from another track's rhythm can fall on the same column or
                 // too close: each starts clear of the one before it in its verse, with room
                 // for the hyphen that joins it to the next.
@@ -1854,29 +1892,41 @@ impl Ctx<'_> {
                     if ends.len() <= li {
                         ends.resize(li + 1, f64::MIN);
                     }
-                    cx = cx.max(ends[li] + 0.4 * sp + w / 2.0);
-                    ends[li] = cx + w / 2.0 + if continues { 0.8 * sp } else { 0.0 };
+                    cx = cx.max(ends[li] + 0.4 * sp + bw + w / 2.0);
+                    ends[li] = cx + w / 2.0 + aw + if continues { 0.8 * sp } else { 0.0 };
                 }
+                let (left, right) = (cx - w / 2.0 - bw, cx + w / 2.0 + aw);
                 if measuring {
-                    self.lyric_spans
-                        .borrow_mut()
-                        .push((cx - w / 2.0, cx + w / 2.0));
+                    self.lyric_spans.borrow_mut().push((left, right));
                     continue;
                 }
-                page.text(
-                    FontKind::Text,
-                    text.to_string(),
-                    (cx, y),
-                    1.9 * sp,
-                    Align::Center,
-                );
-                self.syllables.borrow_mut().push((
-                    page_index,
-                    y,
-                    cx - w / 2.0,
-                    cx + w / 2.0,
-                    continues,
-                ));
+                page.text(font, text.to_string(), (cx, y), size, Align::Center);
+                if !before.is_empty() {
+                    page.text(
+                        FontKind::Text,
+                        before,
+                        (cx - w / 2.0 - gap, y),
+                        size,
+                        Align::Right,
+                    );
+                }
+                for k in 0..stars {
+                    // Six spokes around a centre a little above the middle of the letters.
+                    let (sx, sy) = (
+                        cx + w / 2.0 + gap + (k as f64 * 1.3 + 0.5) * sp,
+                        y - 0.85 * sp,
+                    );
+                    for a in [90.0f64, 30.0, 150.0] {
+                        let (dx, dy) = (
+                            a.to_radians().cos() * 0.5 * sp,
+                            a.to_radians().sin() * 0.5 * sp,
+                        );
+                        page.line((sx - dx, sy - dy), (sx + dx, sy + dy), 0.2 * sp);
+                    }
+                }
+                self.syllables
+                    .borrow_mut()
+                    .push((page_index, y, left, right, continues));
             }
         }
     }
@@ -2606,7 +2656,7 @@ impl Ctx<'_> {
         if let Some(src) = self.lyric_source {
             let beats = src.bars.get(bi).and_then(|b| b.voices.first());
             let mut t = 0;
-            for beat in beats.map_or(&[][..], |v| &v.beats[..]) {
+            for (i, beat) in beats.map_or(&[][..], |v| &v.beats[..]).iter().enumerate() {
                 let start = t;
                 t += beat.ticks();
                 if beat.lyrics.iter().all(|l| l.is_empty()) {
@@ -2621,7 +2671,13 @@ impl Ctx<'_> {
                         .map(|(_, v)| *v)
                 });
                 if let Some((bx, _)) = col {
-                    self.draw_syllables(page, &beat.lyrics, bx + self.nh_width / 2.0, page_index);
+                    self.draw_syllables(
+                        page,
+                        &beat.lyrics,
+                        bx + self.nh_width / 2.0,
+                        page_index,
+                        (bi, i),
+                    );
                 }
             }
         }
@@ -2997,6 +3053,7 @@ impl Ctx<'_> {
                             &beat.lyrics,
                             bx + self.nh_width / 2.0,
                             page_index,
+                            (bi, i),
                         );
                     }
                 }
@@ -5727,6 +5784,61 @@ mod tests {
             _ => None,
         });
         assert!(message.is_some_and(|m| m.contains("monophonic")));
+    }
+
+    /// gabc+ text: a label before its syllable, italics, and ✻ drawn after the syllable.
+    #[test]
+    fn lyric_labels_italics_and_stars() {
+        let beat = Beat {
+            duration: Duration::new(DurationValue::Quarter),
+            notes: vec![Note::new(0, 0)],
+            ..Beat::default()
+        };
+        let mut score = Score {
+            tempo: 100,
+            master_bars: vec![MasterBar::default()],
+            tracks: vec![Track {
+                kind: TrackKind::Fretted,
+                strings: vec![64, 59, 55, 50, 45, 40],
+                staves: vec![Staff::Standard(cecilia_core::Clef::Treble)],
+                lyrics_text: "[1.] _Ky-ri * e".into(),
+                bars: vec![Bar {
+                    voices: vec![Voice {
+                        beats: vec![beat.clone(), beat.clone(), beat],
+                    }],
+                    ..Default::default()
+                }],
+                ..Track::default()
+            }],
+            ..Score::default()
+        };
+        cecilia_core::gabcplus::apply(&mut score, 0);
+        let sp = Options::default().sp;
+        let page = &engrave(&score, 0, &Options::default()).pages[0];
+        let text = |t: &str| {
+            page.items.iter().find_map(|i| match i {
+                Item::Text { text, at, font, .. } if text == t => Some((*at, *font)),
+                _ => None,
+            })
+        };
+        let (ky, font) = text("Ky").expect("Ky");
+        assert_eq!(font, FontKind::Italic);
+        let (label, _) = text("1.").expect("the label");
+        assert!(label.x < ky.x && (label.y - ky.y).abs() < 0.01, "before it");
+        let (ri, font) = text("ri").expect("ri");
+        assert_eq!(font, FontKind::Text);
+        // Three strokes of the star right of "ri", none over "e".
+        let (e, _) = text("e").expect("e");
+        let strokes = page
+            .items
+            .iter()
+            .filter(|i| {
+                matches!(i, Item::Line { from, to, .. }
+                    if from.x.min(to.x) > ri.x && from.x.max(to.x) < e.x
+                        && from.y.max(to.y) < ri.y && from.y.min(to.y) > ri.y - 2.0 * sp)
+            })
+            .count();
+        assert_eq!(strokes, 3);
     }
 
     #[test]

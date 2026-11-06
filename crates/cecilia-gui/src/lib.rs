@@ -5,6 +5,7 @@
 mod design;
 mod draw;
 mod keys;
+mod mono;
 
 use std::num::NonZeroUsize;
 use std::sync::Arc;

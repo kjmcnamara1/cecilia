@@ -268,6 +268,7 @@ pub enum Pointer {
 /// The lyrics text area as drawn.
 struct PropsText {
     area: Rect,
+    font: &'static crate::mono::MonoFont,
     /// Where the first line's text starts (x) and its top (y), and the line height.
     x: f64,
     top: f64,
@@ -281,7 +282,6 @@ struct PropsText {
 impl PropsText {
     /// The character index at a point.
     fn at(&self, x: f64, y: f64) -> usize {
-        let fonts = cecilia_engrave::fonts::fonts();
         let row = (((y - self.top) / self.line_h).floor().max(0.0) as usize + self.skip)
             .min(self.lines.len().saturating_sub(1));
         let Some(&(s, e)) = self.lines.get(row) else {
@@ -289,7 +289,7 @@ impl PropsText {
         };
         let w = |i: usize| {
             let t: String = self.chars[s..i].iter().collect();
-            fonts.text_width(FontKind::Text, &t, self.size)
+            self.font.text_width(&t, self.size)
         };
         (s..e)
             .find(|&i| x < self.x + (w(i) + w(i + 1)) / 2.0)
@@ -4460,6 +4460,12 @@ fn draw_properties(scene: &mut Scene, app: &App, views: &mut Views, r: Rect) {
     let th = &app.config.theme;
     let fonts = cecilia_engrave::fonts::fonts();
     let width_of = |s: &str, size: f64| fonts.text_width(FontKind::Text, s, size);
+    // The lyrics text area: monospaced, in the font and size of `ui.lyrics_font(_size)`.
+    let ui = &app.config.file.ui;
+    let mono = crate::mono::font(&ui.lyrics_font, false);
+    let mono_bold = crate::mono::font(&ui.lyrics_font, true);
+    let mono_size = ui.lyrics_font_size.clamp(6.0, 48.0) * 96.0 / 72.0;
+    let mono_w = |s: &str| mono.text_width(s, mono_size);
     views.props_rect = Some(r);
     fill(scene, r, col(th.panel));
     // Tabs.
@@ -4583,7 +4589,7 @@ fn draw_properties(scene: &mut Scene, app: &App, views: &mut Views, r: Rect) {
                 let by1 = if area { bottom } else { by0 + BOX_H };
                 // A property with text beside it (a color's code, a tuning's pitches) has a
                 // narrower box, the text in grey to its right.
-                let toggle = matches!(field, Field::Mute | Field::Solo);
+                let toggle = field.is_switch();
                 let box_x1 = if toggle {
                     box_x0 + 52.0
                 } else if staff {
@@ -4604,7 +4610,10 @@ fn draw_properties(scene: &mut Scene, app: &App, views: &mut Views, r: Rect) {
                 };
                 let shape = b.to_rounded_rect(if toggle { 12.0 } else { 6.0 });
                 let track = if toggle && on { th.mode_normal } else { th.tab };
-                scene.fill(Fill::NonZero, Affine::IDENTITY, col(track), None, &shape);
+                // The text area has no box: its text sits on the pane.
+                if !area {
+                    scene.fill(Fill::NonZero, Affine::IDENTITY, col(track), None, &shape);
+                }
                 if toggle {
                     let kx = if on { b.x1 - 12.0 } else { b.x0 + 12.0 };
                     let knob = Circle::new((kx, b.y0 + 12.0), 9.0);
@@ -4627,7 +4636,7 @@ fn draw_properties(scene: &mut Scene, app: &App, views: &mut Views, r: Rect) {
                         false,
                     );
                 }
-                if box_sel {
+                if box_sel && !area {
                     let a = if typing.is_some() { 80 } else { 40 };
                     scene.fill(
                         Fill::NonZero,
@@ -4663,8 +4672,12 @@ fn draw_properties(scene: &mut Scene, app: &App, views: &mut Views, r: Rect) {
                     text(scene, &row.aside, bx1, ay, size, Align::Right, dim(), false);
                 }
                 if area {
+                    use cecilia_core::gabcplus::SpanKind;
+                    let size = mono_size;
+                    let tx = box_x0;
+                    let inner = box_x1 - box_x0;
                     let value = typing.map_or(row.value.as_str(), |e| e.text.as_str());
-                    let lines = wrap_ranges(value, |l| width_of(l, size) <= inner);
+                    let lines = wrap_ranges(value, |l| mono_w(l) <= inner);
                     *app.props.visual.borrow_mut() = lines.clone();
                     let chars: Vec<char> = value.chars().collect();
                     let line_h = size * 1.35;
@@ -4677,6 +4690,7 @@ fn draw_properties(scene: &mut Scene, app: &App, views: &mut Views, r: Rect) {
                     );
                     views.props_text = Some(PropsText {
                         area: b,
+                        font: mono,
                         x: tx,
                         top: by0 + 7.0,
                         line_h,
@@ -4685,16 +4699,19 @@ fn draw_properties(scene: &mut Scene, app: &App, views: &mut Views, r: Rect) {
                         lines: lines.clone(),
                         chars: chars.clone(),
                     });
+                    let cw = |a: usize, z: usize| -> f64 {
+                        let t: String = chars[a..z].iter().collect();
+                        mono_w(&t)
+                    };
                     // The selection, behind the text.
                     if let Some((a, z)) = typing.and_then(|e| e.selection()) {
                         for (n, &(s, e)) in lines.iter().enumerate().skip(skip).take(shown) {
                             let (lo, hi) = (a.max(s), z.min(e));
                             if lo < hi || (a < s && z > e && s == e) {
-                                let before: String = chars[s..lo.max(s)].iter().collect();
-                                let inside: String = chars[lo.max(s)..hi.max(lo)].iter().collect();
-                                let x0 = tx + width_of(&before, size);
+                                let x0 = tx + cw(s, lo.max(s));
                                 // An empty line inside the selection shows a sliver.
-                                let w = width_of(&inside, size).max(if s == e { 6.0 } else { 0.0 });
+                                let w =
+                                    cw(lo.max(s), hi.max(lo)).max(if s == e { 6.0 } else { 0.0 });
                                 let ly = by0 + 7.0 + line_h * (n - skip) as f64;
                                 fill(
                                     scene,
@@ -4704,21 +4721,49 @@ fn draw_properties(scene: &mut Scene, app: &App, views: &mut Views, r: Rect) {
                             }
                         }
                     }
-                    for (n, &(s, e)) in lines.iter().enumerate().skip(skip).take(shown) {
-                        let line: String = chars[s..e].iter().collect();
-                        let ly = by0 + 7.0 + line_h * (n - skip) as f64 + size;
-                        text(scene, &line, tx, ly, size, Align::Left, c, false);
+                    // The text in its colors: words (dimmed while GABC shows), GABC groups and
+                    // labels in bold, anchors.
+                    let mut kinds = vec![SpanKind::Text; chars.len()];
+                    for (a, z, k) in cecilia_core::gabcplus::spans(value) {
+                        for slot in &mut kinds[a..z] {
+                            *slot = k;
+                        }
                     }
-                    if let Some((cr, cc)) = caret.filter(|&(r, _)| r >= skip) {
+                    let style = |k: SpanKind| match k {
+                        SpanKind::Gabc => (th.lyrics_gabc, true),
+                        SpanKind::Label => (th.lyrics_label, true),
+                        SpanKind::Anchor => (th.lyrics_anchor, false),
+                        _ if app.props.gabc => (th.lyrics_text_dim, false),
+                        _ => (th.lyrics_text, false),
+                    };
+                    for (n, &(s, e)) in lines.iter().enumerate().skip(skip).take(shown) {
+                        let ly = by0 + 7.0 + line_h * (n - skip) as f64 + size;
+                        let mut i = s;
+                        while i < e {
+                            let k = kinds[i];
+                            let mut j = i;
+                            while j < e && kinds[j] == k {
+                                j += 1;
+                            }
+                            if k != SpanKind::Space {
+                                let run: String = chars[i..j].iter().collect();
+                                let (c, bold) = style(k);
+                                let font = if bold { mono_bold } else { mono };
+                                let path = font.text_path(&run, tx + cw(s, i), ly, size);
+                                scene.fill(Fill::NonZero, Affine::IDENTITY, col(c), None, &path);
+                            }
+                            i = j;
+                        }
+                    }
+                    if let Some((cr, cc)) = caret.filter(|&(r, _)| r >= skip && r < skip + shown) {
                         let (s, _) = lines[cr];
-                        let before: String = chars[s..s + cc].iter().collect();
-                        let cx = tx + width_of(&before, size);
+                        let cx = tx + cw(s, s + cc);
                         let ly = by0 + 7.0 + line_h * (cr - skip) as f64;
                         // Normal mode: a block over the character; insert mode: a bar.
                         let wide = match typing {
                             Some(e) if e.modal && !e.insert => {
                                 let ch = chars.get(s + cc).filter(|c| **c != '\n');
-                                ch.map_or(8.0, |c| width_of(&c.to_string(), size))
+                                ch.map_or(mono.advance(' ', size), |c| mono.advance(*c, size))
                             }
                             _ => 2.0,
                         };
@@ -5587,8 +5632,8 @@ impl Views {
             }
             PropHit::Row(i) => {
                 app.click_property(i, double);
-                // A double click in the lyrics puts the caret where it landed.
-                if double {
+                // A click in the lyrics puts the caret where it landed.
+                if double || app.text_editing(i) {
                     if let Some(pt) = self.props_text.as_ref().filter(|p| p.area.contains((x, y))) {
                         app.set_text_caret(pt.at(x, y));
                     }
