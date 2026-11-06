@@ -1015,3 +1015,58 @@ fn typing_into_a_new_voice_fills_it() {
     assert_eq!(v.beats.len(), 1);
     assert_eq!(v.beats[0].notes[0].fret, 3);
 }
+
+/// The first syllable of each beat of bar 0.
+fn syllables(a: &App) -> Vec<String> {
+    bar_beats(a, 0)
+        .iter()
+        .map(|b| b.lyrics.first().cloned().unwrap_or_default())
+        .collect()
+}
+
+fn lyric_bar(a: &mut App, text: &[&str]) {
+    let spec: Vec<Vec<(u8, u8, bool)>> = text.iter().map(|_| vec![(0, 3, false)]).collect();
+    let refs: Vec<Spec> = spec.iter().map(|s| &s[..]).collect();
+    set_bar(a, 0, &refs);
+    let b = a.pane().buffer;
+    for (i, t) in text.iter().enumerate() {
+        if !t.is_empty() {
+            a.buffers[b].score.tracks[0].bars[0].voices[0].beats[i].lyrics = vec![t.to_string()];
+        }
+    }
+}
+
+#[test]
+fn deleting_a_beat_shifts_the_syllables_on() {
+    let mut a = app();
+    lyric_bar(&mut a, &["A", "le", "lu", "ia", ""]);
+    // Delete the second beat: "le" moves to "lu"'s note, and so on, into the free note.
+    a.pane_mut().cursor.beat = 1;
+    a.mode = Mode::Insert;
+    keys(&mut a, "<Del><Esc>");
+    assert_eq!(syllables(&a), ["A", "le", "lu", "ia"]);
+    keys(&mut a, "u");
+    assert_eq!(syllables(&a), ["A", "le", "lu", "ia", ""]);
+}
+
+#[test]
+fn deleting_the_last_note_of_a_beat_shifts_its_syllable_on() {
+    let mut a = app();
+    lyric_bar(&mut a, &["A", "le", "lu", "ia", ""]);
+    a.pane_mut().cursor.beat = 1;
+    a.pane_mut().cursor.string = 0;
+    a.mode = Mode::Insert;
+    keys(&mut a, "<BS><Esc>");
+    // The beat is a rest now with no syllable; the text goes on over the notes.
+    assert_eq!(syllables(&a), ["A", "", "le", "lu", "ia"]);
+}
+
+#[test]
+fn a_syllable_with_no_free_note_joins_the_last_one() {
+    let mut a = app();
+    lyric_bar(&mut a, &["A", "le", "lu", "ia"]);
+    a.pane_mut().cursor.beat = 1;
+    a.mode = Mode::Insert;
+    keys(&mut a, "<Del><Esc>");
+    assert_eq!(syllables(&a), ["A", "le", "lu ia"]);
+}
