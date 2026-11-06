@@ -278,6 +278,7 @@ impl ChantView {
         }
         // Runs of notes between syllable starts and divisions, cut into neumes.
         let starts = syllable_starts(&events);
+        let has_lyrics = events.iter().any(|e| e.lyric.is_some());
         let mut neumes: Vec<Vec<usize>> = Vec::new();
         let mut syllable_of = Vec::new();
         let mut run: Vec<usize> = Vec::new();
@@ -287,7 +288,10 @@ impl ChantView {
             let mut part: Vec<usize> = Vec::new();
             let mut parts: Vec<Vec<usize>> = Vec::new();
             for &i in run.iter() {
-                let forced = events[i].marks.as_ref().is_some_and(|m| m.neume_start);
+                let forced = events[i]
+                    .marks
+                    .as_ref()
+                    .is_some_and(|m| m.neume_start || (m.punctum && !has_lyrics));
                 if forced && !part.is_empty() {
                     parts.push(std::mem::take(&mut part));
                 }
@@ -459,5 +463,44 @@ mod tests {
         }));
         let w = ChantView::build(&s, &s.tracks[i], ChordPolicy::Top).unwrap();
         assert!(w.neumes.iter().any(|n| n[0] == 1));
+    }
+
+    /// Punctums entered one by one are separate neumes until lyrics exist; then each syllable
+    /// condenses its notes by contour (pes, clivis, torculus), whatever the flags say.
+    #[test]
+    fn lyrics_condense_punctums_into_neumes() {
+        let shapes: [(&[u8], usize); 4] = [
+            (&[72, 74], 2),
+            (&[74, 72], 2),
+            (&[72, 74, 72], 3),
+            (&[72, 74, 72, 74], 4),
+        ];
+        for (pitches, first) in shapes {
+            let rows: Vec<Vec<u8>> = pitches.iter().map(|&p| vec![p]).collect();
+            let n = pitches.len();
+            let (mut s2, i2) = track(vec![rows]);
+            for b in &mut s2.tracks[i2].bars[0].voices[0].beats {
+                b.duration = Duration::new(DurationValue::Eighth);
+                b.notes[0].chant = Some(Box::new(ChantMarks {
+                    punctum: true,
+                    ..Default::default()
+                }));
+            }
+            // No lyrics: a neume per punctum.
+            let v = ChantView::build(&s2, &s2.tracks[i2], ChordPolicy::Top).unwrap();
+            assert_eq!(v.neumes.len(), n, "{pitches:?}");
+            // One syllable over the lot: the neumes follow the contour.
+            s2.tracks[i2].bars[0].voices[0].beats[0].lyrics = vec!["Ky".into()];
+            let v = ChantView::build(&s2, &s2.tracks[i2], ChordPolicy::Top).unwrap();
+            assert_eq!(v.neumes[0].len(), first, "{pitches:?}: {:?}", v.neumes);
+            // An explicit neume start still splits.
+            s2.tracks[i2].bars[0].voices[0].beats[1].notes[0]
+                .chant
+                .as_mut()
+                .unwrap()
+                .neume_start = true;
+            let v = ChantView::build(&s2, &s2.tracks[i2], ChordPolicy::Top).unwrap();
+            assert_eq!(v.neumes[0].len(), 1, "{pitches:?}");
+        }
     }
 }

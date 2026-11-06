@@ -627,32 +627,6 @@ const DEFAULT_INSERT_SLASH: &[(&str, &str)] =
 
 /// Insert mode on chant: GABC pitch letters and signs.
 const DEFAULT_INSERT_CHANT: &[(&str, &str)] = &[
-    ("a", "chant-note a"),
-    ("b", "chant-note b"),
-    ("c", "chant-note c"),
-    ("d", "chant-note d"),
-    ("e", "chant-note e"),
-    ("f", "chant-note f"),
-    ("g", "chant-note g"),
-    ("h", "chant-note h"),
-    ("i", "chant-note i"),
-    ("j", "chant-note j"),
-    ("k", "chant-note k"),
-    ("l", "chant-note l"),
-    ("m", "chant-note m"),
-    ("A", "chant-note A"),
-    ("B", "chant-note B"),
-    ("C", "chant-note C"),
-    ("D", "chant-note D"),
-    ("E", "chant-note E"),
-    ("F", "chant-note F"),
-    ("G", "chant-note G"),
-    ("H", "chant-note H"),
-    ("I", "chant-note I"),
-    ("J", "chant-note J"),
-    ("K", "chant-note K"),
-    ("L", "chant-note L"),
-    ("M", "chant-note M"),
     ("v", "chant-mod v"),
     ("s", "chant-mod s"),
     ("o", "chant-mod o"),
@@ -666,7 +640,7 @@ const DEFAULT_INSERT_CHANT: &[(&str, &str)] = &[
     (",", "chant-bar ,"),
     (";", "chant-bar ;"),
     (":", "chant-bar :"),
-    ("<Space>", "chant-append"),
+    ("<Space>", "insert-next"),
     ("<Right>", "beat-next"),
     ("/", "chant-break"),
     ("<CR>", "chant-syllable"),
@@ -1325,8 +1299,9 @@ mod tests {
         ));
         // Other notations keep their own defaults for the same key.
         assert!(matches!(
-            cfg.insert_keymap(InsertKind::Chant).lookup(&a),
-            Lookup::Exact([Command::ChantNote('a')])
+            cfg.insert_keymap(InsertKind::Chant)
+                .lookup(&[Key::char('v')]),
+            Lookup::Exact([Command::ChantMod(_)])
         ));
         assert!(matches!(
             cfg.insert_keymap(InsertKind::Standard)

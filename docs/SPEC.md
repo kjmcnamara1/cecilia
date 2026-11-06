@@ -110,6 +110,8 @@ end, double bar, final barline) stay solid.
 
 ### 4.2 Chant model
 
+The full logic of chant ⇄ modern conversion (pitch mapping, clef fitting, syllables, neumes, signs, transcription) is in [CHANT.md](CHANT.md).
+
 Chant track = sequence of syllables with text underlay; each syllable carries neume groups.
 Elements: clefs (C/F on any line, flat clefs), punctum, virga, punctum inclinatum (diamond),
 podatus/pes, clivis, torculus, porrectus, scandicus, climacus, quilisma, oriscus, liquescents,
@@ -138,7 +140,7 @@ chords included) does not depend on which staves are shown. The view is built in
   status line, and `:modern-to-chant` refuses.
 - Syllables start at each lyric (at each quarter note when there are none); notes in a syllable
   form neumes by contour (`cecilia_core::chant::group_neumes`, shared with the GABC engraver), and a
-  note marked `neume_start` always starts a new one. Tied beats extend the note before them.
+  note marked `neume_start` (`/`, `:chant-break`) always starts a new one. A note entered with `<CR>` (`:chant-syllable`: a punctum at the cursor position and insert duration, in a new beat after the cursor, the bar filling like other staves) is marked `punctum`: its own neume while the track has no lyrics, and ignored for grouping once any lyric exists, so syllables condense their notes by contour. Tied beats extend the note before them.
 - The melody is moved by the same shift to the white-key scale (B♭ allowed) and clef as
   `modern-to-chant`; a note longer than the typical one gets a mora.
 - Breath and phrase marks become divisions: a rest shorter than a quarter note is a divisio

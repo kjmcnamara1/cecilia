@@ -226,14 +226,44 @@ impl Typeset<'_> {
     }
 
     /// The mora dot after a head ending at `x`: a circle a little larger than the font's own.
+    /// On a line (an odd height digit) it sits high, in the space above the head's middle; in a
+    /// space it sits low, so it never lies on a line.
     pub fn mora(&mut self, x: f64, pos: i32) {
         let n = pos - 2;
-        let up = if n.rem_euclid(2) == 1 { 90.0 } else { 28.0 };
+        let up = if n.rem_euclid(2) == 1 { 90.0 } else { -45.0 };
         let c = Circle::new(
-            (x + 62.0 * self.u(), self.y(n) - up * self.u()),
+            (x + 92.0 * self.u(), self.y(n) - up * self.u()),
             0.12 * self.g,
         );
         fill(self.page, c.to_path(0.05));
+    }
+
+    /// An ictus (a short vertical tick) under the head at height digit `n` and centre `cx`,
+    /// that never crosses a staff line: it sits in the space just below the head, or, when
+    /// that space is too narrow for it, in the one below the next line. `lines` are the page
+    /// y of the staff lines.
+    pub fn ictus(&mut self, cx: f64, n: i32, lines: &[f64]) {
+        let (g, u) = (self.g, self.u());
+        let w = 0.07 * g;
+        let margin = 0.1 * g + w / 2.0;
+        let start = self.y(n) + 0.5 * HEAD_H * u + 0.08 * g;
+        let len = 0.3 * g;
+        // The first line below the head's bottom edge bounds the space the tick starts in.
+        let below = lines
+            .iter()
+            .copied()
+            .filter(|&y| y >= start - margin)
+            .fold(f64::INFINITY, f64::min);
+        let (a, b) = if below.is_finite() && below - margin - start < 0.15 * g {
+            // No room: the space under that line.
+            (below + margin, below + margin + len)
+        } else if below.is_finite() {
+            let a = start;
+            (a, (a + len).min(below - margin))
+        } else {
+            (start, start + len)
+        };
+        self.page.line((cx, a), (cx, b), w);
     }
 
     /// A flat or natural at height `pos`, its right edge at `x`; returns false for a sharp.

@@ -55,7 +55,6 @@ pub const COMMANDS: &[&str] = &[
     "chant-bar",
     "chant-break",
     "chant-mod",
-    "chant-note",
     "chant-syllable",
     "chant-to-modern",
     "chant-view",
@@ -67,6 +66,7 @@ pub const COMMANDS: &[&str] = &[
     "delete",
     "delete-note",
     "delete-beat",
+    "reflow",
     "dot",
     "duration",
     "duration-longer",
@@ -882,6 +882,9 @@ pub fn describe(command: &str) -> Option<&'static str> {
         "delete" => "Delete operator",
         "delete-note" => "Delete the note under the cursor",
         "delete-beat" => "Delete the whole beat under the cursor",
+        "reflow" => {
+            "Redraw the barlines of the voice to fit the time signatures: shift notes between bars (the Visual selection, else every bar)"
+        }
         "dot" => "Toggle a dot on the beat",
         "duration" => "Set the note value (1, 2, 4 … 64)",
         "duration-longer" => "Double the beat's length",
@@ -1112,12 +1115,13 @@ pub fn describe(command: &str) -> Option<&'static str> {
         "note-letter" => "Enter the note of a letter (a-g) nearest the cursor on a standard staff",
         "accidental" => "Make the cursor note sharp, flat or natural",
         "slash" => "Put a slash at the cursor beat of a slash staff",
-        "chant-note" => "Set the cursor chant note's GABC pitch (a-m; upper case: inclinatum)",
         "chant-mod" => "Toggle a GABC modifier of the cursor chant note",
         "chant-bar" => "Add a division after the cursor syllable",
         "chant-append" => "Add a chant note after the cursor note",
         "chant-break" => "Add a chant note after the cursor note, starting a new neume",
-        "chant-syllable" => "Add a chant syllable after the cursor syllable",
+        "chant-syllable" => {
+            "Chant: a new syllable after the cursor syllable; on a chant staff of an ordinary track, a punctum at the cursor position and insert duration"
+        }
         "track-next" => "Next track",
         "track-prev" => "Previous track",
         "trainer" => "Speed trainer: start, target, step",

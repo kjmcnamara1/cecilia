@@ -2,9 +2,7 @@
 //! modern notation.
 
 use cecilia_core::TrackKind;
-use cecilia_core::chant::{
-    self, Chant, NeumeItem, Syllable, letter_position, retranscribe, transcribe,
-};
+use cecilia_core::chant::{self, Chant, NeumeItem, Syllable, retranscribe, transcribe};
 
 use crate::app::{App, Buffer};
 use crate::command::Command;
@@ -108,12 +106,6 @@ impl App {
         let duration = self.insert_duration();
         let policy = self.chord_policy();
         match cmd {
-            ChantNote(ch) if ordinary => {
-                let pos = letter_position(*ch).unwrap_or(0);
-                let upper = ch.is_ascii_uppercase();
-                self.edit(|cx| crate::edit::put_chant_note(cx, policy, pos, upper, duration));
-                return true;
-            }
             ChantMod(m) if ordinary => {
                 self.edit(|cx| crate::edit::toggle_chant_mark(cx, policy, m));
                 return true;
@@ -131,38 +123,12 @@ impl App {
                 return true;
             }
             ChantSyllable if ordinary => {
-                self.error(
-                    "chant-syllable: on this track, syllables come from its lyrics (:lyrics)",
-                );
+                self.edit(|cx| crate::edit::enter_chant_punctum(cx, policy, duration));
                 return true;
             }
             _ => {}
         }
         match cmd {
-            ChantNote(c) => {
-                let pitch = letter_position(*c).unwrap_or(0);
-                let inclinatum = c.is_ascii_uppercase();
-                self.chant_edit(|chant, at| {
-                    let Some((si, ii)) = at else {
-                        // No note yet: the first one, in the first syllable.
-                        if chant.syllables.is_empty() {
-                            chant.syllables.push(Syllable::default());
-                        }
-                        let items = &mut chant.syllables[0].items;
-                        items.push(NeumeItem::Note(chant::ChantNote {
-                            pitch,
-                            inclinatum,
-                            ..chant::ChantNote::default()
-                        }));
-                        return Ok(Some((0, items.len() - 1)));
-                    };
-                    if let Some(NeumeItem::Note(n)) = chant.syllables[si].items.get_mut(ii) {
-                        n.pitch = pitch;
-                        n.inclinatum = inclinatum;
-                    }
-                    Ok(Some((si, ii)))
-                });
-            }
             ChantMod(m) => {
                 let m = m.clone();
                 self.chant_edit(|chant, at| {
@@ -230,10 +196,14 @@ impl App {
                 let sign = sign.clone();
                 self.chant_edit(|chant, at| {
                     let si = at.map_or(chant.syllables.len().saturating_sub(1), |p| p.0);
-                    // A second `:` makes the double bar `::`.
+                    // A second `:` makes the double bar `::`, a third takes it away.
                     if let Some(next) = chant.syllables.get_mut(si + 1) {
                         if sign == ":" && next.items == [NeumeItem::Bar(":".into())] {
                             next.items[0] = NeumeItem::Bar("::".into());
+                            return Ok(at);
+                        }
+                        if sign == ":" && next.items == [NeumeItem::Bar("::".into())] {
+                            chant.syllables.remove(si + 1);
                             return Ok(at);
                         }
                     }
@@ -470,22 +440,24 @@ mod tests {
     #[test]
     fn chant_insert_mode() {
         let mut a = app();
-        // The first note of "Al" becomes h, then a virga.
-        keys(&mut a, "ih");
-        assert_eq!(gabc(&a), "(c4) Al(hg) le(h) lu(g) ia.(f.) (::)");
-        assert_eq!(a.pane().cursor.line, 7);
-        keys(&mut a, "v");
-        assert_eq!(gabc(&a), "(c4) Al(hvg) le(h) lu(g) ia.(f.) (::)");
-        // A new note after it, set to j; then a new neume.
-        keys(&mut a, "<Space>j");
-        assert_eq!(gabc(&a), "(c4) Al(hvjg) le(h) lu(g) ia.(f.) (::)");
-        keys(&mut a, "/k");
-        assert_eq!(gabc(&a), "(c4) Al(hvj/kg) le(h) lu(g) ia.(f.) (::)");
+        // The first note of "Al" becomes a virga.
+        keys(&mut a, "iv");
+        assert_eq!(gabc(&a), "(c4) Al(fvg) le(h) lu(g) ia.(f.) (::)");
+        // A new note after it; then a new neume.
+        keys(&mut a, "<Space>");
+        assert_eq!(gabc(&a), "(c4) Al(fvfg) le(h) lu(g) ia.(f.) (::)");
+        keys(&mut a, "/");
+        assert_eq!(gabc(&a), "(c4) Al(fvf/fg) le(h) lu(g) ia.(f.) (::)");
         // Deleting it leaves g starting the neume; a division follows the syllable.
         keys(&mut a, "<BS>");
-        assert_eq!(gabc(&a), "(c4) Al(hvj/g) le(h) lu(g) ia.(f.) (::)");
+        assert_eq!(gabc(&a), "(c4) Al(fvf/g) le(h) lu(g) ia.(f.) (::)");
         keys(&mut a, ";");
-        assert_eq!(gabc(&a), "(c4) Al(hvj/g) (;) le(h) lu(g) ia.(f.) (::)");
+        assert_eq!(gabc(&a), "(c4) Al(fvf/g) (;) le(h) lu(g) ia.(f.) (::)");
+        // `:` cycles major, double, none.
+        keys(&mut a, "::");
+        assert_eq!(gabc(&a), "(c4) Al(fvf/g) (::) (;) le(h) lu(g) ia.(f.) (::)");
+        keys(&mut a, ":");
+        assert_eq!(gabc(&a), "(c4) Al(fvf/g) (;) le(h) lu(g) ia.(f.) (::)");
         keys(&mut a, "<Esc>uuuuuu");
         assert_eq!(gabc(&a), "(c4) Al(fg) le(h) lu(g) ia.(f.) (::)");
     }

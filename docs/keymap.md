@@ -234,6 +234,7 @@ is typed after it, is one undo step.
 | `o` / `O`                                              | new bar after / before the cursor bar (`[count]` bars), then Insert mode on it (`:bar-open-after`, `:bar-open-before`) |
 | `gi`                                                   | Insert mode where Insert mode was last left in this file (on the cursor if never), adding nothing (`:insert-last`) |
 | `<CR>`                                                 | Insert mode on the cursor beat, adding nothing (`:insert-here`; the old `i` and, until 0.17, `gi`) |
+| `:reflow`                                              | redraw the barlines of the cursor's voice to fit the time signatures: excess beats move to the start of the next bar, short bars are filled from the next, and a beat straddling a barline is split and tied. Durations and pitches don't change; other voices are left alone. Over every bar, or in Visual mode over the selection only, whose last bar keeps whatever is left over |
 | `x`                                                    | delete the one note under the cursor: on the cursor string, or at the cursor line / space (`[count]x`); on a slash staff the beat's slash, i.e. all its notes |
 | `d{motion}` / `dd`                                     | delete beats / bars (`[count]dd`). `dl` the beat under the cursor, `dh` the one before it, `dw` `de` `db` `d$` `d^` …  |
 | `y{motion}` / `yy`, `p` / `P`                          | yank beats or bars (`yl`, `yh` …, `yy` the bar) / put after / before the cursor                   |
@@ -611,18 +612,19 @@ On a **slash** staff: `/` puts a slash on the beat (`:slash`; `<CR>` does as wel
 
 On **chant**, the cursor is on a note: a single square on that position of the chant staff. On a chant track (opened from GABC) these edit the chant
 itself; on any other track they edit the track's notes (shown on its other staves too) and keep
-the chant signs with them, the syllables coming from its lyrics. Chant is monophonic, so with a
+the chant signs with them, the syllables coming from its lyrics. A punctum entered with `<CR>` is its own neume while the track has no lyrics; once lyrics exist, each syllable's notes condense into neumes by contour (pes, clivis, torculus …) and `<CR>` punctums no longer split them (`/` neume breaks still do). Chant is monophonic, so with a
 chord the staff shows and edits one note of it (`ui.chant_chords`: the top note by default, or the
 bottom one; `error` refuses chords and the status line names the first one):
 
 | keys                                      | command                                                                         |
 | ----------------------------------------- | ------------------------------------------------------------------------------- |
-| `a`–`m` / `A`–`M`                         | the cursor note's GABC pitch / as a punctum inclinatum (`:chant-note`)           |
-| `<Space>` / `/`                           | a new note after the cursor note, in the same neume / starting a new neume      |
-| `<CR>`                                    | a new syllable after the cursor syllable                                        |
+| `h` `j` `k` `l`                           | move the cursor, as on a standard staff (beat back / position down / up / beat on); a pitch is entered by moving to its position and `<CR>` |
+| `<Space>`                                 | next beat, as on a standard staff (`:insert-next`). Chant track: a new note after the cursor note, in the same neume |
+| `/`                                       | a new note after the cursor note, starting a new neume                          |
+| `<CR>`                                    | chant track: a new syllable after the cursor syllable. Other tracks, as on a standard staff: a plain punctum at the cursor's staff position with the insert duration, then on to the next beat; chant being monophonic, a note the beat already has moves to the cursor's position, keeping its signs (`:chant-syllable`) |
 | `v` `s` `o` `q` `w` `~`                   | virga, stropha, oriscus, quadratum, quilisma, liquescent (toggles, `:chant-mod`) |
 | `.` `_` `'` `-`                           | mora, episema, ictus, initio debilis                                            |
-| `,` `;` `:`                               | a division after the syllable (`:` again makes `::`; `:chant-bar`)              |
+| `,` `;` `:`                               | a division after the syllable (`:` cycles major, double, none; `:chant-bar`)    |
 | `<BS>` / `<Del>`                          | delete the note                                                                 |
 | `<Right>`                                 | next note                                                                       |
 

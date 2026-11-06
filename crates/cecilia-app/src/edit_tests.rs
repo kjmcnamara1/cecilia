@@ -690,19 +690,51 @@ fn enter_on_a_slash_staff_puts_a_slash() {
 }
 
 #[test]
-fn chant_insert_keeps_its_letters_and_enter() {
+fn chant_insert_moves_like_standard_and_keeps_its_letters() {
     let mut a = app();
     a.run(Command::StaffAdd(Some("chant".into())));
     assert_eq!(a.insert_kind(), InsertKind::Chant);
     let (c, _) = Config::parse("").unwrap();
-    // h j k l are GABC pitches there; Enter starts a new syllable.
     let chant = c.insert_keymap(InsertKind::Chant);
+    // h j k l are not GABC pitches in insert mode: they fall through to the cursor movement.
     for k in ["h", "j", "k", "l"] {
         let keys = crate::keys::parse_keys(k, &[]).unwrap();
-        assert!(chant.bindings.contains_key(&keys), "{k}");
+        assert!(!chant.bindings.contains_key(&keys), "{k}");
     }
-    let enter = crate::keys::parse_keys("<CR>", &[]).unwrap();
-    assert_eq!(chant.names[&enter], vec!["chant-syllable".to_string()]);
+    let names = |k: &str| chant.names[&crate::keys::parse_keys(k, &[]).unwrap()].clone();
+    // The pitch letters are gone: the cursor's position and Enter set the pitch.
+    let a_key = crate::keys::parse_keys("a", &[]).unwrap();
+    assert!(!chant.bindings.contains_key(&a_key));
+    assert_eq!(names("v"), vec!["chant-mod v".to_string()]);
+    assert_eq!(names("<CR>"), vec!["chant-syllable".to_string()]);
+    assert_eq!(names("<Space>"), vec!["insert-next".to_string()]);
+}
+
+#[test]
+fn enter_and_space_on_a_chant_staff_of_an_ordinary_track() {
+    let mut a = app();
+    a.run(Command::StaffAdd(Some("chant".into())));
+    a.pane_mut().cursor.line = 6;
+    keys(&mut a, "i<CR>");
+    // A punctum at the cursor's position in the beat, then on to the next beat.
+    assert_eq!(bar_beats(&a, 0)[0].notes.len(), 1);
+    assert!(bar_beats(&a, 0)[0].notes[0].chant.as_ref().unwrap().punctum);
+    assert_eq!(at(&a), (0, 1));
+    // k moves the cursor up a position; Enter puts the next punctum there.
+    keys(&mut a, "k");
+    let line = a.pane().cursor.line;
+    assert_eq!(a.pane().cursor.beat, 1);
+    keys(&mut a, "<CR>");
+    assert_eq!(bar_beats(&a, 0)[1].notes.len(), 1);
+    assert_eq!(at(&a), (0, 2));
+    assert_ne!(line, 6);
+    // Space moves on without a note.
+    keys(&mut a, "<Space>");
+    assert!(bar_beats(&a, 0)[2].notes.is_empty());
+    assert_eq!(at(&a), (0, 3));
+    // h goes back a beat.
+    keys(&mut a, "h");
+    assert_eq!(at(&a), (0, 2));
 }
 
 #[test]
@@ -982,4 +1014,168 @@ fn typing_into_a_new_voice_fills_it() {
     let v = &voices_of(&a, 0)[1];
     assert_eq!(v.beats.len(), 1);
     assert_eq!(v.beats[0].notes[0].fret, 3);
+}
+
+/// The first syllable of each beat of bar 0.
+fn syllables(a: &App) -> Vec<String> {
+    bar_beats(a, 0)
+        .iter()
+        .map(|b| b.lyrics.first().cloned().unwrap_or_default())
+        .collect()
+}
+
+fn lyric_bar(a: &mut App, text: &[&str]) {
+    let spec: Vec<Vec<(u8, u8, bool)>> = text.iter().map(|_| vec![(0, 3, false)]).collect();
+    let refs: Vec<Spec> = spec.iter().map(|s| &s[..]).collect();
+    set_bar(a, 0, &refs);
+    let b = a.pane().buffer;
+    for (i, t) in text.iter().enumerate() {
+        if !t.is_empty() {
+            a.buffers[b].score.tracks[0].bars[0].voices[0].beats[i].lyrics = vec![t.to_string()];
+        }
+    }
+}
+
+#[test]
+fn deleting_a_beat_shifts_the_syllables_on() {
+    let mut a = app();
+    lyric_bar(&mut a, &["A", "le", "lu", "ia", ""]);
+    // Delete the second beat: "le" moves to "lu"'s note, and so on, into the free note.
+    a.pane_mut().cursor.beat = 1;
+    a.mode = Mode::Insert;
+    keys(&mut a, "<Del><Esc>");
+    assert_eq!(syllables(&a), ["A", "le", "lu", "ia"]);
+    keys(&mut a, "u");
+    assert_eq!(syllables(&a), ["A", "le", "lu", "ia", ""]);
+}
+
+#[test]
+fn deleting_the_last_note_of_a_beat_shifts_its_syllable_on() {
+    let mut a = app();
+    lyric_bar(&mut a, &["A", "le", "lu", "ia", ""]);
+    a.pane_mut().cursor.beat = 1;
+    a.pane_mut().cursor.string = 0;
+    a.mode = Mode::Insert;
+    keys(&mut a, "<BS><Esc>");
+    // The beat is a rest now with no syllable; the text goes on over the notes.
+    assert_eq!(syllables(&a), ["A", "", "le", "lu", "ia"]);
+}
+
+#[test]
+fn syllables_past_the_last_note_are_kept_and_return_with_new_notes() {
+    let mut a = app();
+    lyric_bar(&mut a, &["A", "le", "lu", "ia"]);
+    a.pane_mut().cursor.beat = 1;
+    a.mode = Mode::Insert;
+    keys(&mut a, "<Del><Esc>");
+    // Three notes, three syllables; "ia" is not shown but the score keeps it.
+    assert_eq!(syllables(&a), ["A", "le", "lu"]);
+    let kept = a.buffer().score.lyrics.clone().unwrap();
+    assert!(kept.lines[0].text.ends_with("ia"), "{:?}", kept.lines);
+    // A note added takes its place in the text again: no syllable stacks on a beat.
+    keys(&mut a, "a3<Esc>");
+    assert_eq!(syllables(&a), ["A", "le", "lu", "ia"]);
+    keys(&mut a, "u");
+    assert_eq!(syllables(&a), ["A", "le", "lu"]);
+}
+
+/// The lengths in quarters of the beats of bar `b` of track 0's first voice.
+fn quarters(a: &App, b: usize) -> Vec<f64> {
+    bar_beats(a, b)
+        .iter()
+        .filter(|x| !x.empty)
+        .map(|x| x.ticks() as f64 / 960.0)
+        .collect()
+}
+
+#[test]
+fn reflow_moves_the_excess_into_the_next_bar_and_fills_the_gaps() {
+    let mut a = app();
+    let q: Spec = &[(0, 1, false)];
+    // 4/4: five quarters, then two.
+    set_bar(&mut a, 0, &[q, q, q, q, q]);
+    set_bar(&mut a, 1, &[q, q]);
+    keys(&mut a, ":reflow<CR>");
+    assert_eq!(quarters(&a, 0), [1.0; 4]);
+    assert_eq!(quarters(&a, 1), [1.0; 3]);
+    assert_eq!(undo_steps(&a), 1);
+    // A short bar takes notes from the next.
+    set_bar(&mut a, 0, &[q, q, q]);
+    set_bar(&mut a, 1, &[q, q, q, q]);
+    keys(&mut a, ":reflow<CR>");
+    assert_eq!(quarters(&a, 0), [1.0; 4]);
+    assert_eq!(quarters(&a, 1), [1.0; 3]);
+}
+
+#[test]
+fn reflow_splits_a_beat_over_the_barline_and_ties_it() {
+    let mut a = app();
+    let q: Spec = &[(0, 1, false)];
+    // 3 quarters and a half note: the half note straddles the barline.
+    set_bar(&mut a, 0, &[q, q, q]);
+    let b = a.pane().buffer;
+    let half = Beat {
+        duration: Duration::new(DurationValue::Half),
+        notes: vec![Note::new(1, 7)],
+        ..Beat::default()
+    };
+    a.buffers[b].score.tracks[0].bars[0].voices[0]
+        .beats
+        .push(half);
+    set_bar(&mut a, 1, &[]);
+    keys(&mut a, ":reflow<CR>");
+    assert_eq!(quarters(&a, 0), [1.0, 1.0, 1.0, 1.0]);
+    assert_eq!(quarters(&a, 1), [1.0]);
+    let (head, tail) = (&bar_beats(&a, 0)[3], &bar_beats(&a, 1)[0]);
+    assert_eq!((head.notes[0].string, head.notes[0].fret), (1, 7));
+    assert_eq!((tail.notes[0].string, tail.notes[0].fret), (1, 7));
+    assert!(!head.notes[0].tie);
+    assert!(tail.notes[0].tie);
+}
+
+#[test]
+fn reflow_in_visual_mode_only_touches_the_selection() {
+    let mut a = app();
+    let q: Spec = &[(0, 1, false)];
+    set_bar(&mut a, 0, &[q, q, q, q, q]);
+    set_bar(&mut a, 1, &[q, q, q, q, q, q, q]);
+    set_bar(&mut a, 2, &[q, q, q, q, q]);
+    // Bars 2 and 3 selected: the excess of bar 2 shifts on, the last bar keeps what is left.
+    a.pane_mut().cursor.bar = 1;
+    a.run(Command::Visual { bars: true });
+    a.run(Command::BarNext);
+    keys(&mut a, ":reflow<CR>");
+    assert_eq!(a.mode, Mode::Normal);
+    assert_eq!(quarters(&a, 0), [1.0; 5]);
+    assert_eq!(quarters(&a, 1), [1.0; 4]);
+    assert_eq!(quarters(&a, 2), [1.0; 8]);
+    // A selection of beats: only those are repacked, the rest of their bars stays.
+    set_bar(&mut a, 0, &[q, q, q, q, q]);
+    set_bar(&mut a, 1, &[q, q]);
+    a.pane_mut().cursor.bar = 0;
+    a.pane_mut().cursor.beat = 3;
+    a.run(Command::Visual { bars: false });
+    a.run(Command::BarNext);
+    keys(&mut a, ":reflow<CR>");
+    // Beats 4-5 of bar 1 and beat 1 of bar 2 repacked around the beats left out: bar 1 is
+    // filled to four, bar 2 keeps the rest and the unselected beat after the area.
+    assert_eq!(quarters(&a, 0), [1.0; 4]);
+    assert_eq!(quarters(&a, 1), [1.0; 3]);
+}
+
+#[test]
+fn reflow_only_changes_the_cursor_voice() {
+    let mut a = app();
+    let q: Spec = &[(0, 1, false)];
+    set_bar(&mut a, 0, &[q, q, q, q, q]);
+    let b = a.pane().buffer;
+    let second = Voice {
+        beats: vec![Beat::rest(Duration::new(DurationValue::Whole))],
+    };
+    a.buffers[b].score.tracks[0].bars[0]
+        .voices
+        .push(second.clone());
+    keys(&mut a, ":reflow<CR>");
+    assert_eq!(a.buffers[b].score.tracks[0].bars[0].voices[1], second);
+    assert_eq!(quarters(&a, 0), [1.0; 4]);
 }

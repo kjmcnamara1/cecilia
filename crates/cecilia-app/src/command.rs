@@ -101,6 +101,9 @@ pub enum Command {
     DeleteNote,
     /// Delete the whole beat under the cursor (no rest left behind).
     DeleteBeat,
+    /// Redraws the barlines of the cursor voice to match the time signatures: notes move
+    /// between bars (the whole score, or the Visual selection), splitting and tying where needed.
+    Reflow,
     Operator(Operator),
     Put {
         before: bool,
@@ -195,8 +198,6 @@ pub enum Command {
     Accidental(i32),
     /// On a slash staff: a slash at the cursor beat.
     Slash,
-    /// On chant: the cursor note's GABC pitch letter (upper case: punctum inclinatum).
-    ChantNote(char),
     /// On chant: toggles a GABC modifier of the cursor note (`v`, `s`, `~`, `.`, `_`, `'`, `-` …).
     ChantMod(String),
     /// On chant: a division (`,` `;` `:`; `:` again makes `::`) after the cursor syllable.
@@ -689,6 +690,7 @@ impl Command {
             "insert-enter" => InsertEnter,
             "delete-note" => DeleteNote,
             "delete-beat" => DeleteBeat,
+            "reflow" => Reflow,
             "delete" => Operator(self::Operator::Delete),
             "yank" => Operator(self::Operator::Yank),
             "change" => Operator(self::Operator::Change),
@@ -845,11 +847,6 @@ impl Command {
                 }
             }),
             "slash" => Slash,
-            "chant-note" => ChantNote(
-                arg.and_then(|a| a.chars().next())
-                    .filter(|c| cecilia_core::chant::letter_position(*c).is_some_and(|p| p <= 12))
-                    .ok_or("chant-note: expected a GABC pitch letter a-m")?,
-            ),
             "chant-mod" => ChantMod(
                 arg.ok_or("chant-mod: expected a GABC modifier (v s o q w ~ . _ ' -)")?
                     .to_string(),
@@ -1277,6 +1274,7 @@ impl Command {
                 | InsertEnter
                 | DeleteNote
                 | DeleteBeat
+                | Reflow
                 | Operator(_)
                 | Put { .. }
                 | BarInsert { .. }
@@ -1300,7 +1298,6 @@ impl Command {
                 | NoteLetter(_)
                 | Accidental(_)
                 | Slash
-                | ChantNote(_)
                 | ChantMod(_)
                 | ChantBar(_)
                 | ChantAppend

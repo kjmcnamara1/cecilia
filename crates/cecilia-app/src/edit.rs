@@ -82,6 +82,56 @@ impl<'a> EditCx<'a> {
         cecilia_core::chant::retranscribe(score, t);
     }
 
+    /// Lays the lyrics of `verses` (of track `t`) out on the notes again after an edit changed
+    /// which beats sing: the syllables follow the text, one to a note in order, so a deleted note
+    /// hands its syllable on, new notes take the next ones, and syllables past the last note are
+    /// kept but not shown.
+    pub fn relayout_lyrics(&mut self, t: usize, verses: &[cecilia_core::lyrics::Verse]) {
+        for v in verses {
+            let target =
+                cecilia_core::lyrics::layout(&self.score.tracks[t], v.start_bar, &v.syllables);
+            let sung = target.iter().filter(|(_, s)| !s.is_empty()).count();
+            for ((b, i), text) in target {
+                let beat = &self.score.tracks[t].bars[b].voices[0].beats[i];
+                if beat.lyrics.get(v.verse).map_or("", String::as_str) == text {
+                    continue;
+                }
+                let beat = &mut self.bar(t, b).voices[0].beats[i];
+                if beat.lyrics.len() <= v.verse {
+                    beat.lyrics.resize(v.verse + 1, String::new());
+                }
+                beat.lyrics[v.verse] = text;
+                while beat.lyrics.last().is_some_and(String::is_empty) {
+                    beat.lyrics.pop();
+                }
+            }
+            // What does not fit stays in the score's text for the lyrics.
+            let spare = v.syllables.iter().filter(|s| !s.is_empty()).count() > sung;
+            let text = cecilia_core::lyrics::join(&v.syllables);
+            let kept = self
+                .score
+                .lyrics
+                .as_ref()
+                .filter(|l| l.track == Some(t))
+                .and_then(|l| l.lines.get(v.verse))
+                .is_some_and(|k| k.text == text);
+            if spare && !kept {
+                let score = self.whole();
+                let lyrics = score.lyrics.get_or_insert_with(Default::default);
+                if lyrics.track.is_none() || lyrics.track == Some(t) || lyrics.lines.is_empty() {
+                    lyrics.track = Some(t);
+                    while lyrics.lines.len() <= v.verse {
+                        lyrics.lines.push(Default::default());
+                    }
+                    lyrics.lines[v.verse] = cecilia_core::LyricLine {
+                        start_bar: v.start_bar as u32,
+                        text,
+                    };
+                }
+            }
+        }
+    }
+
     /// The recorded change, if anything changed.
     pub fn finish(self) -> Option<Change> {
         if let Some(before) = self.snapshot {
@@ -387,12 +437,13 @@ pub fn toggle_chant_mark(cx: &mut EditCx, policy: ChordPolicy, mark: &str) -> Re
     Ok(())
 }
 
-/// On a chant staff of an ordinary track: a division after the cursor beat (`:` on `:`
-/// makes `::`; the same sign again removes it).
+/// On a chant staff of an ordinary track: a division after the cursor beat (`:` cycles major,
+/// double, off; the same other sign again removes it).
 pub fn set_chant_division(cx: &mut EditCx, sign: &str) {
     let beat = cx.beat();
     beat.chant_division = match (beat.chant_division.as_deref(), sign) {
         (Some(":"), ":") => Some("::".into()),
+        (Some("::"), ":") => None,
         (Some(d), s) if d == s => None,
         _ => Some(sign.to_string()),
     };
@@ -420,6 +471,42 @@ pub fn append_chant_note(
             n.chant.get_or_insert_with(Default::default).neume_start = true;
         }
     }
+    Ok(())
+}
+
+/// On a chant staff of an ordinary track (Enter, as on a standard staff): a plain punctum at
+/// the cursor's staff position with `duration` in the cursor beat, then on to the next beat
+/// (see [`advance`]). Chant is monophonic: a note the beat already has moves to the cursor's
+/// position instead, keeping its signs. Until the track has lyrics a new punctum is its own
+/// neume.
+pub fn enter_chant_punctum(
+    cx: &mut EditCx,
+    policy: ChordPolicy,
+    duration: Duration,
+) -> Result<(), String> {
+    let track = cx.track().clone();
+    let position = cx.cursor.line.clamp(0, 13) as u8;
+    let existing = {
+        let b = cx.beat();
+        melody::pick(&track, b, policy).map(|i| {
+            b.notes[i]
+                .chant
+                .as_ref()
+                .is_some_and(|marks| marks.inclinatum)
+        })
+    };
+    match existing {
+        Some(inclinatum) => put_chant_note(cx, policy, position, inclinatum, duration)?,
+        None => {
+            put_chant_note(cx, policy, position, false, duration)?;
+            let beat = cx.beat();
+            let picked = melody::pick(&track, beat, policy).unwrap_or(0);
+            if let Some(n) = beat.notes.get_mut(picked) {
+                n.chant.get_or_insert_with(Default::default).punctum = true;
+            }
+        }
+    }
+    advance(cx, duration);
     Ok(())
 }
 
@@ -1172,6 +1259,159 @@ pub fn delete_range(cx: &mut EditCx, from: Pos, to: Pos) {
     }
     cx.cursor.bar = from.0;
     cx.cursor.beat = from.1;
+}
+
+/// A beat split into `Beat`s of `ticks` and the rest: the first part of the beat itself, every
+/// further piece a continuation tied to it. `None` when it cannot be split exactly.
+fn split_beat(beat: &Beat, ticks: u32) -> Option<(Vec<Beat>, Vec<Beat>)> {
+    if beat.duration.tuplet.is_some() || ticks == 0 || ticks >= beat.ticks() {
+        return None;
+    }
+    let pieces = |n: u32| -> Option<Vec<Duration>> {
+        let d: Vec<Duration> = cecilia_core::rest_beats(n)
+            .into_iter()
+            .map(|b| b.duration)
+            .collect();
+        (d.iter().map(Duration::ticks).sum::<u32>() == n).then_some(d)
+    };
+    let head = pieces(ticks)?;
+    let tail = pieces(beat.ticks() - ticks)?;
+    let continuation = |duration: Duration| Beat {
+        duration,
+        notes: beat
+            .notes
+            .iter()
+            .map(|n| Note {
+                string: n.string,
+                fret: n.fret,
+                velocity: n.velocity,
+                duration_percent: n.duration_percent,
+                alter: n.alter,
+                tie: true,
+                ..Note::default()
+            })
+            .collect(),
+        dynamic: beat.dynamic,
+        ..Beat::default()
+    };
+    let mut first = beat.clone();
+    first.duration = head[0];
+    let mut heads = vec![first];
+    heads.extend(head[1..].iter().map(|&d| continuation(d)));
+    let mut tails: Vec<Beat> = tail.iter().map(|&d| continuation(d)).collect();
+    // A division after the beat belongs after its last piece.
+    let division = heads[0].chant_division.take();
+    if let Some(last) = tails.last_mut() {
+        last.chant_division = division;
+    }
+    Some((heads, tails))
+}
+
+/// Redraws the barlines of the cursor voice (bars `from.0` to `to.0`, from beat `from.1` of the
+/// first to beat `to.1` of the last) to match the time signatures: beats that run over a bar
+/// move to the start of the next one, and bars that come up short are filled from the next.
+/// A beat that straddles a barline is split in two and tied. Durations and pitches never
+/// change; the last bar of the area keeps whatever is left over.
+pub fn reflow(cx: &mut EditCx, from: Pos, to: Pos) -> Result<(), String> {
+    let (t, v) = (cx.cursor.track, cx.cursor.voice);
+    let to_bar = to.0.min(cx.score.master_bars.len().saturating_sub(1));
+    if from.0 > to_bar {
+        return Ok(());
+    }
+    if let Some(b) = (from.0..=to_bar).find(|&b| cx.score.tracks[t].bars[b].simile.is_some()) {
+        return Err(format!("reflow: bar {} is a repeat sign", b + 1));
+    }
+    let caps: Vec<u32> = (from.0..=to_bar)
+        .map(|b| cx.score.played_ticks(b))
+        .collect();
+    let mut prefix = Vec::new();
+    let mut suffix = Vec::new();
+    let mut queue: std::collections::VecDeque<Beat> = Default::default();
+    for b in from.0..=to_bar {
+        let beats = cx.score.tracks[t].bars[b]
+            .voices
+            .get(v)
+            .map(|x| x.beats.clone())
+            .unwrap_or_default();
+        for (i, beat) in beats.into_iter().enumerate() {
+            if beat.empty {
+                continue;
+            }
+            if b == from.0 && i < from.1 {
+                prefix.push(beat);
+            } else if b == to_bar && i > to.1 {
+                suffix.push(beat);
+            } else {
+                queue.push_back(beat);
+            }
+        }
+    }
+    let mut out: Vec<Vec<Beat>> = Vec::new();
+    for (k, b) in (from.0..=to_bar).enumerate() {
+        let mut beats = if k == 0 {
+            std::mem::take(&mut prefix)
+        } else {
+            Vec::new()
+        };
+        if b == to_bar {
+            beats.extend(queue.drain(..));
+            beats.append(&mut suffix);
+            out.push(beats);
+            break;
+        }
+        let cap = caps[k];
+        let mut used: u32 = beats.iter().map(Beat::ticks).sum();
+        while let Some(beat) = queue.pop_front() {
+            let d = beat.ticks();
+            let room = cap.saturating_sub(used);
+            if d <= room {
+                used += d;
+                beats.push(beat);
+                continue;
+            }
+            if room > 0 {
+                if let Some((head, tail)) = split_beat(&beat, room) {
+                    beats.extend(head);
+                    for p in tail.into_iter().rev() {
+                        queue.push_front(p);
+                    }
+                    break;
+                }
+            }
+            // It does not fit and cannot be split: it starts the next bar (a beat longer than
+            // a whole bar stays alone in an empty one).
+            if beats.is_empty() {
+                beats.push(beat);
+            } else {
+                queue.push_front(beat);
+            }
+            break;
+        }
+        out.push(beats);
+    }
+    for (k, beats) in out.into_iter().enumerate() {
+        let bar = cx.bar(t, from.0 + k);
+        bar.simile = None;
+        let placeholder = || Voice {
+            beats: vec![Beat {
+                empty: true,
+                ..Beat::default()
+            }],
+        };
+        while bar.voices.len() <= v {
+            bar.voices.push(placeholder());
+        }
+        bar.voices[v] = if beats.is_empty() {
+            placeholder()
+        } else {
+            Voice { beats }
+        };
+    }
+    cx.cursor.bar = from.0;
+    cx.cursor.beat = from.1;
+    let len = cx.voice().len();
+    cx.cursor.beat = cx.cursor.beat.min(len - 1);
+    Ok(())
 }
 
 /// Voice that `Voice next/prev` goes to from the cursor's: voices go round through those the

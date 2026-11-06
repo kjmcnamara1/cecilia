@@ -7,6 +7,28 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- `<CR>` (`:chant-syllable`) on a chant staff of an ordinary track enters a plain punctum at the cursor's position with the insert duration (when the beat has no note) and moves on to the next beat, as on a standard staff (it used to be refused). Each such punctum is its own neume until the track has lyrics; then the syllables condense the notes into pes, clivis, torculus etc.
+
+### Added
+
+- `:reflow` redraws the barlines of the cursor's voice to match the time signatures: beats that run over a bar move to the start of the next, bars that come up short are filled from the next, and a beat that straddles a barline is split and tied (durations and pitches never change). It works over every bar, or in Visual mode over just the selection, whose last bar keeps whatever is left over. Other voices are not touched; bars with repeat signs are refused.
+
+### Fixed
+
+- Lyrics follow the notes: after an edit the text is laid out on the notes again, one syllable to a note and never two on one. Deleting a note hands its syllable (and the rest of the text) on to the following notes, new notes take the next syllables, and syllables past the last note are kept in the score's lyric text but not shown. Setting lyrics with more syllables than notes keeps the rest instead of reporting an error. Bars whose notes don't match their text (changed some other way, chant tracks) are left alone.
+
+### Changed
+
+- Removed `:chant-note` and the `a`–`m` / `A`–`M` keys of chant insert mode: a pitch is entered by moving the cursor to its position and pressing `<CR>`.
+- `<CR>` on a chant staff of an ordinary track moves a note the beat already has to the cursor's position (chant is monophonic), keeping its signs, and moves on to the next beat.
+- `:` on a chant staff cycles the major division, the double division and none (it only switched between the first two).
+- Normal mode: `w` `e` `b` on a chant staff of an ordinary track jump to the next / previous note at the cursor's position, as on a standard staff.
+- Chant engraving: the ictus never crosses a staff line; the mora sits a little further from its note, high when the note is on a line and low when it is in a space; a division is spaced midway between its beat and the next; the stropha (`s`) is now drawn on a chant staff of an ordinary track.
+- Insert mode on a chant staff: `h` `j` `k` `l` move the cursor as on a standard staff (they were the GABC pitches `h`–`l`; enter those by moving there and `<CR>`, or as `H`–`L`), and `<Space>` goes to the next beat (on a chant track it still adds a note to the neume).
+- The other staves of a track light the note under the cursor on a chant staff only while the cursor is on that note's position (they lit the beat's note wherever the cursor was).
+
 ## [0.31.0] - 2026-11-05
 
 ### Added

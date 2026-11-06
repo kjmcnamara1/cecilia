@@ -1458,8 +1458,8 @@ impl App {
             Ok(n)
         });
         if let Some(n) = placed.filter(|&n| n < syllables.len()) {
-            self.error(format!(
-                "lyrics: {} syllables did not fit",
+            self.info(format!(
+                "lyrics: {} syllables past the last note are kept, not shown",
                 syllables.len() - n
             ));
         }

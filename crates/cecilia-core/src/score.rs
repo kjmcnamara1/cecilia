@@ -637,6 +637,10 @@ pub struct ChantMarks {
     /// The note begins a new neume.
     #[serde(default, skip_serializing_if = "std::ops::Not::not")]
     pub neume_start: bool,
+    /// The note was entered as a plain punctum (Enter): it is its own neume while the track
+    /// has no lyrics; once syllables exist they decide the neumes instead.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub punctum: bool,
     /// GABC modifiers (`v` `s` `o` `q` `w` `~` `.` `_` `'` …), in written order.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub mods: Vec<String>,
