@@ -110,6 +110,8 @@ end, double bar, final barline) stay solid.
 
 ### 4.2 Chant model
 
+The full logic of chant ⇄ modern conversion (pitch mapping, clef fitting, syllables, neumes, signs, transcription) is in [CHANT.md](CHANT.md).
+
 Chant track = sequence of syllables with text underlay; each syllable carries neume groups.
 Elements: clefs (C/F on any line, flat clefs), punctum, virga, punctum inclinatum (diamond),
 podatus/pes, clivis, torculus, porrectus, scandicus, climacus, quilisma, oriscus, liquescents,
