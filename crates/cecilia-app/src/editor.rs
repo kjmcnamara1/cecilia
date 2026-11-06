@@ -688,9 +688,24 @@ impl App {
             self.error("no score to edit (use :new)");
             return None;
         }
+        // Lyrics follow the notes: laid out again after the edit unless it set them itself.
+        let lyrics_before = buffer.score.lyrics.clone();
+        let track_count = buffer.score.tracks.len();
+        let plans: Vec<(usize, Vec<cecilia_core::lyrics::Verse>)> = (0..buffer.score.tracks.len())
+            .map(|t| (t, cecilia_core::lyrics::plan(&buffer.score, t)))
+            .filter(|(_, v)| !v.is_empty())
+            .collect();
         let mut cx = EditCx::new(&mut buffer.score, pane.cursor);
         let result = f(&mut cx);
         cx.sync_chant();
+        if result.is_ok()
+            && cx.score.lyrics == lyrics_before
+            && cx.score.tracks.len() == track_count
+        {
+            for (t, verses) in &plans {
+                cx.relayout_lyrics(*t, verses);
+            }
+        }
         let mut cursor = cx.cursor;
         if let Some(change) = cx.finish() {
             match self.ed.group {
@@ -1385,12 +1400,25 @@ impl App {
                         &syllables,
                     );
                     refresh_lyric_lines(score, c.track);
+                    // What has no note left stays in the text, to show once there are notes.
+                    if n < syllables.len() {
+                        if let Some(k) = score
+                            .lyrics
+                            .as_mut()
+                            .filter(|l| l.track == Some(c.track))
+                            .and_then(|l| l.lines.get_mut(verse))
+                        {
+                            let mut all = cecilia_core::lyrics::syllables(&k.text);
+                            all.extend(syllables[n..].iter().cloned());
+                            k.text = cecilia_core::lyrics::join(&all);
+                        }
+                    }
                     Ok(n)
                 });
                 if let Some(n) = placed {
                     if n < syllables.len() {
-                        self.error(format!(
-                            "lyrics: {} syllables did not fit",
+                        self.info(format!(
+                            "lyrics: {} syllables past the last note are kept, not shown",
                             syllables.len() - n
                         ));
                     } else {

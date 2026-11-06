@@ -17,7 +17,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
-- Deleting a note or beat that carries a lyric syllable no longer loses it: the text shifts on over the following notes (the deleted note's syllable goes to the next note, each later one moves one note on, until a note without a syllable takes one; at the end of the track a syllable joins the last note's).
+- Lyrics follow the notes: after an edit the text is laid out on the notes again, one syllable to a note and never two on one. Deleting a note hands its syllable (and the rest of the text) on to the following notes, new notes take the next syllables, and syllables past the last note are kept in the score's lyric text but not shown. Setting lyrics with more syllables than notes keeps the rest instead of reporting an error. Bars whose notes don't match their text (changed some other way, chant tracks) are left alone.
 
 ### Changed
 

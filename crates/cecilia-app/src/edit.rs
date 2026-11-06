@@ -82,6 +82,56 @@ impl<'a> EditCx<'a> {
         cecilia_core::chant::retranscribe(score, t);
     }
 
+    /// Lays the lyrics of `verses` (of track `t`) out on the notes again after an edit changed
+    /// which beats sing: the syllables follow the text, one to a note in order, so a deleted note
+    /// hands its syllable on, new notes take the next ones, and syllables past the last note are
+    /// kept but not shown.
+    pub fn relayout_lyrics(&mut self, t: usize, verses: &[cecilia_core::lyrics::Verse]) {
+        for v in verses {
+            let target =
+                cecilia_core::lyrics::layout(&self.score.tracks[t], v.start_bar, &v.syllables);
+            let sung = target.iter().filter(|(_, s)| !s.is_empty()).count();
+            for ((b, i), text) in target {
+                let beat = &self.score.tracks[t].bars[b].voices[0].beats[i];
+                if beat.lyrics.get(v.verse).map_or("", String::as_str) == text {
+                    continue;
+                }
+                let beat = &mut self.bar(t, b).voices[0].beats[i];
+                if beat.lyrics.len() <= v.verse {
+                    beat.lyrics.resize(v.verse + 1, String::new());
+                }
+                beat.lyrics[v.verse] = text;
+                while beat.lyrics.last().is_some_and(String::is_empty) {
+                    beat.lyrics.pop();
+                }
+            }
+            // What does not fit stays in the score's text for the lyrics.
+            let spare = v.syllables.iter().filter(|s| !s.is_empty()).count() > sung;
+            let text = cecilia_core::lyrics::join(&v.syllables);
+            let kept = self
+                .score
+                .lyrics
+                .as_ref()
+                .filter(|l| l.track == Some(t))
+                .and_then(|l| l.lines.get(v.verse))
+                .is_some_and(|k| k.text == text);
+            if spare && !kept {
+                let score = self.whole();
+                let lyrics = score.lyrics.get_or_insert_with(Default::default);
+                if lyrics.track.is_none() || lyrics.track == Some(t) || lyrics.lines.is_empty() {
+                    lyrics.track = Some(t);
+                    while lyrics.lines.len() <= v.verse {
+                        lyrics.lines.push(Default::default());
+                    }
+                    lyrics.lines[v.verse] = cecilia_core::LyricLine {
+                        start_bar: v.start_bar as u32,
+                        text,
+                    };
+                }
+            }
+        }
+    }
+
     /// The recorded change, if anything changed.
     pub fn finish(self) -> Option<Change> {
         if let Some(before) = self.snapshot {
@@ -627,60 +677,6 @@ pub fn delete_note(cx: &mut EditCx) {
     beat.notes.retain(|n| n.string != string);
     if pitched {
         renumber_pitched(beat);
-    }
-    // A beat left without notes gives its syllables on to the following notes.
-    if beat.notes.is_empty() && beat.lyrics.iter().any(|l| !l.is_empty()) {
-        let taken = std::mem::take(&mut beat.lyrics);
-        let at = (cx.cursor.bar, cx.cursor.beat);
-        shift_lyrics(cx, at, vec![taken]);
-    }
-}
-
-/// Hands the syllables of deleted beats on to the notes from `from` on (the first voice of the
-/// cursor's track): each goes to the next note, and the syllable that note had moves on to
-/// the one after it, until a note without a syllable takes one (verse by verse). Nothing is
-/// lost: past the last note a syllable joins the last note's.
-fn shift_lyrics(cx: &mut EditCx, from: Pos, taken: Vec<Vec<String>>) {
-    let (t, v) = (cx.cursor.track, cx.cursor.voice);
-    // The notes after the deletion, in order.
-    let mut slots: Vec<Pos> = Vec::new();
-    for b in from.0..cx.score.master_bars.len() {
-        let Some(beats) = cx.score.tracks[t].bars[b].voices.get(v).map(|x| &x.beats) else {
-            continue;
-        };
-        for (i, beat) in beats.iter().enumerate() {
-            if (b > from.0 || i >= from.1) && !beat.empty && !beat.notes.is_empty() {
-                slots.push((b, i));
-            }
-        }
-    }
-    let Some(&last) = slots.last() else {
-        return;
-    };
-    for lyrics in taken {
-        for (verse, text) in lyrics.into_iter().enumerate() {
-            if text.is_empty() {
-                continue;
-            }
-            let mut carry = Some(text);
-            for &(b, i) in &slots {
-                let Some(c) = carry.take() else { break };
-                let beat = &mut cx.bar(t, b).voices[v].beats[i];
-                if beat.lyrics.len() <= verse {
-                    beat.lyrics.resize(verse + 1, String::new());
-                }
-                let old = std::mem::replace(&mut beat.lyrics[verse], c);
-                if !old.is_empty() {
-                    carry = Some(old);
-                }
-            }
-            if let Some(c) = carry {
-                let beat = &mut cx.bar(t, last.0).voices[v].beats[last.1];
-                let l = &mut beat.lyrics[verse];
-                l.push(' ');
-                l.push_str(&c);
-            }
-        }
     }
 }
 
@@ -1242,7 +1238,6 @@ pub fn collect(score: &Score, track: usize, voice: usize, from: Pos, to: Pos) ->
 /// Deletes beats between two positions (inclusive); emptied bars keep a placeholder.
 pub fn delete_range(cx: &mut EditCx, from: Pos, to: Pos) {
     let (t, v) = (cx.cursor.track, cx.cursor.voice);
-    let mut taken: Vec<Vec<String>> = Vec::new();
     for b in from.0..=to.0.min(cx.score.master_bars.len().saturating_sub(1)) {
         if cx.score.tracks[t].bars[b].voices.get(v).is_none() {
             continue;
@@ -1250,11 +1245,8 @@ pub fn delete_range(cx: &mut EditCx, from: Pos, to: Pos) {
         let bar = cx.bar(t, b);
         let beats = &mut bar.voices[v].beats;
         let mut i = 0;
-        beats.retain(|beat| {
+        beats.retain(|_| {
             let keep = !((b > from.0 || i >= from.1) && (b < to.0 || i <= to.1));
-            if !keep && !beat.empty && beat.lyrics.iter().any(|l| !l.is_empty()) {
-                taken.push(beat.lyrics.clone());
-            }
             i += 1;
             keep
         });
@@ -1267,10 +1259,6 @@ pub fn delete_range(cx: &mut EditCx, from: Pos, to: Pos) {
     }
     cx.cursor.bar = from.0;
     cx.cursor.beat = from.1;
-    // The first note after the range is where the cursor now is, or later.
-    if !taken.is_empty() {
-        shift_lyrics(cx, from, taken);
-    }
 }
 
 /// A beat split into `Beat`s of `ticks` and the rest: the first part of the beat itself, every

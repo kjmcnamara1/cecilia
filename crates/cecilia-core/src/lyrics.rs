@@ -203,17 +203,102 @@ pub fn verse_line(track: &Track, verse: usize) -> Option<LyricLine> {
     while chunks.last().is_some_and(String::is_empty) {
         chunks.pop();
     }
+    let text = join(&chunks);
+    Some(LyricLine {
+        start_bar: start as u32,
+        text,
+    })
+}
+
+/// Syllables as Guitar Pro lyric text: separated by spaces, except after a hyphen; notes
+/// without a syllable are empty chunks (`+` joins the words of one).
+pub fn join(chunks: &[String]) -> String {
     let mut text = String::new();
     for (k, chunk) in chunks.iter().enumerate() {
         if k > 0 && !chunks[k - 1].ends_with('-') {
             text.push(' ');
         }
-        text.push_str(chunk);
+        text.push_str(&chunk.replace(' ', "+"));
     }
-    Some(LyricLine {
-        start_bar: start as u32,
-        text,
-    })
+    text
+}
+
+/// A verse laid out on a track: the bar its syllables start at and all of them, those past the
+/// last note too (they are kept, not shown).
+#[derive(Debug, Clone, PartialEq)]
+pub struct Verse {
+    pub verse: usize,
+    pub start_bar: usize,
+    pub syllables: Vec<String>,
+}
+
+/// Where `syllables` land on a track's first voice from `start_bar`: one per singing beat in
+/// order, none stacked on a beat and none past the last note; every other beat of the voice
+/// ends up without a syllable. As (bar, beat) and the text (empty for none).
+pub fn layout(
+    track: &Track,
+    start_bar: usize,
+    syllables: &[String],
+) -> Vec<((usize, usize), String)> {
+    let mut next = syllables.iter();
+    let mut out = Vec::new();
+    for (bi, bar) in track.bars.iter().enumerate() {
+        let Some(voice) = bar.voices.first() else {
+            continue;
+        };
+        for (i, beat) in voice.beats.iter().enumerate() {
+            let text = if bi >= start_bar && sings(beat) {
+                next.next().cloned().unwrap_or_default()
+            } else {
+                String::new()
+            };
+            out.push(((bi, i), text));
+        }
+    }
+    out
+}
+
+/// The verses of a track as the edit that follows can lay them out again: the text the score
+/// keeps for the track (which may run past the last note), else the syllables the beats hold.
+/// A verse whose beats don't say what its text says (the beats were changed some other way) is
+/// left out, as is a chant track.
+pub fn plan(score: &Score, track: usize) -> Vec<Verse> {
+    let Some(t) = score.tracks.get(track).filter(|t| t.chant.is_none()) else {
+        return Vec::new();
+    };
+    let kept = score.lyrics.as_ref().filter(|l| l.track == Some(track));
+    let matches = |verse: usize, start: usize, syllables: &[String]| {
+        layout(t, start, syllables)
+            .iter()
+            .all(|&((b, i), ref text)| {
+                let have = t.bars[b].voices[0].beats[i]
+                    .lyrics
+                    .get(verse)
+                    .map_or("", String::as_str);
+                have == text
+            })
+    };
+    let mut out = Vec::new();
+    for verse in 0..verse_count(t) {
+        let Some(line) = verse_line(t, verse) else {
+            continue;
+        };
+        let start = line.start_bar as usize;
+        let stored = kept
+            .and_then(|l| l.lines.get(verse))
+            .filter(|k| k.start_bar as usize == start)
+            .map(|k| syllables(&k.text))
+            .filter(|s| matches(verse, start, s));
+        let syllables = stored.unwrap_or_else(|| syllables(&line.text));
+        if matches(verse, start, &syllables) {
+            out.push(Verse {
+                verse,
+                start_bar: start,
+                syllables,
+            });
+        }
+    }
+    out
 }
 
 /// Lyric lines (one per verse) rebuilt from a track's syllables, in Guitar Pro's text form.

@@ -1062,13 +1062,21 @@ fn deleting_the_last_note_of_a_beat_shifts_its_syllable_on() {
 }
 
 #[test]
-fn a_syllable_with_no_free_note_joins_the_last_one() {
+fn syllables_past_the_last_note_are_kept_and_return_with_new_notes() {
     let mut a = app();
     lyric_bar(&mut a, &["A", "le", "lu", "ia"]);
     a.pane_mut().cursor.beat = 1;
     a.mode = Mode::Insert;
     keys(&mut a, "<Del><Esc>");
-    assert_eq!(syllables(&a), ["A", "le", "lu ia"]);
+    // Three notes, three syllables; "ia" is not shown but the score keeps it.
+    assert_eq!(syllables(&a), ["A", "le", "lu"]);
+    let kept = a.buffer().score.lyrics.clone().unwrap();
+    assert!(kept.lines[0].text.ends_with("ia"), "{:?}", kept.lines);
+    // A note added takes its place in the text again: no syllable stacks on a beat.
+    keys(&mut a, "a3<Esc>");
+    assert_eq!(syllables(&a), ["A", "le", "lu", "ia"]);
+    keys(&mut a, "u");
+    assert_eq!(syllables(&a), ["A", "le", "lu"]);
 }
 
 /// The lengths in quarters of the beats of bar `b` of track 0's first voice.
