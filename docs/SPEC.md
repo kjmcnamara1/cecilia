@@ -151,43 +151,16 @@ chords included) does not depend on which staves are shown. The view is built in
 
 ### 4.3 Lyrics (gabc+)
 
-A track's lyrics are one text, `Track.lyrics_text`, in *gabc+*: GABC (`text(notes)`) plus
-dashes, skips, italics, `[labels]`, `*` and `<bar:beat>` anchors (the syntax table is in
-[keymap.md](keymap.md#gabc)). It is the single source of the syllables on the beats
-(`Beat.lyrics`, one string per verse row, a trailing `-` for a hyphen), which
-`cecilia_core::gabcplus` lays out from it after every edit, so the lyrics follow the notes.
-A chant track's lyrics are its chant notation instead (GABC body, header kept).
-
-- **Order.** Syllables go one to a singing beat (first voice, any beat with a note, tied notes
-  included, as Guitar Pro does) in sung order: repeats (each closing bar counting its passes),
-  alternate endings by pass, then one D.C./D.S. jump (repeats are not taken again after it and
-  only the last ending is played), al Fine stopping after the Fine bar, al Coda jumping from
-  To Coda to the Coda. Bars the music never reaches (endings without their repeat) are sung
-  last, so no lyrics are lost. Lyrics start at the first singing beat unless an anchor says
-  otherwise.
-- **Verse rows.** A syllable's row is the pass through its repeat (or how often its bar was
-  sung before, whichever is more), plus one for every anchor that went back in the music. So
-  verse 2 of a repeated section shows under verse 1, and lyric lines anchored at the same bar
-  stack.
-- **Anchors** `<bar:beat>` (1-based; the beat is the index in the first voice, as in the status
-  line) go to the first singing beat at or after that place, the first time the bar is sung.
-- **Interpretations.** A word of only `_` is a skip; `_` at the start of a syllable (start of a
-  word or after `-`) makes it italic; `_` between letters separates words. A word of only `-`
-  covers that many beats under one dash; dashes inside or at the edge of a word join two
-  syllables without taking a beat. `*` never takes a beat and is drawn after the syllable
-  before it (before the next one at the start). `[label]` goes before the next syllable. Text
-  right after a `(…)` group is the next syllable of the same word (GABC). `+` joins words on
-  one syllable (Guitar Pro). A `(…)` group without text takes no beat. An unclosed `(`, `[` or
-  `<` is text.
-- **GABC groups** are kept in the text and shown with GABC on; they are not yet used to draw
-  the chant staff of an ordinary track (it still shows the track's notes).
-- **Import/export.** Readers turn lyrics into gabc+: Guitar Pro 3–5 lyric lines laid out as
-  Guitar Pro does (`[comments]` become labels, line breaks kept), per-beat lyrics (GP6–8,
-  MusicXML, older `.cc`) one line per verse row; anchors and `_`/`-` gaps are written where
-  needed so every syllable stays on its beat (checked on the corpus; a verse row can change
-  where a repeat makes the original one impossible to say). A beat holding only `-` becomes
-  part of a dash. Writers export the beats' syllables as before; labels and italics have no
-  place in Guitar Pro or MusicXML.
+A track's lyrics are one text, `Track.lyrics_text`, in *gabc+*: GABC (`text(notes)`) plus dash and
+skip words, `_` italics, `[labels]`, `*` (✻) and `<bar:beat>` anchors. It is the single source of
+the syllables on the beats (`Beat.lyrics`, one string per verse row, a trailing `-` for a
+hyphen), which `cecilia_core::gabcplus` lays out from it after every edit, so the lyrics follow
+the notes. A chant track's lyrics are its chant notation instead (GABC body, header kept).
+Syllables go one to a note of the first voice in sung order (repeats, alternate endings,
+D.C./D.S. al Fine/al Coda, unreached bars last); a syllable's verse row is its pass through the
+repeat plus one per anchor that went back. Readers turn every format's lyrics into gabc+ text;
+writers export the beats' syllables. The full reference (syntax, placement, drawing, the LYRICS
+tab, commands, settings, limits) is [LYRICS.md](LYRICS.md).
 
 ## 5. File formats (`cecilia-formats`)
 
@@ -211,7 +184,7 @@ written back as one multi-staff instrument to GP7, GPX and MusicXML (GP5, which 
 gets one track per staff). Lyrics: GP3–5 lyric lines are put on the beats with Guitar Pro's
 rules (checked against alphaTab: identical on 8 of 10 corpus files; the other two differ only at
 grace notes, which alphaTab treats as separate beats) and rebuilt from the beats on export when
-they were edited. All lyrics read then become the tracks' gabc+ text (4.3).
+they were edited. All lyrics read then become the tracks' gabc+ text (4.3, [LYRICS.md](LYRICS.md#files)).
 
 **Validation.** Every reader and writer is checked against a local corpus (`test-corpus/`,
 163 Guitar Pro files of all versions):

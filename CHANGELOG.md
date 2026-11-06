@@ -25,12 +25,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `lyrics_text`, `lyrics_text_dim`, `lyrics_gabc` (bold), `lyrics_label` (bold) and
   `lyrics_anchor`.
 
+- `docs/LYRICS.md`: a reference for lyrics: gabc+ syntax with worked examples, how syllables
+  are placed (sung order, verse rows, edits), drawing, the LYRICS tab and its keys, commands,
+  settings, file formats and limits.
+
 ### Changed
 
 - Moving down from the GABC switch puts the normal-mode (block) caret in the lyrics text area,
   as does a click in it; `<CR>` there is `i`, `<Esc>` in normal mode leaves the text area and the
   properties pane, `<C-k>` goes up to the switch and `<C-j>` back.
-- `:lyrics TEXT` adds an anchor at the cursor and the words to the track's gabc+ text (`\n` a line
+- `:lyrics TEXT` adds an anchor at the cursor (its beat in the first voice) and the words to the track's gabc+ text (`\n` a line
   break); words over notes that already have some go on the next verse row. The verse number
   argument is gone. `:lyrics-clear` clears the text; `:lyrics-clear N` removes a verse row.
 - Syllables past the last note are kept in the track's gabc+ text (they were kept in the score's
