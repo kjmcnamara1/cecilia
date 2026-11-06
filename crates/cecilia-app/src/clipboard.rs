@@ -6,7 +6,24 @@ use std::process::{Command, Stdio};
 use std::sync::Mutex;
 
 /// The last text copied, for when the system clipboard can't be reached.
+#[cfg(not(test))]
 static LOCAL: Mutex<String> = Mutex::new(String::new());
+
+// (Tests run in parallel: each has its own.)
+#[cfg(test)]
+thread_local! {
+    static LOCAL: Mutex<String> = const { Mutex::new(String::new()) };
+}
+
+#[cfg(not(test))]
+fn local<R>(f: impl FnOnce(&Mutex<String>) -> R) -> R {
+    f(&LOCAL)
+}
+
+#[cfg(test)]
+fn local<R>(f: impl FnOnce(&Mutex<String>) -> R) -> R {
+    LOCAL.with(f)
+}
 
 /// The tools that put text on the clipboard (read from stdin), most likely first.
 fn setters() -> Vec<(&'static str, Vec<&'static str>)> {
@@ -39,7 +56,7 @@ fn getters() -> Vec<(&'static str, Vec<&'static str>)> {
 
 /// Copies `text` to the clipboard.
 pub fn set(text: &str) {
-    *LOCAL.lock().unwrap() = text.to_string();
+    local(|l| *l.lock().unwrap() = text.to_string());
     if cfg!(test) {
         return;
     }
@@ -78,5 +95,5 @@ pub fn get() -> String {
             }
         }
     }
-    LOCAL.lock().unwrap().clone()
+    local(|l| l.lock().unwrap().clone())
 }

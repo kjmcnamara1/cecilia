@@ -242,4 +242,78 @@ impl Page {
             color: Color::BLACK,
         });
     }
+
+    /// A line of text in which every `*` is red (the asterisk of chant and of lyrics).
+    pub fn text_red_stars(
+        &mut self,
+        font: FontKind,
+        text: &str,
+        at: Point,
+        size: f64,
+        align: Align,
+    ) {
+        if !text.contains('*') {
+            return self.text(font, text, at, size, align);
+        }
+        let fonts = crate::fonts::fonts();
+        let total = fonts.text_width(font, text, size);
+        let mut x = match align {
+            Align::Left => at.x,
+            Align::Center => at.x - total / 2.0,
+            Align::Right => at.x - total,
+        };
+        let mut piece = String::new();
+        let flush = |page: &mut Page, piece: &mut String, x: &mut f64, red: bool| {
+            if piece.is_empty() {
+                return;
+            }
+            page.items.push(Item::Text {
+                font,
+                text: piece.clone(),
+                at: Point::new(*x, at.y),
+                size,
+                align: Align::Left,
+                color: if red { Color::RED } else { Color::BLACK },
+            });
+            *x += fonts.text_width(font, piece, size);
+            piece.clear();
+        };
+        for c in text.chars() {
+            if c == '*' {
+                flush(self, &mut piece, &mut x, false);
+                piece.push(c);
+                flush(self, &mut piece, &mut x, true);
+            } else {
+                piece.push(c);
+            }
+        }
+        flush(self, &mut piece, &mut x, false);
+    }
+}
+
+#[cfg(test)]
+mod star_tests {
+    use super::*;
+
+    #[test]
+    fn asterisks_are_drawn_red_and_the_rest_black() {
+        let mut page = Page::default();
+        page.text_red_stars(
+            FontKind::Text,
+            "a * b",
+            Point::new(0.0, 0.0),
+            10.0,
+            Align::Left,
+        );
+        let red: Vec<&str> = page
+            .items
+            .iter()
+            .filter_map(|i| match i {
+                Item::Text { text, color, .. } if *color == Color::RED => Some(text.as_str()),
+                _ => None,
+            })
+            .collect();
+        assert_eq!(red, ["*"]);
+        assert!(page.items.len() >= 3);
+    }
 }

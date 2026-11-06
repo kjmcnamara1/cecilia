@@ -1383,7 +1383,7 @@ impl App {
                 let placed = self.edit(|cx| {
                     let c = cx.cursor;
                     let score = cx.whole();
-                    let t = &mut score.tracks[c.track];
+                    let t = &score.tracks[c.track];
                     if t.chant.is_some() {
                         return Err(
                             "lyrics: a chant track's lyrics are its chant notation (the \
@@ -1391,24 +1391,32 @@ impl App {
                                 .into(),
                         );
                     }
-                    let mut full = t.lyrics_text.trim_end().to_string();
-                    let before = cecilia_core::gabcplus::tokens(&full).len();
-                    if !full.is_empty() {
-                        full.push('\n');
-                    }
                     let beat = anchor_beat(&t.bars[c.bar], c.voice, c.beat);
-                    full.push_str(&format!("<{}:{}> {words}", c.bar + 1, beat + 1));
-                    t.lyrics_text = full;
+                    let beat = cecilia_core::position::beat_position(score, t, c.bar, 0, beat);
+                    let added = cecilia_core::gabcplus::add_lyrics(
+                        score,
+                        c.track,
+                        &score.tracks[c.track].lyrics_text,
+                        c.bar,
+                        beat,
+                        &words,
+                    );
+                    score.tracks[c.track].lyrics_text = added.text;
                     let lay = cecilia_core::gabcplus::apply(score, c.track);
                     refresh_lyric_lines(score, c.track);
-                    let new = |k: usize| k >= before;
-                    let shown = lay.placed.iter().filter(|p| new(p.token)).count();
+                    let new = |t: &cecilia_core::gabcplus::Token| {
+                        t.span.0 >= added.range.0 && t.span.1 <= added.range.1
+                    };
+                    let shown = lay
+                        .placed
+                        .iter()
+                        .filter(|p| new(&lay.tokens[p.token]))
+                        .count();
                     let all = lay
                         .tokens
                         .iter()
-                        .enumerate()
-                        .filter(|(k, t)| {
-                            new(*k)
+                        .filter(|t| {
+                            new(t)
                                 && matches!(
                                     t.kind,
                                     cecilia_core::gabcplus::TokenKind::Syllable { .. }
@@ -2351,14 +2359,14 @@ mod tests {
         assert_eq!(lines[0].text, "Hel-lo  world");
         assert_eq!(
             a.buffer().score.tracks[0].lyrics_text,
-            "<1:1> Hel-lo _ world"
+            "<1:1> Hel-lo _ world\n"
         );
         // Words from a beat already sung go on the next verse row.
         keys(&mut a, "l");
         a.run(Command::Lyrics("two\\nthree".into()));
         assert_eq!(
             a.buffer().score.tracks[0].lyrics_text,
-            "<1:1> Hel-lo _ world\n<1:2> two\nthree"
+            "<1:1> Hel-lo _ world\n<1:2> two\nthree\n"
         );
         assert_eq!(
             a.buffer().score.tracks[0].bars[0].voices[0].beats[1].lyrics,
@@ -2381,6 +2389,61 @@ mod tests {
             s.tracks[1].staves(),
             vec![Staff::Standard(Clef::Grand { split: GRAND_SPLIT })]
         );
+    }
+
+    #[test]
+    fn lyrics_go_where_they_belong_in_the_text() {
+        let mut a = app();
+        keys(&mut a, "i3<Space>12<Space>5<Space>7<Esc>0");
+        let text = |a: &App| a.buffer().score.tracks[0].lyrics_text.clone();
+        // Words later in the music go before the text after them, which keeps its place.
+        keys(&mut a, "lll");
+        a.run(Command::Lyrics("late".into()));
+        assert_eq!(text(&a), "<1:4> late\n");
+        keys(&mut a, "hhh");
+        a.run(Command::Lyrics("early".into()));
+        assert_eq!(text(&a), "<1:1> early\n<1:4> late\n");
+        let beats = |a: &App| -> Vec<String> {
+            a.buffer().score.tracks[0].bars[0].voices[0]
+                .beats
+                .iter()
+                .map(|b| b.lyrics.first().cloned().unwrap_or_default())
+                .collect()
+        };
+        assert_eq!(beats(&a), ["early", "", "", "late"]);
+        // Words that run into the text after them go on the next verse row, at the end.
+        a.run(Command::Lyrics("one two three four".into()));
+        assert_eq!(
+            text(&a),
+            "<1:1> early\n<1:4> late\n<1:1> one two three four\n"
+        );
+        assert_eq!(beats(&a), ["early", "", "", "late"]);
+    }
+
+    #[test]
+    fn positions_are_bar_beat_and_fraction() {
+        use cecilia_core::position::beat_position;
+        let mut a = app();
+        // Two eighths then a quarter: beats 1, 1.5 and 2.
+        keys(&mut a, "i3<Space>12<Space>5<Esc>0");
+        let at = |a: &App| crate::app::position_text(&a.buffer().score, &a.pane().cursor);
+        let c = a.pane().cursor;
+        let t = &a.buffer().score.tracks[c.track];
+        let beats = &t.bars[c.bar].voices[0].beats;
+        let pos: Vec<f64> = (0..beats.len())
+            .map(|i| beat_position(&a.buffer().score, t, c.bar, 0, i))
+            .collect();
+        assert_eq!(pos[0], 1.0);
+        assert!(pos[1] > 1.0 && pos[1] < 2.5);
+        assert_eq!(at(&a), "1:1.0");
+        // `:1:2.0` goes there, as does `:goto` by bar and fraction.
+        a.run(Command::parse("1:2").unwrap());
+        assert!(a.pane().cursor.beat > 0);
+        assert!(at(&a).starts_with("1:"));
+        // `:lyrics` writes its anchor the same way, and `<1:2.5>`-style anchors are read.
+        a.run(Command::Lyrics("la".into()));
+        assert!(a.buffer().score.tracks[0].lyrics_text.starts_with("<1:"));
+        assert!(Command::parse("5:3.5").is_ok());
     }
 
     #[test]

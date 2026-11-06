@@ -478,10 +478,9 @@ impl App {
                 .map(|m| Entry {
                     label: m.name.to_string(),
                     description: format!(
-                        "{} · bar {}, beat {}, string {}",
+                        "{} · {}, string {}",
                         m.file,
-                        m.cursor.bar + 1,
-                        m.cursor.beat + 1,
+                        crate::app::position_text(&self.buffer().score, &m.cursor),
                         m.cursor.string + 1
                     ),
                     action: Command::GotoMark(m.name),

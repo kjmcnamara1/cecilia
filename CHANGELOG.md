@@ -9,6 +9,25 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- Positions are `bar:beat.fraction` everywhere (status line, marks, `:lyrics` and gabc+
+  anchors): the eighth on the upbeat of beat 3 of bar 5 is `5:3.5`; a bar holding more than its
+  count goes on counting (`2:6.0`). A beat is the time signature's unit. `:5:3.5` goes there;
+  anchors `<2:6>` and `<2:6.0>` both read. Anchors used to count beats of the first voice, so
+  `<bar:n>` in files saved before this means the n-th beat unit now.
+- Lyrics text area: GABC is colored by part (clefs, divisions, notes, shape / attachment / space
+  modifiers, markup tags; new theme colors `lyrics_clef` … `lyrics_markup`), the words keep the
+  normal color and the parentheses are dimmed. `:` and Ctrl / Alt keys the keymap binds (`<C-s>`
+  …) work in the text area's normal mode.
+- The `*` of lyrics and chant is drawn red in the score.
+
+- Lyrics text area: Visual mode (`v` `V`), operators with motions and text objects (`diw` `daw`
+  `dap` `ci"` `yip` …), `W` `B` `E` `r` `~` `s` `S` `C` `X` `Y`; in insert mode `<C-Left>` /
+  `<C-Right>` jump words, `<C-BS>` / `<C-Del>` delete by word; `H` / `L` still switch tabs and a
+  focus key (`<C-h>` …) leaves the text area. Focusing the pane again restores the text area
+  caret (or the GABC switch). With GABC on, ordinary tracks show the chant GABC inferred from
+  the notes, live. `:lyrics` puts its line where it belongs in the text, ending in a newline.
+  The font is the app's text font at 12 pt by default; `ui.lyrics_font` takes any installed
+  family.
 - Lyrics are one gabc+ text per track, the single source of the syllables on its notes: GABC
   (`text(notes)`) with dashes and skips that cover beats (`some -- one`, `some __ one`), `_`
   italics, `[labels]` shown before a syllable (verse numbers), `*` printed ✻, and `<bar:beat>`
@@ -20,8 +39,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - The LYRICS tab of the properties pane edits that text under a GABC switch: off, the text shows
   without its GABC groups and clef (what is typed keeps the groups of the syllables still there);
   on, the raw gabc+ from its clef `(c4)`. A chant track's lyrics are its chant's GABC. The text
-  area has no label, box or background, is monospaced (`ui.lyrics_font`, bundled JetBrains Mono,
-  and `ui.lyrics_font_size`, 14 pt) and colored by new theme colors in every built-in theme:
+  area has no label, box or background, is drawn in the app's text font by default (`ui.lyrics_font`, any
+  installed family, and `ui.lyrics_font_size`, 12 pt) and colored by new theme colors in every built-in theme:
   `lyrics_text`, `lyrics_text_dim`, `lyrics_gabc` (bold), `lyrics_label` (bold) and
   `lyrics_anchor`.
 

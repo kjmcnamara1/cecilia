@@ -11,6 +11,7 @@ use crate::command::{Command, Strip};
 use crate::config::Mode;
 use crate::keys::{Key, KeyCode};
 use crate::picker::PickerKind;
+use crate::textobj;
 use cecilia_core::TrackKind;
 
 /// Width of the pane, in columns.
@@ -189,8 +190,11 @@ pub struct PropEdit {
     pub modal: bool,
     /// In insert mode (else normal mode of a modal edit).
     pub insert: bool,
-    /// The first key of a two-key normal-mode command (`d`, `g`).
-    pending: Option<char>,
+    /// The keys typed so far of a normal- or visual-mode command (`d`, `di`, `g` …).
+    pending: String,
+    /// Visual mode: where the selection began, and whether it takes whole lines (`V`). The
+    /// selection runs from there to the caret, both included.
+    pub visual: Option<(usize, bool)>,
     /// Where a selection (made with the mouse) began; it runs to the caret.
     pub anchor: Option<usize>,
     /// A chant track's lyrics as typed (GABC), which the text area shows while it is edited:
@@ -212,7 +216,8 @@ impl PropEdit {
             caret,
             modal: field == Field::Lyrics,
             insert: true,
-            pending: None,
+            pending: String::new(),
+            visual: None,
             anchor: None,
             full: None,
         }
@@ -220,11 +225,22 @@ impl PropEdit {
 
     /// The selected characters, from the first to one past the last.
     pub fn selection(&self) -> Option<(usize, usize)> {
+        if let Some((v, lines)) = self.visual {
+            let c = self.chars();
+            let (lo, hi) = (v.min(self.caret), v.max(self.caret));
+            let (a, b) = if lines {
+                textobj::line_range(&c, lo, hi)
+            } else {
+                (lo, (hi + 1).min(c.len()))
+            };
+            return (a < b).then_some((a, b));
+        }
         let a = self.anchor.filter(|&a| a != self.caret)?;
         Some((a.min(self.caret), a.max(self.caret).min(self.len())))
     }
 
     fn select_all(&mut self) {
+        self.visual = None;
         self.anchor = Some(0);
         self.caret = self.len();
     }
@@ -356,59 +372,208 @@ impl PropEdit {
         }
     }
 
-    /// The start of the next word.
-    fn word_forward(&mut self) {
-        let c = self.chars();
-        let mut i = self.caret;
-        while i < c.len() && is_word(c[i]) {
-            i += 1;
-        }
-        while i < c.len() && !is_word(c[i]) {
-            i += 1;
-        }
-        self.caret = i.min(c.len());
+    /// `w`, `e` and `b` (`W`, `E`, `B` with `big`).
+    fn word_forward(&mut self, big: bool) {
+        self.caret = textobj::word_forward(&self.chars(), self.caret, big);
     }
 
-    /// The end of this word, or of the next one when already on an end.
-    fn word_end(&mut self) {
-        let c = self.chars();
-        let mut i = self.caret + 1;
-        while i < c.len() && !is_word(c[i]) {
-            i += 1;
-        }
-        while i + 1 < c.len() && is_word(c[i + 1]) {
-            i += 1;
-        }
-        self.caret = i.min(c.len().saturating_sub(1));
+    fn word_back(&mut self, big: bool) {
+        self.caret = textobj::word_back(&self.chars(), self.caret, big);
     }
 
-    /// The start of this word, or the previous one.
-    fn word_back(&mut self) {
-        let c = self.chars();
-        let mut i = self.caret;
-        while i > 0 && !is_word(c[i - 1]) {
-            i -= 1;
-        }
-        while i > 0 && is_word(c[i - 1]) {
-            i -= 1;
-        }
-        self.caret = i;
+    /// The first character of the caret's line that isn't a blank.
+    fn first_non_blank(&self) -> usize {
+        let start = self.line_start();
+        let rest = self.text.chars().skip(start);
+        start + rest.take_while(|c| *c == ' ' || *c == '\t').count()
     }
 
-    /// Deletes the caret's line.
-    fn delete_line(&mut self) {
-        let (mut from, to) = (self.line_start(), self.line_end());
-        let to = if to < self.len() {
-            to + 1
-        } else {
-            // The last line takes the newline before it.
-            from = from.saturating_sub(1);
-            to
+    /// Where a motion takes the caret (`lines`: the visual lines, for `j` and `k`).
+    fn target(&self, m: Motion, lines: &[(usize, usize)]) -> usize {
+        let c = self.chars();
+        match m {
+            Motion::Left => self
+                .caret
+                .saturating_sub(usize::from(self.caret > self.line_start())),
+            Motion::Right => (self.caret + 1).min(self.line_end()),
+            Motion::Up | Motion::Down => {
+                let mut e = self.clone();
+                e.move_visual(if m == Motion::Up { -1 } else { 1 }, lines);
+                e.caret
+            }
+            Motion::Word(big) => textobj::word_forward(&c, self.caret, big),
+            Motion::End(big) => textobj::word_end(&c, self.caret, big),
+            Motion::Back(big) => textobj::word_back(&c, self.caret, big),
+            Motion::LineStart => self.line_start(),
+            Motion::FirstNonBlank => self.first_non_blank(),
+            Motion::LineEnd => self.line_end(),
+            Motion::First => 0,
+            Motion::Last => textobj::line_bounds(&c, c.len()).0,
+        }
+    }
+
+    /// The characters an operator (`d`, `c`, `y`) takes with a motion: from, to, and whether
+    /// whole lines.
+    fn motion_range(&self, op: char, m: Motion) -> Option<(usize, usize, bool)> {
+        let c = self.chars();
+        let n = c.len();
+        let (ls, le) = (self.line_start(), self.line_end());
+        let at = self.caret;
+        let r = match m {
+            Motion::Left => (at > ls).then(|| (at - 1, at, false))?,
+            Motion::Right => (at < le).then(|| (at, at + 1, false))?,
+            // `cw` on a word changes to its end, as `ce`.
+            Motion::Word(big) if op == 'c' && at < n && !c[at].is_whitespace() => {
+                let same = |i: usize| {
+                    i < n && !c[i].is_whitespace() && (big || is_word(c[i]) == is_word(c[at]))
+                };
+                let mut z = at + 1;
+                while same(z) {
+                    z += 1;
+                }
+                (at, z, false)
+            }
+            // `dw` on the last word of a line stops at its end.
+            Motion::Word(big) => {
+                let t = textobj::word_forward(&c, at, big);
+                (at, if t > le && at < le { le } else { t }, false)
+            }
+            Motion::End(big) => (at, (textobj::word_end(&c, at, big) + 1).min(n), false),
+            Motion::Back(big) => (textobj::word_back(&c, at, big), at, false),
+            Motion::LineStart => (ls, at, false),
+            Motion::FirstNonBlank => {
+                let f = self.first_non_blank();
+                (f.min(at), f.max(at), false)
+            }
+            Motion::LineEnd => (at, le, false),
+            Motion::Up => {
+                let prev = textobj::line_bounds(&c, ls.checked_sub(1)?).0;
+                let (a, b) = textobj::line_range(&c, prev, at);
+                (a, b, true)
+            }
+            Motion::Down => {
+                if le >= n {
+                    return None;
+                }
+                let (a, b) = textobj::line_range(&c, at, le + 1);
+                (a, b, true)
+            }
+            Motion::First => {
+                let (a, b) = textobj::line_range(&c, 0, at);
+                (a, b, true)
+            }
+            Motion::Last => {
+                let (a, b) = textobj::line_range(&c, at, n);
+                (a, b, true)
+            }
         };
-        self.remove(from, to);
-        self.caret = from.min(self.len());
-        self.caret = self.line_start();
-        self.rest();
+        (r.0 < r.1 || r.2).then_some(r)
+    }
+
+    /// A text object at the caret (`iw`, `ap`, `i(` …): from, to, and whether whole lines.
+    fn object_range(&self, around: bool, o: char) -> Option<(usize, usize, bool)> {
+        let c = self.chars();
+        let at = self.caret;
+        let (a, b) = match o {
+            'w' | 'W' => textobj::word_object(&c, at, around, o == 'W')?,
+            'p' => {
+                let (a, b) = textobj::paragraph(&c, at, around)?;
+                return Some((a, b, true));
+            }
+            _ => match textobj::object_chars(o)? {
+                (q, z) if q == z => textobj::quote_object(&c, at, q, around)?,
+                (open, close) => textobj::pair_object(&c, at, open, close, around)?,
+            },
+        };
+        // (Empty brackets are an empty object: `ci(` types into them.)
+        Some((a, b, false))
+    }
+}
+
+/// A motion of the lyrics text area's normal and visual modes.
+#[derive(Debug, Clone, Copy, PartialEq)]
+enum Motion {
+    Left,
+    Right,
+    Up,
+    Down,
+    /// `w`, `e`, `b`; `W`, `E`, `B` with `true`.
+    Word(bool),
+    End(bool),
+    Back(bool),
+    LineStart,
+    FirstNonBlank,
+    LineEnd,
+    /// `gg` and `G`.
+    First,
+    Last,
+}
+
+impl Motion {
+    fn of(c: char) -> Option<Motion> {
+        Some(match c {
+            'h' => Motion::Left,
+            'l' => Motion::Right,
+            'k' => Motion::Up,
+            'j' => Motion::Down,
+            'w' | 'W' => Motion::Word(c == 'W'),
+            'e' | 'E' => Motion::End(c == 'E'),
+            'b' | 'B' => Motion::Back(c == 'B'),
+            '0' => Motion::LineStart,
+            '^' => Motion::FirstNonBlank,
+            '$' => Motion::LineEnd,
+            'G' => Motion::Last,
+            _ => return None,
+        })
+    }
+}
+
+/// What an operator acts on: its line (`dd`), a motion's way, or a text object.
+#[derive(Debug, Clone, Copy, PartialEq)]
+enum Target {
+    Line,
+    Move(Motion),
+    /// Around (`a`) or inside (`i`), and the object's character.
+    Object(bool, char),
+}
+
+/// The keys of a normal- or visual-mode command as typed so far.
+#[derive(Debug, Clone, Copy, PartialEq)]
+enum Typed {
+    /// More keys to come.
+    More,
+    /// Not a command.
+    Bad,
+    Move(Motion),
+    /// An operator (`d`, `c`, `y`) and what it acts on.
+    Op(char, Target),
+    /// A text object, selected (visual mode).
+    Object(bool, char),
+    /// `r` and the character to put.
+    Replace(char),
+    /// A command of one key.
+    Cmd(char),
+}
+
+fn parse_typed(keys: &[char], visual: bool) -> Typed {
+    match keys {
+        [] | ['g'] => Typed::More,
+        ['g', 'g'] => Typed::Move(Motion::First),
+        ['g', _] => Typed::Bad,
+        ['r'] if !visual => Typed::More,
+        ['r', c] if !visual => Typed::Replace(*c),
+        ['i' | 'a'] if visual => Typed::More,
+        [ia @ ('i' | 'a'), o] if visual => Typed::Object(*ia == 'a', *o),
+        [op @ ('d' | 'c' | 'y'), rest @ ..] if !visual => match rest {
+            [] | ['g'] | ['i'] | ['a'] => Typed::More,
+            [x] if x == op => Typed::Op(*op, Target::Line),
+            ['g', 'g'] => Typed::Op(*op, Target::Move(Motion::First)),
+            [ia @ ('i' | 'a'), o] => Typed::Op(*op, Target::Object(*ia == 'a', *o)),
+            [m] => Motion::of(*m).map_or(Typed::Bad, |m| Typed::Op(*op, Target::Move(m))),
+            _ => Typed::Bad,
+        },
+        [c] => Motion::of(*c).map_or(Typed::Cmd(*c), Typed::Move),
+        _ => Typed::Bad,
     }
 }
 
@@ -440,6 +605,9 @@ pub struct PropsState {
     /// The lines the lyrics text is wrapped to as last drawn (character ranges), for moving
     /// by visual line.
     pub visual: std::cell::RefCell<Vec<(usize, usize)>>,
+    /// Where the lyrics text area's caret was when it was left (the track, the caret): it is
+    /// there again when the text area is entered.
+    text_caret: Option<(usize, usize)>,
     /// The first line of the lyrics text area shown, and the caret when it last followed it.
     text_scroll: Cell<usize>,
     text_seen: Cell<usize>,
@@ -766,10 +934,32 @@ impl App {
         rows
     }
 
+    /// With GABC on, an ordinary track's text area shows the GABC its chant staff shows: the
+    /// notes and syllables as chant, written the way a `.gabc` file is, from the score as it is
+    /// now. `None` for a chant track (its own GABC shows), with GABC off, and when the track
+    /// can't be made chant (no notes, drums, chords the `chant_chords` policy refuses).
+    pub fn inferred_gabc(&self, track: usize) -> Option<String> {
+        if !self.props.gabc {
+            return None;
+        }
+        let score = &self.buffer().score;
+        if score.tracks.get(track)?.chant.is_some() {
+            return None;
+        }
+        let made =
+            cecilia_convert::chant::modern_to_chant(score, track, self.chord_policy()).ok()?;
+        let gabc = cecilia_formats::gabc::write(&made.chant, "");
+        let body = gabc.split_once("%%\n").map_or(gabc.as_str(), |(_, b)| b);
+        Some(body.trim_end().to_string())
+    }
+
     /// The lyrics text area's text for a track: the gabc+ starting with its clef with GABC on,
     /// else without its GABC groups.
     pub fn shown_lyrics(&self, track: usize) -> String {
         let score = &self.buffer().score;
+        if let Some(g) = self.inferred_gabc(track) {
+            return g;
+        }
         let full = full_lyrics(score, track);
         if !self.props.gabc {
             return cecilia_core::gabcplus::plain(&full).text;
@@ -852,6 +1042,7 @@ impl App {
         if let Some(e) = self.props.edit.as_mut() {
             e.caret = at.min(e.len());
             e.anchor = None;
+            e.visual = None;
             e.rest();
         }
     }
@@ -862,6 +1053,7 @@ impl App {
         let Some(e) = self.props.edit.as_mut().filter(|e| e.modal) else {
             return;
         };
+        e.visual = None;
         if e.insert {
             e.select_word(at);
         } else {
@@ -872,17 +1064,18 @@ impl App {
         }
     }
 
-    /// Ctrl-A, Ctrl-C, Ctrl-X and Ctrl-V in the text area, and `y`, `yy`, `p`, `P` in its normal
-    /// mode. True when the key was used up.
+    /// Ctrl-A, Ctrl-C, Ctrl-X and Ctrl-V in the text area, and `y` (with a selection), `p` and
+    /// `P` in its normal mode. True when the key was used up.
     fn clipboard_key(&mut self, key: Key) -> bool {
         let Some(edit) = self.props.edit.as_mut().filter(|e| e.modal) else {
             return false;
         };
         let insert = edit.insert;
         let selected = edit.selected_text();
-        let pending = edit.pending;
+        let ready = edit.pending.is_empty();
         let ctrl = |c: char| key.ctrl && key.code == KeyCode::Char(c);
-        let plain = |c: char| !key.ctrl && !key.alt && !key.sup && key.code == KeyCode::Char(c);
+        let plain =
+            |c: char| ready && !key.ctrl && !key.alt && !key.sup && key.code == KeyCode::Char(c);
         if ctrl('a') {
             edit.select_all();
         } else if ctrl('c') || (!insert && plain('y') && selected.is_some()) {
@@ -901,15 +1094,6 @@ impl App {
         } else if ctrl('v') || (!insert && (plain('p') || plain('P'))) {
             let after = !insert && !plain('P');
             self.paste(after);
-        } else if !insert && plain('y') && pending == Some('y') {
-            // yy: the line, with its line break.
-            let (a, b) = (edit.line_start(), edit.line_end());
-            let mut text: String = edit.chars()[a..b].iter().collect();
-            text.push('\n');
-            edit.pending = None;
-            crate::clipboard::set(&text);
-        } else if !insert && plain('y') {
-            edit.pending = Some('y');
         } else {
             return false;
         }
@@ -922,6 +1106,7 @@ impl App {
                 e.remove(a, b);
                 e.caret = a;
                 e.anchor = None;
+                e.visual = None;
                 e.rest();
                 if !e.insert {
                     self.ed.group = None;
@@ -931,8 +1116,9 @@ impl App {
         }
     }
 
-    /// Puts the clipboard's text in: at the caret in insert mode (over a selection), else after
-    /// (`after`) or before it, as a step of its own.
+    /// Puts the clipboard's text in: at the caret in insert mode, over a selection (a visual
+    /// one too), else after (`after`) or before the caret, as a step of its own. Lines (text
+    /// ending in a line break) go below or above the caret's line in normal mode.
     fn paste(&mut self, after: bool) {
         let text = crate::clipboard::get();
         let Some(e) = self.props.edit.as_mut() else {
@@ -941,21 +1127,35 @@ impl App {
         if text.is_empty() {
             return;
         }
-        if let Some((a, b)) = e.selection() {
+        if !e.insert {
+            self.ed.group = None;
+        }
+        if !e.insert && e.selection().is_none() && text.ends_with('\n') {
+            let (start, end, n) = (e.line_start(), e.line_end(), e.len());
+            let (at, text, skip) = if !after {
+                (start, text, 0)
+            } else if end < n {
+                (end + 1, text, 0)
+            } else {
+                (n, format!("\n{}", &text[..text.len() - 1]), 1)
+            };
+            e.caret = at;
+            e.insert_str(&text);
+            e.caret = at + skip;
+            e.anchor = None;
+            return self.apply_live();
+        }
+        let replaced = e.selection();
+        if let Some((a, b)) = replaced {
             e.remove(a, b);
             e.caret = a;
         }
         e.anchor = None;
-        if !e.insert {
-            // Normal mode: after the caret's character, unless the line is empty.
-            if after && e.caret < e.line_end() {
-                e.caret += 1;
-            }
-            self.ed.group = None;
+        e.visual = None;
+        // Normal mode: after the caret's character, unless the line is empty.
+        if !e.insert && replaced.is_none() && after && e.caret < e.line_end() {
+            e.caret += 1;
         }
-        let Some(e) = self.props.edit.as_mut() else {
-            return;
-        };
         let start = e.caret;
         e.insert_str(&text);
         if !e.insert {
@@ -974,7 +1174,8 @@ impl App {
         if let Some(e) = self.props.edit.as_mut() {
             e.caret = at.min(e.len());
             e.anchor = Some(e.caret);
-            e.pending = None;
+            e.visual = None;
+            e.pending.clear();
             e.rest();
         }
     }
@@ -1006,7 +1207,7 @@ impl App {
             return false;
         };
         let insert = edit.insert;
-        let plain = !key.ctrl && !key.alt && !key.sup;
+        let plain = !key.ctrl && !key.alt && !key.sup && edit.pending.is_empty();
         let remove = match key.code {
             KeyCode::Backspace | KeyCode::Delete if insert => Some(false),
             KeyCode::Char('d' | 'x') if plain && !insert => Some(false),
@@ -1158,9 +1359,12 @@ impl App {
     }
 
     /// Ends the edit. Cancelling takes back what it changed.
-    fn end_edit(&mut self, cancel: bool) {
-        if self.props.edit.is_none() {
+    pub(crate) fn end_edit(&mut self, cancel: bool) {
+        let Some(e) = &self.props.edit else {
             return;
+        };
+        if e.field == Field::Lyrics {
+            self.props.text_caret = Some((self.pane().cursor.track, e.caret));
         }
         let edited = self.ed.group == Some(true);
         self.ed.group = None;
@@ -1190,6 +1394,55 @@ impl App {
     /// Keys while a property is typed. A single line is in insert mode: `<CR>` keeps the text,
     /// `<Esc>` and `<C-c>` cancel. The lyrics are edited like vim.
     pub(crate) fn props_edit_key(&mut self, key: Key) {
+        // The GABC inferred from the notes can be moved through, selected and copied, not
+        // changed: what a key changed in it is put back.
+        let track = self.pane().cursor.track;
+        let Some(inferred) = self
+            .props
+            .edit
+            .as_ref()
+            .filter(|e| e.field == Field::Lyrics)
+            .and_then(|_| self.inferred_gabc(track))
+        else {
+            return self.props_edit_key_inner(key);
+        };
+        if let Some(e) = self.props.edit.as_mut() {
+            e.text = inferred.clone();
+            e.caret = e.caret.min(e.len());
+        }
+        self.props_edit_key_inner(key);
+        let mut refused = false;
+        if let Some(e) = self
+            .props
+            .edit
+            .as_mut()
+            .filter(|e| e.field == Field::Lyrics)
+        {
+            if e.text != inferred {
+                e.text = inferred;
+                e.caret = e.caret.min(e.len());
+                e.anchor = None;
+                e.visual = None;
+                refused = true;
+            }
+            if e.insert {
+                e.insert = false;
+                e.rest();
+                self.ed.group = None;
+            }
+        }
+        if refused {
+            self.info("the GABC follows the notes; switch GABC off to edit the lyrics");
+        }
+    }
+
+    fn props_edit_key_inner(&mut self, key: Key) {
+        if self.text_global_key(key) {
+            return;
+        }
+        if self.props.edit.as_ref().is_some_and(|e| e.visual.is_some()) {
+            return self.text_visual_key(key);
+        }
         if self.clipboard_key(key) || self.selection_key(key) {
             return;
         }
@@ -1214,12 +1467,28 @@ impl App {
             }
             KeyCode::Esc => return self.end_edit(true),
             KeyCode::Char('c') if key.ctrl => return self.end_edit(true),
+            KeyCode::Char('k') if key.ctrl && multiline => {
+                self.ed.group = None;
+                return self.text_to_switch();
+            }
             KeyCode::Enter if !multiline => {
                 let PropEdit { field, text, .. } = edit.clone();
                 let ok = self.commit_property(field, text.trim(), false);
                 return self.end_edit(!ok);
             }
             KeyCode::Enter => edit.insert_char('\n'),
+            // Ctrl: by words.
+            KeyCode::Backspace if key.ctrl => {
+                let from = textobj::word_start_before(&edit.chars(), edit.caret);
+                edit.remove(from, edit.caret);
+                edit.caret = from;
+            }
+            KeyCode::Delete if key.ctrl => {
+                let to = textobj::word_end_after(&edit.chars(), edit.caret);
+                edit.remove(edit.caret, to);
+            }
+            KeyCode::Left if key.ctrl => edit.word_back(false),
+            KeyCode::Right if key.ctrl => edit.word_forward(false),
             KeyCode::Backspace => edit.backspace(),
             KeyCode::Delete => edit.delete(),
             KeyCode::Left => edit.caret = edit.caret.saturating_sub(1),
@@ -1240,108 +1509,220 @@ impl App {
         }
     }
 
-    /// Keys in the lyrics text area's normal mode: a vim subset. Each change is its own undo
-    /// step, and `<Esc>` leaves the text area.
-    fn text_normal_key(&mut self, key: Key) {
-        if self.clipboard_key(key) || self.selection_key(key) {
-            return;
+    /// Keys the text area has no use for that the keymap binds go on working: `:` in normal and
+    /// Visual mode (command line), and Ctrl and Alt keys (`<C-s>` save, `<C-h>` focus …).
+    /// A command that moves the focus leaves the text area first. True when it did something.
+    fn text_global_key(&mut self, key: Key) -> bool {
+        let Some(e) = self.props.edit.as_ref().filter(|e| e.modal) else {
+            return false;
+        };
+        let colon = !e.insert
+            && e.pending.is_empty()
+            && !key.ctrl
+            && !key.alt
+            && !key.sup
+            && key.code == KeyCode::Char(':');
+        let own = key.ctrl
+            && !key.alt
+            && !key.shift
+            && matches!(key.code, KeyCode::Char(c) if "acxvurk".contains(c));
+        let chord =
+            (key.ctrl || key.alt || key.sup) && matches!(key.code, KeyCode::Char(_)) && !own;
+        if !colon && !chord {
+            return false;
         }
+        let bound = |mode: Mode| match self.config.keymap(mode).lookup(&[key]) {
+            crate::config::Lookup::Exact(cmds) => Some(cmds.to_vec()),
+            _ => None,
+        };
+        let Some(cmds) = bound(Mode::Normal).or_else(|| bound(Mode::Properties)) else {
+            return false;
+        };
+        if cmds.is_empty() {
+            return false;
+        }
+        let focus = |c: &Command| {
+            matches!(
+                c,
+                Command::Focus(_) | Command::FocusCycle(_) | Command::FocusLast
+            )
+        };
+        if cmds.iter().any(focus) {
+            self.end_edit(false);
+        }
+        for c in cmds {
+            self.run(c);
+        }
+        true
+    }
+
+    /// Ctrl-K: up from the text area to the GABC switch.
+    fn text_to_switch(&mut self) {
+        self.end_edit(false);
+        if let Some(r) = self.field_row(Field::LyricsGabc) {
+            self.props.selected = r;
+        }
+    }
+
+    /// Keys in the lyrics text area's normal mode: a vim subset, with operators (`d`, `c`, `y`)
+    /// over motions and text objects. Each change is its own undo step, and `<Esc>` leaves the
+    /// text area.
+    fn text_normal_key(&mut self, key: Key) {
         let lines = self.props.visual.borrow().clone();
         let Some(edit) = self.props.edit.as_mut() else {
             return;
         };
-        let before = edit.text.clone();
-        let pending = edit.pending.take();
-        let mut insert = false;
-        match (pending, key.code) {
-            // Escape leaves the text area and the pane.
-            (_, KeyCode::Esc) => {
+        let plain = !key.ctrl && !key.alt && !key.sup;
+        let typed = match key.code {
+            // Escape forgets a command begun, else leaves the text area and the pane.
+            KeyCode::Esc if !edit.pending.is_empty() => {
+                edit.pending.clear();
+                return;
+            }
+            KeyCode::Esc => {
                 self.end_edit(false);
                 if self.focused_kind() == PaneKind::Properties {
                     self.set_focus(self.focused());
                 }
                 return;
             }
-            // Ctrl-K goes up to the GABC switch.
-            (_, KeyCode::Char('k')) if key.ctrl => {
+            KeyCode::Char('k') if key.ctrl => return self.text_to_switch(),
+            KeyCode::Char('r') if key.ctrl => return self.text_history(Command::Redo),
+            // The pane's tab keys (`H` `L`) work as in the rest of
+            // the pane; the text area is entered again afterwards where it is still selected.
+            KeyCode::Char('H' | 'L') if plain && edit.pending.is_empty() => {
                 self.end_edit(false);
-                if let Some(r) = self.field_row(Field::LyricsGabc) {
-                    self.props.selected = r;
+                self.properties_key(key);
+                self.enter_text_area();
+                return;
+            }
+            KeyCode::Char(c) if plain => {
+                let mut keys: Vec<char> = edit.pending.chars().collect();
+                keys.push(c);
+                let t = parse_typed(&keys, false);
+                edit.pending = if t == Typed::More {
+                    keys.into_iter().collect()
+                } else {
+                    String::new()
+                };
+                t
+            }
+            KeyCode::Enter => Typed::Cmd('i'),
+            KeyCode::Left if key.ctrl => Typed::Move(Motion::Back(false)),
+            KeyCode::Right if key.ctrl => Typed::Move(Motion::Word(false)),
+            KeyCode::Left => Typed::Move(Motion::Left),
+            KeyCode::Right => Typed::Move(Motion::Right),
+            KeyCode::Up => Typed::Move(Motion::Up),
+            KeyCode::Down => Typed::Move(Motion::Down),
+            KeyCode::Home => Typed::Move(Motion::LineStart),
+            KeyCode::End => Typed::Move(Motion::LineEnd),
+            KeyCode::Delete => Typed::Cmd('x'),
+            _ => Typed::Bad,
+        };
+        edit.pending.retain(|_| typed == Typed::More);
+        let before = edit.text.clone();
+        let mut insert = false;
+        match typed {
+            Typed::More | Typed::Bad | Typed::Object(..) => return,
+            Typed::Move(m) => edit.caret = edit.target(m, &lines),
+            Typed::Op(op, target) => {
+                let range = match target {
+                    Target::Line => {
+                        let c = edit.chars();
+                        let (a, b) = textobj::line_range(&c, edit.caret, edit.caret);
+                        Some((a, b, true))
+                    }
+                    Target::Move(m) => edit.motion_range(op, m),
+                    Target::Object(around, o) => edit.object_range(around, o),
+                };
+                if let Some(r) = range {
+                    self.text_operate(op, r);
                 }
                 return;
             }
-            (Some('d'), KeyCode::Char('d')) => edit.delete_line(),
-            (Some('g'), KeyCode::Char('g')) => edit.caret = 0,
-            (_, KeyCode::Char('d')) => edit.pending = Some('d'),
-            (_, KeyCode::Char('g')) => edit.pending = Some('g'),
-            (_, KeyCode::Char('r')) if key.ctrl => return self.text_history(Command::Redo),
-            (_, KeyCode::Char('u')) if !key.ctrl => return self.text_history(Command::Undo),
-            (_, KeyCode::Enter) => insert = true,
-            (_, KeyCode::Left) => edit.caret = edit.caret.saturating_sub(1),
-            (_, KeyCode::Right) => edit.caret += 1,
-            (_, KeyCode::Up) => edit.move_visual(-1, &lines),
-            (_, KeyCode::Down) => edit.move_visual(1, &lines),
-            (_, KeyCode::Home) => edit.caret = edit.line_start(),
-            (_, KeyCode::End) => edit.caret = edit.line_end(),
-            (_, KeyCode::Char(c)) if !key.ctrl && !key.alt && !key.sup => match c {
-                'h' => edit.caret = edit.caret.saturating_sub(1),
-                'l' => edit.caret += 1,
-                'j' => edit.move_visual(1, &lines),
-                'k' => edit.move_visual(-1, &lines),
-                'w' => edit.word_forward(),
-                'b' => edit.word_back(),
-                'e' => edit.word_end(),
-                '/' => {
-                    self.start_search();
-                    return;
-                }
-                'n' | 'N' => {
-                    self.search_step(if c == 'n' { 1 } else { -1 }, None);
-                    return;
-                }
-                '0' => edit.caret = edit.line_start(),
-                '^' => {
-                    edit.caret = edit.line_start();
-                    let rest: Vec<char> = edit.chars().into_iter().skip(edit.caret).collect();
-                    edit.caret += rest.iter().take_while(|c| **c == ' ').count();
-                }
-                '$' => edit.caret = edit.line_end(),
-                'G' => {
-                    edit.caret = edit.len();
-                    edit.caret = edit.line_start();
-                }
-                'x' => edit.delete(),
-                'D' => {
-                    let (from, to) = (edit.caret, edit.line_end());
-                    edit.remove(from, to);
-                }
-                'i' => insert = true,
-                'a' => {
-                    edit.caret = (edit.caret + 1).min(edit.line_end());
-                    insert = true;
-                }
-                'I' => {
-                    edit.caret = edit.line_start();
-                    insert = true;
-                }
-                'A' => {
-                    edit.caret = edit.line_end();
-                    insert = true;
-                }
-                'o' => {
-                    edit.caret = edit.line_end();
-                    edit.insert_char('\n');
-                    insert = true;
-                }
-                'O' => {
-                    edit.caret = edit.line_start();
-                    edit.insert_char('\n');
+            Typed::Replace(c) => {
+                if edit.caret < edit.line_end() {
+                    edit.delete();
+                    edit.insert_char(c);
                     edit.caret -= 1;
-                    insert = true;
                 }
-                _ => {}
-            },
-            _ => {}
+            }
+            Typed::Cmd(c) => {
+                // Changes made by an operator over a motion.
+                let op = match c {
+                    'x' => Some(('d', Motion::Right)),
+                    'X' => Some(('d', Motion::Left)),
+                    'D' => Some(('d', Motion::LineEnd)),
+                    'C' => Some(('c', Motion::LineEnd)),
+                    's' => Some(('c', Motion::Right)),
+                    _ => None,
+                };
+                if let Some((op, m)) = op {
+                    match edit.motion_range(op, m) {
+                        Some(r) => self.text_operate(op, r),
+                        // `s` on an empty line just inserts.
+                        None if op == 'c' => {
+                            edit.insert = true;
+                            self.ed.group = Some(false);
+                        }
+                        None => {}
+                    }
+                    return;
+                }
+                if matches!(c, 'S' | 'Y') {
+                    let ch = edit.chars();
+                    let (a, b) = textobj::line_range(&ch, edit.caret, edit.caret);
+                    return self.text_operate(if c == 'S' { 'c' } else { 'y' }, (a, b, true));
+                }
+                match c {
+                    'u' => return self.text_history(Command::Undo),
+                    '/' => return self.start_search(),
+                    'n' | 'N' => return self.search_step(if c == 'n' { 1 } else { -1 }, None),
+                    'p' | 'P' => return self.paste(c == 'p'),
+                    'v' | 'V' => {
+                        edit.anchor = None;
+                        edit.visual = Some((edit.caret, c == 'V'));
+                        return;
+                    }
+                    '~' => {
+                        if let Some(&ch) = edit.chars().get(edit.caret).filter(|c| **c != '\n') {
+                            let flipped: String = if ch.is_uppercase() {
+                                ch.to_lowercase().collect()
+                            } else {
+                                ch.to_uppercase().collect()
+                            };
+                            edit.remove(edit.caret, edit.caret + 1);
+                            edit.insert_str(&flipped);
+                            edit.caret = edit.caret.min(edit.line_end());
+                        }
+                    }
+                    'i' => insert = true,
+                    'a' => {
+                        edit.caret = (edit.caret + 1).min(edit.line_end());
+                        insert = true;
+                    }
+                    'I' => {
+                        edit.caret = edit.first_non_blank();
+                        insert = true;
+                    }
+                    'A' => {
+                        edit.caret = edit.line_end();
+                        insert = true;
+                    }
+                    'o' => {
+                        edit.caret = edit.line_end();
+                        edit.insert_char('\n');
+                        insert = true;
+                    }
+                    'O' => {
+                        edit.caret = edit.line_start();
+                        edit.insert_char('\n');
+                        edit.caret -= 1;
+                        insert = true;
+                    }
+                    _ => return,
+                }
+            }
         }
         edit.caret = edit.caret.min(edit.len());
         let changed = edit.text != before;
@@ -1353,9 +1734,189 @@ impl App {
             edit.rest();
         }
         if changed {
+            // A change in normal mode is a step of its own.
             self.apply_live();
-            if !insert {
-                // A change in normal mode is a step of its own.
+        }
+    }
+
+    /// Keys in the lyrics text area's visual mode (`v`, or `V` for whole lines): motions and
+    /// text objects (`iw`, `ap`, `i(` …) grow the selection, `o` goes to its other end, and
+    /// `d` `x` `c` `s` `y` `p` `~` `u` `U` act on it (`D` `X` `C` `S` `Y` on its lines).
+    fn text_visual_key(&mut self, key: Key) {
+        let lines = self.props.visual.borrow().clone();
+        let Some(edit) = self.props.edit.as_mut() else {
+            return;
+        };
+        let Some((start, linewise)) = edit.visual else {
+            return;
+        };
+        let plain = !key.ctrl && !key.alt && !key.sup;
+        let typed = match key.code {
+            KeyCode::Esc if !edit.pending.is_empty() => {
+                edit.pending.clear();
+                return;
+            }
+            KeyCode::Esc => Typed::Cmd('\u{1b}'),
+            KeyCode::Char(c) if plain => {
+                let mut keys: Vec<char> = edit.pending.chars().collect();
+                keys.push(c);
+                let t = parse_typed(&keys, true);
+                edit.pending = if t == Typed::More {
+                    keys.into_iter().collect()
+                } else {
+                    String::new()
+                };
+                t
+            }
+            KeyCode::Char('c') if key.ctrl => Typed::Cmd('\u{3}'),
+            KeyCode::Char('x') if key.ctrl => Typed::Cmd('\u{18}'),
+            KeyCode::Char('v') if key.ctrl => Typed::Cmd('p'),
+            KeyCode::Char('a') if key.ctrl => {
+                edit.select_all();
+                return;
+            }
+            KeyCode::Char('k') if key.ctrl => return self.text_to_switch(),
+            KeyCode::Left if key.ctrl => Typed::Move(Motion::Back(false)),
+            KeyCode::Right if key.ctrl => Typed::Move(Motion::Word(false)),
+            KeyCode::Left => Typed::Move(Motion::Left),
+            KeyCode::Right => Typed::Move(Motion::Right),
+            KeyCode::Up => Typed::Move(Motion::Up),
+            KeyCode::Down => Typed::Move(Motion::Down),
+            KeyCode::Home => Typed::Move(Motion::LineStart),
+            KeyCode::End => Typed::Move(Motion::LineEnd),
+            KeyCode::Delete | KeyCode::Backspace => Typed::Cmd('d'),
+            _ => Typed::Bad,
+        };
+        let sel = edit.selection();
+        // The selection's lines, for the commands on whole lines.
+        let line_sel = || {
+            let c = edit.chars();
+            let (lo, hi) = (start.min(edit.caret), start.max(edit.caret));
+            let (a, b) = textobj::line_range(&c, lo, hi);
+            (a, b, true)
+        };
+        let range = sel.map(|(a, b)| (a, b, linewise));
+        match typed {
+            Typed::More | Typed::Bad | Typed::Op(..) | Typed::Replace(_) => {}
+            Typed::Move(m) => {
+                edit.caret = edit.target(m, &lines);
+                edit.rest();
+            }
+            Typed::Object(around, o) => {
+                if let Some((a, b, lines)) = edit.object_range(around, o).filter(|r| r.0 < r.1) {
+                    edit.visual = Some((a, linewise || lines));
+                    edit.caret = b - 1;
+                }
+            }
+            Typed::Cmd(c) => match c {
+                '\u{1b}' => edit.visual = None,
+                'v' | 'V' => {
+                    let lines = c == 'V';
+                    edit.visual = (lines != linewise).then_some((start, lines));
+                }
+                'o' => {
+                    edit.visual = Some((edit.caret, linewise));
+                    edit.caret = start;
+                }
+                'd' | 'x' | 'c' | 's' | 'y' | '\u{3}' | '\u{18}' => {
+                    edit.visual = None;
+                    let op = match c {
+                        'x' | '\u{18}' => 'd',
+                        '\u{3}' => 'y',
+                        's' => 'c',
+                        _ => c,
+                    };
+                    if let Some(r) = range {
+                        self.text_operate(op, r);
+                    }
+                }
+                'D' | 'X' | 'C' | 'S' | 'R' | 'Y' => {
+                    let r = line_sel();
+                    edit.visual = None;
+                    let op = match c {
+                        'D' | 'X' => 'd',
+                        'Y' => 'y',
+                        _ => 'c',
+                    };
+                    self.text_operate(op, r);
+                }
+                'p' | 'P' => self.paste(true),
+                '~' | 'u' | 'U' => {
+                    if let Some((a, b)) = sel {
+                        let text: String = edit.chars()[a..b]
+                            .iter()
+                            .map(|&ch| match c {
+                                'u' => ch.to_lowercase().collect::<String>(),
+                                'U' => ch.to_uppercase().collect(),
+                                _ if ch.is_uppercase() => ch.to_lowercase().collect(),
+                                _ => ch.to_uppercase().collect(),
+                            })
+                            .collect();
+                        edit.remove(a, b);
+                        edit.caret = a;
+                        edit.insert_str(&text);
+                        edit.caret = a;
+                        edit.visual = None;
+                        edit.rest();
+                        self.ed.group = None;
+                        self.apply_live();
+                    }
+                }
+                _ => {}
+            },
+        }
+    }
+
+    /// An operator over a range (from, to, whole lines): `d` deletes, `c` deletes and inserts,
+    /// `y` copies; what `d` and `c` take is copied too, as in vim.
+    fn text_operate(&mut self, op: char, (mut a, mut b, lines): (usize, usize, bool)) {
+        let Some(e) = self.props.edit.as_mut() else {
+            return;
+        };
+        let c = e.chars();
+        let (a0, b0) = (a.min(c.len()), b.min(c.len()));
+        (a, b) = (a0, b0);
+        let mut taken: String = c[a..b].iter().collect();
+        if lines && !taken.ends_with('\n') {
+            taken.push('\n');
+        }
+        if !taken.is_empty() {
+            crate::clipboard::set(&taken);
+        }
+        e.anchor = None;
+        e.visual = None;
+        match op {
+            'y' => {
+                if !lines || textobj::line_bounds(&c, e.caret).0 != a {
+                    e.caret = a;
+                }
+                e.rest();
+            }
+            'd' => {
+                // The last lines take the line break before them.
+                if lines && b == c.len() && a > 0 && c[a - 1] == '\n' && !c[a..b].ends_with(&['\n'])
+                {
+                    a -= 1;
+                }
+                e.remove(a, b);
+                e.caret = a.min(e.len());
+                if lines {
+                    e.caret = e.first_non_blank();
+                }
+                e.rest();
+                self.ed.group = None;
+                self.apply_live();
+            }
+            _ => {
+                // Changing lines keeps one, empty, to type into.
+                if lines && b > a && c[b - 1] == '\n' {
+                    b -= 1;
+                }
+                e.remove(a, b);
+                e.caret = a;
+                e.insert = true;
+                self.ed.group = Some(false);
+                self.apply_live();
             }
         }
     }
@@ -1369,6 +1930,7 @@ impl App {
         if let (Some(text), Some(edit)) = (text, self.props.edit.as_mut()) {
             edit.text = text;
             edit.full = None;
+            edit.visual = None;
             edit.caret = edit.caret.min(edit.len());
             edit.rest();
         }
@@ -1508,6 +2070,10 @@ impl App {
     /// still are. The syllables are laid onto the notes again; a chant track's chant is read
     /// from it. One undo step per edit session.
     fn set_lyrics(&mut self, track: usize, shown: &str, live: bool) {
+        // The GABC inferred from the notes is not edited.
+        if self.inferred_gabc(track).is_some() {
+            return;
+        }
         let typed = self
             .props
             .edit
@@ -1610,8 +2176,8 @@ impl App {
     }
 
     /// With the lyrics text area selected, its text is edited at once, in normal mode (the
-    /// block caret shows).
-    fn enter_text_area(&mut self) {
+    /// block caret shows), the caret where it was when the text area was last left.
+    pub(crate) fn enter_text_area(&mut self) {
         if self.props.edit.is_some()
             || !matches!(self.selected_field(), Some((Field::Lyrics, true)))
         {
@@ -1620,7 +2186,12 @@ impl App {
         let t = self.pane().cursor.track;
         let mut e = PropEdit::new(Field::Lyrics, self.shown_lyrics(t));
         e.insert = false;
-        e.caret = 0;
+        // The caret is where it was left on this track.
+        e.caret = match self.props.text_caret {
+            Some((track, caret)) if track == t => caret.min(e.len()),
+            _ => 0,
+        };
+        e.rest();
         self.props.edit = Some(e);
         self.ed.group = None;
     }
@@ -2101,8 +2672,10 @@ impl App {
             PropertiesSearch(dir) => self.search_step(*dir, None),
             PropertiesChange => {
                 self.edit_property();
+                let t = self.pane().cursor.track;
+                let fixed = self.inferred_gabc(t).is_some();
                 // Text is cleared (as the score follows); pickers and toggles just open.
-                if let Some(e) = self.props.edit.as_mut() {
+                if let Some(e) = self.props.edit.as_mut().filter(|e| !(fixed && e.modal)) {
                     e.text.clear();
                     e.caret = 0;
                     self.apply_live();
@@ -2458,8 +3031,12 @@ mod tests {
             "e: the end of the word"
         );
         keys(&mut app, "e");
-        assert_eq!(app.props.edit.as_ref().unwrap().caret, 5, "and of the next");
-        keys(&mut app, "0wx");
+        assert_eq!(
+            app.props.edit.as_ref().unwrap().caret,
+            3,
+            "and of the next: the sign"
+        );
+        keys(&mut app, "0wlx");
         assert_eq!(verse(&app, 0).as_deref(), Some("Hel-o world"));
         keys(&mut app, "ddu");
         assert_eq!(verse(&app, 0).as_deref(), Some("Hel-o world"));
@@ -2570,22 +3147,26 @@ mod tests {
             "(c4) Ky(f)ri(gh)e(h) e(g)le(f)i(e)so,n(d)"
         );
         keys(&mut app, "u");
-        // The switch (a click flips it): the raw text, from its clef.
+        // The switch (a click flips it): the GABC the chant staff shows, from the notes.
         keys(&mut app, "<C-k>");
         let gabc = field_row(&app, Field::LyricsGabc);
         app.click_property(gabc, false);
         assert!(app.props.gabc);
-        assert_eq!(shown(&app), "(c4) Ky(f)ri(gh)e(h) e(g)le(f)i(e)son(d)");
-        keys(&mut app, "<C-j>A(e)<Esc>");
+        let inferred = shown(&app);
+        assert!(inferred.starts_with("(c"), "{inferred}");
         assert!(
-            app.buffer().score.tracks[0]
-                .lyrics_text
-                .ends_with("son(d)(e)")
+            inferred.contains("Ky(") && inferred.contains("son("),
+            "{inferred}"
         );
-        // Text without a clef starts with one in the raw view.
+        // It is not typed over, and follows the lyrics.
+        let kept = app.buffer().score.tracks[0].lyrics_text.clone();
+        keys(&mut app, "<C-j>A(e)");
+        assert_eq!(app.buffer().score.tracks[0].lyrics_text, kept);
+        assert_eq!(edit_of(&app).text, inferred);
         keys(&mut app, "<C-k>");
         lyrics_text(&mut app, "la la");
-        assert_eq!(shown(&app), "(c4) la la");
+        let now = shown(&app);
+        assert!(now.contains("la(") && !now.contains("Ky"), "{now}");
         keys(&mut app, "<A-h>");
         assert!(!app.props.gabc);
         assert_eq!(shown(&app), "la la");
@@ -3112,5 +3693,146 @@ mod tests {
         assert_eq!(edit(&app).text, "two two threetwo");
         keys(&mut app, "yy");
         assert_eq!(crate::clipboard::get(), "two two threetwo\n");
+    }
+
+    fn edit_of(app: &App) -> PropEdit {
+        app.props.edit.clone().unwrap()
+    }
+
+    #[test]
+    fn operators_text_objects_and_visual_mode() {
+        let mut app = with_props();
+        lyrics_text(&mut app, "one two three\nfour five\n\nsix seven");
+        app.set_property_tab(PropTab::Lyrics);
+        keys(&mut app, "<leader>Pj");
+        let text = |app: &App| edit_of(app).text;
+        let words = |app: &App| edit_of(app).text.replace('\n', "|");
+        keys(&mut app, "wdiw");
+        assert_eq!(words(&app), "one  three|four five||six seven");
+        keys(&mut app, "u0wdaw");
+        assert_eq!(words(&app), "one three|four five||six seven");
+        keys(&mut app, "ggcwONE<Esc>");
+        assert_eq!(words(&app), "ONE three|four five||six seven");
+        keys(&mut app, "wdw");
+        assert_eq!(words(&app), "ONE |four five||six seven");
+        // Paragraphs: dap takes the blank lines after it; dip leaves them.
+        keys(&mut app, "ggdap");
+        assert_eq!(text(&app), "six seven");
+        keys(&mut app, "u");
+        keys(&mut app, "ggdip");
+        assert_eq!(words(&app), "|six seven");
+        keys(&mut app, "u");
+        // dd, yy and p are lines; D and x.
+        keys(&mut app, "ddp");
+        assert_eq!(words(&app), "four five|ONE ||six seven");
+        keys(&mut app, "ggyyGp");
+        assert_eq!(words(&app), "four five|ONE ||six seven|four five");
+        // Visual mode: v with a motion and an object, V for lines.
+        keys(&mut app, "ggvee");
+        assert_eq!(app.display_mode(), Mode::Visual);
+        assert_eq!(edit_of(&app).selected_text().as_deref(), Some("four five"));
+        keys(&mut app, "d");
+        assert_eq!(words(&app), "|ONE ||six seven|four five");
+        assert_eq!(app.display_mode(), Mode::Normal);
+        keys(&mut app, "jviwy");
+        assert_eq!(crate::clipboard::get(), "ONE");
+        keys(&mut app, "Vjd");
+        assert_eq!(words(&app), "|six seven|four five");
+        keys(&mut app, "vawU");
+        assert_eq!(words(&app), "|SIX seven|four five");
+        keys(&mut app, "v<Esc>");
+        assert!(edit_of(&app).visual.is_none());
+    }
+
+    #[test]
+    fn ctrl_arrows_and_ctrl_delete_work_by_words_in_insert_mode() {
+        let mut app = with_props();
+        lyrics_text(&mut app, "one two three");
+        app.set_property_tab(PropTab::Lyrics);
+        keys(&mut app, "<leader>Pj<CR><End>");
+        keys(&mut app, "<C-Left>");
+        assert_eq!(edit_of(&app).caret, 8);
+        keys(&mut app, "<C-Left><C-Right>");
+        assert_eq!(edit_of(&app).caret, 8);
+        keys(&mut app, "<C-Left><C-Left>");
+        assert_eq!(edit_of(&app).caret, 0);
+        keys(&mut app, "<C-Del>");
+        assert_eq!(edit_of(&app).text, " two three");
+        keys(&mut app, "<C-Right><C-BS>");
+        assert_eq!(
+            edit_of(&app).text,
+            "two three",
+            "the blank before the word goes"
+        );
+        keys(&mut app, "<C-Right><C-BS>");
+        assert_eq!(edit_of(&app).text, "three");
+    }
+
+    #[test]
+    fn the_text_area_gives_up_the_focus_and_gets_it_back_as_left() {
+        let mut app = with_props();
+        lyrics_text(&mut app, "one two three");
+        app.set_property_tab(PropTab::Lyrics);
+        let score = app.focused();
+        keys(&mut app, "<leader>Pj$");
+        let caret = edit_of(&app).caret;
+        // A focus key bound in the normal keymap leaves the pane from the text area.
+        let km = crate::keys::parse_keys("<c-h>", &[]).unwrap();
+        app.config
+            .keymaps
+            .get_mut(&Mode::Normal)
+            .unwrap()
+            .bindings
+            .insert(km, vec![Command::parse("focus-left").unwrap()]);
+        keys(&mut app, "<C-h>");
+        assert!(app.props.edit.is_none());
+        let _ = score;
+        keys(&mut app, "<leader>P");
+        assert_eq!(app.focused_kind(), PaneKind::Properties);
+        assert_eq!(edit_of(&app).caret, caret, "the caret is where it was");
+        // On the switch, the switch is what comes back.
+        keys(&mut app, "<C-k><Esc>");
+        keys(&mut app, "<leader>P");
+        assert!(app.props.edit.is_none());
+        assert_eq!(app.property_selected(), field_row(&app, Field::LyricsGabc));
+    }
+
+    #[test]
+    fn h_and_l_change_tabs_from_the_text_area() {
+        let mut app = with_props();
+        app.set_property_tab(PropTab::Lyrics);
+        keys(&mut app, "<leader>Pj");
+        assert!(app.props.edit.is_some());
+        keys(&mut app, "H");
+        assert_eq!(app.props.tab, PropTab::Tracks);
+        keys(&mut app, "L");
+        assert_eq!(app.props.tab, PropTab::Lyrics);
+    }
+
+    #[test]
+    fn gabc_on_shows_the_chant_the_notes_make_and_follows_them() {
+        let mut app = with_props();
+        keys(&mut app, "i3<Space>12<Space>5<Space>7<Esc>0");
+        app.run(Command::Lyrics("Hel-lo _ world".into()));
+        app.set_property_tab(PropTab::Lyrics);
+        app.props.gabc = true;
+        let shown = |app: &App| {
+            app.property_rows()[field_row(app, Field::Lyrics)]
+                .value
+                .clone()
+        };
+        let first = shown(&app);
+        assert!(first.contains("Hel(") || first.contains("Hel"), "{first}");
+        assert!(first.starts_with("(c") || first.starts_with("("), "{first}");
+        // Edits of the score show at once.
+        app.run(Command::LyricsClear(None));
+        let second = shown(&app);
+        assert_ne!(first, second);
+        assert!(!second.contains("Hel"), "{second}");
+        // It is not edited from the text area.
+        let kept = app.buffer().score.tracks[0].lyrics_text.clone();
+        keys(&mut app, "<leader>Pj<CR>abc<Esc>");
+        assert_eq!(app.buffer().score.tracks[0].lyrics_text, kept);
+        assert_eq!(edit_of(&app).text, second);
     }
 }

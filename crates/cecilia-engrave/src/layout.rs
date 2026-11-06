@@ -494,7 +494,9 @@ type RhythmBeat = (usize, f64, DurationValue, u8);
 type TupletNote = (f64, f64, Option<(Vec<f64>, bool)>);
 
 /// A drawn lyric syllable: page, baseline y, left and right x, and whether a hyphen follows.
-type Syllable = (usize, f64, f64, f64, bool);
+/// Page, baseline, left and right edge of the text (with its label), whether a hyphen joins it
+/// to the next, and how many ✻ follow it.
+type Syllable = (usize, f64, f64, f64, bool, usize);
 
 /// Note positions on the standard staff, for ties.
 #[derive(Clone, Copy)]
@@ -1902,31 +1904,22 @@ impl Ctx<'_> {
                 }
                 page.text(font, text.to_string(), (cx, y), size, Align::Center);
                 if !before.is_empty() {
-                    page.text(
+                    page.text_red_stars(
                         FontKind::Text,
-                        before,
-                        (cx - w / 2.0 - gap, y),
+                        &before,
+                        Point::new(cx - w / 2.0 - gap, y),
                         size,
                         Align::Right,
                     );
                 }
-                for k in 0..stars {
-                    // Six spokes around a centre a little above the middle of the letters.
-                    let (sx, sy) = (
-                        cx + w / 2.0 + gap + (k as f64 * 1.3 + 0.5) * sp,
-                        y - 0.85 * sp,
-                    );
-                    for a in [90.0f64, 30.0, 150.0] {
-                        let (dx, dy) = (
-                            a.to_radians().cos() * 0.5 * sp,
-                            a.to_radians().sin() * 0.5 * sp,
-                        );
-                        page.line((sx - dx, sy - dy), (sx + dx, sy + dy), 0.2 * sp);
-                    }
-                }
-                self.syllables
-                    .borrow_mut()
-                    .push((page_index, y, left, right, continues));
+                self.syllables.borrow_mut().push((
+                    page_index,
+                    y,
+                    left,
+                    cx + w / 2.0,
+                    continues,
+                    stars,
+                ));
             }
         }
     }
@@ -2058,13 +2051,45 @@ impl Ctx<'_> {
         syl.sort_by(|a, b| (a.0, a.1, a.2).partial_cmp(&(b.0, b.1, b.2)).unwrap());
         let size = 1.9 * sp;
         let hyphen = fonts().text_width(FontKind::Text, "-", size);
-        for (k, &(page, y, _, right, continues)) in syl.iter().enumerate() {
-            if !continues {
-                continue;
-            }
+        for (k, &(page, y, _, right, continues, stars)) in syl.iter().enumerate() {
             let next = syl
                 .get(k + 1)
                 .filter(|n| n.0 == page && (n.1 - y).abs() < 0.01);
+            if stars > 0 {
+                // The ✻ stands centred between this syllable and the next (after the last
+                // one, just past it). Six spokes round a centre a little above the middle of
+                // the letters.
+                let width = stars as f64 * 1.3 * sp;
+                let mid = match next {
+                    Some(n) if n.2 - right > width => (right + n.2) / 2.0,
+                    Some(_) => right + 0.5 * sp + width / 2.0,
+                    None => right + 0.5 * sp + width / 2.0,
+                };
+                if let Some(p) = layout.pages.get_mut(page) {
+                    for k in 0..stars {
+                        let (sx, sy) = (
+                            mid - width / 2.0 + (k as f64 + 0.5) * 1.3 * sp,
+                            y - 0.85 * sp,
+                        );
+                        for a in [90.0f64, 30.0, 150.0] {
+                            let (dx, dy) = (
+                                a.to_radians().cos() * 0.5 * sp,
+                                a.to_radians().sin() * 0.5 * sp,
+                            );
+                            p.items.push(Item::Line {
+                                from: Point::new(sx - dx, sy - dy),
+                                to: Point::new(sx + dx, sy + dy),
+                                width: 0.2 * sp,
+                                color: Color::RED,
+                            });
+                        }
+                    }
+                }
+                continue;
+            }
+            if !continues {
+                continue;
+            }
             let x = match next {
                 Some(n) if n.2 - right > hyphen * 1.5 => (right + n.2) / 2.0,
                 Some(_) => continue,

@@ -33,6 +33,7 @@ pub mod progress;
 pub mod properties;
 pub mod statusline;
 mod swap;
+mod textobj;
 pub mod theme;
 pub mod toolbar;
 pub mod tracks;

@@ -98,7 +98,7 @@ your own collection, e.g. `ln -s ~/Music/Tabs test-corpus`).
 ## Fonts
 
 Bundled under the SIL Open Font License 1.1 (texts in `assets/fonts/`): Bravura (music symbols),
-Source Sans 3 (text), JetBrains Mono (the lyrics text area) and Caeciliae by the Oblates of
+Source Sans 3 (text) and Caeciliae by the Oblates of
 St. Joseph (square chant notation).
 
 ## License

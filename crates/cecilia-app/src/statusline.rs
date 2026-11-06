@@ -157,10 +157,11 @@ impl App {
     }
 
     /// The mode as shown: typing into a property of the properties pane is insert mode (the
-    /// lyrics text area has normal mode too).
+    /// lyrics text area has normal and visual mode too).
     pub fn display_mode(&self) -> Mode {
         match &self.props.edit {
-            // The lyrics text area has vim's normal mode too.
+            // The lyrics text area has vim's normal and visual modes too.
+            Some(e) if e.modal && e.visual.is_some() => Mode::Visual,
             Some(e) if e.modal && !e.insert => Mode::Normal,
             Some(_) => Mode::Insert,
             None => self.mode,
@@ -305,7 +306,7 @@ impl App {
                 SegKind::ModeText,
             ));
             right.push(Segment::new(
-                format!("{}:{}", pane.cursor.bar + 1, pane.cursor.beat + 1),
+                crate::app::position_text(score, &pane.cursor),
                 SegKind::Mode,
             ));
         }
@@ -328,7 +329,7 @@ mod tests {
         assert_eq!(texts(&s.left)[..2], ["NORMAL", "vertical"]);
         assert_eq!(s.left[0].kind, SegKind::Mode);
         assert_eq!(s.left[1].kind, SegKind::ModeText);
-        assert_eq!(texts(&s.right)[2..], ["0.0/4.0", "Top", "1:1"]);
+        assert_eq!(texts(&s.right)[2..], ["0.0/4.0", "Top", "1:1.0"]);
         assert_eq!(s.right[0].icon, Some(StatusIcon::Tempo));
         assert!(s.right[0].text.starts_with('='));
         for k in parse_keys("}}}i", &[]).unwrap() {
@@ -336,7 +337,7 @@ mod tests {
         }
         let s = app.statusline(Some((42.0, 190.0)), true);
         assert_eq!(s.left[0].text, "INSERT");
-        assert_eq!(s.right.last().unwrap().text, "4:1");
+        assert_eq!(s.right.last().unwrap().text, "4:1.0");
         assert!(s.right[1].text.contains("0:42/3:10"), "{}", s.right[1].text);
         // At 100% the zoom isn't shown.
         assert!(s.right.iter().all(|s| s.icon != Some(StatusIcon::Zoom)));

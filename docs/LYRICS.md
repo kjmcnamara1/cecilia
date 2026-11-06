@@ -284,17 +284,19 @@ What you type is put back into the full text where you typed it:
 - a `(` stays visible as text until its `)` is typed; then it is a group, and disappears from
   view (switch GABC on to type notes).
 
-### GABC on: the raw gabc+
+### GABC on: the chant the notes make
 
-The text area shows the full text, beginning with its clef. A text that doesn't start with a
-group is shown with a clef in front, the clef of the track's chant staff (`(c4)` when it has
-none); it is stored once the text is edited with GABC on, and comes back if deleted. What you
-type is the text.
+For an ordinary track the text area shows the GABC its **chant staff** shows: the track's notes
+and syllables as chant (clef, neumes, divisions), written the way a `.gabc` file is. It is made
+from the score as it is now, so it changes live with every edit in a score pane, `:lyrics`,
+`:lyrics-clear` and so on. It can be moved through, searched, selected and copied, but not edited
+(a key that would change it is refused; switch GABC off to edit the lyrics). It is empty when the
+track can't be chant (no notes, a drum track, chords the `ui.chant_chords` policy refuses).
 
-For a **chant track** the text is the chant's GABC. Each key reads it again as GABC; while it
-doesn't read (an unclosed `(` half typed) the chant stays as it was, and the text area keeps
-what you type either way. Leaving the text area and coming back shows the chant as cecilia writes
-GABC (single spaces, line breaks every 72 characters or so).
+For a **chant track** the text is the chant's GABC and is edited. Each key reads it again as GABC;
+while it doesn't read (an unclosed `(` half typed) the chant stays as it was, and the text area
+keeps what you type either way. Leaving the text area and coming back shows the chant as cecilia
+writes GABC (single spaces, line breaks every 72 characters or so).
 
 ### Colors and font
 
@@ -304,9 +306,13 @@ GABC (single spaces, line breaks every 72 characters or so).
 | `(…)` groups and the clef | — (hidden) | `lyrics_gabc`, bold |
 | `[labels]` | `lyrics_label`, bold | `lyrics_label`, bold |
 | `<bar:beat>` anchors | `lyrics_anchor` | `lyrics_anchor` |
+| GABC clefs / divisions / notes | — | `lyrics_clef` (purple) / `lyrics_division` (red) / `lyrics_note` (blue) |
+| shape / attachment / space modifiers | — | `lyrics_shape` (yellow) / `lyrics_attach` (cyan) / `lyrics_space` (gray) |
+| markup tags `<b>` `</i>` … | `lyrics_markup` (green) | `lyrics_markup` (green) |
+| parentheses of groups | — | `lyrics_text_dim` |
 
 The caret and selection use the Normal-mode color (`mode_normal`). In the window the text area is
-monospaced (`ui.lyrics_font`, `ui.lyrics_font_size`; section 7); the terminal draws it in its own
+drawn in (`ui.lyrics_font`, `ui.lyrics_font_size`; section 7); the terminal draws it in its own
 font, with bold where the table says. The text wraps at the pane's width, at spaces.
 
 ### Getting into the text area
@@ -332,20 +338,43 @@ and `<leader>` keys.
 | --- | --- |
 | `h` `l` `<Left>` `<Right>` | character left / right |
 | `j` `k` `<Down>` `<Up>` | line down / up, by the lines as wrapped on screen |
-| `w` `b` `e` | next word, word back, end of word |
+| `w` `b` `e`, `W` `B` `E`, `<C-Left>` `<C-Right>` | next word, word back, end of word (`W` `B` `E`: words split at spaces only) |
 | `0` `^` `$` `<Home>` `<End>` | start of the line, its first non-space, its end |
 | `gg` / `G` | start of the text / of its last line |
-| `x` `D` `dd` | delete the character, to the end of the line, the line |
-| `i` `a` `I` `A` `o` `O`, `<CR>` | insert before / after the caret, at the line's start / end, on a new line below / above; `<CR>` is `i` |
+| `d` `c` `y` + motion | delete / change / copy to where the motion goes: `dw` `cw` `de` `db` `d0` `d$` `dj` `dk` `dgg` `dG` … |
+| `dd` `cc` `yy`, `D` `C` `S` `Y` `x` `X` `s` | the line, the rest of the line, a character |
+| `d` `c` `y` + `i`/`a` + object | `iw` `aw` `iW` `aW` (word), `ip` `ap` (paragraph, with the blank lines after it for `ap`), `i(` `a(` (`b`), `i[` `i{` (`B`) `i<`, `i"` `i'` ``i` ``: `diw`, `caw`, `dap`, `yip`, `ci"` … |
+| `r` + character, `~` | replace the character, flip its case |
+| `i` `a` `I` `A` `o` `O`, `<CR>` | insert before / after the caret, at the line's first non-space / end, on a new line below / above; `<CR>` is `i` |
+| `v` / `V` | Visual mode (characters / whole lines) |
 | `u` / `<C-r>` | undo / redo (the score's undo: the text is read back) |
 | `/`, `n` `N` | search the text; next / previous match |
-| `y` (with a selection), `yy`, `p` `P` | copy the selection, copy the line, paste after / before the caret |
-| `d` `x` / `c` (with a selection) | remove the selection / remove it and insert |
+| `p` `P` | paste after / before the caret (copied lines go below / above the line) |
 | `<C-a>` `<C-c>` `<C-x>` `<C-v>` | select all, copy, cut, paste (system clipboard) |
-| `<Esc>` | clear the selection; without one, leave the text area **and the pane** (back to the score) |
+| `H` `L` | previous / next tab of the properties pane |
+| `:`, `<C-s>` … | `:` opens the command line and any Ctrl / Alt key your keymap binds works as elsewhere (`<C-s>` save …) |
+| `<C-h>` `<C-j>` … | a focus key of your keymap (`focus-left` …) leaves the text area for that pane; coming back puts the caret where it was |
+| `<Esc>` | forget a command begun; clear the selection; else leave the text area **and the pane** (back to the score) |
 | `<C-k>` | up to the GABC switch (`<C-j>` comes back) |
 
-There are no counts and no Visual mode: select with the mouse or `<C-a>`.
+What `d` and `c` remove is also copied, so `p` puts it back. There are no counts. Leaving the pane
+and focusing it again returns to what was focused last: the text area, with its caret, or the GABC
+switch.
+
+### Visual mode
+
+`v` selects characters, `V` whole lines; the status line shows VISUAL. Motions (all of the above,
+`gg` `G`) move the end of the selection, `iw` `aw` `ip` `ap` `i(` `i"` … select an object, `o` goes
+to the other end, `v` / `V` switch kind or leave.
+
+| keys | |
+| --- | --- |
+| `d` `x` `<Del>` `<BS>`, `c` `s` | delete, change (delete and insert) |
+| `D` `X`, `C` `S` `R` | the same on whole lines |
+| `y` `<C-c>`, `Y` | copy, copy the lines |
+| `p` `P`, `<C-v>` | replace the selection with the clipboard |
+| `~` `u` `U` | flip case, lower case, upper case |
+| `<Esc>` | leave Visual mode |
 
 ### Insert mode
 
@@ -353,6 +382,8 @@ There are no counts and no Visual mode: select with the mouse or `<C-a>`.
 | --- | --- |
 | characters, `<CR>` | typed in (a line break) |
 | `<BS>` `<Del>` | delete before / at the caret (the selection, if any) |
+| `<C-BS>` / `<C-Del>` | delete to the start / end of the word |
+| `<C-Left>` `<C-Right>` | jump a word left / right |
 | `<Left>` `<Right>` `<Up>` `<Down>` `<Home>` `<End>` | move (up and down by wrapped lines) |
 | `<C-u>` | clear the whole text |
 | `<C-a>` `<C-c>` `<C-x>` `<C-v>` | select all, copy, cut, paste; typing replaces a selection |
@@ -384,7 +415,7 @@ or `<C-u>` in insert mode, empties it as an edit.
 
 | command | |
 | --- | --- |
-| `:lyrics TEXT` | adds lyrics from the cursor on: a new line with an anchor at the cursor, `<bar:beat>`, and `TEXT` goes at the end of the track's text, as if typed with GABC off. `\n` in `TEXT` is a line break. The anchor names the cursor's beat in the first voice (with the cursor in another voice, the first-voice beat starting at or after it). If the text already reaches past the cursor, the anchor goes back and the words go on the next verse row; otherwise they continue the row from the cursor. Reports how many syllables were placed, or how many are past the last note. Not on chant tracks |
+| `:lyrics TEXT` | adds lyrics from the cursor on: a line `<bar:beat> TEXT` ending in a line break, put where it belongs in the text: before the first syllable sung from the cursor on, the text after it keeping its place under an anchor of its own. When the words would run into the text after them it goes at the end instead. `\n` in `TEXT` is a line break. The anchor names the cursor's beat in the first voice (with the cursor in another voice, the first-voice beat starting at or after it). If the text already reaches past the cursor, the anchor goes back and the words go on the next verse row; otherwise they continue the row from the cursor. Reports how many syllables were placed, or how many are past the last note. Not on chant tracks |
 | `:lyrics-clear` | removes all the track's lyrics (the text) |
 | `:lyrics-clear N` | removes the syllables laid on verse row `N`, with their labels, the ✻ and the dashes and skips after them; later rows move up (in text order: with flowing verses, the next verse moves into the gap). Not on chant tracks |
 | `:lyrics-attach above\|below [TRACK]` | shows lyrics above or below the cursor's staff: those of track `TRACK` (number; the staff's own track by default), aligned with the staff's beats by their position in the bar. Once any staff has lyrics attached, only those staves show lyrics |
@@ -395,7 +426,7 @@ or `<C-u>` in insert mode, empties it as an edit.
 | `:chant-to-modern` | a chant track becomes an ordinary track (its transcription); its syllables stay on the beats and become its gabc+ text |
 
 For example `:lyrics Let all mor-tal flesh` at bar 1 beat 1 of an empty track gives the text
-`<1:1> Let all mor-tal flesh`; `:lyrics Hel-lo\nworld` writes two lines.
+`<1:1> Let all mor-tal flesh` and a line break; `:lyrics Hel-lo\nworld` writes two lines.
 
 ## 7. Configuration
 
@@ -409,6 +440,7 @@ its palette:
 | `lyrics_gabc` | GABC groups and the clef (bold) |
 | `lyrics_label` | `[labels]` (bold) |
 | `lyrics_anchor` | `<bar:beat>` anchors |
+| `lyrics_clef` `lyrics_division` `lyrics_note` `lyrics_shape` `lyrics_attach` `lyrics_space` `lyrics_markup` | the parts of GABC and markup tags (section 5) |
 | `lyrics` | lyrics in the terminal's score views (tab and chant) |
 
 Engraved lyrics use the page's ink color.
@@ -417,13 +449,13 @@ Engraved lyrics use the page's ink color.
 
 | key | default | |
 | --- | --- | --- |
-| `lyrics_font` | `"JetBrainsMono"` | font family of the lyrics text area. JetBrains Mono (regular and bold, SIL OFL) is bundled; another installed family is looked up in the system's font folders (`$XDG_DATA_HOME/fonts`, `~/.local/share/fonts`, `~/.fonts`, `/usr/share/fonts`, `/usr/local/share/fonts`, the macOS and Windows font folders): `.ttf` and `.otf` files whose name starts with the family (letters and digits, any case: `JetBrains Mono` and `jetbrains-mono` are the same) whose name table gives that family, upright, the weights nearest regular and bold. Characters it lacks, and a family that isn't found, come from JetBrains Mono. A monospaced family is expected |
-| `lyrics_font_size` | `14.0` | size in points (6 to 48), at 96 pixels per inch |
+| `lyrics_font` | `"Source Sans 3"` | font family of the lyrics text area: the app's text font, or any installed family, looked up in the system's font folders (`$XDG_DATA_HOME/fonts`, `~/.local/share/fonts`, `~/.fonts`, `/usr/share/fonts`, `/usr/local/share/fonts`, the macOS and Windows font folders): `.ttf` and `.otf` files whose name starts with the family (letters and digits, any case) whose name table gives that family, upright, the weights nearest regular and bold. Characters it lacks, and a family that isn't found, come from the app's text font |
+| `lyrics_font_size` | `12.0` | size in points (6 to 48), at 96 pixels per inch |
 
 ```toml
 [ui]
-lyrics_font = "JetBrainsMono"
-lyrics_font_size = 14.0
+lyrics_font = "Source Sans 3"
+lyrics_font_size = 12.0
 
 [theme]
 preset = "nord"
@@ -447,3 +479,12 @@ lyrics_anchor = "#bf616a"
   not placed on the notes: cecilia reads the syllables stored on the beats.
 - Labels, italics and ✻ are kept only by `.cc` (section 1).
 - Playback doesn't follow D.C./D.S. jumps (the lyrics do).
+
+## Positions
+
+Everywhere a place in the score is shown or typed it is `bar:beat.fraction`: the bar from 1, the
+beat from 1 (the time signature's unit: a quarter in 4/4, an eighth in 6/8) and the part of the
+beat after the point. The eighth on the upbeat of beat 3 of bar 5 is `5:3.5`. A bar that holds
+more than its count goes on counting: the sixth quarter of a 4/4 bar is `2:6.0`. The status line,
+marks, `:5:3.5` (go there), `:lyrics` and gabc+ anchors use it; an anchor may leave out a zero
+fraction (`<2:6>`).

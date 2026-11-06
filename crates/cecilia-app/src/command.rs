@@ -427,6 +427,8 @@ pub enum Command {
     /// Go to the last bar, or to bar `count` when a count is given.
     GotoLast,
     GotoBar(usize),
+    /// A bar (from 1) and a beat number in it (from 1, with fraction): `:5:3.5`.
+    GotoPos(usize, f64),
     TrackNext,
     TrackPrev,
     Track(usize),
@@ -545,6 +547,9 @@ impl Command {
         }
         if let Ok(n) = input.parse::<usize>() {
             return Ok(Command::GotoBar(n));
+        }
+        if let Some((bar, pos)) = cecilia_core::position::parse_position(input) {
+            return Ok(Command::GotoPos(bar + 1, pos));
         }
         let (name, arg) = match input.split_once(char::is_whitespace) {
             Some((n, a)) => (n, Some(a.trim()).filter(|a| !a.is_empty())),

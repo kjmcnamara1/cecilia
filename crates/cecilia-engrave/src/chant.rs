@@ -448,10 +448,10 @@ impl Ctx<'_> {
                 }
                 let text = text.trim_end();
                 if !text.is_empty() {
-                    page.text(
+                    page.text_red_stars(
                         self.font(s),
-                        text.to_string(),
-                        (p.text_x, text_y),
+                        text,
+                        Point::new(p.text_x, text_y),
                         self.text_size,
                         Align::Left,
                     );

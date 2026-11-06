@@ -798,6 +798,7 @@ impl App {
             .panes
             .get(&id)
             .map_or((None, None), |p| (Some(p.kind), p.owner));
+        let was_props = self.focused_kind() == PaneKind::Properties;
         self.touch_focus(id);
         let v = &mut self.views[self.active_view];
         v.focus = id;
@@ -805,6 +806,14 @@ impl App {
             v.score = id;
         } else if let Some(o) = owner {
             v.score = o;
+        }
+        // Leaving the properties pane leaves its lyrics text area (keeping its caret); coming
+        // back to the text area takes it up again where it was.
+        let now_props = kind == Some(PaneKind::Properties);
+        if was_props && !now_props && self.props.edit.as_ref().is_some_and(|e| e.modal) {
+            self.end_edit(false);
+        } else if now_props && !was_props {
+            self.enter_text_area();
         }
     }
 
@@ -2370,12 +2379,27 @@ impl App {
             SectionNext => self.section_jump(true, 1),
             SectionPrev => self.section_jump(false, 1),
             // Jumps (remembered for `''`).
-            GotoFirst | GotoLast | GotoBar(_) => {
+            GotoFirst | GotoLast | GotoBar(_) | GotoPos(..) => {
                 let here = (self.pane().buffer, self.pane().cursor);
                 match cmd {
                     GotoFirst => self.move_cursor(|s, c| set_bar(s, c, 0)),
                     GotoLast => self.move_cursor(|s, c| set_bar(s, c, usize::MAX)),
                     GotoBar(n) => self.move_cursor(|s, c| set_bar(s, c, n.saturating_sub(1))),
+                    GotoPos(n, pos) => self.move_cursor(|s, c| {
+                        set_bar(s, c, n.saturating_sub(1));
+                        let Some(track) = s.tracks.get(c.track) else {
+                            return;
+                        };
+                        // The last beat that starts at or before the position.
+                        let n = beats(s, c).len();
+                        c.beat = (0..n)
+                            .rev()
+                            .find(|&b| {
+                                cecilia_core::position::beat_position(s, track, c.bar, c.voice, b)
+                                    <= pos + 1e-6
+                            })
+                            .unwrap_or(0);
+                    }),
                     _ => unreachable!(),
                 }
                 if self.pane().cursor != here.1 {
@@ -3500,6 +3524,14 @@ fn move_row(score: &Score, c: &mut Cursor, down: bool, between_staves: bool) {
     if let Some(r) = target {
         set_row(c, r);
     }
+}
+
+/// A cursor's place as `bar:beat.fraction` (`5:3.5`).
+pub fn position_text(score: &Score, c: &Cursor) -> String {
+    let pos = score.tracks.get(c.track).map_or(1.0 + c.beat as f64, |t| {
+        cecilia_core::position::beat_position(score, t, c.bar, c.voice, c.beat)
+    });
+    cecilia_core::position::format_position(c.bar, pos, false)
 }
 
 fn set_bar(score: &Score, c: &mut Cursor, bar: usize) {

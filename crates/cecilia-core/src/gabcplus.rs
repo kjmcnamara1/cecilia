@@ -80,6 +80,108 @@ pub fn spans(text: &str) -> Vec<(usize, usize, SpanKind)> {
     out
 }
 
+/// What a character of gabc+ text is, for coloring it (see [`highlight`]).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Hl {
+    /// Lyric text.
+    Text,
+    Space,
+    /// The parentheses around GABC notes.
+    Paren,
+    /// A clef (`c3`, `cb2`, `f4`).
+    Clef,
+    /// A division (`,` `;` `:` `::` `` ` `` and their digits).
+    Division,
+    /// A note (`a`-`m`, `A`-`M`).
+    Note,
+    /// A shape modifier (`v` `V` `s` `w` `o` `O` `<` `>` `~` `+` `x` `y` `#` `r` …).
+    Shape,
+    /// An attachment modifier (`.` `'` `_` `R` `r0`-`r5`).
+    Attach,
+    /// A space modifier (`!` `/` `@`).
+    Gap,
+    /// Anything else in a GABC group.
+    Other,
+    /// A markup tag in the lyrics (`<b>`, `</i>`).
+    Markup,
+    Label,
+    Anchor,
+}
+
+/// The kind of each character of a text, for coloring: lyrics, the parts of GABC groups, markup
+/// tags, labels and anchors.
+pub fn highlight(text: &str) -> Vec<Hl> {
+    let c: Vec<char> = text.chars().collect();
+    let mut out = vec![Hl::Text; c.len()];
+    for (a, z, kind) in spans(text) {
+        match kind {
+            SpanKind::Text => {
+                // Markup tags: `<b>`, `</b>`, `<sp>`.
+                let mut i = a;
+                while i < z {
+                    if c[i] == '<' {
+                        let close = (i + 1..z.min(i + 8)).find(|&k| c[k] == '>');
+                        if let Some(k) = close {
+                            let name = &c[i + 1..k];
+                            let name = name.strip_prefix(&['/']).unwrap_or(name);
+                            if !name.is_empty() && name.iter().all(|x| x.is_ascii_lowercase()) {
+                                for slot in &mut out[i..=k] {
+                                    *slot = Hl::Markup;
+                                }
+                                i = k + 1;
+                                continue;
+                            }
+                        }
+                    }
+                    i += 1;
+                }
+            }
+            SpanKind::Space => out[a..z].fill(Hl::Space),
+            SpanKind::Label => out[a..z].fill(Hl::Label),
+            SpanKind::Anchor => out[a..z].fill(Hl::Anchor),
+            SpanKind::Gabc => {
+                out[a] = Hl::Paren;
+                out[z - 1] = Hl::Paren;
+                let g = &c[a + 1..z - 1];
+                let at = |k: usize| g.get(k).copied();
+                let mut k = 0;
+                while k < g.len() {
+                    let (ch, i) = (g[k], a + 1 + k);
+                    let digits =
+                        |k: usize| g[k..].iter().take_while(|d| d.is_ascii_digit()).count();
+                    let (kind, len) = match ch {
+                        // A clef: c or f, maybe b, a line.
+                        'c' | 'f'
+                            if (k == 0 || matches!(g[k - 1], '/' | '!' | '@' | ' '))
+                                && match at(k + 1) {
+                                    Some('b') => {
+                                        at(k + 2).is_some_and(|d| ('1'..='4').contains(&d))
+                                    }
+                                    d => d.is_some_and(|d| ('1'..='4').contains(&d)),
+                                } =>
+                        {
+                            (Hl::Clef, if at(k + 1) == Some('b') { 3 } else { 2 })
+                        }
+                        'a'..='m' | 'A'..='M' => (Hl::Note, 1),
+                        ',' | ';' | ':' | '`' => (Hl::Division, 1 + digits(k + 1)),
+                        '.' | '\'' | '_' => (Hl::Attach, 1 + digits(k + 1)),
+                        'R' => (Hl::Attach, 1),
+                        'r' if digits(k + 1) > 0 => (Hl::Attach, 1 + digits(k + 1)),
+                        'v' | 'V' | 's' | 'w' | 'W' | 'o' | 'O' | 'q' | 'Q' | '<' | '>' | '~'
+                        | '+' | 'x' | 'y' | '#' | 'r' => (Hl::Shape, 1),
+                        '!' | '/' | '@' => (Hl::Gap, 1),
+                        c if c.is_whitespace() => (Hl::Space, 1),
+                        _ => (Hl::Other, 1),
+                    };
+                    out[i..i + len].fill(kind);
+                    k += len;
+                }
+            }
+        }
+    }
+    out
+}
+
 /// The end of a `<bar:beat>` anchor starting at `i`, if one does.
 fn anchor_end(c: &[char], i: usize) -> Option<usize> {
     let close = c[i..].iter().position(|&x| x == '>')? + i;
@@ -87,12 +189,9 @@ fn anchor_end(c: &[char], i: usize) -> Option<usize> {
     parse_anchor(&inner).map(|_| close + 1)
 }
 
-/// `bar:beat` (1-based) as zero-based (bar, beat).
-fn parse_anchor(s: &str) -> Option<(usize, usize)> {
-    let (a, b) = s.split_once(':')?;
-    let a: usize = a.trim().parse().ok()?;
-    let b: usize = b.trim().parse().ok()?;
-    (a > 0 && b > 0).then(|| (a - 1, b - 1))
+/// `bar:beat` or `bar:beat.fraction` as the zero-based bar and the beat number (from 1).
+fn parse_anchor(s: &str) -> Option<(usize, f64)> {
+    crate::position::parse_position(s)
 }
 
 /// What a token of gabc+ text does.
@@ -114,7 +213,8 @@ pub enum TokenKind {
     /// `*`, shown as ✻ after the previous syllable.
     Star,
     /// `<bar:beat>`, zero-based.
-    Anchor { bar: usize, beat: usize },
+    /// `<bar:beat.fraction>`: the bar from 0, the beat number from 1 (fraction included).
+    Anchor { bar: usize, beat: f64 },
     /// GABC notes without text: a clef, a division.
     Notes(String),
 }
@@ -469,6 +569,9 @@ struct Occ {
     row: usize,
     /// Which bar of the sung order it is in.
     j: usize,
+    /// Ticks from the start of its bar, and its beat number (from 1, with fraction).
+    tick: u32,
+    pos: f64,
 }
 
 /// The singing beats of a track's first voice in sung order, and for each bar of the sung
@@ -483,20 +586,30 @@ fn occurrences(score: &Score, track: &Track) -> (Vec<Occ>, Vec<(usize, usize)>) 
         };
         for (beat, b) in voice.beats.iter().enumerate() {
             if crate::lyrics::sings(b) {
-                occ.push(Occ { bar, beat, row, j });
+                let tick = crate::position::offset_ticks(track, bar, 0, beat);
+                let pos = 1.0 + tick as f64 / crate::position::beat_ticks(score, bar) as f64;
+                occ.push(Occ {
+                    bar,
+                    beat,
+                    row,
+                    j,
+                    tick,
+                    pos,
+                });
             }
         }
     }
     (occ, bars)
 }
 
-/// Where an anchor at (bar, beat) starts: the first singing beat from there, the first time
-/// the bar is sung (`len` when nothing is sung from there; `None` when the bar never is).
-fn resolve(occ: &[Occ], bars: &[(usize, usize)], bar: usize, beat: usize) -> Option<usize> {
+/// Where an anchor at `tick` ticks into `bar` starts: the first singing beat from there, the
+/// first time the bar is sung (`len` when nothing is sung from there; `None` when the bar never
+/// is).
+fn resolve(occ: &[Occ], bars: &[(usize, usize)], bar: usize, tick: u32) -> Option<usize> {
     let (j, &(_, first)) = bars.iter().enumerate().find(|(_, b)| b.0 == bar)?;
     Some(
         (first..occ.len())
-            .find(|&i| occ[i].j > j || occ[i].beat >= beat)
+            .find(|&i| occ[i].j > j || occ[i].tick >= tick)
             .unwrap_or(occ.len()),
     )
 }
@@ -572,7 +685,10 @@ pub fn layout_on(score: &Score, t: &Track, text: &str) -> Layout {
     for (ti, tok) in tokens.iter().enumerate() {
         match &tok.kind {
             TokenKind::Anchor { bar, beat } => {
-                let to = resolve(&occ, &bars, *bar, *beat).unwrap_or(occ.len());
+                let tick = ((*beat - 1.0) * crate::position::beat_ticks(score, *bar) as f64)
+                    .round()
+                    .max(0.0) as u32;
+                let to = resolve(&occ, &bars, *bar, tick).unwrap_or(occ.len());
                 if to < k {
                     layer += 1;
                 }
@@ -685,6 +801,142 @@ pub fn apply(score: &mut Score, track: usize) -> Layout {
     lay
 }
 
+/// Lyrics added to a text by [`add_lyrics`].
+#[derive(Debug, Clone, PartialEq)]
+pub struct Added {
+    /// The whole new text.
+    pub text: String,
+    /// The characters of it that were added (the anchor, the words and the line break).
+    pub range: (usize, usize),
+}
+
+/// Adds `words` to track `track`'s gabc+ `text`, starting at `bar` (from 0) and beat number `beat`
+/// (from 1, with fraction), as a line of its own of the form `<bar:beat> words`, ending in a line break.
+///
+/// The line goes where it belongs in the music: before the first syllable sung from there on,
+/// at a word boundary, with an anchor after it that keeps that text where it was. When that
+/// would move any syllable (the words run into the text after them, or there is no clean place
+/// between its words), the line goes at the end instead, and its anchor going back in the music
+/// puts the words on the next verse row.
+pub fn add_lyrics(
+    score: &Score,
+    track: usize,
+    text: &str,
+    bar: usize,
+    beat: f64,
+    words: &str,
+) -> Added {
+    let line = format!(
+        "<{}> {}\n",
+        crate::position::format_position(bar, beat, true),
+        words.trim_end()
+    );
+    let width = line.chars().count();
+    let appended = || {
+        let mut t = text.trim_end().to_string();
+        if !t.is_empty() {
+            t.push('\n');
+        }
+        let start = t.chars().count();
+        t.push_str(&line);
+        Added {
+            text: t,
+            range: (start, start + width),
+        }
+    };
+    let Some(tr) = score.tracks.get(track) else {
+        return appended();
+    };
+    let old = layout_on(score, tr, text);
+    let Some(next) = old
+        .placed
+        .iter()
+        .filter(|p| {
+            p.bar > bar
+                || (p.bar == bar
+                    && crate::position::beat_position(score, tr, p.bar, 0, p.beat) >= beat - 1e-6)
+        })
+        .min_by_key(|p| p.token)
+    else {
+        return appended();
+    };
+    // The anchors and labels in front of that syllable belong to it.
+    let mut k = next.token;
+    let mut anchored = false;
+    while k > 0
+        && matches!(
+            old.tokens[k - 1].kind,
+            TokenKind::Anchor { .. } | TokenKind::Label(_)
+        )
+    {
+        k -= 1;
+        anchored |= matches!(old.tokens[k].kind, TokenKind::Anchor { .. });
+    }
+    let chars: Vec<char> = text.chars().collect();
+    let at = old.tokens[k].span.0;
+    if at > 0 && !chars[at - 1].is_whitespace() {
+        return appended();
+    }
+    let mut head: String = chars[..at].iter().collect();
+    head.truncate(head.trim_end_matches([' ', '\t']).len());
+    if !head.is_empty() && !head.ends_with('\n') {
+        head.push('\n');
+    }
+    // The text after keeps its place with an anchor, unless it has one.
+    let keep = if anchored {
+        String::new()
+    } else {
+        let pos = crate::position::beat_position(score, tr, next.bar, 0, next.beat);
+        format!(
+            "<{}> ",
+            crate::position::format_position(next.bar, pos, true)
+        )
+    };
+    let tail: String = chars[at..].iter().collect();
+    let start = head.chars().count();
+    let end = start + width + keep.chars().count();
+    let cand = format!("{head}{line}{keep}{tail}");
+    // Nothing that was there may have moved.
+    let new = layout_on(score, tr, &cand);
+    let inside = |t: &Token| t.span.0 >= start && t.span.1 <= end;
+    let key = |p: &Placed| {
+        (
+            p.bar,
+            p.beat,
+            p.verse,
+            p.text.clone(),
+            p.italic,
+            p.before.clone(),
+            p.after.clone(),
+        )
+    };
+    let was: Vec<_> = old.placed.iter().map(key).collect();
+    let now: Vec<_> = new
+        .placed
+        .iter()
+        .filter(|p| !inside(&new.tokens[p.token]))
+        .map(key)
+        .collect();
+    let added = new
+        .tokens
+        .iter()
+        .filter(|t| inside(t) && matches!(t.kind, TokenKind::Syllable { .. }))
+        .count();
+    let shown = new
+        .placed
+        .iter()
+        .filter(|p| inside(&new.tokens[p.token]))
+        .count();
+    if was == now && new.unplaced == old.unplaced + (added - shown) {
+        Added {
+            text: cand,
+            range: (start, end),
+        }
+    } else {
+        appended()
+    }
+}
+
 /// A syllable to write into gabc+ text: where it is sung (`None`: past the last note), its
 /// verse row and its text (a trailing `-`: joined to the next by a hyphen).
 #[derive(Debug, Clone, Default, PartialEq)]
@@ -744,7 +996,7 @@ pub fn emit(score: &Score, track: usize, lines: &[Vec<Item>]) -> String {
         }
         out.push_str(w);
     };
-    let anchor = |o: &Occ| format!("<{}:{}>", o.bar + 1, o.beat + 1);
+    let anchor = |o: &Occ| format!("<{}>", crate::position::format_position(o.bar, o.pos, true));
     // Labels of syllables without text go on the next one.
     let mut label = String::new();
     for line in lines {
@@ -790,7 +1042,7 @@ pub fn emit(score: &Score, track: usize, lines: &[Vec<Item>]) -> String {
                 }
             };
             if let Some((n, back)) = at {
-                let from = resolve(&occ, &bars, occ[n].bar, occ[n].beat).unwrap_or(n);
+                let from = resolve(&occ, &bars, occ[n].bar, occ[n].tick).unwrap_or(n);
                 if back || n < k {
                     if from >= k && k > 0 {
                         // Back to the start to begin a new row, then forward.
@@ -814,7 +1066,7 @@ pub fn emit(score: &Score, track: usize, lines: &[Vec<Item>]) -> String {
                         .then(|| {
                             (k + 1..=n)
                                 .rev()
-                                .find(|&m| resolve(&occ, &bars, occ[m].bar, occ[m].beat) == Some(m))
+                                .find(|&m| resolve(&occ, &bars, occ[m].bar, occ[m].tick) == Some(m))
                         })
                         .flatten();
                     match near {
@@ -1173,7 +1425,7 @@ mod tests {
     #[test]
     fn italics_labels_stars_anchors_and_gabc() {
         let t = tokens("<2:3> [1.] _si-lence * Ky(f)ri(gh)e(h) a-_men (,) (c4)");
-        assert_eq!(t[0].kind, TokenKind::Anchor { bar: 1, beat: 2 });
+        assert_eq!(t[0].kind, TokenKind::Anchor { bar: 1, beat: 3.0 });
         assert_eq!(t[1].kind, TokenKind::Label("1.".into()));
         assert_eq!(syl(&t[2]), Some(("si", true, true)));
         assert_eq!(syl(&t[3]), Some(("lence", false, false)));
@@ -1368,5 +1620,29 @@ mod tests {
         let text = "[1.] a b c\n<1:1> [2.] d e";
         assert_eq!(remove_verse(&s, 0, text, 1), "[1.] a b c\n<1:1>");
         assert_eq!(remove_verse(&s, 0, text, 0), "<1:1> [2.] d e");
+    }
+
+    #[test]
+    fn highlighting_tells_the_parts_of_gabc_apart() {
+        use Hl::*;
+        let kinds = |t: &str| highlight(t);
+        assert_eq!(kinds("(c3)"), [Paren, Clef, Clef, Paren]);
+        assert_eq!(kinds("(cb2)"), [Paren, Clef, Clef, Clef, Paren]);
+        assert_eq!(
+            kinds("a(gv/h.:)"),
+            [Text, Paren, Note, Shape, Gap, Note, Attach, Division, Paren]
+        );
+        assert_eq!(kinds("(;3)"), [Paren, Division, Division, Paren]);
+        assert_eq!(
+            kinds("(gr0r2)"),
+            [Paren, Note, Attach, Attach, Attach, Attach, Paren]
+        );
+        assert_eq!(kinds("(fg)"), [Paren, Note, Note, Paren]);
+        assert_eq!(
+            kinds("<b>x</b>"),
+            [Markup, Markup, Markup, Text, Markup, Markup, Markup, Markup]
+        );
+        assert_eq!(kinds("<2:3.5>")[0], Anchor);
+        assert_eq!(kinds("[1.]")[0], Label);
     }
 }

@@ -2213,7 +2213,6 @@ fn draw_properties(f: &mut Frame, app: &App, area: Rect, ui: &mut Ui) {
                 }
                 let inner = box_w.saturating_sub((text_x - bx) as usize + 1);
                 if area {
-                    use cecilia_core::gabcplus::SpanKind;
                     let inner = box_w;
                     let text = typing.map_or(row.value.as_str(), |e| e.text.as_str());
                     let lines = wrap_ranges(text, |l| l.chars().count() <= inner);
@@ -2227,20 +2226,17 @@ fn draw_properties(f: &mut Frame, app: &App, area: Rect, ui: &mut Ui) {
                         box_h as usize,
                     );
                     ui.props_text = Some((bx, by, box_h, lines.clone(), skip));
-                    // The text in its colors: words (dimmed while GABC shows), GABC groups and
-                    // labels in bold, anchors.
-                    let mut kinds = vec![SpanKind::Text; chars.len()];
-                    for (a, z, k) in cecilia_core::gabcplus::spans(text) {
-                        for slot in &mut kinds[a..z] {
-                            *slot = k;
+                    // The text in its colors: words, the parts of GABC groups, markup, labels
+                    // (bold) and anchors.
+                    let kinds = cecilia_core::gabcplus::highlight(text);
+                    let style = |k: cecilia_core::gabcplus::Hl| {
+                        let (c, bold) = t.lyrics_color(k);
+                        let st = base.fg(rc(c));
+                        if bold {
+                            st.add_modifier(Modifier::BOLD)
+                        } else {
+                            st
                         }
-                    }
-                    let style = |k: SpanKind| match k {
-                        SpanKind::Gabc => base.fg(rc(t.lyrics_gabc)).add_modifier(Modifier::BOLD),
-                        SpanKind::Label => base.fg(rc(t.lyrics_label)).add_modifier(Modifier::BOLD),
-                        SpanKind::Anchor => base.fg(rc(t.lyrics_anchor)),
-                        _ if app.props.gabc => base.fg(rc(t.lyrics_text_dim)),
-                        _ => base.fg(rc(t.lyrics_text)),
                     };
                     let selection = typing.and_then(|e| e.selection());
                     for (n, &(s, e)) in lines.iter().enumerate().skip(skip).take(box_h as usize) {
@@ -3221,17 +3217,20 @@ mod render_tests {
         assert!(buf[(x, y)].modifier.contains(Modifier::BOLD));
         let (x, y) = find("Ky", &screen);
         assert_eq!(buf[(x, y)].fg, rc(th.lyrics_text));
-        // With GABC on: the clef and groups in bold, the words dimmed.
+        // With GABC on (a track without notes shows its raw text): clefs, notes and parens
+        // each have their color, the words stay in the normal one.
         app.props.gabc = true;
         terminal.draw(|f| draw(f, &mut app, None, &mut ui)).unwrap();
         let buf = terminal.backend().buffer().clone();
         let screen = render(&mut app, w, h);
         assert!(screen.contains("(c4) <1:1> [1.] Ky(f)ri(g)e"), "{screen}");
+        let (x, y) = find("(c4)", &screen);
+        assert_eq!(buf[(x, y)].fg, rc(th.lyrics_text_dim), "paren");
+        assert_eq!(buf[(x + 1, y)].fg, rc(th.lyrics_clef));
         let (x, y) = find("(f)", &screen);
-        assert_eq!(buf[(x, y)].fg, rc(th.lyrics_gabc));
-        assert!(buf[(x, y)].modifier.contains(Modifier::BOLD));
+        assert_eq!(buf[(x + 1, y)].fg, rc(th.lyrics_note));
         let (x, y) = find("Ky", &screen);
-        assert_eq!(buf[(x, y)].fg, rc(th.lyrics_text_dim));
+        assert_eq!(buf[(x, y)].fg, rc(th.lyrics_text));
     }
 
     #[test]
@@ -3251,7 +3250,7 @@ mod render_tests {
         assert!(row.contains("vertical"), "{row}");
         // Arrow separators with Nerd Font icons; the location on the mode color at the end.
         assert_eq!(buf[(8, y)].symbol(), "\u{e0b0}");
-        assert!(row.trim_end().ends_with("1:1"), "{row}");
+        assert!(row.trim_end().ends_with("1:1.0"), "{row}");
         assert_eq!(buf[(98, y)].bg, mode);
         assert!(row.contains("Top"), "{row}");
         // Clicking the layout section cycles the pane's layout.
@@ -3948,7 +3947,7 @@ mod render_tests {
         assert!(screen.contains("Lead"), "{screen}");
         assert!(screen.contains("12"), "{screen}");
         assert!(screen.contains("NORMAL"), "{screen}");
-        assert!(screen.contains(" 1:1 "), "{screen}");
+        assert!(screen.contains(" 1:1.0 "), "{screen}");
         // The tab of the file playing audio is marked.
         assert!(!screen.contains("▶"), "{screen}");
         app.playing_buffer = Some(0);

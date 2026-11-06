@@ -12,6 +12,7 @@ pub mod gabcplus;
 pub mod lyrics;
 pub mod melody;
 pub mod performance;
+pub mod position;
 mod score;
 pub mod staff;
 

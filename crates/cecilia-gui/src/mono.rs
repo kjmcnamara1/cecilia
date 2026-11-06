@@ -1,6 +1,6 @@
-//! The monospaced font of the lyrics text area (`ui.lyrics_font`): the bundled JetBrains Mono,
-//! or an installed font of the family named, found in the usual font folders by its file name
-//! and its name table. Glyphs are drawn as outlines, like all other text.
+//! The font of the lyrics text area (`ui.lyrics_font`): the app's own text font (Source Sans 3,
+//! the default), or an installed font of the family named, found in the usual font folders by
+//! its file name and its name table. Glyphs are drawn as outlines, like all other text.
 
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
@@ -9,14 +9,14 @@ use std::sync::{Mutex, OnceLock};
 use ttf_parser::{Face, GlyphId, OutlineBuilder, name_id};
 use vello::kurbo::{Affine, BezPath};
 
-static REGULAR: &[u8] = include_bytes!("../../../assets/fonts/JetBrainsMono-Regular.ttf");
-static BOLD: &[u8] = include_bytes!("../../../assets/fonts/JetBrainsMono-Bold.ttf");
+static TEXT: &[u8] = include_bytes!("../../../assets/fonts/SourceSans3-Regular.otf");
+static TEXT_BOLD: &[u8] = include_bytes!("../../../assets/fonts/SourceSans3-Bold.otf");
 
 /// One face of a font, with its glyph outlines cached.
 pub struct MonoFont {
     face: Face<'static>,
     cache: Mutex<HashMap<u16, Option<BezPath>>>,
-    /// Faces to take characters this one lacks from (the bundled one).
+    /// Faces to take characters this one lacks from (the app's text font).
     fallback: Option<&'static MonoFont>,
 }
 
@@ -119,23 +119,24 @@ fn key(name: &str) -> String {
         .collect()
 }
 
+/// The app's text font (Source Sans 3), regular or bold.
 fn bundled(bold: bool) -> &'static MonoFont {
     static FONTS: OnceLock<[MonoFont; 2]> = OnceLock::new();
     let f = FONTS.get_or_init(|| {
         [
-            MonoFont::new(REGULAR, None).expect("bundled mono font"),
-            MonoFont::new(BOLD, None).expect("bundled bold mono font"),
+            MonoFont::new(TEXT, None).expect("bundled text font"),
+            MonoFont::new(TEXT_BOLD, None).expect("bundled bold text font"),
         ]
     });
     &f[usize::from(bold)]
 }
 
-/// The regular or bold face of a font family: the bundled JetBrains Mono, an installed font of
-/// that family, or (none found) the bundled one.
+/// The regular or bold face of a font family: the app's text font (Source Sans 3, also for an
+/// empty name), an installed font of that family, or (none found) the app's text font.
 pub fn font(family: &str, bold: bool) -> &'static MonoFont {
     static LOADED: OnceLock<Mutex<HashMap<(String, bool), &'static MonoFont>>> = OnceLock::new();
     let k = key(family);
-    if k.is_empty() || k == "jetbrainsmono" {
+    if k.is_empty() || k == "sourcesans3" || k == "sourcesans" {
         return bundled(bold);
     }
     let loaded = LOADED.get_or_init(Default::default);
@@ -237,20 +238,15 @@ mod tests {
     use super::*;
 
     #[test]
-    fn the_bundled_font_is_monospaced_and_unknown_families_fall_back() {
-        let f = font("JetBrains Mono", false);
-        assert_eq!(f.advance('i', 14.0), f.advance('W', 14.0));
-        assert!(f.text_width("abc", 14.0) > 0.0);
+    fn the_text_font_is_the_default_and_unknown_families_fall_back() {
         assert!(std::ptr::eq(
             font("No Such Family 123", false),
             bundled(false)
         ));
-        assert!(std::ptr::eq(font("jetbrains-mono", true), bundled(true)));
-        assert!(
-            !font("JetBrainsMono", false)
-                .text_path("a", 0.0, 0.0, 14.0)
-                .elements()
-                .is_empty()
-        );
+        assert!(std::ptr::eq(font("", false), bundled(false)));
+        assert!(std::ptr::eq(font("Source Sans 3", true), bundled(true)));
+        let t = font("Source Sans 3", false);
+        assert!(t.text_width("abc", 14.0) > 0.0);
+        assert!(!t.text_path("a", 0.0, 0.0, 14.0).elements().is_empty());
     }
 }

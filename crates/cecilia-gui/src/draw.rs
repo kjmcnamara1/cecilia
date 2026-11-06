@@ -4460,7 +4460,7 @@ fn draw_properties(scene: &mut Scene, app: &App, views: &mut Views, r: Rect) {
     let th = &app.config.theme;
     let fonts = cecilia_engrave::fonts::fonts();
     let width_of = |s: &str, size: f64| fonts.text_width(FontKind::Text, s, size);
-    // The lyrics text area: monospaced, in the font and size of `ui.lyrics_font(_size)`.
+    // The lyrics text area, in the font and size of `ui.lyrics_font(_size)`.
     let ui = &app.config.file.ui;
     let mono = crate::mono::font(&ui.lyrics_font, false);
     let mono_bold = crate::mono::font(&ui.lyrics_font, true);
@@ -4672,7 +4672,7 @@ fn draw_properties(scene: &mut Scene, app: &App, views: &mut Views, r: Rect) {
                     text(scene, &row.aside, bx1, ay, size, Align::Right, dim(), false);
                 }
                 if area {
-                    use cecilia_core::gabcplus::SpanKind;
+                    use cecilia_core::gabcplus::Hl;
                     let size = mono_size;
                     let tx = box_x0;
                     let inner = box_x1 - box_x0;
@@ -4721,21 +4721,10 @@ fn draw_properties(scene: &mut Scene, app: &App, views: &mut Views, r: Rect) {
                             }
                         }
                     }
-                    // The text in its colors: words (dimmed while GABC shows), GABC groups and
-                    // labels in bold, anchors.
-                    let mut kinds = vec![SpanKind::Text; chars.len()];
-                    for (a, z, k) in cecilia_core::gabcplus::spans(value) {
-                        for slot in &mut kinds[a..z] {
-                            *slot = k;
-                        }
-                    }
-                    let style = |k: SpanKind| match k {
-                        SpanKind::Gabc => (th.lyrics_gabc, true),
-                        SpanKind::Label => (th.lyrics_label, true),
-                        SpanKind::Anchor => (th.lyrics_anchor, false),
-                        _ if app.props.gabc => (th.lyrics_text_dim, false),
-                        _ => (th.lyrics_text, false),
-                    };
+                    // The text in its colors: words, the parts of GABC groups, markup, labels
+                    // (bold) and anchors.
+                    let kinds = cecilia_core::gabcplus::highlight(value);
+                    let style = |k: Hl| th.lyrics_color(k);
                     for (n, &(s, e)) in lines.iter().enumerate().skip(skip).take(shown) {
                         let ly = by0 + 7.0 + line_h * (n - skip) as f64 + size;
                         let mut i = s;
@@ -4745,7 +4734,7 @@ fn draw_properties(scene: &mut Scene, app: &App, views: &mut Views, r: Rect) {
                             while j < e && kinds[j] == k {
                                 j += 1;
                             }
-                            if k != SpanKind::Space {
+                            if k != Hl::Space {
                                 let run: String = chars[i..j].iter().collect();
                                 let (c, bold) = style(k);
                                 let font = if bold { mono_bold } else { mono };

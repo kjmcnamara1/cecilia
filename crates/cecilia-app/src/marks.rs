@@ -2,6 +2,7 @@
 //! file (jumping there opens it); `'{mark}` jumps to the mark's bar, `` `{mark} `` to its exact
 //! beat and string; `''` / ``` `` ``` jump back to where the cursor was before the last jump.
 
+use crate::app::position_text;
 use std::collections::BTreeMap;
 use std::path::PathBuf;
 
@@ -61,11 +62,8 @@ impl App {
                 ));
             }
         }
-        self.info(format!(
-            "mark {name}: bar {}, beat {}",
-            pane.cursor.bar + 1,
-            pane.cursor.beat + 1
-        ));
+        let at = position_text(&self.buffers[pane.buffer].score, &pane.cursor);
+        self.info(format!("mark {name}: {at}"));
     }
 
     /// Jumps to mark `name`: its bar (`exact` false) or its exact position. `'` (and `` ` ``) is
@@ -184,7 +182,7 @@ impl App {
     pub fn which_key(&self) -> Option<(String, Vec<(String, String)>)> {
         use crate::editor::Awaiting;
         let place =
-            |file: &str, c: &Cursor| format!("{file} · bar {}, beat {}", c.bar + 1, c.beat + 1);
+            |file: &str, c: &Cursor| format!("{file} · {}", position_text(&self.buffer().score, c));
         match self.ed.awaiting {
             Some(Awaiting::Jump { exact }) => {
                 let mut rows = Vec::new();
@@ -303,7 +301,7 @@ mod tests {
         assert_eq!(title, "'");
         assert!(
             rows.iter()
-                .any(|(k, d)| k == "B" && d.contains("a.cc · bar 7")),
+                .any(|(k, d)| k == "B" && d.contains("a.cc · 7:1")),
             "{rows:?}"
         );
         assert!(
