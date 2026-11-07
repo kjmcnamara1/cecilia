@@ -166,6 +166,9 @@ pub struct UiConfig {
     /// `:string-up` once always did; off, they keep to the cursor's staff (`:staff-next` and
     /// `:staff-prev` change staff).
     pub jk_moves_between_staves: bool,
+    /// Going from a chant score to its lyrics text area (`<leader>P`, a pane switch) selects, in
+    /// Visual mode, the GABC of the note the cursor is on (`:lyrics-select` does so always).
+    pub lyrics_select_cursor: bool,
     /// Command-line Tab completion ignores letter case.
     pub completion_ignore_case: bool,
     /// Command-line completion matches the typed letters in order anywhere in a candidate.
@@ -241,6 +244,7 @@ impl Default for UiConfig {
             tab_width: 2,
             follow_playback: true,
             jk_moves_between_staves: false,
+            lyrics_select_cursor: true,
             completion_ignore_case: true,
             completion_fuzzy: true,
             global_waveform: None,
@@ -589,6 +593,7 @@ const DEFAULT_NORMAL_CHANT: &[(&str, &str)] = &[
     ("tF3", "chant-clef f3"),
     ("tF4", "chant-clef f4"),
     // Audio sync by hand (`<leader>t` taps, `:sync` starts tapping).
+    ("<leader>g", "lyrics-select"),
     ("<leader>yh", "sync-here"),
     ("<leader>yu", "sync-undo"),
     ("<leader>y[", "sync-nudge -10"),

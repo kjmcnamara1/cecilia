@@ -262,19 +262,13 @@ impl App {
         let t = transcribe(chant);
         let here = t.cell_near(c.bar, c.beat);
         let next = here.and_then(|k| t.cells.get(k + 1)).copied();
-        let pitch = next
-            .and_then(|n| n.note)
-            .and_then(|n| chant.note(n))
-            .map(|n| n.pitch);
         let on_slot = here.is_some_and(|k| t.cells[k].kind == CellKind::Slot);
         match next {
             Some(next) => {
+                // Only along: the staff line stays the pitch of the next note entered.
                 let cur = &mut self.pane_mut().cursor;
                 cur.bar = next.bar;
                 cur.beat = next.beat;
-                if let Some(p) = pitch {
-                    cur.line = p as i32;
-                }
             }
             // Nothing to advance to from an empty group that is itself the last one.
             None if on_slot => {}
@@ -328,15 +322,13 @@ impl App {
                 None => chant.insert_slot(chant.syllables.len()),
             };
             let now = chant.group_division(si).map(String::from);
+            // `:` goes round single, double, none.
             let new = if cycle && sign == ":" {
-                Some(
-                    if now.as_deref() == Some(":") {
-                        "::"
-                    } else {
-                        ":"
-                    }
-                    .to_string(),
-                )
+                match now.as_deref() {
+                    Some(":") => Some("::".to_string()),
+                    Some("::") => None,
+                    _ => Some(":".to_string()),
+                }
             } else if now.as_deref() == Some(sign.as_str()) {
                 None
             } else {
@@ -570,6 +562,7 @@ impl App {
                     Ok(Some(n))
                 });
             }
+            LyricsSelect => self.lyrics_select(),
             ScoreKind => {
                 let msg = if self.cursor_on_chant() {
                     "chant score; :chant-to-modern opens it as a modern score in a new buffer"
@@ -875,29 +868,45 @@ mod tests {
     }
 
     #[test]
-    fn w_e_b_walk_the_notes_and_the_cursor_stands_on_their_line() {
+    fn w_e_b_walk_the_notes_on_the_cursors_staff_position() {
         let mut a = app();
         let at = |a: &App| {
             let c = a.pane().cursor;
             (c.beat, c.line)
         };
-        // Notes: f g h g f (beats 0..4); positions f=5 g=6 h=7.
+        // Notes: f g h g f (beats 0..4); positions f=5 g=6 h=7. In Normal mode the cursor
+        // stands on the staff line of the note it moves to, and w e b stay on that line.
+        keys(&mut a, "l");
+        assert_eq!(at(&a), (1, 6));
+        keys(&mut a, "w");
+        assert_eq!(at(&a), (3, 6), "the next g");
+        keys(&mut a, "b");
+        assert_eq!(at(&a), (1, 6), "the previous g");
+        keys(&mut a, "e");
+        assert_eq!(at(&a), (3, 6));
+        // j and k choose another position; w goes to the next note there.
+        keys(&mut a, "0k");
+        assert_eq!(at(&a), (0, 6));
         keys(&mut a, "w");
         assert_eq!(at(&a), (1, 6));
-        keys(&mut a, "ww");
+        keys(&mut a, "ll");
         assert_eq!(at(&a), (3, 6));
-        keys(&mut a, "b");
-        assert_eq!(at(&a), (2, 7));
-        keys(&mut a, "bb");
-        assert_eq!(at(&a), (0, 5));
-        keys(&mut a, "e");
-        assert_eq!(at(&a), (1, 6));
+    }
+
+    #[test]
+    fn insert_mode_moves_along_and_leaves_the_staff_line_alone() {
+        let mut a = app();
+        // Normal mode: h and l put the cursor on the line of each note.
         keys(&mut a, "l");
-        assert_eq!(
-            at(&a),
-            (2, 7),
-            "h and l put the cursor on the note's line too"
-        );
+        assert_eq!(a.pane().cursor.line, 6);
+        // Insert mode: they just move; the line is where j k put it. So does an empty beat.
+        keys(&mut a, "i");
+        assert_eq!(a.chant_cursor_cell().unwrap().kind, CellKind::Slot);
+        keys(&mut a, "kkh");
+        assert_eq!(a.pane().cursor.line, 8);
+        keys(&mut a, "ll");
+        assert_eq!(a.pane().cursor.line, 8);
+        keys(&mut a, "<Esc>");
     }
 
     const ORIGINAL: &str = "(c4) Al(fg) le(h) lu(g) ia.(f.) (::)";
@@ -964,13 +973,16 @@ mod tests {
     #[test]
     fn division_keys_go_into_the_note_or_stand_alone_on_an_empty_beat() {
         let mut a = app();
-        // On a note: in its parentheses; `:` goes between single and double.
+        // On a note: in its parentheses; `:` goes round single, double, none.
         keys(&mut a, "<CR>;");
         assert_eq!(gabc(&a), "(c4) Al(fg;) le(h) lu(g) ia.(f.) (::)");
         keys(&mut a, ":");
         assert_eq!(gabc(&a), "(c4) Al(fg:) le(h) lu(g) ia.(f.) (::)");
         keys(&mut a, ":");
         assert_eq!(gabc(&a), "(c4) Al(fg::) le(h) lu(g) ia.(f.) (::)");
+        // A third `:` takes it off, a fourth starts again.
+        keys(&mut a, ":");
+        assert_eq!(gabc(&a), ORIGINAL);
         keys(&mut a, ":");
         assert_eq!(gabc(&a), "(c4) Al(fg:) le(h) lu(g) ia.(f.) (::)");
         // The same key again takes a `,` or `;` off.

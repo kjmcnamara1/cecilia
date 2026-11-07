@@ -15,8 +15,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   note on the cursor's staff line into the empty beat and moves on to a new one (`<Esc>` takes the
   last empty beat away), `<Space>` moves on to the next cell. `,` `;` `:` put a division into the
   note's own parentheses, `(g::)`, make one of its own on an empty beat, `(:)`, or change the one
-  the cursor is on; `:` goes between single and double. Visual mode highlights the selected cells
-  as one band, as on modern scores, and `d` deletes them.
+  the cursor is on; `:` goes round single, double, none. Visual mode highlights the selected cells
+  as one band, as on modern scores, and `d` deletes them. In Insert mode `h` `l` only move along (the staff line stays); in Normal mode they put the cursor on the line of each note; `w` `e` `b` go between the notes on the cursor's staff position.
+- `:lyrics-select` (`<leader>g` on a chant score) jumps from the cursor's note to the lyrics text
+  area with the same GABC selected in Visual mode; the setting `ui.lyrics_select_cursor` (on by
+  default) does the same whenever focus goes from the score pane to the lyrics pane.
 - `:new [modern|chant]` (modern by default; `:new chant` opens an empty chant), and
   `:modern-to-chant` works on an empty score (an empty chant).
 - The lyrics text area of a chant score keeps the GABC as typed: score edits splice into the kept

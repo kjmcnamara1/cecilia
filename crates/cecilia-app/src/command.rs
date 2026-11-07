@@ -304,6 +304,9 @@ pub enum Command {
     Properties(Option<bool>),
     /// Focus the properties pane, or give the focus back to the score.
     PropertiesFocus,
+    /// Jump from the cursor note of a chant score to the same GABC, selected in the lyrics text
+    /// area.
+    LyricsSelect,
     /// Show or hide the editing palette (no argument: toggle).
     Palette(Option<bool>),
     /// Focus the palette, or give the focus back to the score.
@@ -1132,6 +1135,7 @@ impl Command {
                 Some(a) => return Err(format!("properties: '{a}' is not on or off")),
             }),
             "properties-focus" => PropertiesFocus,
+            "lyrics-select" => LyricsSelect,
             "palette" => Palette(match arg {
                 None => None,
                 Some("on") => Some(true),

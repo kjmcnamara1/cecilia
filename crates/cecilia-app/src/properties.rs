@@ -3109,6 +3109,8 @@ mod tests {
     #[test]
     fn a_chant_tracks_lyrics_are_its_gabc() {
         let mut app = with_props();
+        // (Entering the text area would select the cursor note's GABC: see the next test.)
+        app.config.file.ui.lyrics_select_cursor = false;
         let chant =
             cecilia_formats::gabc::parse("name: t;\n%%\n(c4) Al(fg)le(h) lu(g)ia.(f.) (::)\n")
                 .unwrap();
@@ -3158,6 +3160,37 @@ mod tests {
         let chant = app.buffer().score.tracks[0].chant.clone().unwrap();
         assert_ne!(chant.syllables.last().unwrap().text, "Ky", "one undo step");
         assert!(!app.props.edit.as_ref().unwrap().text.contains("Ky("));
+    }
+
+    #[test]
+    fn the_cursor_note_is_selected_in_the_text_area() {
+        let mut app = with_props();
+        let chant =
+            cecilia_formats::gabc::parse("name: t;\n%%\n(c4) Al(fg)le(h) lu(g)ia.(f.) (::)\n")
+                .unwrap();
+        app.buffers[0].score = cecilia_formats::gabc::chant_score(chant);
+        app.set_property_tab(PropTab::Lyrics);
+        let selected = |app: &App| {
+            let e = app.props.edit.as_ref().unwrap();
+            let (a, b) = e.selection().unwrap();
+            e.text.chars().skip(a).take(b - a).collect::<String>()
+        };
+        // Going to the pane from the score selects the note under the cursor (Visual mode).
+        keys(&mut app, "l<leader>P");
+        assert_eq!(selected(&app), "g");
+        assert!(app.props.edit.as_ref().unwrap().visual.is_some());
+        keys(&mut app, "<Esc><Esc>");
+        assert!(app.props.edit.is_none());
+        // The setting off: only the caret.
+        app.config.file.ui.lyrics_select_cursor = false;
+        keys(&mut app, "<leader>P");
+        assert!(app.props.edit.as_ref().unwrap().selection().is_none());
+        keys(&mut app, "<Esc><Esc>");
+        // `:lyrics-select` does it whatever the setting.
+        keys(&mut app, "l");
+        app.run(Command::LyricsSelect);
+        assert_eq!(selected(&app), "h");
+        assert_eq!(app.focused_kind(), PaneKind::Properties);
     }
 
     #[test]

@@ -664,9 +664,11 @@ bars of a chant track are only a transcription made from it, so every key below 
 | `.` `_` `'` `-`                           | mora, episema, ictus, initio debilis (`:chant-mod`; `:dot` is the mora too)     |
 | `:accidental flat` / `natural` / `sharp`  | the flat, natural or sharp before the note (a second time takes it away)        |
 | `+` `-` (normal mode)                     | horizontal episema on / off (`:duration-longer`, `:duration-shorter`)           |
-| `,` `;` `:`                               | a division (`:chant-bar`): on a note it goes into the note's own parentheses, `(g::)`; on an empty beat it is a division of its own, `(:)`; on a division of its own it replaces that one. `,` and `;` again take it off, `:` goes between single `:` and double `::` |
+| `,` `;` `:`                               | a division (`:chant-bar`): on a note it goes into the note's own parentheses, `(g::)`; on an empty beat it is a division of its own, `(:)`; on a division of its own it replaces that one. `,` and `;` again take it off, `:` goes round single `:`, double `::`, none |
 | `x` `<BS>` `<Del>`, Visual `d`            | delete the cell (the cells of the selection): a note, an empty beat or a division of its own; a syllable left with no text and no notes goes. The cursor goes to the cell before |
-| `w` `e` `b`                               | next note / end of the note / previous note; the cursor stands on the staff line of the note it moves to (`h` `l` too), so `j` `k` choose the pitch of a note to enter |
+| `h` `l`                                   | in Normal mode, the previous / next cell, the cursor standing on the staff line of a note it lands on (on an empty beat or a division it only moves along); in Insert mode they just move left / right and the staff line stays, so `j` `k` choose the pitch of the next note entered |
+| `w` `e` `b`                               | next note / end of the note / previous note *on the cursor's staff position* |
+| `<leader>g` (`:lyrics-select`)            | jump to the lyrics text area with the GABC of the cursor's note selected in Visual mode (`ui.lyrics_select_cursor`, on by default, does so whenever focus goes from the score to the lyrics pane, as `<leader>P`) |
 | `<Right>`                                 | next note                                                                       |
 
 Everything that

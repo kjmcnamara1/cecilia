@@ -124,6 +124,59 @@ impl App {
         }
     }
 
+    /// With the lyrics text area open on the chant's kept text, selects (Visual mode) the GABC of
+    /// the cell the score cursor is on: the note's characters, a division's, an empty group's.
+    pub(crate) fn select_cursor_in_text(&mut self) {
+        let Some(cell) = self.chant_cursor_cell() else {
+            return;
+        };
+        let Some((_, src)) = self.chant_with_source() else {
+            return;
+        };
+        let range = match cell.note {
+            Some(n) => src.map.note_range(n),
+            None => src
+                .map
+                .syllables
+                .get(cell.syllable)
+                .and_then(|s| match cell.kind {
+                    cecilia_core::chant::CellKind::Division => s.items.get(cell.item).cloned(),
+                    _ => Some(s.range.clone()),
+                }),
+        };
+        let text = src.text.clone();
+        let Some(range) = range.filter(|r| r.start < r.end) else {
+            return;
+        };
+        let Some(e) = self
+            .props
+            .edit
+            .as_mut()
+            .filter(|e| e.field == Field::Lyrics && e.text == text && !e.insert)
+        else {
+            return;
+        };
+        e.visual = Some((range.start, false));
+        e.caret = (range.end - 1).min(e.len());
+        e.anchor = None;
+    }
+
+    /// `:lyrics-select`: opens the lyrics text area of the chant (its pane, its tab) and selects
+    /// the GABC of the note the cursor is on.
+    pub(crate) fn lyrics_select(&mut self) {
+        if !self.cursor_on_chant() {
+            return self.error("lyrics-select: not in a chant score");
+        }
+        self.set_tool(crate::app::PaneKind::Properties, Some(true));
+        self.set_property_tab(crate::properties::PropTab::Lyrics);
+        if let Some(id) = self.tool_pane(crate::app::PaneKind::Properties) {
+            self.set_focus(id);
+            self.pending.clear();
+            self.enter_text_area();
+            self.select_cursor_in_text();
+        }
+    }
+
     /// After an edit of the score: a lyrics text area that is open shows the chant's kept text
     /// again (a score edit spliced into it), with the caret at the cursor note.
     pub(crate) fn follow_score_edit_in_text(&mut self) {

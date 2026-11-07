@@ -798,6 +798,7 @@ impl App {
             .get(&id)
             .map_or((None, None), |p| (Some(p.kind), p.owner));
         let was_props = self.focused_kind() == PaneKind::Properties;
+        let was_score = self.focused_kind() == PaneKind::Score;
         self.touch_focus(id);
         let v = &mut self.views[self.active_view];
         v.focus = id;
@@ -813,6 +814,9 @@ impl App {
             self.end_edit(false);
         } else if now_props && !was_props {
             self.enter_text_area();
+            if was_score && self.config.file.ui.lyrics_select_cursor {
+                self.select_cursor_in_text();
+            }
         }
     }
 
@@ -3013,12 +3017,15 @@ impl App {
             return;
         }
         let before = (pane.cursor.track, pane.cursor.bar, pane.cursor.beat);
+        let insert = self.mode == Mode::Insert;
         f(score, &mut pane.cursor);
         clamp_cursor(score, &mut pane.cursor);
         // On a chant the cursor stands on the staff line of the note it moved to (up and down
         // then choose the pitch of a note to enter).
         let c = &mut pane.cursor;
-        if (c.track, c.bar, c.beat) != before {
+        // (In Insert mode the cursor just moves along: its staff line is the pitch of the next
+        // note entered.)
+        if !insert && (c.track, c.bar, c.beat) != before {
             if let Some(chant) = cursor_chant(score, c) {
                 let t = cecilia_core::chant::transcribe(chant);
                 if let Some(note) = t.note_at(c.bar, c.beat).and_then(|n| chant.note(n)) {
@@ -3662,13 +3669,15 @@ fn chant_goto(score: &Score, c: &mut Cursor, n: usize, end: bool) {
 /// A `(bar, beat)` place.
 type Place = (usize, usize);
 
-/// The notes of a chant track in reading order, as `(note, first beat, last beat)` places.
+/// The notes of a chant track on the cursor's staff position, in reading order, as
+/// `(note, first beat, last beat)` places.
 fn chant_row_notes(score: &Score, c: &Cursor) -> Vec<(usize, Place, Place)> {
     let Some(chant) = cursor_chant(score, c) else {
         return Vec::new();
     };
     let t = cecilia_core::chant::transcribe(chant);
     (0..t.positions.len())
+        .filter(|&n| chant.note(n).is_some_and(|x| x.pitch as i32 == c.line))
         .map(|n| {
             let (bar, beat) = t.positions[n];
             (
@@ -3681,7 +3690,7 @@ fn chant_row_notes(score: &Score, c: &Cursor) -> Vec<(usize, Place, Place)> {
 }
 
 /// `w`: the next note on the row that begins a tie (or is not tied at all). On a chant, the
-/// next note.
+/// next note on the cursor's staff position.
 fn row_next(score: &Score, c: &mut Cursor) {
     if cursor_chant(score, c).is_some() {
         let here = (c.bar, c.beat);
