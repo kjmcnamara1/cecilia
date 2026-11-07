@@ -182,6 +182,8 @@ pub struct Theme {
     pub icon_midi: Rgba,
     pub icon_chant: Rgba,
     pub icon_cecilia: Rgba,
+    /// The status line's `MODERN` chip (a chant score's `CHANT` chip uses `icon_chant`).
+    pub score_modern: Rgba,
     /// The outline of the edit cursor; `None` contrasts with the page (see [`Theme::cursor_border`]).
     pub cursor_border: Option<Rgba>,
     /// Colors given to tracks in order (a track can have its own with `:track-color`).
@@ -269,6 +271,7 @@ pub const COLOR_NAMES: &[&str] = &[
     "icon_midi",
     "icon_chant",
     "icon_cecilia",
+    "score_modern",
 ];
 
 fn hex(s: &str) -> Rgba {
@@ -327,6 +330,7 @@ impl Theme {
             icon_midi: Rgba::rgb(90, 190, 110),
             icon_chant: Rgba::rgb(180, 110, 210),
             icon_cecilia: Rgba::rgb(60, 190, 190),
+            score_modern: Rgba::rgb(214, 140, 80),
             cursor_border: None,
             track_colors: spectrum(accent, 8, 0.62),
         }
@@ -376,6 +380,7 @@ impl Theme {
             mode_command: Rgba::rgb(60, 160, 90),
             mode_picker: Rgba::rgb(40, 160, 175),
             mode_tracks: Rgba::rgb(210, 100, 60),
+            score_modern: Rgba::rgb(190, 105, 45),
             cursor_border: None,
             track_colors: spectrum(accent, 8, 0.48),
             ..Self::dark()
@@ -433,6 +438,7 @@ impl Theme {
             icon_midi: hex("#a3be8c"),
             icon_chant: hex("#b48ead"),
             icon_cecilia: hex("#8fbcbb"),
+            score_modern: hex("#ebcb8b"),
             cursor_border: None,
             track_colors: spectrum(accent, 8, 0.65),
         }
@@ -489,6 +495,7 @@ impl Theme {
             icon_midi: hex("#b8bb26"),
             icon_chant: hex("#d3869b"),
             icon_cecilia: hex("#8ec07c"),
+            score_modern: hex("#fe8019"),
             cursor_border: None,
             track_colors: spectrum(accent, 8, 0.6),
         }
@@ -545,6 +552,7 @@ impl Theme {
             icon_midi: hex("#859900"),
             icon_chant: hex("#6c71c4"),
             icon_cecilia: hex("#2aa198"),
+            score_modern: hex("#cb4b16"),
             cursor_border: None,
             track_colors: spectrum(accent, 8, 0.55),
         }
@@ -637,6 +645,7 @@ impl Theme {
             "icon_midi" => &mut self.icon_midi,
             "icon_chant" => &mut self.icon_chant,
             "icon_cecilia" => &mut self.icon_cecilia,
+            "score_modern" => &mut self.score_modern,
             _ => return None,
         })
     }
@@ -889,6 +898,19 @@ mod tests {
             ] {
                 assert!(contrast(c) > 50.0, "{p}: {c:?} on {:?}", t.panel);
             }
+            // The MODERN and CHANT chips stand out from the status line and from each other.
+            let dist = |a: Rgba, b: Rgba| {
+                (a.r as i32 - b.r as i32).abs()
+                    + (a.g as i32 - b.g as i32).abs()
+                    + (a.b as i32 - b.b as i32).abs()
+            };
+            assert_ne!(t.score_modern, t.icon_chant, "{p}");
+            assert!(
+                dist(t.score_modern, t.chrome) > 100,
+                "{p}: modern on chrome"
+            );
+            assert!(dist(t.icon_chant, t.chrome) > 100, "{p}: chant on chrome");
+            assert!(dist(t.score_modern, t.icon_chant) > 100, "{p}");
             assert!(contrast(t.lyrics_text_dim) < contrast(t.lyrics_text), "{p}");
             assert!(
                 contrast(t.lyrics_gabc) >= contrast(t.lyrics_text_dim),

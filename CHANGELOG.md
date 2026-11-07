@@ -7,6 +7,29 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- The interface follows the kind of score. The status line has a `MODERN` / `CHANT` chip beside the
+  mode (theme colors `score_modern`, new, and `icon_chant`; clicking it names the conversion
+  command, `:score-kind`), a chant score's tab has the chant icon and its pane title ends
+  `— chant`. The editing palette has its own sections for a chant score (clefs, divisions, heads,
+  liquescences, mora / episema / ictus, flat / natural, pitch, text symbols), with folds and
+  scroll remembered per kind. The properties pane shows a chant score's GABC header fields,
+  interpretation, staff lines and page, and a chant track's name, clef and sound (no staves,
+  tuning, capo or frets). New commands `:chant-shape`, `:chant-division`, `:chant-alter`,
+  `:chant-liquescence`, `:chant-mora`, `:chant-episema`, `:chant-ictus`, `:chant-symbol`,
+  `:chant-clef` and `:score-kind`, with default keys in `[keymap.normal-chant]` (`tp` `tv` `tq`
+  `tm` `te` `tb` `td;` `tc3` …), a layer looked up only on chant scores.
+- Every command has a scope (both, modern or chant). Completion, the key help, the keymaps picker
+  and the which-key popup list only the commands of the score's kind; a command of the other kind
+  still parses and answers `capo: not in a chant score`.
+
+### Removed
+
+- `:chant-view` and the workspace's `chant_view`: a chant is always drawn in square notation.
+  With the toggle off the score was drawn as an ordinary staff from the cached bars while the
+  cursor and the edit keys still acted on the chant, so the cursor could sit off the staff.
+
 ### Changed
 
 - One kind per score: a score is a modern score (staff tracks) or a chant score (exactly one chant

@@ -111,7 +111,7 @@ struct Ui {
 /// A page layout engraved for a pane, as long as its `key` (buffer, version, track, chant view)
 /// is current.
 struct PageCache {
-    key: (usize, u64, usize, bool, bool),
+    key: (usize, u64, usize, bool),
     layout: cecilia_engrave::Layout,
     rows: Vec<tabview::RowSpec>,
 }
@@ -128,11 +128,10 @@ fn page_layout<'a>(
         pane.buffer,
         buffer.version,
         pane.cursor.track,
-        app.chant_view,
         app.every_bar_number,
     );
     let entry = cache.entry(id).or_insert_with(|| PageCache {
-        key: (usize::MAX, 0, 0, false, false),
+        key: (usize::MAX, 0, 0, false),
         layout: Default::default(),
         rows: vec![],
     });
@@ -144,7 +143,7 @@ fn page_layout<'a>(
                 height: 842.0,
             },
             margin: 40.0,
-            chant: app.chant_view,
+            chant: true,
             chords: app.chord_policy(),
             every_bar_number: app.every_bar_number,
             ..Default::default()
@@ -833,8 +832,9 @@ fn draw(f: &mut Frame, app: &mut App, play: Option<(usize, Location, f64, f64)>,
                     .map(|s| format!(" · {}", s.trim_start_matches("Tuning: ")))
                     .unwrap_or_default();
                 format!(
-                    " {} — {}/{} {}{tuning} ",
+                    " {} — {} · {}/{} {}{tuning} ",
                     buffer.name,
+                    app.score_kind_name(pane.buffer),
                     pane.cursor.track + 1,
                     buffer.score.tracks.len(),
                     if t.name.is_empty() {
@@ -844,7 +844,7 @@ fn draw(f: &mut Frame, app: &mut App, play: Option<(usize, Location, f64, f64)>,
                     }
                 )
             }
-            None => format!(" {} ", buffer.name),
+            None => format!(" {} — {} ", buffer.name, app.score_kind_name(pane.buffer)),
         };
         let border_style = if id == focused {
             Style::default().fg(rc(app.config.focus_ring_color(app.mode)))
@@ -2702,6 +2702,8 @@ fn draw_status(
         SegKind::Mode => mode,
         SegKind::ModeText => t.status_b,
         SegKind::Plain | SegKind::Warn => t.chrome,
+        SegKind::ScoreModern => t.score_modern,
+        SegKind::ScoreChant => t.icon_chant,
     };
     let style_of = |seg: &Segment| {
         let bg = bg_of(seg.kind);
@@ -2710,6 +2712,7 @@ fn draw_status(
             SegKind::ModeText => mode,
             SegKind::Plain => t.chrome_text,
             SegKind::Warn => t.error,
+            SegKind::ScoreModern | SegKind::ScoreChant => t.text_on(bg),
         };
         let st = Style::default().fg(rc(fg)).bg(rc(bg));
         if seg.bold {
@@ -2760,8 +2763,7 @@ fn draw_status(
     let mut placed = Vec::new();
     for seg in right.iter().rev() {
         let text = text_of(seg);
-        let sep_w =
-            u16::from(seps.is_some() && !matches!(seg.kind, SegKind::Plain | SegKind::Warn));
+        let sep_w = u16::from(seps.is_some() && seg.kind.is_chip());
         let w = width(&text) + sep_w;
         if w + 20 > right_x.saturating_sub(area.x) {
             continue;
@@ -2772,9 +2774,7 @@ fn draw_status(
     for (x, seg, text) in placed.iter().rev() {
         let bg = bg_of(seg.kind);
         let mut x = *x;
-        if let (Some((_, left_sep)), true) =
-            (seps, !matches!(seg.kind, SegKind::Plain | SegKind::Warn))
-        {
+        if let (Some((_, left_sep)), true) = (seps, seg.kind.is_chip()) {
             buf.set_string(
                 x,
                 area.y,
@@ -3630,10 +3630,18 @@ mod render_tests {
             "{screen}"
         );
         assert!(screen.contains("C─"), "{screen}");
-        // Square notation off: the transcription shows as a staff track.
-        app.run(cecilia_app::Command::ChantView);
+        // The status line and the pane title name the kind of score.
+        assert!(screen.contains("CHANT"), "{screen}");
+        assert!(!screen.contains("MODERN"), "{screen}");
+        assert!(screen.contains("— chant"), "{screen}");
+        // A modern score says so, and switching back changes the chip.
+        app.buffers[0].score = cecilia_core::Score::default();
         let screen = render(&mut app, 60, 24);
-        assert!(screen.contains("F4"), "{screen}");
+        assert!(
+            screen.contains("MODERN") && !screen.contains("CHANT"),
+            "{screen}"
+        );
+        assert!(screen.contains("— modern"), "{screen}");
     }
 
     /// A real chant from the corpus open in an app (the Properties pane closed).

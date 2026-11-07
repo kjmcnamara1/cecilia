@@ -100,6 +100,12 @@ fn previous(score: &Score, c: &Cursor) -> Option<Pos> {
     Some((bar, beats(score, &prev).len().saturating_sub(1)))
 }
 
+/// Whether the command line `line` (as bound to a key) is for a score of this kind.
+pub(crate) fn command_line_in_scope(line: &str, chant_score: bool) -> bool {
+    let head = line.split_whitespace().next().unwrap_or(line);
+    crate::complete::scope(head).applies(chant_score)
+}
+
 impl App {
     pub fn insert_duration(&self) -> Duration {
         self.ed.insert_duration.unwrap_or_default()
@@ -296,19 +302,31 @@ impl App {
     pub fn help_view(&self) -> (String, Vec<(String, String)>) {
         use crate::app::PaneKind;
         use crate::config::Keymap;
-        fn rows(map: &Keymap, skip: &[&Keymap]) -> Vec<(String, String)> {
+        let chant = self.buffer().score.is_chant();
+        // Keys of commands for the other kind of score are not listed.
+        let rows = |map: &Keymap, skip: &[&Keymap]| -> Vec<(String, String)> {
             map.bindings
                 .iter()
                 .filter(|(k, _)| !skip.iter().any(|m| m.bindings.contains_key(*k)))
-                .map(|(k, c)| {
+                .filter_map(|(k, c)| {
                     let what = match map.names.get(k) {
-                        Some(n) => n.join(", "),
+                        Some(n) => {
+                            let shown: Vec<&str> = n
+                                .iter()
+                                .map(String::as_str)
+                                .filter(|l| command_line_in_scope(l, chant))
+                                .collect();
+                            if shown.is_empty() {
+                                return None;
+                            }
+                            shown.join(", ")
+                        }
                         None => format!("{c:?}"),
                     };
-                    (crate::keys::format_keys(k), what)
+                    Some((crate::keys::format_keys(k), what))
                 })
                 .collect()
-        }
+        };
         fn fixed(list: &[(&str, &str)]) -> Vec<(String, String)> {
             list.iter()
                 .map(|(k, c)| (k.to_string(), c.to_string()))

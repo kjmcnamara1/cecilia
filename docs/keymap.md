@@ -260,7 +260,7 @@ current ones):
 | tab | `th` `tb` `ts` `tv` `tx` `tm` `tl` `tg` `ta` `tn` `tt`: toggle hammer/pull, bend, slide, vibrato, dead, palm mute, let ring, ghost, accent, harmonic, tie |
 | standard | `th` `ts` `tv` `tx` `tg` `ta` `tt` (hammer/pull, slide, vibrato, dead, ghost, accent, tie), `t#` `t&` `t=` (sharp, flat, natural) |
 | slash | `ta` `tt` (accent, tie) |
-| chant track | none (chant signs are typed in Insert mode) |
+| chant score | its own set, `[keymap.normal-chant]`: see "Chant" below (`tp` `tv` `tq` `tm` `te` `tb` `td;` `tc3` …); chant signs can be typed in Insert mode too |
 
 **Visual mode** (`v` beats, `V` bars; a `d` `y` `c` `x` act on the selection, motions extend it):
 
@@ -312,7 +312,11 @@ act on the bar of every track, as bars are shared.
 As lualine.nvim: on the left the mode (in its color), the pane's layout (in the mode's color),
 the workspace and the file (● when changed); on the right the tempo, play time, play-along
 settings, macro recording, insert note length and zoom, then the position as `Top` / `NN%` /
-`Bot` and `bar:beat` in the mode's color. Click the layout to cycle it, the workspace to pick
+`Bot` and `bar:beat` in the mode's color. Beside the mode is a chip naming the kind of score,
+`MODERN` (theme color `score_modern`) or `CHANT` (`icon_chant`); click it for how to convert the
+score (`:chant-to-modern` / `:modern-to-chant` open a new buffer, so it is not done by a click).
+The bufferline shows the chant icon on a chant score's tab and the score pane's title names the
+kind (`t.gabc — chant`). Click the layout to cycle it, the workspace to pick
 another, the mix icon (󰣱 synth, 󰝚 audio, 󰣱 +󰝚 both) to cycle what plays, and the speed (󰓅) or
 zoom (shown only when not 100%) to reset it to 100%. The GUI draws colored sections as rounded chips;
 in the terminal `[statusline] separators` chooses `arrow` (default), `round` or `none` between
@@ -413,16 +417,24 @@ have a narrower box with the color's hex code or the strings' pitches beside it 
 
 - **SCORE** — *Info* (title, subtitle, artist, album, words, music, copyright, tab author,
   instructions) and *Page* (page size, margins and scale, as Guitar Pro 5 files keep them; cecilia
-  doesn't print with them yet). Tempo and the pickup bar are edited in the score itself.
+  doesn't print with them yet). Tempo and the pickup bar are edited in the score itself. The rows
+  depend on the kind of score; rows that don't apply are not shown. A **chant** score shows its
+  GABC header fields instead of the meta data (`name`, `office-part`, `mode`, `annotation`, `book`,
+  `transcriber`, `commentary`, `user-notes`, then any other header the file has, in order; an empty
+  value leaves the header out), *Chant* (the interpretation, equalist or Solesmes, and the number
+  of staff lines, 2–5) and *Page*. Each edit is one undo step.
 - **TRACK** — the track under the score cursor (`n`/`p` change it): *Info* (name, kind, color),
-  *Notation* (tuning, frets, capo, and the key *Staves* over one field per staff, top to bottom, with an empty "Add Staff" field at the bottom; each opens a picker of staff kinds, shown with an icon, and a field's handle drags it to another place, a line showing where it lands; a chant track has one *chant* row, whose second box opens its clef picker) and *Sound*
-  (instrument, MIDI channel, bank, volume, pan, mute, solo).
+  *Notation* (tuning, frets, capo, and the key *Staves* over one field per staff, top to bottom, with an empty "Add Staff" field at the bottom; each opens a picker of staff kinds, shown with an icon, and a field's handle drags it to another place, a line showing where it lands; the staves are modern tracks only) and *Sound*
+  (instrument, MIDI channel, bank, volume, pan, mute, solo). A **chant** track shows name and color,
+  *Notation* with its initial *Clef* (opens the clef picker) and *Sound* without channel and
+  bank; no kind, staves, tuning, capo or frets. (Playback transposition of a chant is not
+  available yet.)
 - **LYRICS** — the cursor track's lyrics as one text area (below; full reference in
   [LYRICS.md](LYRICS.md)), the single source of the syllables on its notes. The text is shown
   and edited as written. The text area has no label, box or background; it is in the app's text
   font (GUI: `ui.lyrics_font`, any installed family, at `ui.lyrics_font_size`, 12 pt) and colored
   by the theme: words `lyrics_text`, `[labels]` `lyrics_label` in bold, `(bar:beat)` anchors
-  `lyrics_anchor`, markup tags `lyrics_markup`. A chant track's lyrics are its chant: its text
+  `lyrics_anchor`, markup tags `lyrics_markup`. A chant score's lyrics are its chant: its text
   area always shows the GABC body of the chant (its header is kept; clefs, notes and groups in
   the `lyrics_clef` … colors), read back as GABC when edited.
 
@@ -490,6 +502,15 @@ force at the cursor (the beat's duration, its dynamic and techniques) are tinted
 and follow the cursor as it moves; the highlighted button is a neutral gray. The mouse and the
 keyboard share that one highlight: moving the mouse over a button selects it. `<leader>E` focuses the pane (again: back to the score); while it has the focus its keys
 are `[keymap.palette]`, then the usual ones:
+
+The palette's sections depend on the kind of score under the
+cursor and change when you switch buffers; the folds, selection and scroll are remembered for each
+kind. A **chant** score has: *Clef* (do 1–4, flat do, fa 1–4), *Divisions* (`,` `;` `:` `::`, the
+`;1`…`;6` variants), *Shapes* (punctum, inclinatum, virga, virga reversa, bivirga, stropha, quilisma,
+oriscus, quadratum …), *Liquescence*, *Rhythm* (mora, episema, ictus), *Alteration* (flat, natural),
+*Pitch* (up / down a staff position) and *Text* (`*` `+` `℣` `℟`); each item runs a `:chant-*`
+command. In the GUI the flat and natural show their signs and the other chant items their short
+labels, as in the terminal. The modern sections follow.
 
 | keys | command |
 | --- | --- |
@@ -624,7 +645,7 @@ the staff they go on to the tab below or the next staff):
 
 On a **slash** staff: `/` puts a slash on the beat (`:slash`; `<CR>` does as well); `t` tie, `>` accent.
 
-On a **chant track** (opened from GABC; there is no chant staff on other tracks), the cursor is
+On a **chant score** (opened from GABC; there is no chant staff on modern tracks), the cursor is
 on a note: a single square on that position of the chant staff. The chant is what is edited; the
 bars of a chant track are only a transcription made from it, so every key below changes the chant
 (one undo step each), the bars are written again and the cursor stays on the edited note.
@@ -778,6 +799,27 @@ autosaving that file until you choose:
 
 ### Chant _(M6)_
 
+Which commands apply depends on the kind of score. Every command is for **both** kinds, for
+**modern** scores or for **chant** scores. In a chant score `:` completion, the command and key
+lists (`<F1>`, the keymaps picker) and the which-key popup show the both and chant commands; in a
+modern score the both and modern ones. A command of the other kind still parses when typed in full
+and answers with the kind (`capo: not in a chant score`, `chant-mora: not in a modern score`)
+instead of "unknown command". Chant-only commands are the `:chant-*` ones, `:gabc`,
+`:interpretation` and `:chant-to-modern`; modern-only are durations, tuplets, rests, ties,
+effects, dynamics, tuning, capo, staves, `:lyrics`, bar insertion, `:modern-to-chant` and the like.
+The chant score has its own normal-mode layer, `[keymap.normal-chant]` (`[keymap.chant]` is
+accepted as well), looked up before `[keymap.normal]` and only on chant scores:
+
+| keys | command |
+| --- | --- |
+| `tp` `ti` `tv` `tV` `ts` `tq` `to` `tu` | head: punctum, inclinatum, virga, bivirga, stropha, quilisma, oriscus, quadratum (`:chant-shape`) |
+| `t~` `t<` `t>` | liquescence: deminutus, auctus ascendens, auctus descendens |
+| `tm` (`t.`) `te` `tt` | mora, horizontal episema, ictus |
+| `tb` `tn` | flat, natural before the note |
+| `t*` `t+` | `*` or `+` in the syllable's text |
+| `td,` `td;` `td:` `tD` | division `,` `;` `:` `::` after the syllable |
+| `tc1`–`tc4` `tcb` `tF1`–`tF4` | clef do 1–4, flat do, fa 1–4 |
+
 On a chant track the cursor moves note by note; `<C-a>`/`<C-x>` move a note up or down a staff
 position, `:accidental flat` adds a flat, `x` deletes it and `u` undoes (see "Insert mode" above for the
 chant keys, and which modern-track keys answer "not in chant").
@@ -787,7 +829,14 @@ chant keys, and which modern-track keys answer "not in chant").
 | `:gabc` / `:gabc fgh` / `:gabc Glo(fg)ri(h)` | show the cursor syllable as GABC; replace its notes, or the syllable itself                           |
 | `:interpretation [equalist\|solesmes]`       | rhythm used for playback and the modern transcription                                                 |
 | `:clef c3`                                   | change the chant clef (`c1`–`c4`, `f1`–`f4`, `cb3` for a flat clef); notes keep their staff positions |
-| `:chant-view`                                | square notation / modern transcription of chant tracks                                                |
+| `:chant-shape NAME`                          | the cursor note's head: `punctum`, `inclinatum`, `virga`, `virga-reversa`, `bivirga`, `trivirga`, `stropha`, `bistropha`, `tristropha`, `quilisma`, `oriscus`, `oriscus-stem`, `quadratum` (again takes it off) |
+| `:chant-division TOKEN`                      | a division after the cursor syllable: `,` `;` `:` `::`, `;1`…`;6` (the same again takes it off, another replaces it) |
+| `:chant-clef NAME`                           | the chant's first clef (`:clef` does the same)                                                        |
+| `:chant-mora` `:chant-episema` `:chant-ictus` | toggle the mora, the horizontal episema or the ictus of the cursor note                              |
+| `:chant-alter flat\|natural`                 | the flat or natural before the cursor note                                                            |
+| `:chant-liquescence deminutus\|ascendens\|descendens` | toggle a liquescence of the cursor note                                                     |
+| `:chant-symbol SYMBOL`                       | add `*` `+` `†` `℣` `℟` to (or take it off) the cursor syllable's text                                |
+| `:score-kind`                                | say whether this is a modern or a chant score and which command converts it (what clicking `MODERN` / `CHANT` in the status line does) |
 | `:modern-to-chant`                           | open the cursor track's melody as chant in a new buffer `[chant] name` (syllables from lyrics; a chord keeps the note `ui.chant_chords` picks); other tracks are left out |
 | `:chant-to-modern`                           | open the chant score as a modern score in a new buffer `[modern] name` (bars as a pitched track, syllables as lyrics); the chant buffer is unchanged |
 

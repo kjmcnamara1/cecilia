@@ -29,6 +29,26 @@ fn shape_of_token(m: &str) -> Option<Shape> {
     })
 }
 
+/// The head a name stands for (`chant-shape NAME`).
+pub(crate) fn shape_by_name(name: &str) -> Option<Shape> {
+    Some(match name {
+        "punctum" => Shape::Punctum,
+        "inclinatum" => Shape::Inclinatum,
+        "virga" => Shape::Virga,
+        "virga-reversa" => Shape::VirgaReversa,
+        "bivirga" => Shape::Bivirga(2),
+        "trivirga" => Shape::Bivirga(3),
+        "stropha" => Shape::Stropha(1),
+        "bistropha" => Shape::Stropha(2),
+        "tristropha" => Shape::Stropha(3),
+        "quilisma" => Shape::Quilisma,
+        "oriscus" => Shape::Oriscus(false),
+        "oriscus-stem" => Shape::Oriscus(true),
+        "quadratum" => Shape::Quadratum,
+        _ => return None,
+    })
+}
+
 /// Toggles a modifier of note `n` the way a key does: the note takes it, or loses it when it
 /// already has it.
 fn toggle_modifier(chant: &mut Chant, n: usize, m: &str) -> Result<(), String> {
@@ -85,9 +105,28 @@ impl App {
     fn require_chant(&mut self) -> bool {
         let ok = self.cursor_on_chant();
         if !ok {
-            self.error("not a chant track (open a .gabc file or use :modern-to-chant)");
+            self.error("chant command: not in a modern score (use :modern-to-chant to open its melody as chant)");
         }
         ok
+    }
+
+    /// Sets (or, when it is already there, takes off) the flat or natural before the cursor note.
+    fn chant_alter(&mut self, want: Alter) {
+        self.chant_op(move |chant, at| {
+            let n = at.ok_or("no note under the cursor")?;
+            let now = chant.alteration_of(n);
+            chant.set_alteration(n, if now == Some(want) { None } else { Some(want) })?;
+            Ok(Some(n))
+        });
+    }
+
+    /// Toggles a GABC modifier of the cursor note (see [`toggle_modifier`]).
+    fn chant_toggle(&mut self, modifier: &'static str) {
+        self.chant_op(move |chant, at| {
+            let n = at.ok_or("no note under the cursor")?;
+            toggle_modifier(chant, n, modifier)?;
+            Ok(Some(n))
+        });
     }
 
     /// Index (in reading order) of the chant note under the cursor: the note sounded by the
@@ -199,12 +238,7 @@ impl App {
                         return true;
                     }
                 };
-                self.chant_op(move |chant, at| {
-                    let n = at.ok_or("no note under the cursor")?;
-                    let now = chant.alteration_of(n);
-                    chant.set_alteration(n, if now == Some(want) { None } else { Some(want) })?;
-                    Ok(Some(n))
-                });
+                self.chant_alter(want);
             }
             // A dot is the mora; a longer or shorter note is a horizontal episema.
             Dot | DoubleDot => {
@@ -268,6 +302,75 @@ impl App {
                     toggle_modifier(chant, n, &m)?;
                     Ok(Some(n))
                 });
+            }
+            ChantShape(name) => {
+                let Some(shape) = shape_by_name(name) else {
+                    return true;
+                };
+                self.chant_op(move |chant, at| {
+                    let n = at.ok_or("no note under the cursor")?;
+                    let now = chant.note(n).ok_or("no note under the cursor")?.shape();
+                    chant.set_shape(n, if now == shape { Shape::Punctum } else { shape })?;
+                    Ok(Some(n))
+                });
+            }
+            ChantDivision(sign) => {
+                let sign = sign.clone();
+                self.chant_op(move |chant, at| {
+                    let n = at.unwrap_or(0);
+                    match chant.division_after(n) {
+                        Some(d) if d == sign => chant.delete_division(n)?,
+                        Some(_) => chant.set_division(n, &sign)?,
+                        None => {
+                            chant.insert_division(n, &sign)?;
+                        }
+                    }
+                    Ok(at)
+                });
+            }
+            ChantAlter(name) => {
+                let want = if name == "flat" {
+                    Alter::Flat
+                } else {
+                    Alter::Natural
+                };
+                self.chant_alter(want);
+            }
+            ChantLiquescence(name) => self.chant_toggle(match name.as_str() {
+                "ascendens" => "<",
+                "descendens" => ">",
+                _ => "~",
+            }),
+            ChantMora => self.chant_toggle("."),
+            ChantEpisema => self.chant_toggle("_"),
+            ChantIctus => self.chant_toggle("'"),
+            ChantSymbol(symbol) => {
+                // The liturgical versicle and response signs are GABC specials.
+                let text = match symbol.as_str() {
+                    "℣" => "<sp>V/</sp>",
+                    "℟" => "<sp>R/</sp>",
+                    other => other,
+                }
+                .to_string();
+                self.chant_op(move |chant, at| {
+                    let n = at.ok_or("no note under the cursor")?;
+                    let si = chant.syllable_of(n).ok_or("no syllable under the cursor")?;
+                    let now = chant.syllables[si].text.clone();
+                    let new = match now.strip_suffix(text.as_str()) {
+                        Some(rest) => rest.to_string(),
+                        None => format!("{now}{text}"),
+                    };
+                    chant.set_syllable_text(n, &new)?;
+                    Ok(Some(n))
+                });
+            }
+            ScoreKind => {
+                let msg = if self.cursor_on_chant() {
+                    "chant score; :chant-to-modern opens it as a modern score in a new buffer"
+                } else {
+                    "modern score; :modern-to-chant opens the cursor track's melody as a chant score in a new buffer"
+                };
+                self.info(msg);
             }
             ChantAppend => self.chant_insert(true, Join::Neume),
             ChantBreak => self.chant_insert(true, Join::NewNeume),
@@ -448,14 +551,6 @@ impl App {
                     }
                     Err(e) => self.error(format!("modern-to-chant: {e}")),
                 }
-            }
-            ChantView => {
-                self.chant_view = !self.chant_view;
-                self.info(if self.chant_view {
-                    "chant: square notation"
-                } else {
-                    "chant: modern transcription"
-                });
             }
             _ => return false,
         }

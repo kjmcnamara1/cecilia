@@ -63,8 +63,8 @@ pub fn system_height(chant: &Chant) -> u16 {
 }
 
 /// Whether the chant view draws `track`: a chant track in square notation.
-pub fn shows(app: &App, track: &Track) -> bool {
-    track.chant.is_some() && app.chant_view
+pub fn shows(_app: &App, track: &Track) -> bool {
+    track.chant.is_some()
 }
 
 /// A staff line: the odd positions 3 to 9.
@@ -773,7 +773,7 @@ impl Widget for ChantView<'_> {
             return;
         };
         let ascii = self.app.config.file.tabline.icons == "none";
-        let Some(chant) = track.chant.as_deref().filter(|_| self.app.chant_view) else {
+        let Some(chant) = track.chant.as_deref() else {
             return;
         };
         let (syls, range) = (layout(chant, ascii), staff_range(chant));

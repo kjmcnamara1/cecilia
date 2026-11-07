@@ -129,7 +129,7 @@ impl App {
         if !b.enabled {
             return;
         }
-        match Command::parse(&b.command) {
+        match self.parse_for_score(&b.command) {
             Ok(cmd) => self.run(cmd),
             Err(e) => self.error(e),
         }

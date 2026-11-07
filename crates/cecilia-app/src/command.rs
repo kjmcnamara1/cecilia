@@ -208,6 +208,22 @@ pub enum Command {
     ChantBreak,
     /// On chant: a new syllable after the cursor syllable.
     ChantSyllable,
+    /// On chant: gives the cursor note a head by name (`virga`, `quilisma` …); again takes it off.
+    ChantShape(String),
+    /// On chant: a division after the cursor syllable (`,` `;` `:` `::` `;3` …); again takes it off.
+    ChantDivision(String),
+    /// On chant: a flat or natural before the cursor note; again takes it off.
+    ChantAlter(String),
+    /// On chant: a liquescence (`deminutus`, `ascendens`, `descendens`) on the cursor note.
+    ChantLiquescence(String),
+    /// On chant: the mora, the horizontal episema or the ictus of the cursor note.
+    ChantMora,
+    ChantEpisema,
+    ChantIctus,
+    /// On chant: adds a symbol (`*`, `†`, `℣` …) to the text of the cursor syllable.
+    ChantSymbol(String),
+    /// Says whether this is a modern or a chant score and which command converts it.
+    ScoreKind,
     New,
     Voice(usize),
     /// Edit the next / previous voice of the bar (going round, with one more to create).
@@ -398,8 +414,6 @@ pub enum Command {
     ChantToModern,
     /// Open the cursor track's melody as chant in a new buffer.
     ModernToChant,
-    /// Toggle square notation / modern transcription for chant tracks.
-    ChantView,
     BeatNext,
     BeatPrev,
     StringDown,
@@ -864,6 +878,38 @@ impl Command {
             "chant-append" => ChantAppend,
             "chant-break" => ChantBreak,
             "chant-syllable" => ChantSyllable,
+            "chant-shape" => ChantShape(
+                arg.filter(|a| crate::chant::shape_by_name(a).is_some())
+                    .ok_or("chant-shape: expected punctum, inclinatum, virga, virga-reversa, bivirga, trivirga, stropha, bistropha, tristropha, quilisma, oriscus, oriscus-stem or quadratum")?
+                    .to_string(),
+            ),
+            "chant-division" => ChantDivision(
+                arg.filter(|a| cecilia_core::chant::Chant::is_division(a))
+                    .ok_or("chant-division: expected a division such as , ; : :: ;3")?
+                    .to_string(),
+            ),
+            "chant-alter" => ChantAlter(
+                arg.filter(|a| ["flat", "natural"].contains(a))
+                    .ok_or("chant-alter: expected flat or natural")?
+                    .to_string(),
+            ),
+            "chant-liquescence" => ChantLiquescence(
+                arg.filter(|a| ["deminutus", "ascendens", "descendens"].contains(a))
+                    .ok_or("chant-liquescence: expected deminutus, ascendens or descendens")?
+                    .to_string(),
+            ),
+            "chant-mora" => ChantMora,
+            "chant-episema" => ChantEpisema,
+            "chant-ictus" => ChantIctus,
+            "chant-symbol" => ChantSymbol(
+                arg.ok_or("chant-symbol: expected a symbol (* + † ℣ ℟)")?
+                    .to_string(),
+            ),
+            "chant-clef" => ChantClef(
+                arg.ok_or("chant-clef: expected c1–c4, cb3 or f1–f4")?
+                    .to_string(),
+            ),
+            "score-kind" => ScoreKind,
             "new" | "enew" => New,
             "voice" => Voice(number("voice")?),
             "voice-next" => VoiceNext,
@@ -1048,7 +1094,6 @@ impl Command {
             ),
             "chant-to-modern" => ChantToModern,
             "modern-to-chant" => ModernToChant,
-            "chant-view" => ChantView,
             "mute" => Mute(arg.map(Strip::parse).transpose()?),
             "tracks" => Tracks(match arg {
                 None => None,
@@ -1300,6 +1345,14 @@ impl Command {
                 | ChantAppend
                 | ChantBreak
                 | ChantSyllable
+                | ChantShape(_)
+                | ChantDivision(_)
+                | ChantAlter(_)
+                | ChantLiquescence(_)
+                | ChantMora
+                | ChantEpisema
+                | ChantIctus
+                | ChantSymbol(_)
         )
     }
 }

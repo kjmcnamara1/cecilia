@@ -786,14 +786,30 @@ fn the_palette_lists_the_tools_of_the_notation_and_mode() {
     assert!(!slash.contains(&"toggle bend"));
     assert!(!slash.contains(&"accidental sharp"));
     assert!(!slash.contains(&"octave-up"));
-    // A chant track: note values and the clef; sections with nothing left are gone.
+    // A chant score has its own palette: no durations, but clefs, divisions, heads and signs.
     {
         let c = chant_app();
         let chant = commands(&c);
-        assert!(chant.iter().all(|c| c.starts_with("duration")
-            || matches!(*c, "dot" | "double-dot" | "clef ")
-            || c.starts_with("tuplet")));
-        assert_eq!(titles(&c), vec!["Duration", "Bar"]);
+        assert!(chant.contains(&"chant-clef c3") && chant.contains(&"chant-division ::"));
+        assert!(chant.contains(&"chant-shape quilisma") && chant.contains(&"chant-mora"));
+        assert!(
+            chant
+                .iter()
+                .all(|c| c.starts_with("chant-") || c.starts_with("pitch-"))
+        );
+        assert_eq!(
+            titles(&c),
+            vec![
+                "Clef",
+                "Divisions",
+                "Shapes",
+                "Liquescence",
+                "Rhythm",
+                "Alteration",
+                "Pitch",
+                "Text"
+            ]
+        );
     }
     // Visual mode: the range tools, on any staff.
     a.pane_mut().cursor.staff = Cursor0::HOME;
@@ -812,15 +828,39 @@ fn the_palette_lists_the_tools_of_the_notation_and_mode() {
 }
 
 #[test]
-fn folding_survives_a_notation_that_hides_sections() {
-    let mut a = chant_app();
-    // Section 1 is Duration (0 is the voice selector).
+fn palette_folds_are_remembered_per_kind_of_score() {
+    let mut a = app();
+    // Modern: section 1 is Duration (0 is the voice selector). Fold it.
     a.palette.folded.insert(1);
-    // Only the Duration and Bar sections are left (no voices), and Duration is still folded.
-    let rows = a.palette_rows();
-    assert_eq!(rows.len(), 3);
-    a.run(Command::parse("palette-fold open").unwrap());
-    assert!(a.palette_rows().len() > 1);
+    let modern_rows = a.palette_rows().len();
+    // A chant buffer has its own sections, none folded, and its own selection.
+    let chant = chant_app();
+    let score = chant.buffer().score.clone();
+    assert!(score.is_chant());
+    a.buffers.push(crate::app::Buffer {
+        path: None,
+        name: "t.gabc".into(),
+        score,
+        modified: false,
+        history: Default::default(),
+        version: 0,
+        disk: None,
+    });
+    let b = a.buffers.len() - 1;
+    a.show_buffer(b);
+    assert!(a.buffer().score.is_chant());
+    assert!(a.palette.folded.is_empty());
+    let chant_rows = a.palette_rows().len();
+    a.palette.selected = 0;
+    a.run(Command::parse("palette-fold close").unwrap());
+    assert!(a.palette_rows().len() < chant_rows);
+    // Back on the modern score its fold is still there and the chant's is not shared.
+    a.show_buffer(0);
+    assert_eq!(a.palette_rows().len(), modern_rows);
+    assert!(a.palette.folded.contains(&1));
+    a.show_buffer(b);
+    assert!(a.palette.folded.contains(&0));
+    assert!(a.palette_rows().len() < chant_rows);
 }
 
 #[test]
@@ -1161,4 +1201,202 @@ fn reflow_only_changes_the_cursor_voice() {
     keys(&mut a, ":reflow<CR>");
     assert_eq!(a.buffers[b].score.tracks[0].bars[0].voices[1], second);
     assert_eq!(quarters(&a, 0), [1.0; 4]);
+}
+
+/// A modern app with a chant buffer added; returns the chant buffer's index (buffer 0 is modern).
+fn add_chant_buffer(a: &mut App) -> usize {
+    let score = chant_app().buffer().score.clone();
+    a.buffers.push(crate::app::Buffer {
+        path: Some("t.gabc".into()),
+        name: "t.gabc".into(),
+        score,
+        modified: false,
+        history: Default::default(),
+        version: 0,
+        disk: None,
+    });
+    a.buffers.len() - 1
+}
+
+#[test]
+fn the_status_line_pane_title_and_tab_name_the_kind_of_score() {
+    use crate::statusline::SegKind;
+    let mut a = app();
+    let chant = add_chant_buffer(&mut a);
+    let chip = |a: &App| {
+        let s = a.statusline(None, false);
+        s.left
+            .iter()
+            .find(|s| matches!(s.kind, SegKind::ScoreModern | SegKind::ScoreChant))
+            .map(|s| (s.text.clone(), s.kind))
+            .unwrap()
+    };
+    assert_eq!(chip(&a), ("MODERN".to_string(), SegKind::ScoreModern));
+    assert_eq!(a.score_kind_name(0), "modern");
+    a.show_buffer(chant);
+    assert_eq!(chip(&a), ("CHANT".to_string(), SegKind::ScoreChant));
+    assert_eq!(a.score_kind_name(chant), "chant");
+    // The tab of a chant score has the chant icon whatever its file.
+    let tabs = a.bufferline();
+    assert_eq!(
+        tabs.iter().find(|t| t.buffer == chant).unwrap().kind,
+        "chant"
+    );
+    assert_ne!(tabs.iter().find(|t| t.buffer == 0).unwrap().kind, "chant");
+    // Back to the modern buffer: the chip follows.
+    a.show_buffer(0);
+    assert_eq!(chip(&a).0, "MODERN");
+}
+
+#[test]
+fn property_rows_follow_the_kind_of_score() {
+    use crate::properties::{Field, PropTab, RowKind};
+    let fields = |a: &App| -> Vec<Field> {
+        a.property_rows()
+            .iter()
+            .filter_map(|r| match r.kind {
+                RowKind::Field { field, .. } => Some(field),
+                _ => None,
+            })
+            .collect()
+    };
+    let mut a = app();
+    let chant = add_chant_buffer(&mut a);
+    for tab in [PropTab::Score, PropTab::Tracks, PropTab::Lyrics] {
+        a.props.tab = tab;
+        let modern = fields(&a);
+        a.show_buffer(chant);
+        a.pane_mut().cursor = Cursor0::default();
+        let chants = fields(&a);
+        assert_ne!(modern, chants, "{tab:?}");
+        match tab {
+            PropTab::Score => {
+                assert!(modern.contains(&Field::Title) && !chants.contains(&Field::Title));
+                assert!(chants.contains(&Field::ChantHeader(0)));
+                assert!(chants.contains(&Field::ChantInterpretation));
+                assert!(chants.contains(&Field::ChantStaffLines));
+                // The page section is shared.
+                assert!(chants.contains(&Field::PageWidth));
+            }
+            PropTab::Tracks => {
+                for f in [
+                    Field::Capo,
+                    Field::FretCount,
+                    Field::Tuning,
+                    Field::StaffAt(0),
+                ] {
+                    assert!(!chants.contains(&f), "{f:?}");
+                }
+                assert!(chants.contains(&Field::ChantClef) && chants.contains(&Field::Volume));
+                assert!(chants.contains(&Field::TrackName) && chants.contains(&Field::Mute));
+                assert!(!modern.contains(&Field::ChantClef));
+            }
+            PropTab::Lyrics => {}
+        }
+        a.show_buffer(0);
+    }
+}
+
+#[test]
+fn chant_score_properties_edit_the_chant() {
+    use crate::properties::{Field, PropTab};
+    let mut a = app();
+    let chant = add_chant_buffer(&mut a);
+    a.show_buffer(chant);
+    a.pane_mut().cursor = Cursor0::default();
+    a.props.tab = PropTab::Score;
+    let chant_of = |a: &App| a.buffer().score.tracks[0].chant.as_deref().unwrap().clone();
+    // A header (mode) is added, then changed: one undo step each.
+    let mode = crate::properties::chant_header_keys(&chant_of(&a))
+        .iter()
+        .position(|k| k == "mode")
+        .unwrap();
+    a.commit_property(Field::ChantHeader(mode), "8", false);
+    assert!(
+        chant_of(&a)
+            .headers
+            .contains(&("mode".to_string(), "8".to_string()))
+    );
+    a.commit_property(Field::ChantStaffLines, "5", false);
+    assert_eq!(chant_of(&a).staff_lines, 5);
+    a.commit_property(Field::ChantInterpretation, "solesmes", false);
+    assert_eq!(
+        chant_of(&a).interpretation,
+        cecilia_core::chant::Interpretation::Solesmes
+    );
+    a.run(Command::Undo);
+    assert_eq!(
+        chant_of(&a).interpretation,
+        cecilia_core::chant::Interpretation::Equalist
+    );
+    a.run(Command::Undo);
+    assert_eq!(chant_of(&a).staff_lines, 4);
+    a.run(Command::Undo);
+    assert!(!chant_of(&a).headers.iter().any(|(k, _)| k == "mode"));
+}
+
+#[test]
+fn a_command_of_the_other_kind_errors_naming_the_kind() {
+    let mut a = app();
+    let chant = add_chant_buffer(&mut a);
+    // Modern: a chant command parses but is refused with the kind.
+    assert_eq!(
+        a.parse_for_score("chant-mora").unwrap_err(),
+        "chant-mora: not in a modern score"
+    );
+    assert!(a.parse_for_score("capo 2").is_ok());
+    a.show_buffer(chant);
+    assert_eq!(
+        a.parse_for_score("capo 2").unwrap_err(),
+        "capo: not in a chant score"
+    );
+    assert_eq!(
+        a.parse_for_score(":tuning guitar").unwrap_err(),
+        "tuning: not in a chant score"
+    );
+    assert!(a.parse_for_score("chant-mora").is_ok() && a.parse_for_score("write").is_ok());
+    // An unknown command is still unknown.
+    assert!(
+        a.parse_for_score("nonsense")
+            .unwrap_err()
+            .contains("unknown command")
+    );
+    // Typed on the command line, the refusal shows as the error.
+    keys(&mut a, ":capo 2<CR>");
+    let m = a.message.as_ref().unwrap();
+    assert!(
+        m.error && m.text == "capo: not in a chant score",
+        "{}",
+        m.text
+    );
+}
+
+#[test]
+fn completion_help_and_which_key_follow_the_kind() {
+    let mut a = app();
+    let chant = add_chant_buffer(&mut a);
+    let listed = |a: &mut App| -> Vec<String> {
+        a.open_command_line("");
+        let p = a.palette().unwrap();
+        a.mode = crate::config::Mode::Normal;
+        p.items.into_iter().map(|i| i.text).collect()
+    };
+    let modern = listed(&mut a);
+    assert!(modern.contains(&"capo".to_string()) && !modern.contains(&"chant-mora".to_string()));
+    a.show_buffer(chant);
+    let chants = listed(&mut a);
+    assert!(chants.contains(&"chant-mora".to_string()) && !chants.contains(&"capo".to_string()));
+    // The chant layer binds the t keys to chant commands; they are not on a modern score.
+    let which = |a: &mut App| {
+        a.pending = crate::keys::parse_keys("t", &[]).unwrap();
+        a.which_key().map(|(_, rows)| rows).unwrap_or_default()
+    };
+    let rows = which(&mut a);
+    assert!(
+        rows.iter().any(|(_, c)| c.contains("chant-mora")),
+        "{rows:?}"
+    );
+    a.show_buffer(0);
+    let rows = which(&mut a);
+    assert!(!rows.iter().any(|(_, c)| c.contains("chant-")), "{rows:?}");
 }

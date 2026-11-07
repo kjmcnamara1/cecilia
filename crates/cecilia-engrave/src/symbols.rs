@@ -47,6 +47,10 @@ pub fn palette_icon(command: &str) -> Icon {
         ("accidental", "sharp") => Icon::Row(&['\u{E262}']),
         ("accidental", "flat") => Icon::Row(&['\u{E260}']),
         ("accidental", "natural") => Icon::Row(&['\u{E261}']),
+        // The chant palette's flat and natural are the same signs; its other tools show their
+        // short labels (the chant font has no icon-sized glyph for them).
+        ("chant-alter", "flat") => Icon::Row(&['\u{E260}']),
+        ("chant-alter", "natural") => Icon::Row(&['\u{E261}']),
         ("accidental", "double-sharp") => Icon::Row(&['\u{E263}']),
         ("accidental", "double-flat") => Icon::Row(&['\u{E264}']),
         ("octave-up" | "octave-down", _) => Icon::Drawn,

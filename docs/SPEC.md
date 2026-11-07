@@ -111,6 +111,14 @@ end, double bar, final barline) stay solid.
 
 ### 4.2 Chant model
 
+The interface follows the kind of score (`Score::is_chant()`): the status line has a `MODERN` or
+`CHANT` chip, the bufferline and the pane title name the kind, the tool palette, the properties
+pane rows, the keys (`[keymap.normal-chant]`) and the commands offered by completion, help and
+which-key differ (every command has a scope: both, modern or chant), and a command of the other
+kind answers with the kind (`capo: not in a chant score`). A chant is always drawn in square
+notation (the toggle between it and the transcription is gone: in the transcription the cursor
+and the edit keys act on the chant, so the cursor sat off the drawn staff).
+
 The full logic of chant ⇄ modern conversion (pitch mapping, clef fitting, syllables, neumes, signs, transcription) is in [CHANT.md](CHANT.md).
 
 Chant track = sequence of syllables with text underlay; each syllable carries neume groups.

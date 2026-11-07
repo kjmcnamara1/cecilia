@@ -227,16 +227,41 @@ impl App {
                     crate::config::Mode::Palette => crate::config::Mode::Palette,
                     _ => crate::config::Mode::Normal,
                 });
-                let rows: Vec<(String, String)> = map
-                    .continuations(&self.pending)
-                    .into_iter()
-                    .map(|(keys, _)| {
+                let chant = self.buffer().score.is_chant();
+                // The keys of the kind of score being edited (its own layer first), and only
+                // the commands that kind has.
+                let layer = (!matches!(
+                    self.mode,
+                    crate::config::Mode::Tracks
+                        | crate::config::Mode::Properties
+                        | crate::config::Mode::Palette
+                ))
+                .then(|| self.config.normal_keymap(self.insert_kind()));
+                let mut seen = std::collections::HashSet::new();
+                let mut rows: Vec<(String, String)> = Vec::new();
+                for m in layer.into_iter().chain([map]) {
+                    for (keys, _) in m.continuations(&self.pending) {
                         let mut full = self.pending.clone();
                         full.extend(keys.iter().copied());
-                        let names = map.names.get(&full).cloned().unwrap_or_default();
-                        (crate::keys::format_keys(&keys), names.join(", "))
-                    })
-                    .collect();
+                        if !seen.insert(full.clone()) {
+                            continue;
+                        }
+                        let names: Vec<String> = m
+                            .names
+                            .get(&full)
+                            .cloned()
+                            .unwrap_or_default()
+                            .into_iter()
+                            .filter(|l| crate::editor::command_line_in_scope(l, chant))
+                            .collect();
+                        let had = m.names.get(&full).is_some_and(|n| !n.is_empty());
+                        if had && names.is_empty() {
+                            continue;
+                        }
+                        rows.push((crate::keys::format_keys(&keys), names.join(", ")));
+                    }
+                }
+                rows.sort();
                 (!rows.is_empty()).then(|| (crate::keys::format_keys(&self.pending), rows))
             }
             _ => None,

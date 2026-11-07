@@ -599,8 +599,6 @@ pub struct App {
     /// Layout for panes opened without another to copy from (`ui.layout`); each pane keeps
     /// its own (`Pane::layout`).
     pub score_layout: String,
-    /// Chant tracks show square notation (false: their modern transcription).
-    pub chant_view: bool,
     pub(crate) ed: crate::editor::EditorState,
     /// Play-along settings.
     pub pa: crate::playalong::PlayAlong,
@@ -733,7 +731,6 @@ impl App {
             dashboard_focus: 0,
             recent: Vec::new(),
             score_layout,
-            chant_view: true,
             ed: Default::default(),
             pa: Default::default(),
             workspace_file: None,
@@ -1201,6 +1198,16 @@ impl App {
         }
     }
 
+    /// The kind of score a buffer holds, as the pane title and status line name it: `chant` or
+    /// `modern`.
+    pub fn score_kind_name(&self, buffer: usize) -> &'static str {
+        if self.buffers.get(buffer).is_some_and(|b| b.score.is_chant()) {
+            "chant"
+        } else {
+            "modern"
+        }
+    }
+
     /// The active view's bufferline: its loaded buffers in order.
     pub fn bufferline(&self) -> Vec<BufferTab> {
         let current = self.pane().buffer;
@@ -1212,7 +1219,12 @@ impl App {
                 Some(BufferTab {
                     buffer: b,
                     name: buf.name.clone(),
-                    kind: file_kind(buf.path.as_deref()),
+                    // A chant score shows the chant icon whatever its file (`.cc`, unsaved).
+                    kind: if buf.score.is_chant() {
+                        "chant"
+                    } else {
+                        file_kind(buf.path.as_deref())
+                    },
                     modified: buf.modified,
                     active: b == current,
                     playing: self.playing_buffer == Some(b) && self.playing && !self.paused,
@@ -1606,6 +1618,7 @@ impl App {
             view.buffers.push(buffer);
         }
         self.switch_pane_buffer(self.focused(), buffer);
+        self.palette_follow_kind();
         let b = &self.buffers[buffer];
         let s = &b.score;
         let msg = format!(
@@ -1963,6 +1976,7 @@ impl App {
     // ---- keys ----
 
     pub fn handle_key(&mut self, key: Key) {
+        self.palette_follow_kind();
         if let Some(path) = self.confirm_delete_workspace.take() {
             return self.answer_delete_workspace(path, key);
         }
@@ -2069,7 +2083,7 @@ impl App {
                 if !line.trim().is_empty() {
                     self.history.push(line.clone());
                 }
-                match Command::parse(&line) {
+                match self.parse_for_score(&line) {
                     Ok(cmd) if from_palette => self.run_tool(cmd),
                     Ok(cmd) => self.run(cmd),
                     Err(e) => self.error(e),
@@ -2100,6 +2114,20 @@ impl App {
         }
     }
 
+    /// Parses a command line and checks that its command is for the kind of score being edited
+    /// (`capo: not in a chant score`, `chant-mod: not in a modern score`).
+    pub(crate) fn parse_for_score(&self, line: &str) -> Result<Command, String> {
+        let cmd = Command::parse(line)?;
+        let name = line
+            .trim()
+            .trim_start_matches(':')
+            .split_whitespace()
+            .next()
+            .unwrap_or("");
+        crate::complete::check_scope(name, self.buffer().score.is_chant())?;
+        Ok(cmd)
+    }
+
     /// Opens the command line with some text already typed.
     pub(crate) fn open_command_line(&mut self, text: &str) {
         self.cmd_from_visual = self.mode == Mode::Visual && self.ed.visual_anchor.is_some();
@@ -2120,7 +2148,7 @@ impl App {
     /// Tab (or Shift-Tab backwards): extend the word to the candidates' common prefix, then
     /// cycle through them.
     fn complete_step(&mut self, forward: bool) {
-        use crate::complete::{common_prefix, complete};
+        use crate::complete::{common_prefix, complete_in};
         if let Some((c, index)) = self.completion.as_mut() {
             if c.items.len() > 1 {
                 let n = c.items.len();
@@ -2143,7 +2171,14 @@ impl App {
             .as_deref()
             .and_then(Path::parent)
             .map(Path::to_path_buf);
-        let c = complete(&self.cmdline, &cwd, score_dir.as_deref(), self.matcher());
+        let kind = Some(self.buffer().score.is_chant());
+        let c = complete_in(
+            &self.cmdline,
+            &cwd,
+            score_dir.as_deref(),
+            self.matcher(),
+            kind,
+        );
         let typed = self.cmdline[c.start..].to_string();
         // One candidate starting with what was typed completes outright, whatever fuzzy
         // matching also found.
@@ -2201,7 +2236,7 @@ impl App {
     /// The command palette while in Command mode: the typed line, the completions of the word
     /// being typed (updated as you type; Tab cycles through them) and which one is selected.
     pub fn palette(&self) -> Option<Palette> {
-        use crate::complete::{complete, describe};
+        use crate::complete::{complete_in, describe};
         if self.mode == Mode::Picker {
             return self.picker_palette();
         }
@@ -2213,8 +2248,9 @@ impl App {
             None => {
                 let cwd = std::env::current_dir().unwrap_or_default();
                 let score_dir = self.buffer().path.as_deref().and_then(Path::parent);
+                let kind = Some(self.buffer().score.is_chant());
                 (
-                    complete(&self.cmdline, &cwd, score_dir, self.matcher()),
+                    complete_in(&self.cmdline, &cwd, score_dir, self.matcher(), kind),
                     None,
                 )
             }
@@ -2263,6 +2299,7 @@ impl App {
     /// Executes a command.
     pub fn run(&mut self, cmd: Command) {
         use Command::*;
+        self.palette_follow_kind();
         // Chant first: it takes over note deletion on chant staves.
         if self.run_chant(&cmd)
             || self.run_edit(&cmd)

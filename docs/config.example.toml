@@ -95,6 +95,7 @@ preset = "dark"
 # sync_point = "#fabe28"
 # mode_normal = "#5a96e6"     # also mode_insert, mode_visual, mode_command, mode_picker, mode_tracks
 # icon_guitar_pro = "#f08c32" # also icon_musicxml, icon_midi, icon_chant, icon_cecilia
+# score_modern = "#d68c50"    # the status line's MODERN chip (the CHANT chip uses icon_chant)
 # track_colors = ["#e05050", "#e0a030", "#50b060", "#4090e0"]   # instead of the spectrum
 
 [statusline]
@@ -144,6 +145,10 @@ clef = "treble"          # clef of a standard staff added without one: treble, b
 
 [keymap.normal-slash]
 [keymap.normal-chant]
+# Normal mode on a chant score only (`[keymap.chant]` is accepted too). Defaults: the t keys put signs
+# on the cursor note: tp ti tv tV ts tq to tu (heads), t~ t< t> (liquescences), tm te tt (mora,
+# episema, ictus), tb tn (flat, natural), t* t+ (text), td, td; td: tD (divisions), tc1-tc4 tcb
+# tF1-tF4 (clef). Modern-score keys are not taken away: this layer is not looked up elsewhere.
 
 [keymap.insert]
 # Insert-mode keys on every staff, e.g. durations. Shared defaults: h j k l move the cursor

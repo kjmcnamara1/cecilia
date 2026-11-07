@@ -58,6 +58,8 @@ impl PropTab {
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum Section {
     ScoreInfo,
+    /// A chant score's reading: interpretation and staff lines.
+    ScoreChant,
     ScorePage,
     TrackInfo,
     TrackNotation,
@@ -68,6 +70,7 @@ impl Section {
     pub fn name(self) -> &'static str {
         match self {
             Section::ScoreInfo => "Info",
+            Section::ScoreChant => "Chant",
             Section::ScorePage => "Page",
             Section::TrackInfo => "Info",
             Section::TrackNotation => "Notation",
@@ -95,6 +98,12 @@ pub enum Field {
     MarginTop,
     MarginBottom,
     PageScale,
+    /// A chant score's GABC header at this index of [`chant_header_keys`].
+    ChantHeader(usize),
+    ChantInterpretation,
+    ChantStaffLines,
+    /// The initial clef of a chant score's track.
+    ChantClef,
     TrackName,
     TrackKind,
     TrackColor,
@@ -680,6 +689,31 @@ pub fn caret_in(lines: &[(usize, usize)], caret: usize) -> (usize, usize) {
     (row, caret - lines.get(row).map_or(0, |l| l.0))
 }
 
+/// The GABC header fields a chant score's Score tab always lists, in this order; headers the
+/// chant holds besides these follow in file order.
+const STANDARD_HEADERS: [&str; 8] = [
+    "name",
+    "office-part",
+    "mode",
+    "annotation",
+    "book",
+    "transcriber",
+    "commentary",
+    "user-notes",
+];
+
+/// The header keys the Score tab of a chant score shows: the standard ones, then any other the
+/// chant has. [`Field::ChantHeader`] indexes this list.
+pub fn chant_header_keys(chant: &cecilia_core::chant::Chant) -> Vec<String> {
+    let mut keys: Vec<String> = STANDARD_HEADERS.iter().map(|k| k.to_string()).collect();
+    for (k, _) in &chant.headers {
+        if !keys.iter().any(|x| x == k) {
+            keys.push(k.clone());
+        }
+    }
+    keys
+}
+
 fn onoff(b: bool) -> String {
     if b { "on" } else { "off" }.into()
 }
@@ -753,7 +787,57 @@ impl App {
                 placeholder: "",
             })
         };
+        let page_fields = |rows: &mut Vec<PropRow>| {
+            let p = &score.page;
+            for (f, l, v) in [
+                (Field::PageWidth, "Width (mm)", p.width),
+                (Field::PageHeight, "Height (mm)", p.height),
+                (Field::MarginLeft, "Left margin", p.margin_left),
+                (Field::MarginRight, "Right margin", p.margin_right),
+                (Field::MarginTop, "Top margin", p.margin_top),
+                (Field::MarginBottom, "Bottom margin", p.margin_bottom),
+                (Field::PageScale, "Scale (%)", p.scale),
+            ] {
+                field(rows, f, l, v.to_string(), true);
+            }
+        };
         match self.props.tab {
+            PropTab::Score if score.is_chant() => {
+                let chant = score
+                    .tracks
+                    .first()
+                    .and_then(|t| t.chant.as_deref())
+                    .expect("a chant score has its chant");
+                if section(&mut rows, Section::ScoreInfo) {
+                    for (i, key) in chant_header_keys(chant).iter().enumerate() {
+                        let value = chant
+                            .headers
+                            .iter()
+                            .find(|(k, _)| k == key)
+                            .map_or(String::new(), |(_, v)| v.clone());
+                        field(&mut rows, Field::ChantHeader(i), key, value, true);
+                    }
+                }
+                if section(&mut rows, Section::ScoreChant) {
+                    field(
+                        &mut rows,
+                        Field::ChantInterpretation,
+                        "Interpretation",
+                        format!("{:?}", chant.interpretation).to_lowercase(),
+                        true,
+                    );
+                    field(
+                        &mut rows,
+                        Field::ChantStaffLines,
+                        "Staff lines",
+                        chant.staff_lines.to_string(),
+                        true,
+                    );
+                }
+                if section(&mut rows, Section::ScorePage) {
+                    page_fields(&mut rows);
+                }
+            }
             PropTab::Score => {
                 let m = &score.meta;
                 if section(&mut rows, Section::ScoreInfo) {
@@ -772,18 +856,7 @@ impl App {
                     }
                 }
                 if section(&mut rows, Section::ScorePage) {
-                    let p = &score.page;
-                    for (f, l, v) in [
-                        (Field::PageWidth, "Width (mm)", p.width),
-                        (Field::PageHeight, "Height (mm)", p.height),
-                        (Field::MarginLeft, "Left margin", p.margin_left),
-                        (Field::MarginRight, "Right margin", p.margin_right),
-                        (Field::MarginTop, "Top margin", p.margin_top),
-                        (Field::MarginBottom, "Bottom margin", p.margin_bottom),
-                        (Field::PageScale, "Scale (%)", p.scale),
-                    ] {
-                        field(&mut rows, f, l, v.to_string(), true);
-                    }
+                    page_fields(&mut rows);
                 }
             }
             PropTab::Tracks => {
@@ -791,16 +864,19 @@ impl App {
                     return vec![note("no track")];
                 };
                 let n = score.tracks.len();
+                let chant_track = score.is_chant() && t.chant.is_some();
                 rows.push(note(&format!("Track {} of {n}", cursor.track + 1)));
                 if section(&mut rows, Section::TrackInfo) {
                     field(&mut rows, Field::TrackName, "Name", t.name.clone(), true);
-                    field(
-                        &mut rows,
-                        Field::TrackKind,
-                        "Kind",
-                        kind_name(t.kind).into(),
-                        false,
-                    );
+                    if !chant_track {
+                        field(
+                            &mut rows,
+                            Field::TrackKind,
+                            "Kind",
+                            kind_name(t.kind).into(),
+                            false,
+                        );
+                    }
                     let shown = self.track_color(self.pane().buffer, cursor.track);
                     let custom = t.display_color.is_some();
                     let name = match (custom, crate::picker::color_name(shown)) {
@@ -813,7 +889,24 @@ impl App {
                     last.aside = shown.hex();
                     last.swatch = Some(shown);
                 }
-                if section(&mut rows, Section::TrackNotation) {
+                if chant_track {
+                    // A chant has one clef to set; no staves, tuning, capo or frets.
+                    if section(&mut rows, Section::TrackNotation) {
+                        field(
+                            &mut rows,
+                            Field::ChantClef,
+                            "Clef",
+                            t.chant
+                                .as_deref()
+                                .map_or(String::new(), |c| c.initial_clef().gabc()),
+                            true,
+                        );
+                        if let Some(c) = t.chant.as_deref() {
+                            rows.last_mut().unwrap().icon =
+                                Some(crate::icons::Icon::of_chant_clef(c.initial_clef().kind));
+                        }
+                    }
+                } else if section(&mut rows, Section::TrackNotation) {
                     let fretted = t.kind == TrackKind::Fretted;
                     if t.kind != TrackKind::Drums && !t.strings.is_empty() {
                         let name = crate::picker::tuning_name(&t.strings).unwrap_or("Custom");
@@ -830,14 +923,7 @@ impl App {
                         );
                         field(&mut rows, Field::Capo, "Capo", t.capo.to_string(), true);
                     }
-                    if let Some(clef) = crate::picker::chant_clef_now(t) {
-                        // A chant track has one square-notation staff; only its clef changes.
-                        field(&mut rows, Field::StaffAt(0), "Staves", "chant".into(), true);
-                        let row = rows.last_mut().unwrap();
-                        row.icon = Some(crate::icons::Icon::Chant);
-                        row.value2 = clef.gabc();
-                        row.icon2 = Some(crate::icons::Icon::of_chant_clef(clef.kind));
-                    } else {
+                    {
                         let staves = t.staves();
                         // One key, "Staves", over a field per staff and an empty one to add
                         // another.
@@ -874,20 +960,22 @@ impl App {
                         true,
                     );
                     rows.last_mut().unwrap().icon = Some(crate::icons::Icon::of_track(t));
-                    field(
-                        &mut rows,
-                        Field::Channel,
-                        "Channel",
-                        (t.midi.channel + 1).to_string(),
-                        true,
-                    );
-                    field(
-                        &mut rows,
-                        Field::Bank,
-                        "Bank",
-                        t.midi.bank.to_string(),
-                        true,
-                    );
+                    if !chant_track {
+                        field(
+                            &mut rows,
+                            Field::Channel,
+                            "Channel",
+                            (t.midi.channel + 1).to_string(),
+                            true,
+                        );
+                        field(
+                            &mut rows,
+                            Field::Bank,
+                            "Bank",
+                            t.midi.bank.to_string(),
+                            true,
+                        );
+                    }
                     field(
                         &mut rows,
                         Field::Volume,
@@ -921,6 +1009,15 @@ impl App {
             }
         }
         rows
+    }
+
+    /// The chant of the cursor track, if the focused buffer is a chant score.
+    fn chant_of_cursor(&self) -> Option<&cecilia_core::chant::Chant> {
+        let score = &self.buffer().score;
+        if !score.is_chant() {
+            return None;
+        }
+        score.tracks.get(self.pane().cursor.track)?.chant.as_deref()
     }
 
     /// The lyrics text area's text for a track: a chant track's GABC, else the lyrics text.
@@ -1305,6 +1402,7 @@ impl App {
                 }
             }
             Field::Tuning => self.open_picker(PickerKind::Tuning(t)),
+            Field::ChantClef => self.open_picker(PickerKind::Clef(t, 0)),
             _ => {
                 self.props.edit = Some(PropEdit::new(field, row.value.clone()));
                 // The edit is one undo step, made as it is typed.
@@ -1836,7 +1934,7 @@ impl App {
 
     /// Applies typed text to a property; false when it isn't a valid value. While typing
     /// (`live`) half-typed values are passed over quietly.
-    fn commit_property(&mut self, field: Field, text: &str, live: bool) -> bool {
+    pub(crate) fn commit_property(&mut self, field: Field, text: &str, live: bool) -> bool {
         let t = self.pane().cursor.track;
         let valid = std::cell::Cell::new(true);
         // A whole number within bounds, or an error naming the property.
@@ -1905,6 +2003,63 @@ impl App {
                         }
                         Ok(())
                     });
+                }
+            }
+            Field::ChantHeader(i) => {
+                let key = self
+                    .chant_of_cursor()
+                    .and_then(|c| chant_header_keys(c).get(i).cloned());
+                if let Some(key) = key {
+                    let value = text.to_string();
+                    self.edit(|cx| {
+                        let chant = cx
+                            .whole()
+                            .tracks
+                            .get_mut(t)
+                            .and_then(|k| k.chant.as_deref_mut())
+                            .ok_or("not in a modern score")?;
+                        match chant.headers.iter().position(|(k, _)| *k == key) {
+                            Some(at) if value.is_empty() => {
+                                chant.headers.remove(at);
+                            }
+                            Some(at) => chant.headers[at].1 = value,
+                            None if value.is_empty() => {}
+                            None => chant.headers.push((key, value)),
+                        }
+                        Ok(())
+                    });
+                }
+            }
+            Field::ChantInterpretation => {
+                let word = text.trim().to_lowercase();
+                if ["equalist", "solesmes"].contains(&word.as_str()) {
+                    self.run(Command::Interpretation(Some(word)));
+                } else {
+                    valid.set(false);
+                    if !live {
+                        self.error("interpretation: expected equalist or solesmes");
+                    }
+                }
+            }
+            Field::ChantStaffLines => {
+                if let Some(n) = number(self, "staff lines", 2, 5) {
+                    self.edit(|cx| {
+                        let chant = cx
+                            .whole()
+                            .tracks
+                            .get_mut(t)
+                            .and_then(|k| k.chant.as_deref_mut())
+                            .ok_or("not in a modern score")?;
+                        chant.staff_lines = n as u8;
+                        Ok(())
+                    });
+                }
+            }
+            Field::ChantClef => {
+                if live {
+                    valid.set(false);
+                } else {
+                    self.run(Command::ChantClef(text.trim().to_string()));
                 }
             }
             Field::TrackName if text.is_empty() => valid.set(false),
@@ -2089,6 +2244,10 @@ impl App {
             }
             Field::TrackColor => self.step_choice(PickerKind::Color(t), by),
             Field::Tuning => self.step_choice(PickerKind::Tuning(t), by),
+            Field::ChantClef => self.step_choice(PickerKind::Clef(t, 0), by),
+            Field::ChantInterpretation => {
+                self.commit_property(field, if by > 0 { "solesmes" } else { "equalist" }, true);
+            }
             Field::Program => self.step_choice(PickerKind::Instrument(t), by),
             Field::StaffAt(i) => {
                 let n = track.map_or(0, |k| k.staves().len());
@@ -2112,6 +2271,7 @@ impl App {
             | Field::MarginBottom
             | Field::PageScale
             | Field::FretCount
+            | Field::ChantStaffLines
             | Field::Capo
             | Field::Channel
             | Field::Bank
@@ -2436,7 +2596,8 @@ impl App {
                 | Field::Music
                 | Field::Copyright
                 | Field::TabAuthor
-                | Field::Instructions),
+                | Field::Instructions
+                | Field::ChantHeader(_)),
             ) => {
                 self.commit_property(f, "", false);
             }

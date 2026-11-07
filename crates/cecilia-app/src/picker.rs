@@ -817,11 +817,32 @@ impl App {
                     (c.keymap(Mode::Command), "command ", false),
                 ];
                 let mut out = Vec::new();
-                for (map, prefix, normal) in maps {
+                // The layers of the other kind of score are left out.
+                let chant = self.buffer().score.is_chant();
+                for (map, prefix, normal) in maps.into_iter().filter(|(_, prefix, _)| {
+                    let is_chant_layer = prefix.contains("(chant)");
+                    let is_staff_layer = ["(tab)", "(standard)", "(slash)"]
+                        .iter()
+                        .any(|k| prefix.contains(k));
+                    !(chant && is_staff_layer || !chant && is_chant_layer)
+                }) {
                     let mut keys: Vec<_> = map.bindings.iter().collect();
                     keys.sort_by_key(|(k, _)| crate::keys::format_keys(k));
                     for (k, cmds) in keys {
                         let names = map.names.get(k).cloned().unwrap_or_default();
+                        // Commands of the other kind of score are not listed.
+                        let names: Vec<String> = names
+                            .into_iter()
+                            .filter(|n| {
+                                crate::editor::command_line_in_scope(
+                                    n,
+                                    self.buffer().score.is_chant(),
+                                )
+                            })
+                            .collect();
+                        if names.is_empty() && map.names.contains_key(k) {
+                            continue;
+                        }
                         let what: Vec<String> = names
                             .iter()
                             .map(|n| {

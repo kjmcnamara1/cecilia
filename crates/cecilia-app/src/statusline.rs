@@ -10,7 +10,7 @@ use cecilia_core::{TrackKind, chant, staff};
 const SOLFEGE: [&str; 7] = ["do", "re", "mi", "fa", "sol", "la", "ti"];
 
 /// The clef in force at a bar and beat of a chant track: that of the last note at or before it.
-fn clef_at(chant: &chant::Chant, bar: usize, beat: usize) -> chant::ChantClef {
+pub(crate) fn clef_at(chant: &chant::Chant, bar: usize, beat: usize) -> chant::ChantClef {
     let t = chant::transcribe(chant);
     let notes = chant.resolved();
     t.positions
@@ -32,6 +32,17 @@ pub enum SegKind {
     Plain,
     /// Plain, but in the error color: a bar that is too short or too long.
     Warn,
+    /// The `MODERN` chip: the theme's `score_modern` color behind.
+    ScoreModern,
+    /// The `CHANT` chip: the theme's `icon_chant` color behind.
+    ScoreChant,
+}
+
+impl SegKind {
+    /// Drawn as a chip with a background of its own (every kind but the plain ones).
+    pub fn is_chip(self) -> bool {
+        !matches!(self, SegKind::Plain | SegKind::Warn)
+    }
 }
 
 /// A small symbol before a segment's text.
@@ -66,7 +77,10 @@ impl Segment {
             text: text.into(),
             icon: None,
             kind,
-            bold: kind == SegKind::Mode,
+            bold: matches!(
+                kind,
+                SegKind::Mode | SegKind::ScoreModern | SegKind::ScoreChant
+            ),
             action: None,
         }
     }
@@ -153,6 +167,16 @@ impl App {
         })
     }
 
+    /// The `MODERN` / `CHANT` chip for the focused buffer.
+    fn score_kind_segment(&self) -> Segment {
+        let (text, kind) = if self.buffer().score.is_chant() {
+            ("CHANT", SegKind::ScoreChant)
+        } else {
+            ("MODERN", SegKind::ScoreModern)
+        };
+        Segment::new(text, kind).on_click(crate::command::Command::ScoreKind)
+    }
+
     /// The mode as shown: typing into a property of the properties pane is insert mode (the
     /// lyrics text area has normal and visual mode too).
     pub fn display_mode(&self) -> Mode {
@@ -173,6 +197,8 @@ impl App {
         let score = &buffer.score;
         let mut left = vec![
             Segment::new(mode_label(self.display_mode()), SegKind::Mode),
+            // The kind of score: click for how to convert it.
+            self.score_kind_segment(),
             // Click: the next layout.
             Segment::new(pane.layout.clone(), SegKind::ModeText)
                 .on_click(crate::command::Command::Layout(None)),
@@ -323,9 +349,10 @@ mod tests {
         app.run(Command::New);
         let s = app.statusline(None, false);
         let texts = |v: &[Segment]| v.iter().map(|s| s.text.clone()).collect::<Vec<_>>();
-        assert_eq!(texts(&s.left)[..2], ["NORMAL", "vertical"]);
+        assert_eq!(texts(&s.left)[..3], ["NORMAL", "MODERN", "vertical"]);
         assert_eq!(s.left[0].kind, SegKind::Mode);
-        assert_eq!(s.left[1].kind, SegKind::ModeText);
+        assert_eq!(s.left[1].kind, SegKind::ScoreModern);
+        assert_eq!(s.left[2].kind, SegKind::ModeText);
         assert_eq!(texts(&s.right)[2..], ["0.0/4.0", "Top", "1:1.0"]);
         assert_eq!(s.right[0].icon, Some(StatusIcon::Tempo));
         assert!(s.right[0].text.starts_with('='));

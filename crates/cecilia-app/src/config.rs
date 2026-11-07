@@ -345,7 +345,7 @@ pub struct KeymapConfig {
     pub normal_standard: HashMap<String, Binding>,
     #[serde(rename = "normal-slash")]
     pub normal_slash: HashMap<String, Binding>,
-    #[serde(rename = "normal-chant")]
+    #[serde(rename = "normal-chant", alias = "chant")]
     pub normal_chant: HashMap<String, Binding>,
     /// Insert-mode keys for the notation under the cursor, looked up before `insert`.
     #[serde(rename = "insert-tab")]
@@ -552,8 +552,43 @@ const DEFAULT_NORMAL_STANDARD: &[(&str, &str)] = &[
 /// Normal mode on a slash staff.
 const DEFAULT_NORMAL_SLASH: &[(&str, &str)] = &[("ta", "toggle accent"), ("tt", "toggle tie")];
 
-/// Normal mode on chant: no technique keys (chant signs are typed in insert mode).
-const DEFAULT_NORMAL_CHANT: &[(&str, &str)] = &[];
+/// Normal mode on a chant score (`[keymap.normal-chant]`): the `t` keys put signs on the cursor
+/// note (heads, rhythmic signs, alterations), `tc` / `tF` set the clef and `td` adds a division.
+/// They are looked up before `[keymap.normal]` and only on chant scores, so no modern key is lost.
+const DEFAULT_NORMAL_CHANT: &[(&str, &str)] = &[
+    ("tp", "chant-shape punctum"),
+    ("ti", "chant-shape inclinatum"),
+    ("tv", "chant-shape virga"),
+    ("tV", "chant-shape bivirga"),
+    ("ts", "chant-shape stropha"),
+    ("tq", "chant-shape quilisma"),
+    ("to", "chant-shape oriscus"),
+    ("tu", "chant-shape quadratum"),
+    ("t~", "chant-liquescence deminutus"),
+    ("t<", "chant-liquescence ascendens"),
+    ("t>", "chant-liquescence descendens"),
+    ("tm", "chant-mora"),
+    ("t.", "chant-mora"),
+    ("te", "chant-episema"),
+    ("tt", "chant-ictus"),
+    ("tb", "chant-alter flat"),
+    ("tn", "chant-alter natural"),
+    ("t*", "chant-symbol *"),
+    ("t+", "chant-symbol +"),
+    ("td,", "chant-division ,"),
+    ("td;", "chant-division ;"),
+    ("td:", "chant-division :"),
+    ("tD", "chant-division ::"),
+    ("tc1", "chant-clef c1"),
+    ("tc2", "chant-clef c2"),
+    ("tc3", "chant-clef c3"),
+    ("tc4", "chant-clef c4"),
+    ("tcb", "chant-clef cb3"),
+    ("tF1", "chant-clef f1"),
+    ("tF2", "chant-clef f2"),
+    ("tF3", "chant-clef f3"),
+    ("tF4", "chant-clef f4"),
+];
 
 const DEFAULT_INSERT: &[(&str, &str)] = &[
     ("<Esc>", "normal"),

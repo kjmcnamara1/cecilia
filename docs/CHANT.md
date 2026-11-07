@@ -15,6 +15,12 @@ form); the track's bars are a *transcription* of it (§4), rewritten after each 
 
 ### Chant and modern scores
 
+The interface shows and follows the kind: a `MODERN` / `CHANT` chip in the status line, the chant
+icon on a chant score's tab, `— chant` in the pane title, a palette of clefs, divisions, heads and
+signs, header / interpretation / staff-line rows in the properties pane, a `[keymap.normal-chant]`
+layer, and only the commands of that kind in completion and help (see `docs/keymap.md`, "Chant").
+A chant is always drawn in square notation; `:chant-view` was removed.
+
 A score is one of two kinds, and a score is never both:
 
 | | modern score | chant score |
@@ -252,6 +258,8 @@ transcription to the chant. Edits are operations on the `Chant`, each returning
 | `ui.chant_chords` | `top` (default), `bottom` or `error`: which note of a chord `:modern-to-chant` and `cecilia convert … .gabc` keep |
 | `:clef c1`–`c4`, `f1`–`f4` | the clef of a chant track (the tracks pane's clef box does the same) |
 | `:modern-to-chant` | the track's melody as a new chant buffer |
-| `:chant-to-modern` | a chant track becomes an ordinary track (its transcription) |
+| `:chant-to-modern` | the chant score opened as a modern score in a new buffer |
+| `:chant-shape`, `:chant-division`, `:chant-clef`, `:chant-mora`, `:chant-episema`, `:chant-ictus`, `:chant-alter`, `:chant-liquescence`, `:chant-symbol` | thin commands over the edit operations (the palette and `[keymap.normal-chant]` use them) |
+| `:score-kind` | names the kind of score and its conversion (the status line's `MODERN` / `CHANT` chip) |
 | `:interpretation equalist\|solesmes` | rhythm used for transcription and playback |
 | `:chant-mod`, `:chant-bar`, `:chant-break`, `:chant-append`, `:chant-syllable` | editing a chant track (see "Edits") |

@@ -3,297 +3,355 @@
 
 use std::path::Path;
 
-/// Every command name the parser accepts, long names first where there are aliases.
-pub const COMMANDS: &[&str] = &[
-    "set-mark",
-    "run-macro",
-    "marks",
-    "mark",
-    "macros",
-    "jump-mark-bar",
-    "jump-mark",
-    "goto-mark",
-    "delmarks!",
-    "delmarks",
-    "accidental",
-    "append",
-    "audio",
-    "bar",
-    "bar-repeat",
-    "beams",
-    "direction",
-    "double-bar",
-    "dynamic-step",
-    "double-dot",
-    "ending",
-    "free-time",
-    "stems",
-    "bar-delete",
-    "bar-end",
-    "bar-first-note",
-    "bar-last-note",
-    "bar-open-after",
-    "bar-open-before",
-    "bar-insert-after",
-    "bar-insert-before",
-    "bar-next",
-    "bar-prev",
-    "bar-start",
-    "beat-new",
-    "beat-next",
-    "beat-prev",
-    "bdelete",
-    "bdelete!",
-    "buffer",
-    "buffer-close",
-    "buffer-close!",
-    "buffer-next",
-    "buffer-prev",
-    "capo",
-    "change",
-    "chant-append",
-    "chant-bar",
-    "chant-break",
-    "chant-mod",
-    "chant-syllable",
-    "chant-to-modern",
-    "chant-view",
-    "clef",
-    "close",
-    "pane-close",
-    "command-mode",
-    "count-in",
-    "delete",
-    "delete-note",
-    "delete-beat",
-    "reflow",
-    "dot",
-    "duration",
-    "duration-longer",
-    "duration-shorter",
-    "earlier",
-    "enew",
-    "focus-down",
-    "focus-last",
-    "focus-left",
-    "focus-next",
-    "focus-prev",
-    "focus-right",
-    "focus-up",
-    "bar-numbers",
-    "incomplete-bars",
-    "completion-fuzzy",
-    "completion-ignore-case",
-    "follow-toggle",
-    "gabc",
-    "goto-bar",
-    "global-tool",
-    "goto-first",
-    "goto-last",
-    "help",
-    "insert",
-    "insert-bar-start",
-    "insert-enter",
-    "insert-here",
-    "insert-last",
-    "append-bar-end",
-    "insert-next",
-    "interpretation",
-    "key",
-    "later",
-    "layout",
-    "loop",
-    "loop-toggle",
-    "lyrics",
-    "lyrics-attach",
-    "lyrics-clear",
-    "notation",
-    "metronome",
-    "mix",
-    "modern-to-chant",
-    "mute",
-    "new",
-    "nop",
-    "normal",
-    "note",
-    "note-letter",
-    "note-next",
-    "note-prev",
-    "note-row-next",
-    "note-row-end",
-    "note-row-prev",
-    "octave-down",
-    "octave-up",
-    "open",
-    "open-dialog",
-    "page-down",
-    "page-up",
-    "pause",
-    "pick",
-    "pick-buffer",
-    "pick-keymap",
-    "pick-section",
-    "save-as",
-    "sections",
-    "section-next",
-    "section-prev",
-    "keymaps",
-    "tracks",
-    "toolbar",
-    "equalize-on-close",
-    "focus-ring-width",
-    "focus-ring-color",
-    "tabline-wrap",
-    "fretboard",
-    "piano",
-    "progress-bar",
-    "scrollbar",
-    "design",
-    "bar-width",
-    "bars-per-line",
-    "line-break",
-    "line-join",
-    "beat-nudge",
-    "design-reset",
-    "tuner",
-    "buffer-move",
-    "buffer-move-next",
-    "buffer-move-prev",
-    "resize",
-    "vertical-resize",
-    "resize-equal",
-    "pane-move-left",
-    "pane-move-down",
-    "pane-move-up",
-    "pane-move-right",
-    "pane-exchange",
-    "pane-rotate",
-    "pane-rotate-back",
-    "maximize",
-    "tracks-resize",
-    "waveform-resize",
-    "tracks-focus",
-    "properties",
-    "properties-focus",
-    "properties-tab",
-    "palette",
-    "palette-focus",
-    "palette-search",
-    "palette-search-next",
-    "palette-search-prev",
-    "dynamic",
-    "track-volume",
-    "track-volume-up",
-    "track-volume-down",
-    "track-color",
-    "pick-view",
-    "pick-recent",
-    "pick-workspace",
-    "pitch",
-    "pitch-down",
-    "pitch-up",
-    "play",
-    "play-macro",
-    "play-toggle",
-    "put",
-    "recover",
-    "recover!",
-    "swap-discard",
-    "put-before",
-    "q",
-    "q!",
-    "qa",
-    "qa!",
-    "quit",
-    "quit!",
-    "quitall",
-    "wall",
-    "wqall",
-    "quitall!",
-    "record-macro",
-    "redo",
-    "refinger",
-    "register",
-    "repeat",
-    "repeat-end",
-    "repeat-start",
-    "rest",
-    "section",
-    "solo",
-    "source",
-    "speed",
-    "speed-down",
-    "speed-up",
-    "slash",
-    "split",
-    "staff-add",
-    "staff-move",
-    "staff-remove",
-    "stop",
-    "staff-next",
-    "staff-prev",
-    "string-down",
-    "string-up",
-    "sync",
-    "sync-clear",
-    "sync-detect",
-    "sync-tap",
-    "tempo",
-    "text",
-    "time",
-    "toggle",
-    "track",
-    "track-add",
-    "track-delete",
-    "track-instrument",
-    "track-rename",
-    "track-rename-start",
-    "track-next",
-    "track-prev",
-    "trainer",
-    "transpose",
-    "tuning",
-    "tuplet",
-    "undo",
-    "undo-newer",
-    "undo-older",
-    "view",
-    "view-close",
-    "view-close!",
-    "view-new",
-    "view-next",
-    "view-prev",
-    "view-rename",
-    "visual",
-    "visual-reselect",
-    "visual-bar",
-    "visual-insert",
-    "visual-append",
-    "voice",
-    "voice-next",
-    "voice-prev",
-    "volume",
-    "vsplit",
-    "w",
-    "waveform",
-    "waveform-strip",
-    "workspace-delete",
-    "workspace-delete!",
-    "workspace-open",
-    "workspace-open!",
-    "workspace-save",
-    "workspace-save!",
-    "wq",
-    "write",
-    "write-quit",
-    "yank",
-    "scroll-bottom",
-    "scroll-center",
-    "scroll-top",
-    "zoom-in",
-    "zoom-out",
-    "zoom-reset",
+/// The kind of score a command is for. A chant score offers `Both` and `Chant` commands in
+/// completion, help and the palettes; a modern score `Both` and `Modern`. Typing a command of
+/// the other kind in full still parses and says which kind it is not for.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Scope {
+    Both,
+    Modern,
+    Chant,
+}
+
+impl Scope {
+    /// Whether a score of this kind offers a command of scope `self`.
+    pub fn applies(self, chant_score: bool) -> bool {
+        match self {
+            Scope::Both => true,
+            Scope::Modern => !chant_score,
+            Scope::Chant => chant_score,
+        }
+    }
+}
+
+use Scope::{Both as B, Chant as C, Modern as M};
+
+/// Every command name the parser accepts with its scope, long names first where there are
+/// aliases. A command added here must say which kind of score it is for.
+pub const COMMAND_SCOPES: &[(&str, Scope)] = &[
+    ("set-mark", B),
+    ("run-macro", B),
+    ("marks", B),
+    ("mark", B),
+    ("macros", B),
+    ("jump-mark-bar", B),
+    ("jump-mark", B),
+    ("goto-mark", B),
+    ("delmarks!", B),
+    ("delmarks", B),
+    ("accidental", M),
+    ("append", B),
+    ("audio", B),
+    ("bar", B),
+    ("bar-repeat", M),
+    ("beams", M),
+    ("direction", M),
+    ("double-bar", M),
+    ("dynamic-step", M),
+    ("double-dot", M),
+    ("ending", M),
+    ("free-time", M),
+    ("stems", M),
+    ("bar-delete", M),
+    ("bar-end", B),
+    ("bar-first-note", B),
+    ("bar-last-note", B),
+    ("bar-open-after", M),
+    ("bar-open-before", M),
+    ("bar-insert-after", M),
+    ("bar-insert-before", M),
+    ("bar-next", B),
+    ("bar-prev", B),
+    ("bar-start", B),
+    ("beat-new", B),
+    ("beat-next", B),
+    ("beat-prev", B),
+    ("bdelete", B),
+    ("bdelete!", B),
+    ("buffer", B),
+    ("buffer-close", B),
+    ("buffer-close!", B),
+    ("buffer-next", B),
+    ("buffer-prev", B),
+    ("capo", M),
+    ("change", B),
+    ("chant-append", C),
+    ("chant-bar", C),
+    ("chant-break", C),
+    ("chant-mod", C),
+    ("chant-syllable", C),
+    ("chant-to-modern", C),
+    ("clef", B),
+    ("close", B),
+    ("pane-close", B),
+    ("command-mode", B),
+    ("count-in", B),
+    ("delete", B),
+    ("delete-note", B),
+    ("delete-beat", B),
+    ("reflow", M),
+    ("dot", M),
+    ("duration", M),
+    ("duration-longer", M),
+    ("duration-shorter", M),
+    ("earlier", B),
+    ("enew", B),
+    ("focus-down", B),
+    ("focus-last", B),
+    ("focus-left", B),
+    ("focus-next", B),
+    ("focus-prev", B),
+    ("focus-right", B),
+    ("focus-up", B),
+    ("bar-numbers", B),
+    ("incomplete-bars", B),
+    ("completion-fuzzy", B),
+    ("completion-ignore-case", B),
+    ("follow-toggle", B),
+    ("gabc", C),
+    ("goto-bar", B),
+    ("global-tool", B),
+    ("goto-first", B),
+    ("goto-last", B),
+    ("help", B),
+    ("insert", B),
+    ("insert-bar-start", B),
+    ("insert-enter", B),
+    ("insert-here", B),
+    ("insert-last", B),
+    ("append-bar-end", B),
+    ("insert-next", B),
+    ("interpretation", C),
+    ("key", M),
+    ("later", B),
+    ("layout", B),
+    ("loop", B),
+    ("loop-toggle", B),
+    ("lyrics", M),
+    ("lyrics-attach", M),
+    ("lyrics-clear", M),
+    ("notation", M),
+    ("metronome", B),
+    ("mix", B),
+    ("modern-to-chant", M),
+    ("mute", B),
+    ("new", B),
+    ("nop", B),
+    ("normal", B),
+    ("note", M),
+    ("note-letter", M),
+    ("note-next", B),
+    ("note-prev", B),
+    ("note-row-next", B),
+    ("note-row-end", B),
+    ("note-row-prev", B),
+    ("octave-down", B),
+    ("octave-up", B),
+    ("open", B),
+    ("open-dialog", B),
+    ("page-down", B),
+    ("page-up", B),
+    ("pause", B),
+    ("pick", B),
+    ("pick-buffer", B),
+    ("pick-keymap", B),
+    ("pick-section", B),
+    ("save-as", B),
+    ("sections", B),
+    ("section-next", B),
+    ("section-prev", B),
+    ("keymaps", B),
+    ("tracks", B),
+    ("toolbar", B),
+    ("equalize-on-close", B),
+    ("focus-ring-width", B),
+    ("focus-ring-color", B),
+    ("tabline-wrap", B),
+    ("fretboard", B),
+    ("piano", B),
+    ("progress-bar", B),
+    ("scrollbar", B),
+    ("design", B),
+    ("bar-width", B),
+    ("bars-per-line", B),
+    ("line-break", B),
+    ("line-join", B),
+    ("beat-nudge", B),
+    ("design-reset", B),
+    ("tuner", B),
+    ("buffer-move", B),
+    ("buffer-move-next", B),
+    ("buffer-move-prev", B),
+    ("resize", B),
+    ("vertical-resize", B),
+    ("resize-equal", B),
+    ("pane-move-left", B),
+    ("pane-move-down", B),
+    ("pane-move-up", B),
+    ("pane-move-right", B),
+    ("pane-exchange", B),
+    ("pane-rotate", B),
+    ("pane-rotate-back", B),
+    ("maximize", B),
+    ("tracks-resize", B),
+    ("waveform-resize", B),
+    ("tracks-focus", B),
+    ("properties", B),
+    ("properties-focus", B),
+    ("properties-tab", B),
+    ("palette", B),
+    ("palette-focus", B),
+    ("palette-search", B),
+    ("palette-search-next", B),
+    ("palette-search-prev", B),
+    ("dynamic", M),
+    ("track-volume", B),
+    ("track-volume-up", B),
+    ("track-volume-down", B),
+    ("track-color", B),
+    ("pick-view", B),
+    ("pick-recent", B),
+    ("pick-workspace", B),
+    ("pitch", B),
+    ("pitch-down", B),
+    ("pitch-up", B),
+    ("play", B),
+    ("play-macro", B),
+    ("play-toggle", B),
+    ("put", B),
+    ("recover", B),
+    ("recover!", B),
+    ("swap-discard", B),
+    ("put-before", B),
+    ("q", B),
+    ("q!", B),
+    ("qa", B),
+    ("qa!", B),
+    ("quit", B),
+    ("quit!", B),
+    ("quitall", B),
+    ("wall", B),
+    ("wqall", B),
+    ("quitall!", B),
+    ("record-macro", B),
+    ("redo", B),
+    ("refinger", M),
+    ("register", B),
+    ("repeat", B),
+    ("repeat-end", M),
+    ("repeat-start", M),
+    ("rest", M),
+    ("section", M),
+    ("solo", B),
+    ("source", B),
+    ("speed", B),
+    ("speed-down", B),
+    ("speed-up", B),
+    ("slash", M),
+    ("split", B),
+    ("staff-add", M),
+    ("staff-move", M),
+    ("staff-remove", M),
+    ("stop", B),
+    ("staff-next", M),
+    ("staff-prev", M),
+    ("string-down", M),
+    ("string-up", M),
+    ("sync", B),
+    ("sync-clear", B),
+    ("sync-detect", B),
+    ("sync-tap", B),
+    ("tempo", B),
+    ("text", M),
+    ("time", M),
+    ("toggle", M),
+    ("track", M),
+    ("track-add", M),
+    ("track-delete", M),
+    ("track-instrument", B),
+    ("track-rename", B),
+    ("track-rename-start", B),
+    ("track-next", M),
+    ("track-prev", M),
+    ("trainer", B),
+    ("transpose", M),
+    ("tuning", M),
+    ("tuplet", M),
+    ("undo", B),
+    ("undo-newer", B),
+    ("undo-older", B),
+    ("view", B),
+    ("view-close", B),
+    ("view-close!", B),
+    ("view-new", B),
+    ("view-next", B),
+    ("view-prev", B),
+    ("view-rename", B),
+    ("visual", B),
+    ("visual-reselect", B),
+    ("visual-bar", B),
+    ("visual-insert", B),
+    ("visual-append", B),
+    ("voice", M),
+    ("voice-next", M),
+    ("voice-prev", M),
+    ("volume", B),
+    ("vsplit", B),
+    ("w", B),
+    ("waveform", B),
+    ("waveform-strip", B),
+    ("workspace-delete", B),
+    ("workspace-delete!", B),
+    ("workspace-open", B),
+    ("workspace-open!", B),
+    ("workspace-save", B),
+    ("workspace-save!", B),
+    ("wq", B),
+    ("write", B),
+    ("write-quit", B),
+    ("yank", B),
+    ("scroll-bottom", B),
+    ("scroll-center", B),
+    ("scroll-top", B),
+    ("zoom-in", B),
+    ("zoom-out", B),
+    ("zoom-reset", B),
+    ("chant-shape", C),
+    ("chant-division", C),
+    ("chant-clef", C),
+    ("chant-mora", C),
+    ("chant-episema", C),
+    ("chant-ictus", C),
+    ("chant-alter", C),
+    ("chant-liquescence", C),
+    ("chant-symbol", C),
+    ("score-kind", B),
 ];
+
+/// Every command name (see [`COMMAND_SCOPES`]).
+pub fn command_names() -> impl Iterator<Item = &'static str> {
+    COMMAND_SCOPES.iter().map(|(n, _)| *n)
+}
+
+/// The scope of a command by name (aliases and names the table doesn't list are `Both`).
+pub fn scope(name: &str) -> Scope {
+    COMMAND_SCOPES
+        .iter()
+        .find(|(n, _)| *n == name)
+        .map_or(Scope::Both, |(_, s)| *s)
+}
+
+/// Whether a command line's command may run in a score of the given kind; the error otherwise
+/// names the kind it is not for (`capo: not in a chant score`).
+pub fn check_scope(name: &str, chant_score: bool) -> Result<(), String> {
+    if scope(name).applies(chant_score) {
+        return Ok(());
+    }
+    Err(format!(
+        "{name}: not in a {} score",
+        if chant_score { "chant" } else { "modern" }
+    ))
+}
 
 /// File extensions cecilia opens.
 const SCORE_EXTENSIONS: &[&str] = &[
@@ -310,10 +368,7 @@ fn values(command: &str) -> Option<&'static [&'static str]> {
         "layout" => &["horizontal", "page", "vertical"],
         "mix" => &["audio", "both", "midi"],
         "interpretation" => &["equalist", "solesmes"],
-        "clef" => &[
-            "treble", "bass", "grand", "neutral", "c1", "c2", "c3", "c4", "cb2", "cb3", "cb4",
-            "f1", "f2", "f3", "f4",
-        ],
+        "clef" => &["treble", "bass", "grand", "neutral"],
         "global-tool" => &["fretboard", "piano", "tracks", "tuner", "waveform"],
         "track-add" => &["bass", "drums", "guitar", "piano", "voice"],
         "notation" => &["standard", "tab", "tab+", "slash", "chant"],
@@ -357,6 +412,28 @@ fn values(command: &str) -> Option<&'static [&'static str]> {
             "da-double-coda",
         ],
         "chant-bar" => &[",", ":", "::", ";"],
+        "chant-division" => &[
+            ",", ";", ":", "::", ",?", ";1", ";2", ";3", ";4", ";5", ";6", "`", "``",
+        ],
+        "chant-clef" => &["c1", "c2", "c3", "c4", "cb3", "f1", "f2", "f3", "f4"],
+        "chant-shape" => &[
+            "punctum",
+            "inclinatum",
+            "virga",
+            "virga-reversa",
+            "bivirga",
+            "trivirga",
+            "stropha",
+            "bistropha",
+            "tristropha",
+            "quilisma",
+            "oriscus",
+            "oriscus-stem",
+            "quadratum",
+        ],
+        "chant-alter" => &["flat", "natural"],
+        "chant-liquescence" => &["deminutus", "ascendens", "descendens"],
+        "chant-symbol" => &["*", "+", "†", "℣", "℟"],
         "volume" => &["audio", "metronome", "midi"],
         "pick" => &[
             "buffer",
@@ -560,13 +637,34 @@ fn completions(start: usize, ranked: Vec<(String, Vec<usize>)>, commands: bool) 
     }
 }
 
+/// The clefs `:clef` takes on a chant score.
+const CHANT_CLEFS: &[&str] = &[
+    "c1", "c2", "c3", "c4", "cb2", "cb3", "cb4", "f1", "f2", "f3", "f4",
+];
+
 /// Candidates for the word being typed at the end of `line`. `score_dir` is the folder of the
 /// current score (for `:audio`).
 pub fn complete(line: &str, cwd: &Path, score_dir: Option<&Path>, m: Matcher) -> Completions {
+    complete_in(line, cwd, score_dir, m, None)
+}
+
+/// [`complete`] for a kind of score: with `Some(chant_score)` only the commands (and the
+/// arguments) of that kind of score and of both are offered.
+pub fn complete_in(
+    line: &str,
+    cwd: &Path,
+    score_dir: Option<&Path>,
+    m: Matcher,
+    chant_score: Option<bool>,
+) -> Completions {
+    let offered = |name: &str| chant_score.is_none_or(|k| scope(name).applies(k));
     let lead = line.len() - line.trim_start_matches([':', ' ']).len();
     let body = &line[lead..];
     let Some(space) = body.find(char::is_whitespace) else {
-        let mut names: Vec<String> = COMMANDS.iter().map(|c| c.to_string()).collect();
+        let mut names: Vec<String> = command_names()
+            .filter(|c| offered(c))
+            .map(String::from)
+            .collect();
         names.sort();
         return completions(lead, m.rank(names, body), true);
     };
@@ -598,8 +696,13 @@ pub fn complete(line: &str, cwd: &Path, score_dir: Option<&Path>, m: Matcher) ->
             // Complete the last word of the arguments (e.g. `:volume mi`).
             let word_start = arg.rfind(' ').map_or(0, |i| i + 1);
             let word = &arg[word_start..];
-            let list = if word_start == 0 {
-                values(command)
+            let list = if word_start == 0 && offered(command) {
+                match (command, chant_score) {
+                    // A chant score's clefs are the do and fa clefs.
+                    ("clef", Some(true)) => Some(CHANT_CLEFS),
+                    ("clef", None) => values(command),
+                    _ => values(command),
+                }
             } else {
                 None
             };
@@ -743,8 +846,72 @@ mod tests {
     }
 
     #[test]
+    fn every_command_has_one_scope() {
+        let mut seen = std::collections::HashSet::new();
+        for (name, _) in COMMAND_SCOPES {
+            assert!(seen.insert(*name), "{name} is listed twice");
+        }
+        // Every name the parser matches is in the table (or is the alias of one that is).
+        let src = include_str!("command.rs");
+        let parse = &src[src.find("pub fn parse(").expect("Command::parse")..];
+        let mut missing = Vec::new();
+        for line in parse.lines() {
+            let line = line.trim_start();
+            if !line.starts_with('"') {
+                continue;
+            }
+            let Some(arm) = line.split(" =>").next().filter(|_| line.contains(" =>")) else {
+                continue;
+            };
+            let names: Vec<&str> = arm.split('|').map(|n| n.trim().trim_matches('"')).collect();
+            // Commands for keymaps only (the pane commands) are not listed and apply to both.
+            let internal = |n: &str| {
+                n.len() <= 1
+                    || n == "master"
+                    || ["palette-", "properties-", "tracks-"]
+                        .iter()
+                        .any(|p| n.starts_with(p))
+            };
+            if !names.iter().any(|n| internal(n))
+                && !names
+                    .iter()
+                    .any(|n| COMMAND_SCOPES.iter().any(|(c, _)| c == n))
+            {
+                missing.push(names[0].to_string());
+            }
+        }
+        assert!(missing.is_empty(), "commands with no scope: {missing:?}");
+    }
+
+    #[test]
+    fn commands_of_the_other_kind_error_naming_it_and_are_not_offered() {
+        let cwd = std::env::temp_dir();
+        let names =
+            |chant| -> Vec<String> { complete_in("", &cwd, None, PREFIX, Some(chant)).items };
+        let (modern, chant) = (names(false), names(true));
+        assert!(modern.iter().any(|c| c == "capo") && !modern.iter().any(|c| c == "chant-mora"));
+        assert!(chant.iter().any(|c| c == "chant-mora") && !chant.iter().any(|c| c == "capo"));
+        assert!(modern.iter().any(|c| c == "write") && chant.iter().any(|c| c == "write"));
+        assert_eq!(
+            check_scope("capo", true).unwrap_err(),
+            "capo: not in a chant score"
+        );
+        assert_eq!(
+            check_scope("chant-mora", false).unwrap_err(),
+            "chant-mora: not in a modern score"
+        );
+        assert!(check_scope("capo", false).is_ok() && check_scope("write", true).is_ok());
+        // Arguments follow the kind: a chant score is offered do and fa clefs.
+        let clefs = |chant| complete_in("clef ", &cwd, None, PREFIX, Some(chant)).items;
+        assert!(clefs(true).contains(&"c3".to_string()) && !clefs(true).contains(&"treble".into()));
+        assert!(
+            clefs(false).contains(&"treble".to_string()) && !clefs(false).contains(&"c3".into())
+        );
+    }
+
+    #[test]
     fn every_listed_command_parses() {
-        for name in COMMANDS {
+        for name in command_names() {
             let err = Command::parse(name).err().unwrap_or_default();
             assert!(!err.starts_with("unknown command"), "{name}: {err}");
         }
@@ -869,8 +1036,7 @@ pub fn describe(command: &str) -> Option<&'static str> {
         "beat-prev" => "Previous beat",
         "capo" => "Set the capo fret",
         "change" => "Change operator (delete, then insert)",
-        "chant-to-modern" => "Turn the chant track into a staff track",
-        "chant-view" => "Square notation / modern view of chant",
+        "chant-to-modern" => "Open the chant as a modern score in a new buffer",
         "clef" => "Clef of the staff: treble, bass, grand, neutral (standard); do, fa (chant)",
         "close" | "pane-close" => "Close the pane",
         "command-mode" => "Open the command line",
@@ -1120,6 +1286,16 @@ pub fn describe(command: &str) -> Option<&'static str> {
         "chant-append" => "Add a chant note after the cursor note",
         "chant-break" => "Add a chant note after the cursor note, starting a new neume",
         "chant-syllable" => "Chant: a new syllable after the cursor syllable",
+        "chant-shape" => "Give the cursor chant note a head (punctum, virga, quilisma, oriscus …)",
+        "chant-division" => "Toggle a division after the cursor syllable (, ; : :: and variants)",
+        "chant-clef" => "Set the chant's first clef (c1–c4, f1–f4, cb3)",
+        "chant-mora" => "Toggle the mora (lengthening dot) of the cursor chant note",
+        "chant-episema" => "Toggle the horizontal episema of the cursor chant note",
+        "chant-ictus" => "Toggle the ictus of the cursor chant note",
+        "chant-alter" => "Toggle a flat or natural before the cursor chant note",
+        "chant-liquescence" => "Toggle a liquescence of the cursor chant note",
+        "chant-symbol" => "Add a symbol (* + † ℣ ℟) to the cursor syllable's text",
+        "score-kind" => "Say whether this is a modern or a chant score, and how to convert it",
         "track-next" => "Next track",
         "track-prev" => "Previous track",
         "trainer" => "Speed trainer: start, target, step",
@@ -1176,7 +1352,7 @@ pub fn describe(command: &str) -> Option<&'static str> {
 mod describe_tests {
     #[test]
     fn every_command_has_a_description() {
-        for name in super::COMMANDS {
+        for name in super::command_names() {
             assert!(super::describe(name).is_some(), "{name}");
         }
     }

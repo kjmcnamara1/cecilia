@@ -178,6 +178,116 @@ pub const SECTIONS: &[(&str, &[Item])] = &[
     ),
 ];
 
+/// The chant score's palette: clefs, divisions, note heads, liquescences, rhythmic signs,
+/// alterations, pitch and text symbols. Every item runs a `chant-*` command (or `pitch-up` /
+/// `pitch-down`) on the note or syllable under the cursor.
+pub const CHANT_SECTIONS: &[(&str, &[Item])] = &[
+    (
+        "Clef",
+        &[
+            ("Do clef, line 1", "chant-clef c1", "c1"),
+            ("Do clef, line 2", "chant-clef c2", "c2"),
+            ("Do clef, line 3", "chant-clef c3", "c3"),
+            ("Do clef, line 4", "chant-clef c4", "c4"),
+            ("Do clef with flat (B flat)", "chant-clef cb3", "cb"),
+            ("Fa clef, line 1", "chant-clef f1", "f1"),
+            ("Fa clef, line 2", "chant-clef f2", "f2"),
+            ("Fa clef, line 3", "chant-clef f3", "f3"),
+            ("Fa clef, line 4", "chant-clef f4", "f4"),
+        ],
+    ),
+    (
+        "Divisions",
+        &[
+            ("Virgula", "chant-division ,", ","),
+            ("Divisio minima", "chant-division ;", ";"),
+            ("Divisio maior", "chant-division :", ":"),
+            ("Divisio finalis", "chant-division ::", "::"),
+            ("Divisio minima, variant 1", "chant-division ;1", ";1"),
+            ("Divisio minima, variant 2", "chant-division ;2", ";2"),
+            ("Divisio minima, variant 3", "chant-division ;3", ";3"),
+            ("Divisio minima, variant 4", "chant-division ;4", ";4"),
+            ("Divisio minima, variant 5", "chant-division ;5", ";5"),
+            ("Divisio minima, variant 6", "chant-division ;6", ";6"),
+        ],
+    ),
+    (
+        "Shapes",
+        &[
+            ("Punctum", "chant-shape punctum", "pun"),
+            ("Punctum inclinatum", "chant-shape inclinatum", "inc"),
+            ("Virga", "chant-shape virga", "vir"),
+            ("Virga reversa", "chant-shape virga-reversa", "vrv"),
+            ("Bivirga", "chant-shape bivirga", "vv"),
+            ("Trivirga", "chant-shape trivirga", "vvv"),
+            ("Stropha", "chant-shape stropha", "str"),
+            ("Bistropha", "chant-shape bistropha", "ss"),
+            ("Tristropha", "chant-shape tristropha", "sss"),
+            ("Quilisma", "chant-shape quilisma", "qui"),
+            ("Oriscus", "chant-shape oriscus", "ori"),
+            ("Oriscus with stem", "chant-shape oriscus-stem", "orS"),
+            ("Quadratum (pes quadratum)", "chant-shape quadratum", "qua"),
+        ],
+    ),
+    (
+        "Liquescence",
+        &[
+            ("Liquescent, deminutus", "chant-liquescence deminutus", "~"),
+            (
+                "Liquescent, auctus ascendens",
+                "chant-liquescence ascendens",
+                "<",
+            ),
+            (
+                "Liquescent, auctus descendens",
+                "chant-liquescence descendens",
+                ">",
+            ),
+            ("Initio debilis", "chant-mod -", "-"),
+        ],
+    ),
+    (
+        "Rhythm",
+        &[
+            ("Mora (lengthening dot)", "chant-mora", "."),
+            ("Horizontal episema", "chant-episema", "_"),
+            ("Ictus", "chant-ictus", "'"),
+        ],
+    ),
+    (
+        "Alteration",
+        &[
+            ("Flat", "chant-alter flat", "♭"),
+            ("Natural", "chant-alter natural", "♮"),
+        ],
+    ),
+    (
+        "Pitch",
+        &[
+            ("Up one position", "pitch-up", "↑"),
+            ("Down one position", "pitch-down", "↓"),
+        ],
+    ),
+    (
+        "Text",
+        &[
+            ("Asterisk (end of the intonation)", "chant-symbol *", "*"),
+            ("Plus", "chant-symbol +", "+"),
+            ("Versicle", "chant-symbol ℣", "℣"),
+            ("Response", "chant-symbol ℟", "℟"),
+        ],
+    ),
+];
+
+/// The palette sections of a kind of score.
+pub fn sections(chant_score: bool) -> &'static [(&'static str, &'static [Item])] {
+    if chant_score {
+        CHANT_SECTIONS
+    } else {
+        SECTIONS
+    }
+}
+
 /// The terminal's icon of a palette command: the closest Unicode / Nerd Font glyph to the
 /// symbol the engraver draws for it, or `None` where there is none and the item's short label
 /// stands in. `nerd` picks the Nerd Font glyphs (Material Design music notes) over the plain
@@ -225,12 +335,26 @@ pub fn palette_glyph(command: &str, nerd: bool) -> Option<&'static str> {
     }
 }
 
+/// The selection, folds and scroll of the palette for the kind of score not being edited; they
+/// come back when the focus returns to that kind.
+#[derive(Debug, Default)]
+pub struct ParkedPalette {
+    selected: usize,
+    folded: HashSet<usize>,
+    scroll: usize,
+    seen: usize,
+    want_col: usize,
+}
+
 /// The palette's selection and fold state.
 #[derive(Debug, Default)]
 pub struct PaletteState {
+    /// The kind of score the fields below belong to (the other kind's are parked).
+    pub(crate) active_chant: bool,
+    parked: ParkedPalette,
     /// Selected row, an index into [`App::palette_rows`].
     pub selected: usize,
-    /// Sections folded shut (indices into [`SECTIONS`]).
+    /// Sections folded shut (indices into [`sections`] of the kind of score).
     pub folded: HashSet<usize>,
     /// First row drawn, and the selection the window last followed.
     pub scroll: Cell<usize>,
@@ -443,10 +567,121 @@ fn applies(command: &str, kind: InsertKind, visual: Option<bool>) -> bool {
 }
 
 impl App {
+    /// Swaps the palette's selection, folds and scroll when the score worked on changed kind, so
+    /// each kind keeps its own while the other is shown.
+    pub(crate) fn palette_follow_kind(&mut self) {
+        let chant = self.cursor_on_chant();
+        let p = &mut self.palette;
+        if chant == p.active_chant {
+            return;
+        }
+        std::mem::swap(&mut p.selected, &mut p.parked.selected);
+        std::mem::swap(&mut p.folded, &mut p.parked.folded);
+        for (cell, parked) in [
+            (&p.scroll, &mut p.parked.scroll),
+            (&p.seen, &mut p.parked.seen),
+            (&p.want_col, &mut p.parked.want_col),
+        ] {
+            let now = cell.get();
+            cell.set(*parked);
+            *parked = now;
+        }
+        p.active_chant = chant;
+    }
+
+    /// The rows of a chant score's palette.
+    fn chant_palette_rows(&self) -> Vec<PaletteRow> {
+        use cecilia_core::chant::{ChantClef, Liquescence};
+        let c = self.pane().cursor;
+        let chant = self
+            .buffer()
+            .score
+            .tracks
+            .get(c.track)
+            .and_then(|t| t.chant.as_deref());
+        let at = self.chant_cursor_note();
+        let note = chant.zip(at).and_then(|(ch, n)| ch.note(n));
+        let clef = chant.map(|ch| crate::statusline::clef_at(ch, c.bar, c.beat));
+        let mut rows = Vec::new();
+        for (s, (title, items)) in CHANT_SECTIONS.iter().enumerate() {
+            let folded = self.palette.folded.contains(&s);
+            rows.push(PaletteRow {
+                kind: PaletteKind::Header { section: s, folded },
+                label: title,
+                short: "",
+                command: "",
+                active: false,
+                unavailable: None,
+                keys: Vec::new(),
+            });
+            if folded {
+                continue;
+            }
+            for (label, command, short) in items.iter() {
+                let (name, arg) = command.split_once(' ').unwrap_or((command, ""));
+                let active = match (name, arg) {
+                    ("chant-clef", a) => clef.is_some_and(|k| ChantClef::parse(a) == Some(k)),
+                    ("chant-division", d) => chant
+                        .zip(at)
+                        .is_some_and(|(ch, n)| ch.division_after(n) == Some(d)),
+                    ("chant-shape", a) => note.is_some_and(|n| {
+                        crate::chant::shape_by_name(a).is_some_and(|sh| n.shape() == sh)
+                    }),
+                    ("chant-liquescence", a) => note.is_some_and(|n| {
+                        n.liquescence()
+                            == match a {
+                                "ascendens" => Liquescence::AuctusAscendens,
+                                "descendens" => Liquescence::AuctusDescendens,
+                                _ => Liquescence::Deminutus,
+                            }
+                    }),
+                    ("chant-mod", "-") => note.is_some_and(|n| n.initio_debilis),
+                    ("chant-mora", _) => note.is_some_and(|n| n.mora() > 0),
+                    ("chant-episema", _) => note.is_some_and(|n| n.episema()),
+                    ("chant-ictus", _) => note.is_some_and(|n| n.ictus()),
+                    ("chant-alter", a) => chant.zip(at).is_some_and(|(ch, n)| {
+                        ch.alteration_of(n)
+                            == Some(if a == "flat" {
+                                cecilia_core::chant_edit::Alter::Flat
+                            } else {
+                                cecilia_core::chant_edit::Alter::Natural
+                            })
+                    }),
+                    ("chant-symbol", a) => chant.zip(at).is_some_and(|(ch, n)| {
+                        let sign = match a {
+                            "℣" => "<sp>V/</sp>",
+                            "℟" => "<sp>R/</sp>",
+                            other => other,
+                        };
+                        ch.syllable_of(n)
+                            .is_some_and(|si| ch.syllables[si].text.ends_with(sign))
+                    }),
+                    _ => false,
+                };
+                // What needs a note under the cursor (the clef and divisions do not).
+                let needs_note = !matches!(name, "chant-clef" | "chant-division");
+                rows.push(PaletteRow {
+                    kind: PaletteKind::Item,
+                    label,
+                    short,
+                    command,
+                    active,
+                    unavailable: (needs_note && at.is_none())
+                        .then(|| "no note under the cursor".to_string()),
+                    keys: self.palette_keys(command),
+                });
+            }
+        }
+        rows
+    }
+
     /// The rows: each section's header, then its items unless folded. Only the tools that
     /// apply to the mode and the staff under the cursor are listed; a section with none is
     /// left out.
     pub fn palette_rows(&self) -> Vec<PaletteRow> {
+        if self.cursor_on_chant() {
+            return self.chant_palette_rows();
+        }
         let kind = self.insert_kind();
         // In Visual mode: whether the selection is of bars.
         let visual = self
@@ -754,7 +989,11 @@ impl App {
         let kind = self.config.insert_keymap(self.insert_kind());
         let shared = self.config.keymap(crate::config::Mode::Insert);
         let mut keys: Vec<String> = Vec::new();
-        for map in [kind, shared] {
+        // On a chant score the normal-mode chant layer binds most of its tools.
+        let layer = self
+            .cursor_on_chant()
+            .then(|| self.config.normal_keymap(self.insert_kind()));
+        for map in layer.into_iter().chain([kind, shared]) {
             for (k, cmds) in &map.bindings {
                 // A key the notation's own map binds to something else shadows the shared one.
                 let shadowed = std::ptr::eq(map, shared) && kind.bindings.contains_key(k);
@@ -1237,7 +1476,7 @@ mod tests {
                 match command.strip_suffix(' ') {
                     // A prompt: a command the command line completes.
                     Some(name) => assert!(
-                        crate::complete::COMMANDS.contains(&name),
+                        crate::complete::command_names().any(|c| c == name),
                         "{label}: {command}"
                     ),
                     None => assert!(Command::parse(command).is_ok(), "{label}: {command}"),

@@ -81,7 +81,6 @@ type CacheKey = (
     String,
     i64,
     u64,
-    bool,
     [u8; 8],
     &'static str,
     bool,
@@ -91,7 +90,7 @@ type CacheKey = (
 );
 
 struct Cached {
-    /// (buffer, track, layout mode, width bucket, score version, chant view, page + ink colors,
+    /// (buffer, track, layout mode, width bucket, score version, page + ink colors,
     /// chord policy)
     key: CacheKey,
     layout: Layout,
@@ -2092,14 +2091,15 @@ fn draw_pane_content(
                 .map(|s| format!("  ·  {s}"))
                 .unwrap_or_default();
             format!(
-                "{} — {}/{}  {}{tuning}",
+                "{} — {} · {}/{}  {}{tuning}",
                 buffer.name,
+                app.score_kind_name(pane.buffer),
                 pane.cursor.track + 1,
                 score.tracks.len(),
                 t.name.trim()
             )
         }
-        None => buffer.name.clone(),
+        None => format!("{} — {}", buffer.name, app.score_kind_name(pane.buffer)),
     };
     text(
         scene,
@@ -2186,7 +2186,6 @@ fn draw_pane_content(
             0
         },
         buffer.version,
-        app.chant_view,
         // Pages are recolored when the theme's page or ink change.
         {
             let (p, i) = (app.config.theme.page, app.config.theme.ink);
@@ -2216,7 +2215,7 @@ fn draw_pane_content(
             mode,
             header: mode_name != "horizontal",
             margin: if mode_name == "page" { 40.0 } else { 16.0 },
-            chant: app.chant_view,
+            chant: true,
             chords: app.chord_policy(),
             every_bar_number: app.every_bar_number,
             incomplete_bars: app.highlight_incomplete_bars.then(|| {
@@ -2494,7 +2493,7 @@ fn draw_pane_content(
             staff: track.map_or(0, |t| cecilia_app::staff_index(t, c.staff)),
             ..c
         };
-        let chant_layout = track.is_some_and(|t| t.chant.is_some() && app.chant_view);
+        let chant_layout = track.is_some_and(|t| t.chant.is_some());
         let square = |cx: f64, y: f64, side: f64| {
             RoundedRect::new(
                 cx - side / 2.0,
@@ -3379,12 +3378,15 @@ fn draw_status(
         SegKind::Mode => mode,
         SegKind::ModeText => th.status_b,
         SegKind::Plain | SegKind::Warn => th.chrome,
+        SegKind::ScoreModern => th.score_modern,
+        SegKind::ScoreChant => th.icon_chant,
     };
     let fg_of = |k: SegKind| match k {
         SegKind::Mode => th.text_on(mode),
         SegKind::ModeText => mode,
         SegKind::Plain => th.chrome_text,
         SegKind::Warn => th.error,
+        SegKind::ScoreModern | SegKind::ScoreChant => th.text_on(bg_of(k)),
     };
     let fonts = cecilia_engrave::fonts::fonts();
     // Chips have a little padding inside; plain sections a little more room around them.
@@ -3409,7 +3411,7 @@ fn draw_status(
             }
     };
     let draw = |scene: &mut Scene, x: f64, w: f64, seg: &Segment| {
-        if !matches!(seg.kind, SegKind::Plain | SegKind::Warn) {
+        if seg.kind.is_chip() {
             scene.fill(
                 Fill::NonZero,
                 Affine::IDENTITY,
