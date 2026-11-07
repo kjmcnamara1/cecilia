@@ -6,6 +6,7 @@
 
 pub mod chant;
 pub mod chant_edit;
+pub mod chant_sync;
 pub mod design;
 pub mod drums;
 mod duration;

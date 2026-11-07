@@ -349,6 +349,7 @@ impl Playback {
             Effect::OpenDialog { .. } | Effect::SaveDialog { .. } => {}
             Effect::SyncTap => self.sync_tap(app),
             Effect::SyncDetect => self.sync_detect(app),
+            Effect::SyncHere => self.sync_here(app),
             Effect::Tuner(on) => {
                 self.tuner = None;
                 if on {
@@ -367,7 +368,40 @@ impl Playback {
         }
     }
 
+    /// The audio time at the playhead and the onsets of the buffer's audio (empty until it is
+    /// decoded), for chant sync commands.
+    fn playhead_and_onsets(&mut self, app: &mut App) -> Option<(f64, Vec<f32>)> {
+        let (Some(buffer), Some(player)) = (app.playing_buffer, self.player.as_ref()) else {
+            app.error("start playback with the audio first (:sync)");
+            return None;
+        };
+        let t = player.position();
+        let pad = app.buffers[buffer]
+            .score
+            .audio
+            .as_ref()
+            .map_or(0, |a| a.frame_padding) as f64
+            / SYNC_RATE;
+        let onsets = match self.audio.get_mut(&buffer) {
+            Some(AudioState::Ready(a)) => a.onsets.get_or_insert_with(|| a.clip.onsets()).clone(),
+            _ => Vec::new(),
+        };
+        Some((t + pad, onsets))
+    }
+
+    fn sync_here(&mut self, app: &mut App) {
+        if let Some((secs, onsets)) = self.playhead_and_onsets(app) {
+            app.chant_sync_here(secs, &onsets);
+        }
+    }
+
     fn sync_tap(&mut self, app: &mut App) {
+        if app.pa.chant_tap.is_some() {
+            if let Some((secs, onsets)) = self.playhead_and_onsets(app) {
+                app.chant_tap(secs, &onsets);
+            }
+            return;
+        }
         let (Some(buffer), Some(player)) = (app.playing_buffer, self.player.as_ref()) else {
             return app.error("start playback with the audio first (:sync)");
         };

@@ -16,6 +16,26 @@ pub struct ToChant {
     pub rounded: usize,
     /// Chords reduced to their top note.
     pub chords: usize,
+    /// For every bar of the modern score, the chant note (reading order) of its first sounded
+    /// note, or none for the bars after the last note.
+    pub bar_notes: Vec<Option<usize>>,
+}
+
+impl ToChant {
+    /// The audio sync of a modern score as points on chant notes: `(note, frame)` for each
+    /// first-time bar point, on the first note sounded at or after that bar. Later points on
+    /// the same note are dropped.
+    pub fn note_points(&self, points: &[cecilia_core::SyncPoint]) -> Vec<(usize, i64)> {
+        let mut out: Vec<(usize, i64)> = Vec::new();
+        for p in points.iter().filter(|p| p.occurrence == 0) {
+            if let Some(Some(k)) = self.bar_notes.get(p.bar) {
+                if !out.iter().any(|o| o.0 == *k) {
+                    out.push((*k, p.frame));
+                }
+            }
+        }
+        out
+    }
 }
 
 /// Converts a track's melody to chant: syllables follow its lyrics (or quarter-note groups
@@ -113,11 +133,15 @@ pub fn modern_to_chant(
             continues = false;
         }
     }
+    let bar_notes = (0..score.master_bars.len())
+        .map(|b| view.events.iter().position(|e| e.bar >= b))
+        .collect();
     Ok(ToChant {
         chant,
         transpose,
         rounded,
         chords,
+        bar_notes,
     })
 }
 

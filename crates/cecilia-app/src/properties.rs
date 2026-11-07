@@ -101,6 +101,8 @@ pub enum Field {
     /// A chant score's GABC header at this index of [`chant_header_keys`].
     ChantHeader(usize),
     ChantInterpretation,
+    /// What one sync tap sets in a chant score (a setting of the session, not the score).
+    SyncUnit,
     ChantStaffLines,
     /// The initial clef of a chant score's track.
     ChantClef,
@@ -824,6 +826,13 @@ impl App {
                         Field::ChantInterpretation,
                         "Interpretation",
                         format!("{:?}", chant.interpretation).to_lowercase(),
+                        true,
+                    );
+                    field(
+                        &mut rows,
+                        Field::SyncUnit,
+                        "Sync unit",
+                        self.pa.sync_unit.name().to_string(),
                         true,
                     );
                     field(
@@ -2041,6 +2050,15 @@ impl App {
                     }
                 }
             }
+            Field::SyncUnit => match crate::chantsync::SyncUnit::parse(text.trim()) {
+                Some(unit) => self.run(Command::SyncUnit(unit)),
+                None => {
+                    valid.set(false);
+                    if !live {
+                        self.error("sync unit: expected syllable or note");
+                    }
+                }
+            },
             Field::ChantStaffLines => {
                 if let Some(n) = number(self, "staff lines", 2, 5) {
                     self.edit(|cx| {
@@ -2147,6 +2165,8 @@ impl App {
             match cecilia_formats::gabc::parse(&gabc) {
                 Ok(mut new) => {
                     new.interpretation = chant.interpretation;
+                    // Notes the text edit left alone keep their ids, and so their audio sync.
+                    new.inherit_ids(&chant);
                     if new != chant {
                         self.edit(|cx| {
                             let score = cx.whole();
@@ -2247,6 +2267,9 @@ impl App {
             Field::ChantClef => self.step_choice(PickerKind::Clef(t, 0), by),
             Field::ChantInterpretation => {
                 self.commit_property(field, if by > 0 { "solesmes" } else { "equalist" }, true);
+            }
+            Field::SyncUnit => {
+                self.commit_property(field, if by > 0 { "note" } else { "syllable" }, true);
             }
             Field::Program => self.step_choice(PickerKind::Instrument(t), by),
             Field::StaffAt(i) => {

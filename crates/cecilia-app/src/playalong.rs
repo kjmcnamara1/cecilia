@@ -24,6 +24,10 @@ pub struct PlayAlong {
     pub trainer: Option<(f64, f64)>,
     /// Played-bar index the next sync tap assigns, while tapping.
     pub sync_next: Option<usize>,
+    /// A chant score's tapping session (see [`crate::chantsync`]).
+    pub chant_tap: Option<crate::chantsync::ChantTap>,
+    /// What one tap syncs in a chant score.
+    pub sync_unit: crate::chantsync::SyncUnit,
     /// The audio track is muted / soloed (a track at most one of the two).
     pub audio_mute: bool,
     pub audio_solo: bool,
@@ -47,6 +51,8 @@ impl Default for PlayAlong {
             loop_bars: None,
             trainer: None,
             sync_next: None,
+            chant_tap: None,
+            sync_unit: Default::default(),
             audio_mute: false,
             audio_solo: false,
         }
@@ -82,6 +88,12 @@ impl PlayAlong {
         }
         if self.transpose != 0.0 {
             s.push_str(&format!("  pitch {:+}", self.transpose));
+        }
+        if let Some(t) = &self.chant_tap {
+            match t.next {
+                Some(_) => s.push_str(&format!("  SYNC TAP → {}", t.label)),
+                None => s.push_str("  SYNC TAP end"),
+            }
         }
         if let Some(n) = self.sync_next {
             s.push_str(&format!("  SYNC TAP #{}", n + 1));
@@ -299,6 +311,16 @@ impl App {
                 self.effects.push(Effect::PlaybackSettings);
             }
             Sync => {
+                if self.buffer().score.is_chant() {
+                    if self.pa.chant_tap.take().is_some() {
+                        self.info("sync tapping stopped");
+                        return true;
+                    }
+                    if self.chant_tap_start() {
+                        self.run(Play);
+                    }
+                    return true;
+                }
                 if self.pa.sync_next.take().is_some() {
                     self.info("sync tapping stopped");
                     return true;
@@ -315,6 +337,13 @@ impl App {
                 self.run(Play);
             }
             SyncTap => {
+                if self.buffer().score.is_chant() {
+                    if self.pa.chant_tap.is_none() && !self.chant_tap_start() {
+                        return true;
+                    }
+                    self.effects.push(Effect::SyncTap);
+                    return true;
+                }
                 if self.pa.sync_next.is_none() {
                     // Start tapping at the bar being played.
                     let perf = Performance::build(&self.buffer().score, &[]);
@@ -327,12 +356,31 @@ impl App {
                 self.edit(|cx| {
                     if let Some(a) = cx.whole().audio.as_mut() {
                         a.points.clear();
+                        a.chant_points.clear();
                     }
                     Ok(())
                 });
+                if let Some(t) = self.pa.chant_tap.as_mut() {
+                    t.trail.clear();
+                }
                 self.info("sync points cleared");
             }
+            SyncDetect if self.buffer().score.is_chant() => self.error(
+                "sync-detect: not for chant yet (tap along with :sync, fix points with \
+                 :sync-here and :sync-nudge)",
+            ),
             SyncDetect => self.effects.push(Effect::SyncDetect),
+            SyncUnit(unit) => {
+                self.pa.sync_unit = *unit;
+                self.info(format!("sync unit: {}", unit.name()));
+            }
+            SyncUndo => self.chant_sync_undo(),
+            SyncHere => {
+                if self.chant_sync_ready() {
+                    self.effects.push(Effect::SyncHere);
+                }
+            }
+            SyncNudge(ms) => self.chant_sync_nudge(*ms),
             Waveform => {
                 let pane = self.pane_mut();
                 pane.waveform = !pane.waveform;
@@ -469,12 +517,13 @@ impl App {
                 .audio
                 .as_ref()
                 .filter(|a| a.file.as_deref() == Some(file.as_str()) && a.embedded.is_none())
-                .map(|a| (a.points.clone(), a.frame_padding));
-            let (points, frame_padding) = keep.unwrap_or_default();
+                .map(|a| (a.points.clone(), a.chant_points.clone(), a.frame_padding));
+            let (points, chant_points, frame_padding) = keep.unwrap_or_default();
             s.audio = Some(AudioSync {
                 file: Some(file.clone()),
                 frame_padding,
                 points,
+                chant_points,
                 embedded: None,
             });
             Ok(())

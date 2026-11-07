@@ -4,6 +4,7 @@
 
 mod app;
 mod chant;
+mod chantsync;
 pub mod clipboard;
 pub mod command;
 pub mod complete;

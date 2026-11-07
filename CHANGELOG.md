@@ -24,6 +24,22 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   and the which-key popup list only the commands of the score's kind; a command of the other kind
   still parses and answers `capo: not in a chant score`.
 
+- Audio sync for chant scores. A chant score's sync is kept on its notes (stable note ids, kept
+  by every edit; a point goes only with its deleted note, and the status line says so), so
+  editing the chant never moves it. Time between synced notes is shared by the lengths the
+  interpretation gives (mora, Solesmes lengthening); before the first and after the last point
+  the nearest stretch's rate is used. The player still works on bars: bar sync points are derived
+  from the note points after every change and are not saved. `:sync` / `:sync-tap` tap along with
+  the singing: each tap syncs the next syllable (or note, `:sync-unit syllable|note`, also a row
+  in the chant Score tab) at the playhead snapped to the nearest sung onset, the cursor follows
+  and the status shows `tap: next <syllable>`; `:sync-undo` takes a tap back, `:sync-here` syncs
+  the cursor note at the playhead, `:sync-nudge MS` moves the point under the cursor. Default
+  keys `<leader>yh` `yu` `y[` `y]` `y{` `y}` `yy` `yn` in `[keymap.normal-chant]`. `.cc` files
+  keep the ids and note points; `:w x.gabc` warns that audio and sync are not saved there.
+  `:chant-to-modern` turns the bar points into the modern score's own and `:modern-to-chant`
+  puts each bar point on the note that starts that bar. `:sync-detect` is not available for chant
+  yet.
+
 ### Removed
 
 - `:chant-view` and the workspace's `chant_view`: a chant is always drawn in square notation.

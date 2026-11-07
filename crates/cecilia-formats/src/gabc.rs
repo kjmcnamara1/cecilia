@@ -99,6 +99,7 @@ pub fn parse(text: &str) -> Result<Chant> {
         .unwrap_or(1usize)
         .max(1);
     chant.syllables = parse_body(body, nabc_lines)?;
+    chant.assign_ids();
     Ok(chant)
 }
 
@@ -588,5 +589,25 @@ mod tests {
             let ticks: u32 = bar.voices[0].beats.iter().map(|b| b.ticks()).sum();
             assert_eq!(mb.ticks(), ticks);
         }
+    }
+
+    #[test]
+    fn note_ids_are_not_written_and_audio_is_reported_lost() {
+        let text = "name: t;\n%%\n(c4) Al(fg)le(h) lu(g)ia.(f.) (::)\n";
+        let chant = parse(text).unwrap();
+        assert!(chant.note_ids().iter().all(|&i| i != 0));
+        let out = write(&chant, "");
+        let mut plain = chant.clone();
+        for item in plain.syllables.iter_mut().flat_map(|s| &mut s.items) {
+            if let NeumeItem::Note(n) = item {
+                n.id = 0;
+            }
+        }
+        assert_eq!(out, write(&plain, ""));
+        let mut score = chant_score(chant);
+        assert!(!crate::audio_lost(&score, "gabc"));
+        score.audio = Some(Default::default());
+        assert!(crate::audio_lost(&score, "gabc"));
+        assert!(!crate::audio_lost(&score, "cc"));
     }
 }

@@ -588,6 +588,15 @@ const DEFAULT_NORMAL_CHANT: &[(&str, &str)] = &[
     ("tF2", "chant-clef f2"),
     ("tF3", "chant-clef f3"),
     ("tF4", "chant-clef f4"),
+    // Audio sync by hand (`<leader>t` taps, `:sync` starts tapping).
+    ("<leader>yh", "sync-here"),
+    ("<leader>yu", "sync-undo"),
+    ("<leader>y[", "sync-nudge -10"),
+    ("<leader>y]", "sync-nudge 10"),
+    ("<leader>y{", "sync-nudge -50"),
+    ("<leader>y}", "sync-nudge 50"),
+    ("<leader>yy", "sync-unit syllable"),
+    ("<leader>yn", "sync-unit note"),
 ];
 
 const DEFAULT_INSERT: &[(&str, &str)] = &[

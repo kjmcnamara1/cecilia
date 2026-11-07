@@ -34,7 +34,8 @@ on a modern one; a chant file cannot hold other tracks. The conversions open a n
 the one you started from alone:
 
 - `:chant-to-modern` → `[modern] name`: the cached bars as a pitched track, the syllables as
-  lyrics text, title and audio sync kept. Also what `cecilia convert in.gabc out.gp5` writes.
+  lyrics text, title and audio sync kept (the bar sync points derived from the chant's note
+  points become the modern score's). Also what `cecilia convert in.gabc out.gp5` writes.
 - `:modern-to-chant` → `[chant] name`: the cursor track only (other tracks are left out), lossy as
   §3 describes.
 
@@ -234,9 +235,34 @@ transcription to the chant. Edits are operations on the `Chant`, each returning
   by staff position, not by semitone: a flat is added or removed with `accidental flat`. Durations,
   tuplets, rests, ties, guitar effects, dynamics, beams, stems, note letters, bar insert / open /
   delete, put and Change report "not in chant".
+- **Note ids.** Every `ChantNote` has an `id` (`Chant::assign_ids` gives one to each note that has
+  none; GABC parsing, `retranscribe` and `insert_note` call it). Edits keep the ids of the notes
+  they move, split or join, a new note takes a fresh one, and ids are not written to GABC and do
+  not count when chants are compared. A chant made again from text (the properties pane's GABC
+  text, `:gabc`) matches its notes to the old ones by longest common subsequence on pitch and
+  signs (`Chant::inherit_ids`), so notes the edit left alone keep their id and audio sync.
 - **Guard.** `App::edit` compares a chant track before and after every edit: an edit that
   changed the chant has its bars written again, one that changed the bars alone is undone and
   refused with "not in chant".
+
+### Audio sync (`chant_sync.rs`, `cecilia-app/src/chantsync.rs`)
+
+A chant score's audio sync is `AudioSync.chant_points: Vec<ChantSyncPoint { note: id, frame }>`
+(saved in `.cc`). `NoteWarp` maps the notes' start ticks (`Transcription.ticks` sums a note's
+beats: mora, Solesmes lengthening, repeats) to frames through the points, linearly in ticks, with
+the nearest stretch's rate before the first and after the last point (the score tempo with fewer
+than two). `Score::refresh_chant_sync` drops points whose note is gone, then writes
+`AudioSync.points` (the ordinary bar points the player uses) with one point at each bar's first
+note. It runs in `retranscribe`, after every edit of a chant score and when a `.cc` is read. The
+bar points are derived and not saved; an older file that has only bar points gets them turned into
+note points on load (`bar_points_to_notes`, the same as `:modern-to-chant` does).
+
+Tapping: `:sync` (or the first `:sync-tap`) starts at the cursor note; each tap sets the next
+syllable's first note (`:sync-unit syllable`, default) or the next note (`note`) to the playhead,
+snapped to the nearest onset within 70 ms, and the cursor moves to the next one. `:sync-undo`
+takes the last tap back (restoring a point it replaced). `:sync-here` sets the cursor note,
+`:sync-nudge MS` moves the point under the cursor (its syllable's first note's if the note has
+none). `:sync-clear` removes all points; `:sync-detect` is not available for chant.
 
 ## 5. Drawing (`cecilia-engrave`)
 
@@ -259,6 +285,7 @@ transcription to the chant. Edits are operations on the `Chant`, each returning
 | `:clef c1`–`c4`, `f1`–`f4` | the clef of a chant track (the tracks pane's clef box does the same) |
 | `:modern-to-chant` | the track's melody as a new chant buffer |
 | `:chant-to-modern` | the chant score opened as a modern score in a new buffer |
+| `:sync`, `:sync-tap`, `:sync-unit syllable\|note`, `:sync-undo`, `:sync-here`, `:sync-nudge MS` | audio sync of a chant score by hand (see Audio sync above) |
 | `:chant-shape`, `:chant-division`, `:chant-clef`, `:chant-mora`, `:chant-episema`, `:chant-ictus`, `:chant-alter`, `:chant-liquescence`, `:chant-symbol` | thin commands over the edit operations (the palette and `[keymap.normal-chant]` use them) |
 | `:score-kind` | names the kind of score and its conversion (the status line's `MODERN` / `CHANT` chip) |
 | `:interpretation equalist\|solesmes` | rhythm used for transcription and playback |

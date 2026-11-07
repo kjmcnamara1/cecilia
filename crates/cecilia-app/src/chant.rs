@@ -450,6 +450,7 @@ impl App {
                     let t = cx.cursor.track;
                     let score = cx.whole();
                     let chant = score.tracks[t].chant.as_mut().unwrap();
+                    let old = (**chant).clone();
                     match replacement {
                         Some(mut syllables) => {
                             syllables[0].word_start = chant.syllables[si].word_start;
@@ -457,6 +458,8 @@ impl App {
                         }
                         None => chant.syllables[si].items = notes,
                     }
+                    // Notes the replacement leaves as they were keep their ids (and sync).
+                    chant.inherit_ids(&old);
                     retranscribe(score, t);
                     Ok(())
                 });
@@ -531,8 +534,27 @@ impl App {
                 let score = &self.buffer().score;
                 match cecilia_convert::chant::modern_to_chant(score, c.track, policy) {
                     Ok(r) => {
-                        let mut new = cecilia_formats::gabc::chant_score(r.chant);
+                        let mut new = cecilia_formats::gabc::chant_score(r.chant.clone());
                         new.meta.title = score.meta.title.clone();
+                        // The audio stays in place: each bar point is a point on the chant
+                        // note that starts the bar.
+                        if let Some(a) = &score.audio {
+                            let ids = new.tracks[0].chant.as_deref().unwrap().note_ids();
+                            let mut audio = a.clone();
+                            audio.chant_points = r
+                                .note_points(&a.points)
+                                .into_iter()
+                                .filter_map(|(k, frame)| {
+                                    Some(cecilia_core::ChantSyncPoint {
+                                        note: *ids.get(k)?,
+                                        frame,
+                                    })
+                                })
+                                .collect();
+                            audio.points.clear();
+                            new.audio = Some(audio);
+                            new.refresh_chant_sync();
+                        }
                         let name = format!("[chant] {}", self.buffer().name);
                         let left_out = self.buffer().score.tracks.len() - 1;
                         self.open_new_buffer(name, new);

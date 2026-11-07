@@ -1043,6 +1043,7 @@ fn read_automations(root: Node, score: &mut Score) {
                 .and_then(|b| num(text(b, "FramePadding")))
                 .unwrap_or(0),
             points: sync,
+            chant_points: Vec::new(),
             embedded: None,
         });
     }

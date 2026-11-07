@@ -13,7 +13,7 @@ use crate::{
 };
 
 /// A chant piece.
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Chant {
     pub syllables: Vec<Syllable>,
     /// Number of staff lines (2–5, usually 4).
@@ -22,6 +22,9 @@ pub struct Chant {
     pub interpretation: Interpretation,
     /// GABC header fields in file order (`name`, `mode`, `office-part`, ...).
     pub headers: Vec<(String, String)>,
+    /// The next note id to hand out (see [`ChantNote::id`]); not part of the chant's content.
+    #[serde(default)]
+    pub next_id: u32,
 }
 
 impl Default for Chant {
@@ -31,7 +34,18 @@ impl Default for Chant {
             staff_lines: 4,
             interpretation: Interpretation::default(),
             headers: Vec::new(),
+            next_id: 0,
         }
+    }
+}
+
+/// Chants are equal when they read the same; note ids and the id counter are bookkeeping.
+impl PartialEq for Chant {
+    fn eq(&self, o: &Self) -> bool {
+        self.syllables == o.syllables
+            && self.staff_lines == o.staff_lines
+            && self.interpretation == o.interpretation
+            && self.headers == o.headers
     }
 }
 
@@ -237,8 +251,12 @@ impl ChantClef {
 }
 
 /// A note as written: a staff position plus GABC modifiers.
-#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
 pub struct ChantNote {
+    /// Stable identity (0 = none yet): kept by every edit, so audio sync points stay with their
+    /// note. Not written to GABC and ignored when comparing notes.
+    #[serde(default)]
+    pub id: u32,
     /// Staff position: 0 = GABC `a` (below the bottom line), 3 = `d` (bottom line), ...
     pub pitch: u8,
     /// Punctum inclinatum (diamond), written in upper case.
@@ -280,6 +298,16 @@ pub enum Liquescence {
     AuctusAscendens,
     /// `>`: augmented, curling down.
     AuctusDescendens,
+}
+
+impl PartialEq for ChantNote {
+    fn eq(&self, o: &Self) -> bool {
+        self.pitch == o.pitch
+            && self.inclinatum == o.inclinatum
+            && self.initio_debilis == o.initio_debilis
+            && self.fused == o.fused
+            && self.mods == o.mods
+    }
 }
 
 impl ChantNote {
@@ -572,6 +600,104 @@ impl Chant {
             .unwrap_or_default()
     }
 
+    /// Gives every note without an id (or with one already used) a fresh one. Ids of the other
+    /// notes stay.
+    pub fn assign_ids(&mut self) {
+        let mut seen = std::collections::HashSet::new();
+        let mut next = self.next_id.max(1);
+        for n in self.syllables.iter().flat_map(|s| &s.items) {
+            if let NeumeItem::Note(n) = n {
+                next = next.max(n.id.saturating_add(1));
+            }
+        }
+        for item in self.syllables.iter_mut().flat_map(|s| &mut s.items) {
+            if let NeumeItem::Note(n) = item {
+                if n.id == 0 || !seen.insert(n.id) {
+                    n.id = next;
+                    next += 1;
+                    seen.insert(n.id);
+                }
+            }
+        }
+        self.next_id = next;
+    }
+
+    /// For a chant made again from text (its notes are all new): gives the notes that match
+    /// notes of `old` the ids of those, by longest common subsequence on the notes (pitch and
+    /// signs), so a text edit that leaves a note alone keeps its audio sync. The others get
+    /// fresh ids (their points go).
+    pub fn inherit_ids(&mut self, old: &Chant) {
+        let old_notes: Vec<&ChantNote> = old.syllables.iter().flat_map(|s| s.notes()).collect();
+        let mut new_ids = vec![0u32; self.note_count()];
+        {
+            let new_notes: Vec<&ChantNote> =
+                self.syllables.iter().flat_map(|s| s.notes()).collect();
+            let (n, m) = (old_notes.len(), new_notes.len());
+            let mut head = 0;
+            while head < n.min(m) && old_notes[head] == new_notes[head] {
+                new_ids[head] = old_notes[head].id;
+                head += 1;
+            }
+            let mut tail = 0;
+            while tail < (n - head).min(m - head)
+                && old_notes[n - 1 - tail] == new_notes[m - 1 - tail]
+            {
+                new_ids[m - 1 - tail] = old_notes[n - 1 - tail].id;
+                tail += 1;
+            }
+            let (a, b) = (&old_notes[head..n - tail], &new_notes[head..m - tail]);
+            // dp[i][j]: length of the common subsequence of a[i..] and b[j..].
+            let mut dp = vec![vec![0u32; b.len() + 1]; a.len() + 1];
+            for i in (0..a.len()).rev() {
+                for j in (0..b.len()).rev() {
+                    dp[i][j] = if a[i] == b[j] {
+                        dp[i + 1][j + 1] + 1
+                    } else {
+                        dp[i + 1][j].max(dp[i][j + 1])
+                    };
+                }
+            }
+            let (mut i, mut j) = (0, 0);
+            while i < a.len() && j < b.len() {
+                if a[i] == b[j] {
+                    new_ids[head + j] = a[i].id;
+                    i += 1;
+                    j += 1;
+                } else if dp[i + 1][j] >= dp[i][j + 1] {
+                    i += 1;
+                } else {
+                    j += 1;
+                }
+            }
+        }
+        let mut k = 0;
+        for item in self.syllables.iter_mut().flat_map(|s| &mut s.items) {
+            if let NeumeItem::Note(n) = item {
+                n.id = new_ids[k];
+                k += 1;
+            }
+        }
+        self.next_id = self.next_id.max(old.next_id);
+        self.assign_ids();
+    }
+
+    /// The ids of the notes in reading order.
+    pub fn note_ids(&self) -> Vec<u32> {
+        self.syllables
+            .iter()
+            .flat_map(|s| s.notes())
+            .map(|n| n.id)
+            .collect()
+    }
+
+    /// The reading-order index of the note with this id.
+    pub fn index_of_id(&self, id: u32) -> Option<usize> {
+        self.syllables
+            .iter()
+            .flat_map(|s| s.notes())
+            .position(|n| n.id == id && id != 0)
+    }
+
     pub fn header(&self, key: &str) -> Option<&str> {
         self.headers
             .iter()
@@ -662,6 +788,9 @@ pub struct Transcription {
     /// Beats each chant note sounds (1, or 2–3 for a stropha or bivirga), parallel to
     /// `positions`.
     pub lengths: Vec<u8>,
+    /// Ticks each chant note sounds in all (its beats' ticks added up: mora, Solesmes
+    /// lengthening and repeats counted), parallel to `positions`.
+    pub ticks: Vec<u32>,
 }
 
 impl Transcription {
@@ -752,6 +881,7 @@ pub fn transcribe(chant: &Chant) -> Transcription {
                     }
                     out.positions.push((out.bars.len(), beats.len()));
                     out.lengths.push(n.repeats());
+                    out.ticks.push(ticks * n.repeats() as u32);
                     for _ in 0..n.repeats() {
                         let mut beat = Beat {
                             duration: duration_of(ticks),
@@ -783,9 +913,14 @@ pub fn transcribe(chant: &Chant) -> Transcription {
 /// Rewrites a chant track's bars (and the score's master bars) from its chant notation. Other
 /// tracks keep their bars, padded or cut to the new bar count.
 pub fn retranscribe(score: &mut crate::Score, track: usize) {
-    let Some(chant) = score.tracks.get(track).and_then(|t| t.chant.as_deref()) else {
+    let Some(chant) = score
+        .tracks
+        .get_mut(track)
+        .and_then(|t| t.chant.as_deref_mut())
+    else {
         return;
     };
+    chant.assign_ids();
     let t = transcribe(chant);
     let n = t.master_bars.len().max(1);
     score.master_bars = if t.master_bars.is_empty() {
@@ -803,6 +938,7 @@ pub fn retranscribe(score: &mut crate::Score, track: usize) {
         }
         tr.bars.resize_with(n, Bar::default);
     }
+    score.refresh_chant_sync();
 }
 
 fn duration_of(ticks: u32) -> Duration {

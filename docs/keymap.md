@@ -88,7 +88,7 @@ Writing `.gp5` keeps two voices per bar (the status line warns when more with no
 | `<leader>m`                 | toggle metronome                                                                                                                                                                                                        | _(M5)_ |
 | `<leader>-` / `<leader>=`   | speed −5% / +5%                                                                                                                                                                                                         | _(M5)_ |
 | `<leader>a`                 | cycle mix: audio + MIDI / audio only / MIDI only                                                                                                                                                                        | _(M5)_ |
-| `<leader>t`                 | sync tap: place the next bar at the current audio time                                                                                                                                                                  | _(M5)_ |
+| `<leader>t`                 | sync tap: place the next bar (chant: the next syllable) at the current audio time                                                                                                                                                                  | _(M5)_ |
 | `<leader>w`                 | show / hide the waveform tool pane (`:waveform`) | _(M5)_ |
 | `<leader>v`                 | cycle the focused pane's score layout (vertical / page / horizontal); new splits and views copy it                                                                                                                      | _(M3)_ |
 | `<leader>d`                 | design mode on / off: adjust the page layout by hand (see _Design mode_ below)                                                                                                                                           | _(M3)_ |
@@ -819,6 +819,14 @@ accepted as well), looked up before `[keymap.normal]` and only on chant scores:
 | `t*` `t+` | `*` or `+` in the syllable's text |
 | `td,` `td;` `td:` `tD` | division `,` `;` `:` `::` after the syllable |
 | `tc1`–`tc4` `tcb` `tF1`–`tF4` | clef do 1–4, flat do, fa 1–4 |
+| `<leader>yh` `<leader>yu` | audio sync: set the cursor note at the playhead (`:sync-here`), take back the last tap (`:sync-undo`) |
+| `<leader>y[` `<leader>y]` `<leader>y{` `<leader>y}` | nudge the sync point under the cursor by −10 / +10 / −50 / +50 ms (`:sync-nudge`) |
+| `<leader>yy` `<leader>yn` | tap per syllable / per note (`:sync-unit`) |
+
+**Audio sync of a chant score.** `:sync` plays and starts tapping at the cursor note; `<leader>t`
+(`:sync-tap`) on each syllable as it is sung sets that syllable's first note at the playhead
+(snapped to the nearest sung onset), the cursor follows and the status shows `tap: next …`.
+`:sync` again stops. The sync is kept on notes, so editing the chant does not move it.
 
 On a chant track the cursor moves note by note; `<C-a>`/`<C-x>` move a note up or down a staff
 position, `:accidental flat` adds a flat, `x` deletes it and `u` undoes (see "Insert mode" above for the
@@ -847,6 +855,9 @@ chant keys, and which modern-track keys answer "not in chant").
 | `:audio [file]` / `:audio off`             | attach a recording (mp3, m4a/aac, flac, ogg, wav; relative to the score). Without a file, the best name match next to the score or in its `mp3/`/`audio/` folder                                         |
 | `:sync`                                    | start (or stop) sync tapping from the cursor bar: play, then `<leader>t` on each downbeat                                                                                                                |
 | `:sync-tap` / `:sync-clear`                | add a sync point at the playing bar / remove all sync points                                                                                                                                             |
+| `:sync-unit syllable\|note`                | chant: what one sync tap sets (default a syllable; also a row in the chant Score tab)                    |
+| `:sync-undo`                               | chant: take back the last sync tap (while tapping)                                                      |
+| `:sync-here` / `:sync-nudge MS`            | chant: sync the cursor note at the playhead / move the sync point under the cursor by MS milliseconds   |
 | `:sync-detect`                             | beat-detection assist: fill in sync points from the last existing one (tap the first downbeat first for best results)                                                                                    |
 | `:mix [both\|audio\|midi]`                 | what plays when a recording is attached (no argument cycles)                                                                                                                                             |
 | `:volume midi\|audio\|metronome\|master {percent}` | source levels (`master` scales the whole output)                                                                                                                                                                                            |

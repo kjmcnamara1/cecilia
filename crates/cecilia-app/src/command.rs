@@ -253,6 +253,14 @@ pub enum Command {
     SyncTap,
     SyncClear,
     SyncDetect,
+    /// Chant: what one tap syncs, a syllable or a note.
+    SyncUnit(crate::chantsync::SyncUnit),
+    /// Chant: take back the last tap.
+    SyncUndo,
+    /// Chant: sync the cursor note at the playhead.
+    SyncHere,
+    /// Chant: move the sync point under the cursor by this many milliseconds.
+    SyncNudge(i32),
     /// Toggle the waveform strip of the focused pane.
     Waveform,
     /// The window-wide waveform bar: on, off, or toggle (None).
@@ -959,6 +967,16 @@ impl Command {
             "sync-tap" => SyncTap,
             "sync-clear" => SyncClear,
             "sync-detect" => SyncDetect,
+            "sync-unit" => SyncUnit(
+                arg.and_then(crate::chantsync::SyncUnit::parse)
+                    .ok_or("sync-unit: expected syllable or note")?,
+            ),
+            "sync-undo" => SyncUndo,
+            "sync-here" => SyncHere,
+            "sync-nudge" => SyncNudge(
+                arg.and_then(|a| a.trim().parse().ok())
+                    .ok_or("sync-nudge: expected milliseconds, e.g. :sync-nudge -10")?,
+            ),
             "waveform-strip" => Waveform,
             "waveform" | "progress-bar" | "scrollbar" => {
                 let on = match arg {

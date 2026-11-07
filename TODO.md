@@ -58,6 +58,15 @@ Planned work. Finished items move to `CHANGELOG.md` under `[Unreleased]`.
 
 ### Chant
 
+- [ ] Automatic audio sync for chant (`:sync-detect` in a chant score): track the recording's
+      pitch (YIN, `cecilia-audio/src/tuner.rs`, ~10 ms hops), align the chant's note pitches and
+      lengths by DTW allowing a constant transposition, set a point at each syllable start snapped
+      to onsets, marked as detected (phase 3c step 8).
+- [ ] Note ids through GABC text editing, properly (phase 4 / plan step 5): the properties pane's
+      text edit and `:gabc` already match reparsed notes to the old ones by longest common
+      subsequence on pitch and signs (`Chant::inherit_ids`); phase 4's splice edits should keep
+      ids exactly, and the match could use the syllable text and shape too.
+
 - [ ] TODO: Deep dive on chant staff representation
 - [ ] Draw the chant staff of an ordinary track from the GABC groups in its gabc+ lyrics (they
       are kept and shown, not yet used): `some(g)---one(e)` two descending punctums under

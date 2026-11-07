@@ -181,6 +181,12 @@ pub fn lyric_rows_lost(score: &Score, extension: &str) -> usize {
     cecilia_core::gabcplus::gp_lyrics(score).map_or(0, |(_, g)| g.dropped)
 }
 
+/// True when writing a score with audio sync to a file of this extension drops the audio and
+/// its sync: `.gabc` keeps only the chant (use `.cc`), so callers can warn.
+pub fn audio_lost(score: &Score, extension: &str) -> bool {
+    extension.eq_ignore_ascii_case("gabc") && score.audio.is_some()
+}
+
 /// Writes a score to a file in the format given by its extension.
 pub fn write_file(score: &Score, path: &Path) -> Result<()> {
     let ext = path

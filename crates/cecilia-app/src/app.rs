@@ -477,6 +477,8 @@ pub enum Effect {
     SyncTap,
     /// Generate sync points from beat detection.
     SyncDetect,
+    /// Sync the chant note under the cursor at the playhead.
+    SyncHere,
 }
 
 pub const DEFAULT_TRACKS_ROWS: usize = 8;
@@ -2950,6 +2952,7 @@ impl App {
             .to_string();
         let lost = cecilia_formats::voices_lost(score, &ext);
         let rows_lost = cecilia_formats::lyric_rows_lost(score, &ext);
+        let audio_lost = cecilia_formats::audio_lost(score, &ext);
         match cecilia_formats::write_file(score, &target) {
             Ok(()) => {
                 let size = std::fs::metadata(&target).map(|m| m.len()).unwrap_or(0);
@@ -2971,6 +2974,12 @@ impl App {
                     note.push_str(&format!(
                         " (warning: {rows_lost} verse row{} beyond the five lyric lines .{ext} stores left out)",
                         if rows_lost == 1 { "" } else { "s" }
+                    ));
+                }
+                if audio_lost {
+                    note.push_str(&format!(
+                        " (warning: the audio and its sync are not saved in .{ext}; save as .cc \
+                         to keep them)"
                     ));
                 }
                 self.info(format!(

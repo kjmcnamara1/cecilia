@@ -87,10 +87,23 @@ pub struct AudioSync {
     /// Sample offset of the audio relative to the start of the score (44.1 kHz frames).
     pub frame_padding: i64,
     pub points: Vec<SyncPoint>,
+    /// A chant score's sync: points on notes (by [`crate::chant::ChantNote::id`]). `points` is
+    /// then derived from these for the cached bars after every change and not saved.
+    #[serde(default)]
+    pub chant_points: Vec<ChantSyncPoint>,
     /// Audio bytes stored inside the score file (GP7/8 backing tracks, `.cc` archives);
     /// `file` then names the entry. Not part of the JSON model.
     #[serde(skip)]
     pub embedded: Option<std::sync::Arc<Vec<u8>>>,
+}
+
+/// Aligns the start of a chant note with a position in the audio.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+pub struct ChantSyncPoint {
+    /// The note's stable id.
+    pub note: u32,
+    /// Audio position in 44.1 kHz frames (including the audio's padding, as [`SyncPoint`]).
+    pub frame: i64,
 }
 
 /// Aligns the start of a bar occurrence (in playback order) with a position in the audio.
@@ -1217,13 +1230,20 @@ impl Score {
 
     /// The modern score a chant score converts to: its cached bars as a pitched track (name,
     /// instrument and volume kept, `chant` none), master bars and metadata kept, the syllables
-    /// turned into lyrics text on the beats. Audio sync points are carried over unchanged. None
+    /// turned into lyrics text on the beats. The audio stays in place (the bar sync points derived from
+    /// the note points become the score's own, the note points go). None
     /// when the score has no chant track; other tracks of a mixed score are kept.
     pub fn chant_to_modern(&self) -> Option<Score> {
         if self.tracks.iter().all(|t| t.chant.is_none()) {
             return None;
         }
         let mut out = self.clone();
+        // The audio stays in place: the bar points derived from the note points become the
+        // modern score's own.
+        out.refresh_chant_sync();
+        if let Some(a) = out.audio.as_mut() {
+            a.chant_points.clear();
+        }
         for t in 0..out.tracks.len() {
             if out.tracks[t].chant.is_none() {
                 continue;

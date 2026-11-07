@@ -157,7 +157,8 @@ conversions. Moving between the kinds is explicit and never changes the buffer y
 
 - `:chant-to-modern` opens a **new buffer** `[modern] name` holding a modern score: the chant's
   bars as a pitched track (name, instrument and volume kept), master bars and title kept, the
-  syllables as lyrics text on the beats, audio sync points carried over. `cecilia convert in.gabc
+  syllables as lyrics text on the beats, audio kept in place (the derived bar sync points become the
+  modern score's own). `cecilia convert in.gabc
   out.gp5` (any modern format) does the same.
 - `:modern-to-chant` opens a **new buffer** `[chant] name` from the cursor track only; other
   tracks are left out (the message says so).
@@ -268,6 +269,18 @@ untouched original (which may contain data cecilia does not model) is never rewr
 - **Sync map**: list of (score position ↔ audio time) points. Positions between points are linearly
   interpolated in ticks, which handles tempo drift. Users add points by tapping during playback or by
   placing them on a waveform pane. A beat-detection assist proposes points to accept or adjust.
+- **Audio sync of a chant score** is kept on notes, not bars: a chant's bars are a cache that edits
+  renumber and unmeasured chant has no useful bars. `ChantNote.id` is a stable id (assigned when a
+  chant is read or made, kept by every edit, never written to GABC) and `AudioSync.chant_points`
+  are `(note id, frame)` pairs; a point is dropped only when its note is deleted. Between two
+  points the time is shared in proportion to the note lengths of `chant::transcribe` (mora,
+  Solesmes lengthening); outside them the nearest stretch's rate, and the score tempo with no
+  point. After every change `Score::refresh_chant_sync` derives ordinary bar `SyncPoint`s (one at
+  each bar's first note) so the player, seeking, waveform, progress bar and loops are unchanged;
+  those are not saved for chant scores (`.cc` writes the note points). Saving as `.gabc` warns that
+  audio and sync are not stored. Tapping (`:sync`, `:sync-tap`), `:sync-undo`, `:sync-here` and
+  `:sync-nudge` are the ways to set points; the tapped time snaps to the nearest audio onset
+  within 70 ms. Automatic sync for chant (pitch tracking and alignment) is not done yet.
 - Practice: speed 25–200% without pitch change, pitch shift ±12 semitones (with cents), A–B loop
   (from a Visual-mode selection), count-in, metronome, speed trainer (increase speed each loop).
 - Mixer: per-track volume/pan/mute/solo, audio-track volume, metronome volume, master volume.

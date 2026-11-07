@@ -23,7 +23,19 @@ fn err(message: impl Into<String>) -> Error {
 }
 
 pub fn write_cecilia(score: &Score) -> Result<Vec<u8>> {
-    let json = serde_json::to_vec(score).map_err(|e| err(e.to_string()))?;
+    // A chant score's bar sync points are derived from its note points: only those are saved.
+    let derived;
+    let model = if score.is_chant() && score.audio.as_ref().is_some_and(|a| !a.points.is_empty()) {
+        let mut s = score.clone();
+        if let Some(a) = s.audio.as_mut() {
+            a.points.clear();
+        }
+        derived = s;
+        &derived
+    } else {
+        score
+    };
+    let json = serde_json::to_vec(model).map_err(|e| err(e.to_string()))?;
     let manifest = format!(
         "format = \"cecilia\"\nformat_version = {FORMAT_VERSION}\napp_version = \"{}\"\n",
         env!("CARGO_PKG_VERSION")
@@ -95,6 +107,23 @@ pub fn read_cecilia(bytes: &[u8]) -> Result<Score> {
     // It loads as a modern score (the chant's bars and syllables), as `:chant-to-modern` makes.
     score.one_kind();
     score.normalize_dynamics();
+    if score.is_chant() {
+        // Notes get their ids (older files have none); the bar points of a chant score are
+        // derived from its note points, and bar points an older file kept become note points.
+        let t = score.tracks.iter().position(|t| t.chant.is_some()).unwrap();
+        if let Some(c) = score.tracks[t].chant.as_deref_mut() {
+            c.assign_ids();
+        }
+        if score
+            .audio
+            .as_ref()
+            .is_some_and(|a| a.chant_points.is_empty() && !a.points.is_empty())
+        {
+            score.bar_points_to_notes();
+        } else {
+            score.refresh_chant_sync();
+        }
+    }
     Ok(score)
 }
 
@@ -309,5 +338,79 @@ mod tests {
         zip.write_all(b"format_version = 999\n").unwrap();
         let bytes = zip.finish().unwrap().into_inner();
         assert!(read_cecilia(&bytes).is_err());
+    }
+
+    fn chant_with_audio() -> Score {
+        let chant =
+            crate::gabc::parse("name: t;\n%%\n(c4) Al(fg)le(h) (;) lu(g)ia.(f.) (::)\n").unwrap();
+        let mut score = crate::gabc::chant_score(chant);
+        score.audio = Some(cecilia_core::AudioSync {
+            file: Some("a.mp3".into()),
+            ..Default::default()
+        });
+        score.set_chant_sync_point(1, 10_000);
+        score.set_chant_sync_point(4, 60_000);
+        score.refresh_chant_sync();
+        score
+    }
+
+    #[test]
+    fn a_chant_score_keeps_its_note_ids_and_points() {
+        let score = chant_with_audio();
+        let ids = score.tracks[0].chant.as_deref().unwrap().note_ids();
+        assert_eq!(ids, [1, 2, 3, 4, 5]);
+        assert_eq!(score.audio.as_ref().unwrap().points.len(), 2);
+        let bytes = write_cecilia(&score).unwrap();
+        // Only the note points are saved: the bar points are derived.
+        let mut zip = zip::ZipArchive::new(std::io::Cursor::new(&bytes)).unwrap();
+        let mut json = String::new();
+        zip.by_name("score.json")
+            .unwrap()
+            .read_to_string(&mut json)
+            .unwrap();
+        let value: serde_json::Value = serde_json::from_str(&json).unwrap();
+        assert_eq!(value["audio"]["points"].as_array().unwrap().len(), 0);
+        assert_eq!(value["audio"]["chant_points"].as_array().unwrap().len(), 2);
+        let back = read_cecilia(&bytes).unwrap();
+        assert_eq!(back, score);
+        let chant = back.tracks[0].chant.as_deref().unwrap();
+        assert_eq!(chant.note_ids(), ids);
+        let a = back.audio.as_ref().unwrap();
+        assert_eq!(a.chant_points, score.audio.as_ref().unwrap().chant_points);
+        assert_eq!(a.points, score.audio.as_ref().unwrap().points);
+        // The points are on the same notes still after a note is added before them.
+        let mut edited = back.clone();
+        edited.tracks[0]
+            .chant
+            .as_deref_mut()
+            .unwrap()
+            .insert_note(0, false, cecilia_core::chant_edit::Join::NewSyllable, 5)
+            .unwrap();
+        cecilia_core::chant::retranscribe(&mut edited, 0);
+        let c = edited.tracks[0].chant.as_deref().unwrap();
+        assert_eq!(c.index_of_id(4), Some(4));
+        assert_eq!(edited.audio.as_ref().unwrap().chant_points.len(), 2);
+    }
+
+    #[test]
+    fn an_old_chant_file_without_ids_gets_them() {
+        let mut score = chant_with_audio();
+        score.audio = None;
+        for item in score.tracks[0]
+            .chant
+            .as_deref_mut()
+            .unwrap()
+            .syllables
+            .iter_mut()
+            .flat_map(|s| &mut s.items)
+        {
+            if let cecilia_core::chant::NeumeItem::Note(n) = item {
+                n.id = 0;
+            }
+        }
+        let back = read_cecilia(&write_cecilia(&score).unwrap()).unwrap();
+        let ids = back.tracks[0].chant.as_deref().unwrap().note_ids();
+        assert!(ids.iter().all(|&i| i != 0));
+        assert_eq!(ids.len(), 5);
     }
 }

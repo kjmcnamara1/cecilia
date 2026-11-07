@@ -138,7 +138,14 @@ impl Chant {
         if pitch as i32 > TOP {
             return Err("pitch above the staff".into());
         }
-        let note = NeumeItem::Note(ChantNote::new(pitch));
+        // The new note takes a fresh id; the others keep theirs.
+        self.assign_ids();
+        let id = self.next_id;
+        self.next_id += 1;
+        let note = NeumeItem::Note(ChantNote {
+            id,
+            ..ChantNote::new(pitch)
+        });
         let Some((si, ii)) = self.note_place(n) else {
             if self.note_count() > 0 {
                 return Err("no such note".into());
@@ -896,5 +903,67 @@ mod tests {
         score.tracks[0].chant = Some(Box::new(c));
         retranscribe(&mut score, 0);
         assert_eq!(beats(&score), 6);
+    }
+
+    #[test]
+    fn note_ids_stay_with_their_notes_through_every_edit() {
+        let mut c = small();
+        c.assign_ids();
+        assert_eq!(c.note_ids(), [1, 2, 3, 4, 5]);
+        // New notes take fresh ids, the others keep theirs.
+        c.insert_note(1, true, Join::Neume, 8).unwrap();
+        assert_eq!(c.note_ids(), [1, 2, 6, 3, 4, 5]);
+        c.insert_note(0, false, Join::NewSyllable, 4).unwrap();
+        assert_eq!(c.note_ids(), [7, 1, 2, 6, 3, 4, 5]);
+        c.delete_note(1).unwrap();
+        assert_eq!(c.note_ids(), [7, 2, 6, 3, 4, 5]);
+        // A deleted note's id is not handed out again.
+        c.insert_note(0, true, Join::Neume, 4).unwrap();
+        assert_eq!(c.note_ids(), [7, 8, 2, 6, 3, 4, 5]);
+        let before = c.note_ids();
+        c.move_note(2, 2).unwrap();
+        c.set_shape(2, Shape::Virga).unwrap();
+        c.set_mora(3, 1).unwrap();
+        c.set_alteration(4, Some(Alter::Flat)).unwrap();
+        c.insert_division(3, ";").unwrap();
+        c.split_syllable(3).unwrap();
+        assert_eq!(c.note_ids(), before);
+        c.join_syllable(3).unwrap_or(());
+        c.set_syllable_text(0, "x").unwrap();
+        assert_eq!(c.note_ids(), before);
+    }
+
+    #[test]
+    fn ids_do_not_take_part_in_comparisons() {
+        let mut a = small();
+        let b = small();
+        a.assign_ids();
+        assert_eq!(a, b);
+        assert_eq!(gabc(&a), gabc(&b));
+    }
+
+    #[test]
+    fn a_chant_made_again_from_text_inherits_the_ids_of_the_notes_it_kept() {
+        let mut old = small();
+        old.assign_ids();
+        // The same melody with a note added in the middle and one dropped at the end.
+        let mut new = small();
+        new.insert_note(1, true, Join::Neume, 9).unwrap();
+        new.delete_note(5).unwrap();
+        for item in new.syllables.iter_mut().flat_map(|s| &mut s.items) {
+            if let NeumeItem::Note(n) = item {
+                n.id = 0;
+            }
+        }
+        new.inherit_ids(&old);
+        let ids = new.note_ids();
+        // The new note has a fresh id, the others their old ones.
+        assert_eq!(&ids[..2], [1, 2]);
+        assert!(ids[2] > 5);
+        assert_eq!(&ids[3..], [3, 4]);
+        // Identical text: every id stays.
+        let mut same = small();
+        same.inherit_ids(&old);
+        assert_eq!(same.note_ids(), old.note_ids());
     }
 }

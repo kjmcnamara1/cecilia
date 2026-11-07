@@ -261,6 +261,10 @@ pub const COMMAND_SCOPES: &[(&str, Scope)] = &[
     ("sync-clear", B),
     ("sync-detect", B),
     ("sync-tap", B),
+    ("sync-unit", C),
+    ("sync-undo", C),
+    ("sync-here", C),
+    ("sync-nudge", C),
     ("tempo", B),
     ("text", M),
     ("time", M),
@@ -431,6 +435,7 @@ fn values(command: &str) -> Option<&'static [&'static str]> {
             "oriscus-stem",
             "quadratum",
         ],
+        "sync-unit" => &["syllable", "note"],
         "chant-alter" => &["flat", "natural"],
         "chant-liquescence" => &["deminutus", "ascendens", "descendens"],
         "chant-symbol" => &["*", "+", "†", "℣", "℟"],
@@ -925,7 +930,18 @@ mod tests {
             std::fs::write(dir.join(f), b"").unwrap();
         }
         let c = complete(":sync-", &dir, None, PREFIX);
-        assert_eq!(c.items, ["sync-clear", "sync-detect", "sync-tap"]);
+        assert_eq!(
+            c.items,
+            [
+                "sync-clear",
+                "sync-detect",
+                "sync-here",
+                "sync-nudge",
+                "sync-tap",
+                "sync-undo",
+                "sync-unit"
+            ]
+        );
         assert_eq!((c.start, c.commands), (1, true));
         let c = complete(":layout p", &dir, None, PREFIX);
         assert_eq!(
@@ -1250,7 +1266,11 @@ pub fn describe(command: &str) -> Option<&'static str> {
         "sync" => "Start or stop tapping sync points",
         "sync-clear" => "Remove all audio sync points",
         "sync-detect" => "Sync the audio by beat detection",
-        "sync-tap" => "Sync point at the playing bar",
+        "sync-tap" => "Sync point at the playing bar (chant: at the next syllable or note)",
+        "sync-unit" => "Chant: tap one syllable or one note at a time",
+        "sync-undo" => "Chant: take back the last sync tap",
+        "sync-here" => "Chant: sync the cursor note at the playhead",
+        "sync-nudge" => "Chant: move the sync point under the cursor by some milliseconds",
         "bdelete" | "buffer-close" => "Close the buffer's tab in this view",
         "bdelete!" | "buffer-close!" => "Close the buffer's tab, discarding changes",
         "buffer" => "Show bufferline tab number",

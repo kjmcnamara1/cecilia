@@ -720,6 +720,13 @@ impl App {
                 }
             }
         }
+        // The note points of the audio sync follow their notes; the player's bar points are
+        // derived from them again. Points of deleted notes go (reported below).
+        let mut sync_dropped = 0;
+        if let (Some(before), true) = (&chant_before, result.is_ok()) {
+            cx.score.refresh_chant_sync();
+            sync_dropped = lost_sync_points(before, cx.score);
+        }
         if result.is_ok() {
             cx.relayout_lyrics();
         }
@@ -740,6 +747,13 @@ impl App {
         }
         clamp_cursor(&buffer.score, &mut cursor);
         self.panes.get_mut(&id).unwrap().cursor = cursor;
+        if sync_dropped > 0 {
+            self.info(format!(
+                "{sync_dropped} sync point{} dropped with the deleted note{}",
+                if sync_dropped == 1 { "" } else { "s" },
+                if sync_dropped == 1 { "" } else { "s" },
+            ));
+        }
         match result {
             Ok(r) => Some(r),
             Err(e) => {
@@ -2255,6 +2269,22 @@ fn fret_for_tab(track: &mut Track, staff: Staff) -> Result<(), String> {
     *track = fretted;
     track.staves = staves;
     Ok(())
+}
+
+/// How many of a chant score's note sync points `before` had were dropped because their note is
+/// gone from `after`.
+fn lost_sync_points(before: &Score, after: &Score) -> usize {
+    let (Some(old), Some(chant)) = (
+        before.audio.as_ref(),
+        after.tracks.iter().find_map(|t| t.chant.as_deref()),
+    ) else {
+        return 0;
+    };
+    let ids: std::collections::HashSet<u32> = chant.note_ids().into_iter().collect();
+    old.chant_points
+        .iter()
+        .filter(|p| !ids.contains(&p.note))
+        .count()
 }
 
 #[cfg(test)]
