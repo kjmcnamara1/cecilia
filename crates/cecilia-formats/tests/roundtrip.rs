@@ -693,3 +693,107 @@ fn gp5_keeps_two_voices_and_the_loss_is_reported() {
     assert_eq!(cecilia_formats::voices_lost(&score, "gpx"), 0);
     assert_eq!(cecilia_formats::voices_lost(&score, "cc"), 0);
 }
+
+/// The syllables of every track by (bar, beat, voice 0), as Guitar Pro 3–5 files keep them.
+fn syllables_by_beat(s: &Score) -> Vec<(usize, usize, usize, Vec<String>)> {
+    let mut out = Vec::new();
+    for (t, track) in s.tracks.iter().enumerate() {
+        for (b, bar) in track.bars.iter().enumerate() {
+            if let Some(v) = bar.voices.first() {
+                for (i, beat) in v.beats.iter().enumerate() {
+                    if !beat.lyrics.is_empty() {
+                        out.push((t, b, i, beat.lyrics.clone()));
+                    }
+                }
+            }
+        }
+    }
+    out
+}
+
+#[test]
+fn gp3_to_gp5_lyrics_keep_syllables_beats_and_line_breaks() {
+    let mut checked = 0;
+    let mut failures = Vec::new();
+    for f in corpus_files(&["gp3", "gp4", "gp5"]) {
+        let original = cecilia_formats::read_file(&f).unwrap();
+        if original.lyrics.as_ref().is_none_or(|l| l.lines.is_empty()) {
+            continue;
+        }
+        let bytes = cecilia_formats::gp_write::write_gp5(&original).unwrap();
+        let mut back = cecilia_formats::gp::read_with_trailing(&bytes).unwrap().0;
+        cecilia_formats::lyrics_to_text(&mut back, true);
+        checked += 1;
+        if syllables_by_beat(&original) != syllables_by_beat(&back) {
+            failures.push(format!("{}: syllables moved", f.display()));
+        }
+        // Line breaks: the same number of them in each lyrics text. A verse row that the
+        // repeats split in two (Guitar Pro keeps it as one line) adds a line of its own.
+        let split = back.lyrics.as_ref().map(|l| l.lines.len())
+            != original.lyrics.as_ref().map(|l| l.lines.len());
+        let breaks = |s: &Score| -> Vec<usize> {
+            s.tracks
+                .iter()
+                .map(|t| t.lyrics_text.matches('\n').count())
+                .collect()
+        };
+        let (a, b) = (breaks(&original), breaks(&back));
+        if (!split && a != b) || a.iter().zip(&b).any(|(a, b)| a > b) {
+            failures.push(format!(
+                "{}: line breaks {:?} -> {:?}",
+                f.display(),
+                breaks(&original),
+                breaks(&back)
+            ));
+        }
+    }
+    eprintln!("{checked} files with lyrics checked");
+    assert!(failures.is_empty(), "{}", failures.join("\n"));
+}
+
+/// A built score: rows, labels, empty notes, a dash word and a line break survive writing.
+#[test]
+fn gp5_writes_the_lyrics_text_back_in_guitar_pro_syntax() {
+    let beat = Beat {
+        duration: Duration::new(DurationValue::Quarter),
+        notes: vec![Note::new(3, 5)],
+        ..Beat::default()
+    };
+    let bar = Bar {
+        voices: vec![Voice {
+            beats: vec![beat; 4],
+        }],
+        ..Bar::default()
+    };
+    let mut score = Score {
+        tempo: 100,
+        master_bars: vec![MasterBar::default(); 3],
+        tracks: vec![Track {
+            kind: TrackKind::Fretted,
+            strings: vec![64, 59, 55, 50, 45, 40],
+            bars: vec![bar; 3],
+            lyrics_text: "[1.] Some-one <i>sings</i> * _ high\nand low (1:1) [2.] Oh - my+dear"
+                .into(),
+            ..Track::default()
+        }],
+        ..Score::default()
+    };
+    cecilia_core::gabcplus::apply(&mut score, 0);
+    let bytes = cecilia_formats::gp_write::write_gp5(&score).unwrap();
+    let mut back = cecilia_formats::gp::read_with_trailing(&bytes).unwrap().0;
+    let lines = &back.lyrics.as_ref().unwrap().lines;
+    assert_eq!(lines.len(), 2);
+    assert_eq!(lines[0].text, "[1.]Some-one sings _ high\nand low");
+    assert_eq!(lines[1].text, "[2.]Oh- _ my+dear");
+    cecilia_formats::lyrics_to_text(&mut back, true);
+    assert_eq!(
+        syllables_by_beat(&score),
+        syllables_by_beat(&back)
+            .into_iter()
+            .map(|mut x| {
+                x.3.truncate(2);
+                x
+            })
+            .collect::<Vec<_>>()
+    );
+}

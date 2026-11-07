@@ -95,7 +95,7 @@ fn gpx_and_gp7_corpus_parses() {
     assert!(failures.is_empty(), "\n{}", failures.join("\n"));
 }
 
-/// Lyrics read from every corpus file become gabc+ text that lays the syllables out where the
+/// Lyrics read from every corpus file become lyrics text that lays the syllables out where the
 /// file put them.
 #[test]
 fn lyrics_become_gabc_plus_text_in_place() {

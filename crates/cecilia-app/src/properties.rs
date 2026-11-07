@@ -110,7 +110,7 @@ pub enum Field {
     Pan,
     Mute,
     Solo,
-    /// All the track's lyrics as one gabc+ text.
+    /// All the track's lyrics as one lyrics text.
     Lyrics,
 }
 
@@ -684,7 +684,7 @@ fn onoff(b: bool) -> String {
     if b { "on" } else { "off" }.into()
 }
 
-/// A track's lyrics as one gabc+ text: its own (the source of the syllables on its beats), or a
+/// A track's lyrics as one text: its own (the source of the syllables on its beats), or a
 /// chant track's chant as GABC (without the header).
 pub fn full_lyrics(score: &cecilia_core::Score, track: usize) -> String {
     let Some(t) = score.tracks.get(track) else {
@@ -923,16 +923,20 @@ impl App {
         rows
     }
 
-    /// The lyrics text area's text for a track: a chant track's GABC (with its clef), else the
-    /// lyrics text without its GABC groups.
+    /// The lyrics text area's text for a track: a chant track's GABC, else the lyrics text.
     pub fn shown_lyrics(&self, track: usize) -> String {
-        let score = &self.buffer().score;
-        let full = full_lyrics(score, track);
-        if score.tracks.get(track).is_some_and(|t| t.chant.is_some()) {
-            full
-        } else {
-            cecilia_core::gabcplus::plain(&full).text
-        }
+        full_lyrics(&self.buffer().score, track)
+    }
+
+    /// Whether the lyrics text area (of the cursor track) holds GABC (a chant track) rather than
+    /// the modern lyrics syntax: it decides how the text is colored.
+    pub fn lyrics_is_gabc(&self) -> bool {
+        let cursor = self.pane().cursor;
+        self.buffer()
+            .score
+            .tracks
+            .get(cursor.track)
+            .is_some_and(|t| t.chant.is_some())
     }
 
     /// The selected row, clamped to the rows there are.
@@ -1963,10 +1967,9 @@ impl App {
         valid.get()
     }
 
-    /// Replaces the lyrics of a track with the text area's `shown` text: the gabc+ itself with
-    /// GABC on, else the text without its GABC groups, which are kept where their syllables
-    /// still are. The syllables are laid onto the notes again; a chant track's chant is read
-    /// from it. One undo step per edit session.
+    /// Replaces the lyrics of a track with the text area's `shown` text. The syllables are laid
+    /// onto the notes again; a chant track's chant is read from it. One undo step per edit
+    /// session.
     fn set_lyrics(&mut self, track: usize, shown: &str, live: bool) {
         let typed = self
             .props
@@ -1982,13 +1985,7 @@ impl App {
             .get(track)
             .and_then(|t| t.chant.as_deref())
             .cloned();
-        // A chant track's text is its GABC; else the GABC groups of the old text are kept
-        // where their syllables still are.
-        let full = if chant.is_some() {
-            shown.to_string()
-        } else {
-            cecilia_core::gabcplus::plain(&old).edit(&old, shown)
-        };
+        let full = shown.to_string();
         if let Some(chant) = chant {
             // The chant's header stays; the body is read again.
             let mut gabc = String::new();
@@ -2605,7 +2602,7 @@ mod tests {
             .unwrap_or_else(|| panic!("no row for {f:?}"))
     }
 
-    /// Sets the cursor track's gabc+ lyrics.
+    /// Sets the cursor track's lyrics lyrics.
     fn lyrics_text(app: &mut App, text: &str) {
         let b = app.pane().buffer;
         app.buffers[b].score.tracks[0].lyrics_text = text.into();
@@ -2973,21 +2970,21 @@ mod tests {
             .value
             .clone();
         // "Al" is sung on two notes: a dash covers the second.
-        assert_eq!(shown, "Al- - le lu-ia.");
+        assert_eq!(shown, "Al- _ le lu-ia.");
     }
 
     #[test]
-    fn plain_typing_over_a_tracks_text_keeps_its_gabc_groups() {
+    fn a_staff_tracks_text_is_the_modern_syntax_without_a_gabc_switch() {
         let mut app = with_props();
-        lyrics_text(&mut app, "(c4) Ky(f)ri(gh)e(h) e(g)le(f)i(e)son(d)");
+        lyrics_text(&mut app, "(1:1) <i>Ky</i>-ri-e e-le-i-son");
         app.set_property_tab(PropTab::Lyrics);
         let shown = |app: &App| {
             app.property_rows()[field_row(app, Field::Lyrics)]
                 .value
                 .clone()
         };
-        // A staff track's text area shows the text without its GABC groups.
-        assert_eq!(shown(&app), "Ky-ri-e e-le-i-son");
+        assert_eq!(shown(&app), "(1:1) <i>Ky</i>-ri-e e-le-i-son");
+        assert!(!app.lyrics_is_gabc());
         assert!(
             !app.property_rows().iter().any(|r| r.label == "GABC"),
             "no GABC switch"
@@ -3000,14 +2997,13 @@ mod tests {
                 .unwrap_or_default()
         };
         assert_eq!(s(&app, 0, 0), "Ky-");
-        // Typing over the plain text keeps the notes of the syllables still there.
         keys(&mut app, "<leader>P$i,<Esc>");
         assert_eq!(
             app.buffer().score.tracks[0].lyrics_text,
-            "(c4) Ky(f)ri(gh)e(h) e(g)le(f)i(e)so,n(d)"
+            "(1:1) <i>Ky</i>-ri-e e-le-i-so,n"
         );
         keys(&mut app, "u");
-        assert_eq!(shown(&app), "Ky-ri-e e-le-i-son");
+        assert_eq!(shown(&app), "(1:1) <i>Ky</i>-ri-e e-le-i-son");
     }
 
     #[test]

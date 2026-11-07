@@ -2912,6 +2912,7 @@ impl App {
             .unwrap_or_default()
             .to_string();
         let lost = cecilia_formats::voices_lost(score, &ext);
+        let rows_lost = cecilia_formats::lyric_rows_lost(score, &ext);
         match cecilia_formats::write_file(score, &target) {
             Ok(()) => {
                 let size = std::fs::metadata(&target).map(|m| m.len()).unwrap_or(0);
@@ -2921,7 +2922,7 @@ impl App {
                     self.buffers[index].history.mark_saved();
                     self.swap_release(index);
                 }
-                let note = if lost > 0 {
+                let mut note = if lost > 0 {
                     format!(
                         " (warning: {lost} voice bar{} beyond what .{ext} stores left out)",
                         if lost == 1 { "" } else { "s" }
@@ -2929,6 +2930,12 @@ impl App {
                 } else {
                     String::new()
                 };
+                if rows_lost > 0 {
+                    note.push_str(&format!(
+                        " (warning: {rows_lost} verse row{} beyond the five lyric lines .{ext} stores left out)",
+                        if rows_lost == 1 { "" } else { "s" }
+                    ));
+                }
                 self.info(format!(
                     "\"{}\" written, {size} bytes{note}",
                     target.display()

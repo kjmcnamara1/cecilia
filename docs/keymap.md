@@ -417,22 +417,20 @@ have a narrower box with the color's hex code or the strings' pitches beside it 
 - **TRACK** — the track under the score cursor (`n`/`p` change it): *Info* (name, kind, color),
   *Notation* (tuning, frets, capo, and the key *Staves* over one field per staff, top to bottom, with an empty "Add Staff" field at the bottom; each opens a picker of staff kinds, shown with an icon, and a field's handle drags it to another place, a line showing where it lands; a chant track has one *chant* row, whose second box opens its clef picker) and *Sound*
   (instrument, MIDI channel, bank, volume, pan, mute, solo).
-- **LYRICS** — the cursor track's lyrics as one text area in *gabc+* (below; full reference in
-  [LYRICS.md](LYRICS.md)), the single source
-  of the syllables on its notes. The text shows without its GABC: no `(…)` groups and no clef
-  (a group between two letters shows as a hyphen), and whatever is typed keeps the groups of the
-  syllables still there. The text area has no label, box or background; it is in the app's text
+- **LYRICS** — the cursor track's lyrics as one text area (below; full reference in
+  [LYRICS.md](LYRICS.md)), the single source of the syllables on its notes. The text is shown
+  and edited as written. The text area has no label, box or background; it is in the app's text
   font (GUI: `ui.lyrics_font`, any installed family, at `ui.lyrics_font_size`, 12 pt) and colored
-  by the theme: words `lyrics_text`, `[labels]` `lyrics_label` in bold, `<bar:beat>` anchors
-  `lyrics_anchor`. A chant track's lyrics are its chant: its text area always shows the GABC body
-  of the chant (its header is kept; clefs, notes and groups in the `lyrics_clef` … colors), read
-  back as GABC when edited.
+  by the theme: words `lyrics_text`, `[labels]` `lyrics_label` in bold, `(bar:beat)` anchors
+  `lyrics_anchor`, markup tags `lyrics_markup`. A chant track's lyrics are its chant: its text
+  area always shows the GABC body of the chant (its header is kept; clefs, notes and groups in
+  the `lyrics_clef` … colors), read back as GABC when edited.
 
-### gabc+
+### Lyrics syntax
 
-GABC (`text(notes)`) with additions for modern scores: `some-one` hyphens, `some -- one` and
-`some __ one` dash and skip words (two more beats each), `_si-lence` italics, `[1.]` labels, `*`
-printed ✻, `<bar:beat>` anchors (first-voice beats, as the status line counts). Syllables go one
+`some-one` hyphens, `some -- one` and `some __ one` dash and skip words (two more beats each),
+`<i>si</i>-lence` GABC markup tags (`<i>` `<b>` `<ul>` `<sc>` `<c>`) for styles, `[1.]` labels,
+`*` printed ✻, `(bar:beat.fraction)` anchors (as the status line counts). Syllables go one
 to a note in the order the music is played (repeats, alternate endings, D.C./D.S.), the second
 pass of a repeat on the second verse row. The syntax, worked examples, placement rules and every
 key of the text area are in [LYRICS.md](LYRICS.md).
@@ -693,7 +691,7 @@ e.g. `"<C-g>" = "completion-ignore-case"`, `"<C-f>" = "completion-fuzzy"`.
 | `:clef {clef}` | the clef of the cursor's staff, by its notation. Standard: `treble`, `bass`, `grand [split]` (a grand staff splits at C3 unless a note such as `G3` is given) or `neutral` (percussion clef: drum tracks only, and the only clef they take). Tab and slash staves have no clef. A chant track takes `c1`–`c4` / `f1`–`f4` (the staff line, 1 is the bottom one) and `cb3` (flat clef); its notes keep their staff positions |
 | `:lyrics-attach {above\|below} [track]` / `:lyrics-attach none` | attach lyrics to the cursor's staff, above or below it (not both), taken from the given track (number; the staff's own track by default) and aligned with the staff's beats by their position in the bar. A track whose staves have none attached shows its own lyrics below its top staff; once any staff has some, only those staves show lyrics |
 | `:staff-remove [n]` / `:staff-move {n\|+N\|-N}`                      | remove a staff (1 = top; the cursor's by default; the last one stays) / move the cursor's staff to position n, or down / up |
-| `:lyrics TEXT`                                                       | add lyrics from the cursor on: `<bar:beat>` (the cursor's, as a beat of the first voice) and the words go at the end of the track's gabc+ text, as if typed in the lyrics text area (`\n` is a line break). If the text already reaches past the cursor the words go on the next verse row ([LYRICS.md](LYRICS.md#6-commands)) |
+| `:lyrics TEXT`                                                       | add lyrics from the cursor on: `(bar:beat)` (the cursor's position) and the words go at the end of the track's lyrics text, as if typed in the lyrics text area (`\n` is a line break). If the text already reaches past the cursor the words go on the next verse row ([LYRICS.md](LYRICS.md#6-commands)) |
 | `:lyrics-clear [verse]`                                              | remove the track's lyrics, or the syllables (with their labels, dashes and gaps) on one verse row; later rows move up                                                                     |
 | `:speed 75`                                                          | playback speed in percent                                                                                                                                                                   |
 

@@ -413,9 +413,9 @@ struct Ctx<'a> {
     /// staff's columns by their tick in the bar). Without it a track's own lyrics go under its
     /// top staff.
     lyric_source: Option<&'a Track>,
-    /// How the syllables drawn are shown, from their track's gabc+ text: by (bar, beat,
-    /// verse), italics, and the labels before and ✻ after them.
-    lyric_deco: HashMap<(usize, usize, usize), (bool, String, String)>,
+    /// How the syllables drawn are shown, from their track's lyrics text: by (bar, beat,
+    /// verse), their style, and the labels before and ✻ after them.
+    lyric_deco: HashMap<(usize, usize, usize), cecilia_core::gabcplus::Deco>,
     nh_width: f64,
     /// Syllables drawn so far, for hyphens: (page, verse y, left, right, continues).
     syllables: std::cell::RefCell<Vec<Syllable>>,
@@ -489,7 +489,29 @@ type TupletNote = (f64, f64, Option<(Vec<f64>, bool)>);
 /// A drawn lyric syllable: page, baseline y, left and right x, and whether a hyphen follows.
 /// Page, baseline, left and right edge of the text (with its label), whether a hyphen joins it
 /// to the next, and how many ✻ follow it.
-type Syllable = (usize, f64, f64, f64, bool, usize);
+/// (page, verse y, left, right, continues, stars, underlined).
+/// The runs a syllable's text is drawn in: with small caps, lower-case letters as capitals at
+/// 0.8 of the size. Each run with its size.
+fn style_runs(text: &str, small_caps: bool, size: f64) -> Vec<(String, f64)> {
+    if !small_caps {
+        return vec![(text.to_string(), size)];
+    }
+    let mut runs: Vec<(String, f64)> = Vec::new();
+    for ch in text.chars() {
+        let (c, sz) = if ch.is_lowercase() {
+            (ch.to_uppercase().collect::<String>(), size * 0.8)
+        } else {
+            (ch.to_string(), size)
+        };
+        match runs.last_mut() {
+            Some(last) if last.1 == sz => last.0.push_str(&c),
+            _ => runs.push((c, sz)),
+        }
+    }
+    runs
+}
+
+type Syllable = (usize, f64, f64, f64, bool, usize, bool);
 
 /// Note positions on the standard staff, for ties.
 #[derive(Clone, Copy)]
@@ -1637,7 +1659,7 @@ impl Ctx<'_> {
     }
 
     /// Draws the verses of lyrics of beat `at` (bar, beat), centred on `cx`: each syllable
-    /// with its labels before it and ✻ after it, in italics where its text says so.
+    /// with its labels before it and ✻ after it, styled as its text says.
     fn draw_syllables(
         &self,
         page: &mut Page,
@@ -1656,14 +1678,20 @@ impl Ctx<'_> {
             if !text.is_empty() {
                 let y = self.lyric_y(li);
                 let deco = self.lyric_deco.get(&(at.0, at.1, li));
-                let font = match deco {
-                    Some((true, _, _)) => FontKind::Italic,
+                let style = deco.map(|d| d.style).unwrap_or_default();
+                let font = match (style.bold, style.italic) {
+                    (true, _) => FontKind::Bold,
+                    (_, true) => FontKind::Italic,
                     _ => FontKind::Text,
                 };
-                let w = fonts().text_width(font, text, size);
+                let runs = style_runs(text, style.small_caps, size);
+                let w: f64 = runs
+                    .iter()
+                    .map(|(t, s)| fonts().text_width(font, t, *s))
+                    .sum();
                 let gap = 0.5 * sp;
                 let (before, after) = match deco {
-                    Some((_, b, a)) => (b.as_str(), a.as_str()),
+                    Some(d) => (d.before.as_str(), d.after.as_str()),
                     None => ("", ""),
                 };
                 // ✻ after a syllable is drawn (the text fonts lack it); among labels it is `*`.
@@ -1692,7 +1720,37 @@ impl Ctx<'_> {
                     self.lyric_spans.borrow_mut().push((left, right));
                     continue;
                 }
-                page.text(font, text.to_string(), (cx, y), size, Align::Center);
+                let color = if style.red { Color::RED } else { Color::BLACK };
+                if let [(t, sz)] = runs.as_slice() {
+                    page.items.push(Item::Text {
+                        font,
+                        text: t.clone(),
+                        at: Point::new(cx, y),
+                        size: *sz,
+                        align: Align::Center,
+                        color,
+                    });
+                } else {
+                    let mut x = cx - w / 2.0;
+                    for (t, s) in &runs {
+                        page.items.push(Item::Text {
+                            font,
+                            text: t.clone(),
+                            at: Point::new(x, y),
+                            size: *s,
+                            align: Align::Left,
+                            color,
+                        });
+                        x += fonts().text_width(font, t, *s);
+                    }
+                }
+                if style.underline {
+                    page.line(
+                        (cx - w / 2.0, y + 0.3 * sp),
+                        (cx + w / 2.0, y + 0.3 * sp),
+                        0.1 * sp,
+                    );
+                }
                 if !before.is_empty() {
                     page.text_red_stars(
                         FontKind::Text,
@@ -1709,6 +1767,7 @@ impl Ctx<'_> {
                     cx + w / 2.0,
                     continues,
                     stars,
+                    style.underline,
                 ));
             }
         }
@@ -1841,7 +1900,7 @@ impl Ctx<'_> {
         syl.sort_by(|a, b| (a.0, a.1, a.2).partial_cmp(&(b.0, b.1, b.2)).unwrap());
         let size = 1.9 * sp;
         let hyphen = fonts().text_width(FontKind::Text, "-", size);
-        for (k, &(page, y, _, right, continues, stars)) in syl.iter().enumerate() {
+        for (k, &(page, y, _, right, continues, stars, underline)) in syl.iter().enumerate() {
             let next = syl
                 .get(k + 1)
                 .filter(|n| n.0 == page && (n.1 - y).abs() < 0.01);
@@ -1887,6 +1946,10 @@ impl Ctx<'_> {
             };
             if let Some(p) = layout.pages.get_mut(page) {
                 p.text(FontKind::Text, "-", (x, y), size, Align::Center);
+                // The underline runs on under the hyphen to a next underlined syllable.
+                if let Some(n) = next.filter(|n| underline && n.6) {
+                    p.line((right, y + 0.3 * sp), (n.2, y + 0.3 * sp), 0.1 * sp);
+                }
             }
         }
     }
@@ -5480,7 +5543,7 @@ mod tests {
         );
     }
 
-    /// gabc+ text: a label before its syllable, italics, and ✻ drawn after the syllable.
+    /// Lyrics text: a label before its syllable, italics, and ✻ drawn after the syllable.
     #[test]
     fn lyric_labels_italics_and_stars() {
         let beat = Beat {
@@ -5495,7 +5558,7 @@ mod tests {
                 kind: TrackKind::Fretted,
                 strings: vec![64, 59, 55, 50, 45, 40],
                 staves: vec![Staff::Standard(cecilia_core::Clef::Treble)],
-                lyrics_text: "[1.] _Ky-ri * e".into(),
+                lyrics_text: "[1.] <i>Ky</i>-ri * e".into(),
                 bars: vec![Bar {
                     voices: vec![Voice {
                         beats: vec![beat.clone(), beat.clone(), beat],
@@ -5533,6 +5596,64 @@ mod tests {
             })
             .count();
         assert_eq!(strokes, 3);
+    }
+
+    /// Markup tags: bold, red, underlined and small capitals reach the drawing.
+    #[test]
+    fn lyric_styles_are_drawn() {
+        let beat = Beat {
+            duration: Duration::new(DurationValue::Quarter),
+            notes: vec![Note::new(0, 0)],
+            ..Beat::default()
+        };
+        let mut score = Score {
+            tempo: 100,
+            master_bars: vec![MasterBar::default()],
+            tracks: vec![Track {
+                kind: TrackKind::Fretted,
+                strings: vec![64, 59, 55, 50, 45, 40],
+                staves: vec![Staff::Standard(cecilia_core::Clef::Treble)],
+                lyrics_text: "<b>Bo</b> <c>Re</c> <ul>Un-der</ul> <sc>Lord</sc>".into(),
+                bars: vec![Bar {
+                    voices: vec![Voice {
+                        beats: vec![beat.clone(), beat.clone(), beat.clone(), beat.clone(), beat],
+                    }],
+                    ..Default::default()
+                }],
+                ..Track::default()
+            }],
+            ..Score::default()
+        };
+        cecilia_core::gabcplus::apply(&mut score, 0);
+        let page = &engrave(&score, 0, &Options::default()).pages[0];
+        let find = |t: &str| {
+            page.items.iter().find_map(|i| match i {
+                Item::Text {
+                    text, font, color, ..
+                } if text == t => Some((*font, *color)),
+                _ => None,
+            })
+        };
+        assert_eq!(find("Bo"), Some((FontKind::Bold, Color::BLACK)));
+        assert_eq!(find("Re"), Some((FontKind::Text, Color::RED)));
+        // Small capitals: the capital L, then the rest as smaller capitals.
+        assert!(find("L").is_some() && find("ORD").is_some());
+        // Underlines just under the baseline of "Un", its hyphen gap and "der".
+        let sp = Options::default().sp;
+        let y = page
+            .items
+            .iter()
+            .find_map(|i| match i {
+                Item::Text { text, at, .. } if text == "Un" => Some(at.y),
+                _ => None,
+            })
+            .expect("Un");
+        let lines = page
+            .items
+            .iter()
+            .filter(|i| matches!(i, Item::Line { from, to, .. } if (from.y - (y + 0.3 * sp)).abs() < 0.01 && from.y == to.y))
+            .count();
+        assert_eq!(lines, 3);
     }
 
     #[test]

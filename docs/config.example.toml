@@ -87,7 +87,7 @@ preset = "dark"
 # lyrics_text_dim = "#9698a0" # …the words with GABC shown (dimmed)
 # lyrics_gabc = "#f0f0f4"     # …(GABC) groups, in bold
 # lyrics_label = "#64a0f0"    # …[labels] such as verse numbers, in bold
-# lyrics_anchor = "#f05a5a"   # …<bar:beat> anchors
+# lyrics_anchor = "#f05a5a"   # …(bar:beat) anchors
 # lyrics_clef, lyrics_division, lyrics_note, lyrics_shape, lyrics_attach, lyrics_space,
 # lyrics_markup  # …the parts of GABC in the text area (purple, red, blue, yellow, cyan, gray, green)
 # waveform = "#6eaae6"

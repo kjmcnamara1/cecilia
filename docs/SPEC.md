@@ -72,7 +72,7 @@ Score
 │  │  volume/pan, color, mute/solo
 │  ├─ fretted: strings (tuning, MIDI pitch per string), fret count, capo
 │  ├─ staves: which views are shown (tab, tab+, standard, slash)
-│  ├─ lyrics_text: the track's lyrics as gabc+ text (see 4.3), source of the beats' syllables
+│  ├─ lyrics_text: the track's lyrics as text (see 4.3), source of the beats' syllables
 │  └─ bars[] (one per master bar; repeat sign `simile`) → voices[] (≥4) → beats[]
 │        beat: duration (value, dots, tuplet), rest/empty, text, chord diagram ref,
 │              lyrics, stroke/brush, pick stroke, tremolo/whammy bar, slap/pop/tap, fade in/out,
@@ -151,16 +151,17 @@ staff on an ordinary track loses it on load). To see a hymn in square notation, 
   the end of the track a finalis (`::`). A division set on a beat (`:chant-bar`; `,` `;` `:` `::`)
   overrides the rest or bar rule. The model has no separate breath or fermata marks.
 
-### 4.3 Lyrics (gabc+)
+### 4.3 Lyrics
 
-A track's lyrics are one text, `Track.lyrics_text`, in *gabc+*: GABC (`text(notes)`) plus dash and
-skip words, `_` italics, `[labels]`, `*` (✻) and `<bar:beat>` anchors. It is the single source of
+A track's lyrics are one text, `Track.lyrics_text`, in the lyrics syntax: words, `-` joins,
+dash and skip words (`-`, `_`), `[labels]`, `*` (✻), `(bar:beat.fraction)` anchors and GABC markup
+tags (`<i>` `<b>` `<ul>` `<sc>` `<c>`) for styles; GABC groups are not part of it. It is the single source of
 the syllables on the beats (`Beat.lyrics`, one string per verse row, a trailing `-` for a
 hyphen), which `cecilia_core::gabcplus` lays out from it after every edit, so the lyrics follow
 the notes. A chant track's lyrics are its chant notation instead (GABC body, header kept).
 Syllables go one to a note of the first voice in sung order (repeats, alternate endings,
 D.C./D.S. al Fine/al Coda, unreached bars last); a syllable's verse row is its pass through the
-repeat plus one per anchor that went back. Readers turn every format's lyrics into gabc+ text;
+repeat plus one per anchor that went back. Readers turn every format's lyrics into this text (Guitar Pro 3–5 lines are translated, and written back the same way);
 writers export the beats' syllables. The full reference (syntax, placement, drawing, the LYRICS
 tab, commands, settings, limits) is [LYRICS.md](LYRICS.md).
 
@@ -186,7 +187,7 @@ written back as one multi-staff instrument to GP7, GPX and MusicXML (GP5, which 
 gets one track per staff). Lyrics: GP3–5 lyric lines are put on the beats with Guitar Pro's
 rules (checked against alphaTab: identical on 8 of 10 corpus files; the other two differ only at
 grace notes, which alphaTab treats as separate beats) and rebuilt from the beats on export when
-they were edited. All lyrics read then become the tracks' gabc+ text (4.3, [LYRICS.md](LYRICS.md#files)).
+they were edited. All lyrics read then become the tracks' lyrics text (4.3, [LYRICS.md](LYRICS.md#files)).
 
 **Validation.** Every reader and writer is checked against a local corpus (`test-corpus/`,
 163 Guitar Pro files of all versions):
@@ -389,7 +390,7 @@ Lua/plugin API, external MIDI output, MIDI input (step entry / recording), adias
 6. **M6 Chant** (done): chant model, GABC I/O, square-notation engraving, chant↔modern transcription.
 7. **M7 Instruments** (done): drums/percussion (hands/feet voices, drum tab lanes, letter
    entry), piano grand staff (multi-staff parts), lyrics (verses, GP3–5 attachment, `:lyrics`,
-   centred hyphens, terminal display; since then gabc+ text, see 4.3).
+   centred hyphens, terminal display; since then lyrics text, see 4.3).
 8. **M8 Platforms**: Windows/macOS packaging, then Android, then iOS.
 
 ## 14. Quality

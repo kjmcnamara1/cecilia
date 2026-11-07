@@ -343,8 +343,8 @@ pub enum Command {
     /// Color of the cursor's track in the tracks panel: `#rrggbb`, `off`, or none for the
     /// next color of the theme's palette.
     TrackColor(Option<String>),
-    /// Lyrics from the cursor on, in gabc+ (`\n` a line break): added to the track's lyrics
-    /// text after an anchor at the cursor (`<bar:beat>`), as if typed in the lyrics pane.
+    /// Lyrics from the cursor on, in lyrics (`\n` a line break): added to the track's lyrics
+    /// text after an anchor at the cursor (`(bar:beat)`), as if typed in the lyrics pane.
     Lyrics(String),
     /// Remove a verse row of lyrics from the cursor track (all lyrics without a number).
     LyricsClear(Option<usize>),

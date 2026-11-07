@@ -687,7 +687,7 @@ impl App {
             self.error("no score to edit (use :new)");
             return None;
         }
-        // Lyrics follow the notes: each track's gabc+ text is laid out on them again after
+        // Lyrics follow the notes: each track's lyrics text is laid out on them again after
         // the edit. Syllables still only on the beats get their text first.
         cecilia_core::gabcplus::ensure_text(&mut buffer.score);
         let mut cx = EditCx::new(&mut buffer.score, pane.cursor);
@@ -2338,14 +2338,14 @@ mod tests {
         assert_eq!(lines[0].text, "Hel-lo  world");
         assert_eq!(
             a.buffer().score.tracks[0].lyrics_text,
-            "<1:1> Hel-lo _ world\n"
+            "(1:1) Hel-lo _ world\n"
         );
         // Words from a beat already sung go on the next verse row.
         keys(&mut a, "l");
         a.run(Command::Lyrics("two\\nthree".into()));
         assert_eq!(
             a.buffer().score.tracks[0].lyrics_text,
-            "<1:1> Hel-lo _ world\n<1:2> two\nthree\n"
+            "(1:1) Hel-lo _ world\n(1:2) two\nthree\n"
         );
         assert_eq!(
             a.buffer().score.tracks[0].bars[0].voices[0].beats[1].lyrics,
@@ -2378,10 +2378,10 @@ mod tests {
         // Words later in the music go before the text after them, which keeps its place.
         keys(&mut a, "lll");
         a.run(Command::Lyrics("late".into()));
-        assert_eq!(text(&a), "<1:4> late\n");
+        assert_eq!(text(&a), "(1:4) late\n");
         keys(&mut a, "hhh");
         a.run(Command::Lyrics("early".into()));
-        assert_eq!(text(&a), "<1:1> early\n<1:4> late\n");
+        assert_eq!(text(&a), "(1:1) early\n(1:4) late\n");
         let beats = |a: &App| -> Vec<String> {
             a.buffer().score.tracks[0].bars[0].voices[0]
                 .beats
@@ -2394,7 +2394,7 @@ mod tests {
         a.run(Command::Lyrics("one two three four".into()));
         assert_eq!(
             text(&a),
-            "<1:1> early\n<1:4> late\n<1:1> one two three four\n"
+            "(1:1) early\n(1:4) late\n(1:1) one two three four\n"
         );
         assert_eq!(beats(&a), ["early", "", "", "late"]);
     }
@@ -2419,9 +2419,9 @@ mod tests {
         a.run(Command::parse("1:2").unwrap());
         assert!(a.pane().cursor.beat > 0);
         assert!(at(&a).starts_with("1:"));
-        // `:lyrics` writes its anchor the same way, and `<1:2.5>`-style anchors are read.
+        // `:lyrics` writes its anchor the same way, and `(1:2.5)`-style anchors are read.
         a.run(Command::Lyrics("la".into()));
-        assert!(a.buffer().score.tracks[0].lyrics_text.starts_with("<1:"));
+        assert!(a.buffer().score.tracks[0].lyrics_text.starts_with("(1:"));
         assert!(Command::parse("5:3.5").is_ok());
     }
 

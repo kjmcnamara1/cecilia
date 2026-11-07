@@ -7,6 +7,23 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed
+
+- Modern lyrics syntax: lyrics anchors are `(bar:beat)` / `(bar:beat.fraction)` instead of
+  `<bar:beat>`; `_` no longer prints italics (it only separates words and, alone, skips beats);
+  styles use GABC markup tags `<i>` `<b>` `<ul>` `<sc>` `<c>` (italic, bold, underline, small
+  capitals, red), which nest and span syllables, and `<sp>V/</sp>` specials show as their
+  characters. GABC groups are no longer part of a modern track's lyrics (a chant track's lyrics
+  stay its GABC). The engraver draws the styles; the terminal shows the text without tags.
+- `.cc` format version 2: lyrics text saved by earlier versions is converted once when the file
+  is read (`<bar:n>` anchors to `(bar:beat)` keeping the syllables on their notes, GABC groups
+  removed, `_` italics to `<i>` tags). There is no message about it.
+- Guitar Pro 3–5: lyric lines are translated into the new syntax on reading (comments to
+  `[labels]`, empty notes to `_` words, line breaks kept) and the text is translated back on
+  writing: one lyric line per verse row, line breaks kept, `_` words and dashes as empty notes,
+  labels as comments, markup dropped. Rows past the fifth are left out and `:w` warns. A dash
+  word's dash is lost in Guitar Pro 3–5.
+
 ### Added
 
 - Positions are `bar:beat.fraction` everywhere (status line, marks, `:lyrics` and gabc+

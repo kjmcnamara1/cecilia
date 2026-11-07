@@ -16,7 +16,7 @@ full specification and roadmap, and [docs/keymap.md](docs/keymap.md) for key bin
   drum tab in the terminal (CY/HH/T1/SN/FT/BD lanes), entered with letter keys in Insert mode
 - Piano and other multi-staff parts as braced grand staves, kept as one instrument in GP7/GPX/
   MusicXML
-- Lyrics: one gabc+ text per track (GABC with labels, italics, anchors), sung in playing order
+- Lyrics: one text per track (words, dashes, labels, markup styles, anchors), sung in playing order
   through repeats and D.C./D.S., several verses under the staff with centred hyphens, in the
   terminal under the tab, edited in the properties pane or with `:lyrics`; Guitar Pro lyrics of
   all versions are read (see [docs/LYRICS.md](docs/LYRICS.md))

@@ -2225,7 +2225,11 @@ fn draw_properties(f: &mut Frame, app: &App, area: Rect, ui: &mut Ui) {
                     ui.props_text = Some((bx, by, box_h, lines.clone(), skip));
                     // The text in its colors: words, the parts of GABC groups, markup, labels
                     // (bold) and anchors.
-                    let kinds = cecilia_core::gabcplus::highlight(text);
+                    let kinds = if app.lyrics_is_gabc() {
+                        cecilia_core::gabcplus::highlight_gabc(text)
+                    } else {
+                        cecilia_core::gabcplus::highlight(text)
+                    };
                     let style = |k: cecilia_core::gabcplus::Hl| {
                         let (c, bold) = t.lyrics_color(k);
                         let st = base.fg(rc(c));
@@ -3184,7 +3188,7 @@ mod render_tests {
             cecilia_app::properties::PropTab::Lyrics,
         )));
         let b = app.pane().buffer;
-        app.buffers[b].score.tracks[0].lyrics_text = "<1:1> [1.] Ky(f)ri(g)e".into();
+        app.buffers[b].score.tracks[0].lyrics_text = "(1:1) [1.] <i>Ky</i>-ri-e".into();
         let (w, h) = (100, 30);
         let mut terminal = Terminal::new(TestBackend::new(w, h)).unwrap();
         let mut ui = Ui::default();
@@ -3195,7 +3199,7 @@ mod render_tests {
             !screen.contains("GABC") && !screen.contains("Lyrics"),
             "{screen}"
         );
-        assert!(screen.contains("<1:1> [1.] Ky-ri-e"), "{screen}");
+        assert!(screen.contains("(1:1) [1.] <i>Ky</i>-ri-e"), "{screen}");
         let th = app.config.theme.clone();
         let find = |s: &str, screen: &str| -> (u16, u16) {
             let (y, line) = screen
@@ -3206,7 +3210,7 @@ mod render_tests {
             let x = line[..line.find(s).unwrap()].chars().count();
             (x as u16, y as u16)
         };
-        let (x, y) = find("<1:1>", &screen);
+        let (x, y) = find("(1:1)", &screen);
         assert_eq!(buf[(x, y)].fg, rc(th.lyrics_anchor));
         assert_eq!(buf[(x, y)].bg, buf[(x - 1, y)].bg, "no box behind the text");
         let (x, y) = find("[1.]", &screen);
@@ -3214,6 +3218,8 @@ mod render_tests {
         assert!(buf[(x, y)].modifier.contains(Modifier::BOLD));
         let (x, y) = find("Ky", &screen);
         assert_eq!(buf[(x, y)].fg, rc(th.lyrics_text));
+        let (x, y) = find("<i>", &screen);
+        assert_eq!(buf[(x, y)].fg, rc(th.lyrics_markup));
         // A chant track shows its GABC: clefs, notes and parens each have their color, the
         // words stay in the normal one.
         let chant = cecilia_formats::gabc::parse("name: t;\n%%\n(c4) Ky(f)ri(g)e(h)\n").unwrap();

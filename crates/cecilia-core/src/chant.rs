@@ -496,6 +496,22 @@ impl Syllable {
     }
 }
 
+/// The character a GABC `<sp>…</sp>` special stands for (`V/` is ℣), if it is one.
+pub fn special(name: &str) -> Option<&'static str> {
+    Some(match name {
+        "V/" => "℣",
+        "R/" => "℟",
+        "A/" => "Ⱥ",
+        "+" => "✠",
+        "*" => "✱",
+        "ae" => "æ",
+        "'ae" | "'æ" => "ǽ",
+        "oe" => "œ",
+        "'oe" | "'œ" => "œ́",
+        _ => return None,
+    })
+}
+
 /// GABC text without markup: tags removed, `<sp>` specials and `<v>` verbatim resolved.
 pub fn plain_text(text: &str) -> String {
     let mut out = String::new();
@@ -526,18 +542,7 @@ pub fn plain_text(text: &str) -> String {
         match tag {
             "sp" => {
                 if let Some(j) = close(rest, "sp") {
-                    out.push_str(match &rest[..j] {
-                        "V/" => "℣",
-                        "R/" => "℟",
-                        "A/" => "Ⱥ",
-                        "+" => "✠",
-                        "*" => "✱",
-                        "ae" => "æ",
-                        "'ae" | "'æ" => "ǽ",
-                        "oe" => "œ",
-                        "'oe" | "'œ" => "œ́",
-                        other => other,
-                    });
+                    out.push_str(special(&rest[..j]).unwrap_or(&rest[..j]));
                     rest = &rest[j + 5..];
                 }
             }

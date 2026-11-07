@@ -151,7 +151,7 @@ pub struct Theme {
     pub lyrics: Rgba,
     pub marker: Rgba,
     /// The lyrics text area: the words, and with GABC shown the words dimmed, the GABC
-    /// groups (bold), the `[labels]` (bold) and the `<bar:beat>` anchors.
+    /// groups (bold), the `[labels]` (bold) and the `(bar:beat)` anchors.
     pub lyrics_text: Rgba,
     pub lyrics_text_dim: Rgba,
     pub lyrics_gabc: Rgba,

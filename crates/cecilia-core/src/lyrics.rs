@@ -174,7 +174,7 @@ pub fn attach(score: &mut Score) {
     }
 }
 
-/// A track's syllables as gabc+ lays them out: by beat of the first voice, a run of trailing
+/// A track's syllables as lyrics lays them out: by beat of the first voice, a run of trailing
 /// hyphens as one and a syllable of dashes as none (a dash word covers that beat).
 pub fn normalized(track: &Track) -> Vec<((usize, usize), Vec<String>)> {
     let mut out = Vec::new();

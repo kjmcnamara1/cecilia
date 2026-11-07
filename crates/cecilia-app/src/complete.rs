@@ -928,7 +928,7 @@ pub fn describe(command: &str) -> Option<&'static str> {
         "layout" => "Score layout of this pane",
         "loop" => "Loop bars a–b",
         "loop-toggle" => "Loop the selection or cursor bar",
-        "lyrics" => "Lyrics from the cursor on (gabc+; \\n a line break)",
+        "lyrics" => "Lyrics from the cursor on (lyrics; \\n a line break)",
         "lyrics-attach" => "Attach lyrics to the cursor staff: above|below [track], or none",
         "notation" => "Notation of the cursor's staff (standard, tab, tab+, slash, chant)",
         "lyrics-clear" => "Remove the lyrics, or one verse row of them",

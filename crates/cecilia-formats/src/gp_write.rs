@@ -165,6 +165,13 @@ impl Writer {
 
     fn write_lyrics(&mut self, score: &Score) {
         let mut lyrics = score.lyrics.clone().unwrap_or_default();
+        // A track's lyrics text is translated back to Guitar Pro's lyric lines.
+        if let Some((track, gp)) = cecilia_core::gabcplus::gp_lyrics(score) {
+            lyrics.track = Some(track);
+            lyrics.lines = gp.lines;
+            self.write_lyric_lines(&lyrics);
+            return;
+        }
         // Keep the stored lines unless the syllables on the beats were changed since.
         if !lyrics.lines.is_empty() {
             let mut check = score.clone();
@@ -178,7 +185,7 @@ impl Writer {
                     b.lyrics.clear();
                 }
                 cecilia_core::lyrics::attach(&mut check);
-                // As gabc+ lays them out (`side---` is `side-`, a beat of dashes is a dash).
+                // As lyrics lays them out (`side---` is `side-`, a beat of dashes is a dash).
                 let syllables = |s: &Score| {
                     s.tracks
                         .get(lyrics.track.unwrap_or(0))
@@ -203,6 +210,10 @@ impl Writer {
                 lyrics.lines.truncate(5);
             }
         }
+        self.write_lyric_lines(&lyrics);
+    }
+
+    fn write_lyric_lines(&mut self, lyrics: &Lyrics) {
         self.i32(lyrics.track.map_or(0, |t| t as i32 + 1));
         for i in 0..5 {
             match lyrics.lines.get(i) {

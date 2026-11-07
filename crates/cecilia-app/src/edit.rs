@@ -81,7 +81,7 @@ impl<'a> EditCx<'a> {
         cecilia_core::chant::retranscribe(score, t);
     }
 
-    /// Lays every track's gabc+ text out on its beats again (an edit may have changed which
+    /// Lays every track's lyrics text out on its beats again (an edit may have changed which
     /// beats sing): the syllables follow the text one to a note in sung order, so a deleted
     /// note hands its syllable on, new notes take the next ones, and syllables past the last
     /// note stay in the text but are not shown. Chant tracks keep their own.

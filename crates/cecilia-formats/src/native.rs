@@ -9,7 +9,10 @@ use crate::{Error, Result};
 
 /// Version of the score model stored in `score.json`; bump when its schema changes and add a
 /// migration in [`read_cecilia`].
-pub const FORMAT_VERSION: u32 = 1;
+///
+/// - 2: modern lyrics text in the current syntax (`(bar:beat)` anchors, markup tags, no GABC
+///   groups): version 1 text is converted on load ([`cecilia_core::gabcplus::from_v1`]).
+pub const FORMAT_VERSION: u32 = 2;
 
 fn err(message: impl Into<String>) -> Error {
     Error::Parse {
@@ -85,8 +88,24 @@ pub fn read_cecilia(bytes: &[u8]) -> Result<Score> {
             }
         }
     }
+    if version < 2 {
+        upgrade_lyrics(&mut score);
+    }
     score.normalize_dynamics();
     Ok(score)
+}
+
+/// Converts the lyrics text of the tracks of a version 1 file to the current syntax (once: the
+/// file is saved as version 2). Chant tracks keep their GABC.
+fn upgrade_lyrics(score: &mut Score) {
+    for t in 0..score.tracks.len() {
+        let track = &score.tracks[t];
+        if track.chant.is_some() || track.lyrics_text.trim().is_empty() {
+            continue;
+        }
+        let text = cecilia_core::gabcplus::from_v1(score, t, &track.lyrics_text);
+        score.tracks[t].lyrics_text = text;
+    }
 }
 
 /// Files written before chant staves were removed from ordinary tracks may name one
@@ -198,6 +217,57 @@ mod tests {
         // Only a chant staff: the track gets its default staves again.
         assert!(back.tracks[1].staves.is_empty());
         assert!(!back.tracks[1].staves().is_empty());
+    }
+
+    #[test]
+    fn lyrics_of_a_version_1_file_are_converted_once() {
+        let bar = Bar {
+            voices: vec![Voice {
+                beats: (0..4)
+                    .map(|_| Beat {
+                        notes: vec![Note::new(0, 60)],
+                        ..Beat::default()
+                    })
+                    .collect(),
+            }],
+            ..Bar::default()
+        };
+        let mut score = Score {
+            master_bars: vec![MasterBar::default(); 2],
+            tracks: vec![Track {
+                kind: TrackKind::Pitched,
+                bars: vec![bar.clone(), bar],
+                lyrics_text: "(c4) <2:2> Ky(f)ri(gh)e(h) _e-le-i-son a-_men".into(),
+                ..Track::default()
+            }],
+            ..Score::default()
+        };
+        let write_as = |score: &Score, version: u32| {
+            let bytes = write_cecilia(score).unwrap();
+            let mut zip = zip::ZipArchive::new(std::io::Cursor::new(bytes)).unwrap();
+            let mut out = zip::ZipWriter::new(std::io::Cursor::new(Vec::new()));
+            let opts = zip::write::SimpleFileOptions::default();
+            for name in ["manifest.toml", "score.json"] {
+                let mut data = Vec::new();
+                zip.by_name(name).unwrap().read_to_end(&mut data).unwrap();
+                if name == "manifest.toml" {
+                    data =
+                        format!("format = \"cecilia\"\nformat_version = {version}\n").into_bytes();
+                }
+                out.start_file(name, opts).unwrap();
+                out.write_all(&data).unwrap();
+            }
+            out.finish().unwrap().into_inner()
+        };
+        let old = read_cecilia(&write_as(&score, 1)).unwrap();
+        assert_eq!(
+            old.tracks[0].lyrics_text,
+            "(2:2) Ky-ri-e <i>e</i>-le-i-son a-<i>men</i>"
+        );
+        // A file saved by this version is not converted again.
+        score.tracks[0].lyrics_text = "(2:2) <i>a</i>-_b".into();
+        let back = read_cecilia(&write_cecilia(&score).unwrap()).unwrap();
+        assert_eq!(back.tracks[0].lyrics_text, "(2:2) <i>a</i>-_b");
     }
 
     #[test]

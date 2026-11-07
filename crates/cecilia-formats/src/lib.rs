@@ -96,7 +96,7 @@ pub fn read_bytes(bytes: &[u8], path: Option<&Path>) -> Result<Score> {
     Ok(score)
 }
 
-/// Gives the tracks' lyrics their gabc+ text ([`cecilia_core::gabcplus`]), which the syllables
+/// Gives the tracks' lyrics their text ([`cecilia_core::gabcplus`]), which the syllables
 /// on the beats are then laid out from: a Guitar Pro 3–5 file's lyric lines (`lines`), else
 /// the syllables the file put on the beats.
 pub fn lyrics_to_text(score: &mut Score, lines: bool) {
@@ -170,6 +170,15 @@ pub fn voices_lost(score: &Score, extension: &str) -> usize {
         .flat_map(|b| b.voices.iter().skip(limit))
         .filter(|v| v.beats.iter().any(|b| !b.notes.is_empty()))
         .count()
+}
+
+/// Verse rows of lyrics that a file of this extension cannot store: `.gp5` keeps five lyric
+/// lines. Writing drops the extra rows, so callers can warn.
+pub fn lyric_rows_lost(score: &Score, extension: &str) -> usize {
+    if !extension.eq_ignore_ascii_case("gp5") {
+        return 0;
+    }
+    cecilia_core::gabcplus::gp_lyrics(score).map_or(0, |(_, g)| g.dropped)
 }
 
 /// Writes a score to a file in the format given by its extension.

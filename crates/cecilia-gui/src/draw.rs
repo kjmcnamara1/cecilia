@@ -4717,7 +4717,11 @@ fn draw_properties(scene: &mut Scene, app: &App, views: &mut Views, r: Rect) {
                     }
                     // The text in its colors: words, the parts of GABC groups, markup, labels
                     // (bold) and anchors.
-                    let kinds = cecilia_core::gabcplus::highlight(value);
+                    let kinds = if app.lyrics_is_gabc() {
+                        cecilia_core::gabcplus::highlight_gabc(value)
+                    } else {
+                        cecilia_core::gabcplus::highlight(value)
+                    };
                     let style = |k: Hl| th.lyrics_color(k);
                     for (n, &(s, e)) in lines.iter().enumerate().skip(skip).take(shown) {
                         let ly = by0 + 7.0 + line_h * (n - skip) as f64 + size;
