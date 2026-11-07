@@ -659,6 +659,37 @@ pub struct Transcription {
     /// (bar, beat) of every chant note, in [`Chant::resolved`] order. Strophae and bivirgae
     /// sound several beats; this is the first.
     pub positions: Vec<(usize, usize)>,
+    /// Beats each chant note sounds (1, or 2–3 for a stropha or bivirga), parallel to
+    /// `positions`.
+    pub lengths: Vec<u8>,
+}
+
+impl Transcription {
+    /// The chant note (index in reading order, see [`Chant::resolved`]) sounded by a beat of
+    /// the transcription. Every beat of a stropha or bivirga maps to its note.
+    pub fn note_at(&self, bar: usize, beat: usize) -> Option<usize> {
+        let k = self.positions.partition_point(|&p| p <= (bar, beat));
+        let k = k.checked_sub(1)?;
+        let (b, first) = self.positions[k];
+        (b == bar && beat < first + self.lengths[k] as usize).then_some(k)
+    }
+
+    /// Like [`Self::note_at`], but a beat that sounds no note (an empty bar, past the end)
+    /// maps to the last note before it, or the first note.
+    pub fn note_near(&self, bar: usize, beat: usize) -> Option<usize> {
+        self.note_at(bar, beat).or_else(|| {
+            let k = self.positions.partition_point(|&p| p <= (bar, beat));
+            match k {
+                0 => (!self.positions.is_empty()).then_some(0),
+                k => Some(k - 1),
+            }
+        })
+    }
+
+    /// The `(bar, beat)` of the first beat sounded by a chant note.
+    pub fn place_of(&self, note: usize) -> Option<(usize, usize)> {
+        self.positions.get(note).copied()
+    }
 }
 
 const EIGHTH: u32 = TICKS_PER_QUARTER / 2;
@@ -720,6 +751,7 @@ pub fn transcribe(chant: &Chant) -> Transcription {
                         ticks = EIGHTH * 3 / 2;
                     }
                     out.positions.push((out.bars.len(), beats.len()));
+                    out.lengths.push(n.repeats());
                     for _ in 0..n.repeats() {
                         let mut beat = Beat {
                             duration: duration_of(ticks),
