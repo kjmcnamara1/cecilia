@@ -508,11 +508,7 @@ mod tests {
         let (bar, beat) = chant.place_of(k).unwrap();
         a.chant_delete_range((bar, beat), (bar, beat));
         assert_eq!(points(&a), [(1, secs(1.0))]);
-        assert!(
-            message(&a).contains("1 sync point dropped"),
-            "{}",
-            message(&a)
-        );
+        assert!(message(&a).contains("1 sync point lost"), "{}", message(&a));
         // Undo brings the note and its point back.
         a.run(Command::Undo);
         assert_eq!(points(&a), [(1, secs(1.0)), (4, secs(4.0))]);

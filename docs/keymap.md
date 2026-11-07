@@ -828,7 +828,10 @@ accepted as well), looked up before `[keymap.normal]` and only on chant scores:
 (snapped to the nearest sung onset), the cursor follows and the status shows `tap: next …`.
 `:sync` again stops. The sync is kept on notes, so editing the chant does not move it.
 
-On a chant track the cursor moves note by note; `<C-a>`/`<C-x>` move a note up or down a staff
+On a chant track the cursor moves note by note (`w` `e` `b` go to the next note, the end of the
+note, the previous note; the cursor stands on the staff line of the note, `j` / `k` move it to
+choose the pitch of a note, and in Insert mode `<Space>`, `<CR>` and `/` enter the note on that
+line); `<C-a>`/`<C-x>` move a note up or down a staff
 position, `:accidental flat` adds a flat, `x` deletes it and `u` undoes (see "Insert mode" above for the
 chant keys, and which modern-track keys answer "not in chant").
 

@@ -210,6 +210,9 @@ pub struct PropEdit {
     /// the chant read from it is written back in its own layout, and half-typed GABC (an
     /// unclosed group) can't be read yet.
     full: Option<String>,
+    /// Where the typed GABC does not parse (a character index), while it doesn't: the last good
+    /// chant stays in the score.
+    pub error: Option<usize>,
 }
 
 fn is_word(c: char) -> bool {
@@ -229,7 +232,13 @@ impl PropEdit {
             visual: None,
             anchor: None,
             full: None,
+            error: None,
         }
+    }
+
+    /// Records the text as the chant's typed GABC.
+    pub(crate) fn set_full(&mut self, text: String) {
+        self.full = Some(text);
     }
 
     /// The selected characters, from the first to one past the last.
@@ -298,7 +307,7 @@ impl PropEdit {
         self.text.chars().collect()
     }
 
-    fn len(&self) -> usize {
+    pub(crate) fn len(&self) -> usize {
         self.text.chars().count()
     }
 
@@ -315,7 +324,33 @@ impl PropEdit {
         self.caret += 1;
     }
 
+    /// A key typed in insert mode of the lyrics text area: `(` also writes the `)` that closes
+    /// it (unless a letter follows), typing `)` before one steps over it.
+    fn type_char(&mut self, c: char) {
+        if !self.modal {
+            return self.insert_char(c);
+        }
+        let next = self.text.chars().nth(self.caret);
+        match c {
+            '(' if !next.is_some_and(char::is_alphanumeric) => {
+                self.insert_char('(');
+                self.insert_char(')');
+                self.caret -= 1;
+            }
+            ')' if next == Some(')') => self.caret += 1,
+            _ => self.insert_char(c),
+        }
+    }
+
     fn backspace(&mut self) {
+        // Between an empty pair of parentheses both go.
+        if self.modal
+            && self.caret > 0
+            && self.text.chars().nth(self.caret - 1) == Some('(')
+            && self.text.chars().nth(self.caret) == Some(')')
+        {
+            self.delete();
+        }
         if self.caret > 0 {
             self.caret -= 1;
             let at = self.byte(self.caret);
@@ -720,6 +755,17 @@ fn onoff(b: bool) -> String {
     if b { "on" } else { "off" }.into()
 }
 
+impl PropsState {
+    /// Where the lyrics text area's caret was left: `(track, caret)`.
+    pub(crate) fn text_caret(&self) -> Option<(usize, usize)> {
+        self.text_caret
+    }
+
+    pub(crate) fn set_text_caret_memory(&mut self, track: usize, caret: usize) {
+        self.text_caret = Some((track, caret));
+    }
+}
+
 /// A track's lyrics as one text: its own (the source of the syllables on its beats), or a
 /// chant track's chant as GABC (without the header).
 pub fn full_lyrics(score: &cecilia_core::Score, track: usize) -> String {
@@ -727,11 +773,11 @@ pub fn full_lyrics(score: &cecilia_core::Score, track: usize) -> String {
         return String::new();
     };
     match t.chant.as_deref() {
-        Some(chant) => {
-            let gabc = cecilia_formats::gabc::write(chant, "");
-            let body = gabc.split_once("%%\n").map_or(gabc.as_str(), |(_, b)| b);
-            body.trim_end().to_string()
-        }
+        // The chant's kept text (the user's own layout), else the chant written out.
+        Some(chant) => match chant.source.as_ref().filter(|s| s.map.fits(chant)) {
+            Some(source) => source.text.clone(),
+            None => cecilia_formats::gabc::body_with_map(chant).0,
+        },
         // Syllables only on the beats (a chant track just made a staff track) get their text
         // written from them, as the next edit does.
         None if t.lyrics_text.trim().is_empty() && cecilia_core::lyrics::has_lyrics(t) => {
@@ -1107,6 +1153,7 @@ impl App {
             e.visual = None;
             e.rest();
         }
+        self.sync_chant_text();
     }
 
     /// A double click in the text area being edited: in normal mode it enters insert mode at
@@ -1515,7 +1562,7 @@ impl App {
             KeyCode::Char('u') if key.ctrl => *edit = PropEdit::new(edit.field, String::new()),
             _ => {
                 if let Some(c) = key.as_char() {
-                    edit.insert_char(c);
+                    edit.type_char(c);
                 }
             }
         }
@@ -1935,6 +1982,7 @@ impl App {
         if let (Some(text), Some(edit)) = (text, self.props.edit.as_mut()) {
             edit.text = text;
             edit.full = None;
+            edit.error = None;
             edit.visual = None;
             edit.caret = edit.caret.min(edit.len());
             edit.rest();
@@ -2138,14 +2186,7 @@ impl App {
     /// Replaces the lyrics of a track with the text area's `shown` text. The syllables are laid
     /// onto the notes again; a chant track's chant is read from it. One undo step per edit
     /// session.
-    fn set_lyrics(&mut self, track: usize, shown: &str, live: bool) {
-        let typed = self
-            .props
-            .edit
-            .as_ref()
-            .filter(|e| e.field == Field::Lyrics)
-            .and_then(|e| e.full.clone());
-        let old = typed.unwrap_or_else(|| full_lyrics(&self.buffer().score, track));
+    fn set_lyrics(&mut self, track: usize, shown: &str, _live: bool) {
         let chant = self
             .buffer()
             .score
@@ -2155,46 +2196,11 @@ impl App {
             .cloned();
         let full = shown.to_string();
         if let Some(chant) = chant {
-            // The chant's header stays; the body is read again.
-            let mut gabc = String::new();
-            for (k, v) in &chant.headers {
-                gabc.push_str(&format!("{k}: {v};\n"));
-            }
-            gabc.push_str("%%\n");
-            gabc.push_str(&full);
-            match cecilia_formats::gabc::parse(&gabc) {
-                Ok(mut new) => {
-                    new.interpretation = chant.interpretation;
-                    // Notes the text edit left alone keep their ids, and so their audio sync.
-                    new.inherit_ids(&chant);
-                    if new != chant {
-                        self.edit(|cx| {
-                            let score = cx.whole();
-                            score.tracks[track].chant = Some(Box::new(new));
-                            cecilia_core::chant::retranscribe(score, track);
-                            Ok(())
-                        });
-                    }
-                }
-                Err(e) if !live => self.error(format!("lyrics: {e}")),
-                Err(_) => {}
-            }
-            // The text area keeps the text as typed.
-            if let Some(e) = self
-                .props
-                .edit
-                .as_mut()
-                .filter(|e| e.field == Field::Lyrics)
-            {
-                e.full = Some(full.clone());
-                if e.text != full {
-                    e.text = full;
-                    e.caret = e.caret.min(e.len());
-                    e.anchor = None;
-                }
-            }
+            self.set_chant_text(track, chant, full);
             return;
-        } else if old != full {
+        }
+        let old = full_lyrics(&self.buffer().score, track);
+        if old != full {
             let placed = self.edit(|cx| {
                 let score = cx.whole();
                 let t = score.tracks.get_mut(track).ok_or("no such track")?;
@@ -3124,8 +3130,17 @@ mod tests {
         // A syllable typed key by key: the text keeps what is typed (a space at the end, a
         // group not closed yet) and the chant follows once it reads as GABC.
         keys(&mut app, "A Ky(");
-        assert!(app.props.edit.as_ref().unwrap().text.ends_with("(::) Ky("));
+        // The group closes itself, the caret inside it.
+        assert!(app.props.edit.as_ref().unwrap().text.ends_with("(::) Ky()"));
         keys(&mut app, "f)<Esc>");
+        assert!(
+            app.props
+                .edit
+                .as_ref()
+                .unwrap()
+                .text
+                .ends_with("(::) Ky(f)")
+        );
         let chant = app.buffer().score.tracks[0].chant.clone().unwrap();
         let ky = chant.syllables.last().unwrap();
         assert_eq!((ky.text.as_str(), ky.gabc_notes().as_str()), ("Ky", "f"));
@@ -3134,6 +3149,34 @@ mod tests {
         let chant = app.buffer().score.tracks[0].chant.clone().unwrap();
         assert_ne!(chant.syllables.last().unwrap().text, "Ky", "one undo step");
         assert!(!app.props.edit.as_ref().unwrap().text.contains("Ky("));
+    }
+
+    #[test]
+    fn the_gabc_editor_closes_parentheses() {
+        let mut e = PropEdit::new(Field::Lyrics, String::new());
+        e.insert = true;
+        e.type_char('(');
+        assert_eq!((e.text.as_str(), e.caret), ("()", 1));
+        e.type_char('f');
+        e.type_char(')');
+        assert_eq!(
+            (e.text.as_str(), e.caret),
+            ("(f)", 3),
+            ") steps over the closing one"
+        );
+        // An empty pair goes with Backspace; a lone ( or one before a letter closes nothing.
+        let mut e = PropEdit::new(Field::Lyrics, String::new());
+        e.type_char('(');
+        e.backspace();
+        assert_eq!((e.text.as_str(), e.caret), ("", 0));
+        let mut e = PropEdit::new(Field::Lyrics, "ab".into());
+        e.caret = 0;
+        e.type_char('(');
+        assert_eq!(e.text, "(ab");
+        // Other fields type as they are.
+        let mut e = PropEdit::new(Field::Title, String::new());
+        e.type_char('(');
+        assert_eq!(e.text, "(");
     }
 
     #[test]

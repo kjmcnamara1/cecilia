@@ -3012,8 +3012,20 @@ impl App {
         if score.tracks.is_empty() {
             return;
         }
+        let before = (pane.cursor.track, pane.cursor.bar, pane.cursor.beat);
         f(score, &mut pane.cursor);
         clamp_cursor(score, &mut pane.cursor);
+        // On a chant the cursor stands on the staff line of the note it moved to (up and down
+        // then choose the pitch of a note to enter).
+        let c = &mut pane.cursor;
+        if (c.track, c.bar, c.beat) != before {
+            if let Some(chant) = cursor_chant(score, c) {
+                let t = cecilia_core::chant::transcribe(chant);
+                if let Some(note) = t.note_near(c.bar, c.beat).and_then(|n| chant.note(n)) {
+                    c.line = note.pitch as i32;
+                }
+            }
+        }
     }
 
     /// A new score pane on `buffer`, with the score pane's layout.
@@ -3625,13 +3637,74 @@ fn find_row_note(
     false
 }
 
-/// `w`: the next note on the row that begins a tie (or is not tied at all).
+/// The chant of the cursor's track, when it has one (a chant score's only track).
+fn cursor_chant<'a>(score: &'a Score, c: &Cursor) -> Option<&'a cecilia_core::chant::Chant> {
+    score.tracks.get(c.track)?.chant.as_deref()
+}
+
+/// Moves the cursor of a chant track to the first beat of note `n` (`end`: the last beat it
+/// sounds), keeping its staff position.
+fn chant_goto(score: &Score, c: &mut Cursor, n: usize, end: bool) {
+    let Some(chant) = cursor_chant(score, c) else {
+        return;
+    };
+    let t = cecilia_core::chant::transcribe(chant);
+    if let Some((bar, beat)) = t.place_of(n) {
+        c.bar = bar;
+        c.beat = if end {
+            beat + t.lengths[n].max(1) as usize - 1
+        } else {
+            beat
+        };
+    }
+}
+
+/// A `(bar, beat)` place.
+type Place = (usize, usize);
+
+/// The notes of a chant track in reading order, as `(note, first beat, last beat)` places.
+fn chant_row_notes(score: &Score, c: &Cursor) -> Vec<(usize, Place, Place)> {
+    let Some(chant) = cursor_chant(score, c) else {
+        return Vec::new();
+    };
+    let t = cecilia_core::chant::transcribe(chant);
+    (0..t.positions.len())
+        .map(|n| {
+            let (bar, beat) = t.positions[n];
+            (
+                n,
+                (bar, beat),
+                (bar, beat + t.lengths[n].max(1) as usize - 1),
+            )
+        })
+        .collect()
+}
+
+/// `w`: the next note on the row that begins a tie (or is not tied at all). On a chant, the
+/// next note.
 fn row_next(score: &Score, c: &mut Cursor) {
+    if cursor_chant(score, c).is_some() {
+        let here = (c.bar, c.beat);
+        if let Some(&(n, ..)) = chant_row_notes(score, c).iter().find(|r| r.1 > here) {
+            chant_goto(score, c, n, false);
+        }
+        return;
+    }
     find_row_note(score, c, true, |n| !n.tie);
 }
 
-/// `e`: the end of the tie the cursor is in, else the end of the next note's tie.
+/// `e`: the end of the tie the cursor is in, else the end of the next note's tie. On a chant,
+/// the end of the note the cursor is in (a stropha sounds several beats), else the end of the
+/// next note.
 fn row_end(score: &Score, c: &mut Cursor) {
+    if cursor_chant(score, c).is_some() {
+        let here = (c.bar, c.beat);
+        let notes = chant_row_notes(score, c);
+        if let Some(&(n, ..)) = notes.iter().find(|r| r.2 > here) {
+            chant_goto(score, c, n, true);
+        }
+        return;
+    }
     let here = *c;
     tie_end(score, c);
     if *c == here && find_row_note(score, c, true, |_| true) {
@@ -3639,8 +3712,17 @@ fn row_end(score: &Score, c: &mut Cursor) {
     }
 }
 
-/// `b`: the start of the tie the cursor is in, else the start of the previous note's tie.
+/// `b`: the start of the tie the cursor is in, else the start of the previous note's tie. On a
+/// chant, the start of the note the cursor is in, else the previous note.
 fn row_prev(score: &Score, c: &mut Cursor) {
+    if cursor_chant(score, c).is_some() {
+        let here = (c.bar, c.beat);
+        let notes = chant_row_notes(score, c);
+        if let Some(&(n, ..)) = notes.iter().rev().find(|r| r.1 < here) {
+            chant_goto(score, c, n, false);
+        }
+        return;
+    }
     let here = *c;
     tie_start(score, c);
     if *c == here && find_row_note(score, c, false, |_| true) {

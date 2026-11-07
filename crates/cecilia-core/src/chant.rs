@@ -25,6 +25,10 @@ pub struct Chant {
     /// The next note id to hand out (see [`ChantNote::id`]); not part of the chant's content.
     #[serde(default)]
     pub next_id: u32,
+    /// The GABC body as kept (its layout) with the map of it, when there is one. Not part of
+    /// the chant's content: see [`crate::chant_source`].
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub source: Option<crate::chant_source::ChantSource>,
 }
 
 impl Default for Chant {
@@ -35,6 +39,7 @@ impl Default for Chant {
             interpretation: Interpretation::default(),
             headers: Vec::new(),
             next_id: 0,
+            source: None,
         }
     }
 }
@@ -622,54 +627,102 @@ impl Chant {
         self.next_id = next;
     }
 
-    /// For a chant made again from text (its notes are all new): gives the notes that match
-    /// notes of `old` the ids of those, by longest common subsequence on the notes (pitch and
-    /// signs), so a text edit that leaves a note alone keeps its audio sync. The others get
-    /// fresh ids (their points go).
-    pub fn inherit_ids(&mut self, old: &Chant) {
-        let old_notes: Vec<&ChantNote> = old.syllables.iter().flat_map(|s| s.notes()).collect();
-        let mut new_ids = vec![0u32; self.note_count()];
-        {
-            let new_notes: Vec<&ChantNote> =
-                self.syllables.iter().flat_map(|s| s.notes()).collect();
-            let (n, m) = (old_notes.len(), new_notes.len());
-            let mut head = 0;
-            while head < n.min(m) && old_notes[head] == new_notes[head] {
-                new_ids[head] = old_notes[head].id;
-                head += 1;
-            }
-            let mut tail = 0;
-            while tail < (n - head).min(m - head)
-                && old_notes[n - 1 - tail] == new_notes[m - 1 - tail]
-            {
-                new_ids[m - 1 - tail] = old_notes[n - 1 - tail].id;
-                tail += 1;
-            }
-            let (a, b) = (&old_notes[head..n - tail], &new_notes[head..m - tail]);
-            // dp[i][j]: length of the common subsequence of a[i..] and b[j..].
-            let mut dp = vec![vec![0u32; b.len() + 1]; a.len() + 1];
-            for i in (0..a.len()).rev() {
-                for j in (0..b.len()).rev() {
-                    dp[i][j] = if a[i] == b[j] {
-                        dp[i + 1][j + 1] + 1
-                    } else {
-                        dp[i + 1][j].max(dp[i][j + 1])
-                    };
-                }
-            }
-            let (mut i, mut j) = (0, 0);
-            while i < a.len() && j < b.len() {
-                if a[i] == b[j] {
-                    new_ids[head + j] = a[i].id;
-                    i += 1;
-                    j += 1;
-                } else if dp[i + 1][j] >= dp[i][j + 1] {
-                    i += 1;
-                } else {
-                    j += 1;
-                }
-            }
+    /// For a chant made again from text (its notes all have fresh ids): gives the notes that
+    /// match notes of `old` the ids of those, so a text edit keeps the audio sync of the notes
+    /// it leaves alone. The others keep their fresh ids; the points of `old` notes that match
+    /// nothing are lost with them.
+    ///
+    /// Matching, in order:
+    /// 1. the same number of notes with the same heads and pitches: note for note, whatever
+    ///    else changed (lyric text, spacing, a mora, a header);
+    /// 2. otherwise the notes alike at both ends, then a longest common subsequence on
+    ///    (syllable text, pitch position, shape), where notes of the same pitch and shape under
+    ///    changed text still match (weaker);
+    /// 3. between two matched notes, as many unmatched old notes as new ones (up to four) are
+    ///    taken to be the same notes edited in place (a retyped pitch).
+    pub fn match_ids(&mut self, old: &Chant) {
+        fn flat(c: &Chant) -> Vec<(&str, &ChantNote)> {
+            c.syllables
+                .iter()
+                .flat_map(|s| s.notes().map(move |n| (s.text.as_str(), n)))
+                .collect()
         }
+        let head = |n: &ChantNote| (n.pitch, n.shape());
+        let new_ids: Vec<u32> = {
+            let (a, b) = (flat(old), flat(self));
+            let mut ids = vec![0u32; b.len()];
+            if a.len() == b.len() && a.iter().zip(&b).all(|(x, y)| head(x.1) == head(y.1)) {
+                for (id, x) in ids.iter_mut().zip(&a) {
+                    *id = x.1.id;
+                }
+            } else {
+                let strong = |x: &(&str, &ChantNote), y: &(&str, &ChantNote)| {
+                    x.0 == y.0 && head(x.1) == head(y.1)
+                };
+                let lead = a.iter().zip(&b).take_while(|(x, y)| strong(x, y)).count();
+                let trail = a[lead..]
+                    .iter()
+                    .rev()
+                    .zip(b[lead..].iter().rev())
+                    .take_while(|(x, y)| strong(x, y))
+                    .count();
+                // Matched pairs (old index, new index), in order.
+                let mut pairs: Vec<(usize, usize)> = (0..lead).map(|i| (i, i)).collect();
+                let (am, bm) = (&a[lead..a.len() - trail], &b[lead..b.len() - trail]);
+                if am.len().saturating_mul(bm.len()) <= 16_000_000 {
+                    let weight = |x: &(&str, &ChantNote), y: &(&str, &ChantNote)| -> u32 {
+                        match (head(x.1) == head(y.1), x.0 == y.0) {
+                            (true, true) => 3,
+                            (true, false) => 1,
+                            _ => 0,
+                        }
+                    };
+                    // dp[i][j]: the best weight matching am[i..] with bm[j..].
+                    let mut dp = vec![vec![0u32; bm.len() + 1]; am.len() + 1];
+                    for i in (0..am.len()).rev() {
+                        for j in (0..bm.len()).rev() {
+                            let w = weight(&am[i], &bm[j]);
+                            let take = if w > 0 { dp[i + 1][j + 1] + w } else { 0 };
+                            dp[i][j] = take.max(dp[i + 1][j]).max(dp[i][j + 1]);
+                        }
+                    }
+                    let (mut i, mut j) = (0, 0);
+                    while i < am.len() && j < bm.len() {
+                        let w = weight(&am[i], &bm[j]);
+                        if w > 0 && dp[i][j] == dp[i + 1][j + 1] + w {
+                            pairs.push((lead + i, lead + j));
+                            i += 1;
+                            j += 1;
+                        } else if dp[i + 1][j] >= dp[i][j + 1] {
+                            i += 1;
+                        } else {
+                            j += 1;
+                        }
+                    }
+                }
+                pairs.extend((0..trail).map(|k| (a.len() - trail + k, b.len() - trail + k)));
+                // Notes edited in place: the same number of unmatched notes between two matches.
+                let mut anchors = vec![(0usize, 0usize)];
+                for &(i, j) in &pairs {
+                    anchors.push((i, j));
+                    anchors.push((i + 1, j + 1));
+                }
+                anchors.push((a.len(), b.len()));
+                for w in anchors.chunks(2) {
+                    let ((i0, j0), (i1, j1)) = (w[0], w[1]);
+                    if i1 >= i0 && j1 >= j0 && i1 - i0 == j1 - j0 && i1 - i0 <= 4 {
+                        // A gap (possibly none) between two matches or an end.
+                        for k in 0..i1 - i0 {
+                            pairs.push((i0 + k, j0 + k));
+                        }
+                    }
+                }
+                for (i, j) in pairs {
+                    ids[j] = a[i].1.id;
+                }
+            }
+            ids
+        };
         let mut k = 0;
         for item in self.syllables.iter_mut().flat_map(|s| &mut s.items) {
             if let NeumeItem::Note(n) = item {

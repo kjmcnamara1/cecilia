@@ -4,9 +4,12 @@
 //! Notes keep their modifiers as written, and anything not understood is kept verbatim, so a
 //! file read and written again keeps its meaning (and usually its exact text).
 
+use std::ops::Range;
+
 use cecilia_core::chant::{
     Chant, ChantClef, ChantNote, NeumeItem, Syllable, letter_position, retranscribe,
 };
+use cecilia_core::chant_source::{ChantSource, SourceMap, SpliceKind, SyllableSource, plan_splice};
 use cecilia_core::{MidiSettings, Score, Track, TrackKind};
 
 use crate::{Error, Result};
@@ -20,12 +23,24 @@ pub const CHANT_TEMPO: u32 = 72;
 pub fn read_gabc(bytes: &[u8]) -> Result<Score> {
     let text = String::from_utf8_lossy(bytes);
     let text = text.trim_start_matches('\u{feff}');
-    let chant = parse(text)?;
+    let (mut chant, map) = parse_with_map(text)?;
+    // The body as the file has it is the chant's layout: score edits splice into it.
+    let start = body_start(text);
+    let body: String = text.chars().skip(start).collect();
+    chant.source = Some(ChantSource {
+        text: body.trim_end().to_string(),
+        map: map.shifted_back(start),
+    });
     Ok(chant_score(chant))
 }
 
-/// A score holding one chant track, its bars transcribed from the chant.
-pub fn chant_score(chant: Chant) -> Score {
+/// A score holding one chant track, its bars transcribed from the chant. A chant without kept
+/// text gets its own writing as its layout.
+pub fn chant_score(mut chant: Chant) -> Score {
+    if chant.source.is_none() {
+        let (text, map) = body_with_map(&chant);
+        chant.source = Some(ChantSource { text, map });
+    }
     let mut score = Score {
         tempo: CHANT_TEMPO,
         ..Score::default()
@@ -59,6 +74,21 @@ pub fn is_gabc(bytes: &[u8]) -> bool {
 
 /// Parses GABC text.
 pub fn parse(text: &str) -> Result<Chant> {
+    parse_with_map(text).map(|(chant, _)| chant)
+}
+
+/// The number of characters before the body of GABC text: its header and the `%%` line (none
+/// when there is no header).
+pub fn body_start(text: &str) -> usize {
+    let (_, body) = split_header(text);
+    text[..text.len() - body.len()].chars().count()
+}
+
+/// Parses GABC text and says where every note and syllable is in it: the map's ranges are
+/// **character** indexes into `text` (header included; [`body_start`] is where the body
+/// begins), whatever the text looks like, as typed or as written by [`write`].
+/// A parse error's `offset` is also a character index into `text`.
+pub fn parse_with_map(text: &str) -> Result<(Chant, SourceMap)> {
     let mut chant = Chant::default();
     let (header, body) = split_header(text);
     let mut key: Option<String> = None;
@@ -98,9 +128,52 @@ pub fn parse(text: &str) -> Result<Chant> {
         .and_then(|v| v.parse().ok())
         .unwrap_or(1usize)
         .max(1);
-    chant.syllables = parse_body(body, nabc_lines)?;
+    let start = body_start(text);
+    let (syllables, map) = parse_body(body, nabc_lines).map_err(|e| match e {
+        Error::Parse {
+            offset,
+            location,
+            message,
+        } => Error::Parse {
+            offset: offset + start,
+            location,
+            message,
+        },
+        other => other,
+    })?;
+    chant.syllables = syllables;
     chant.assign_ids();
-    Ok(chant)
+    Ok((chant, map.shifted_on(start)))
+}
+
+/// Parses a GABC body (what the lyrics text area of a chant holds) as the body of `template`:
+/// its headers are the ones used (`nabc-lines` matters), and its staff lines, interpretation and
+/// id counter are kept. The map and a parse error's `offset` index characters of `body`.
+pub fn reparse_body(template: &Chant, body: &str) -> Result<(Chant, SourceMap)> {
+    let mut text = String::new();
+    for (k, v) in &template.headers {
+        text.push_str(&format!("{k}: {v};\n"));
+    }
+    text.push_str("%%\n");
+    let start = text.chars().count();
+    text.push_str(body);
+    // A body line of `%%` would end a header that is not there: it is taken as the body's own.
+    let (mut chant, map) = parse_with_map(&text).map_err(|e| match e {
+        Error::Parse {
+            offset,
+            location,
+            message,
+        } => Error::Parse {
+            offset: offset.saturating_sub(start),
+            location,
+            message,
+        },
+        other => other,
+    })?;
+    chant.staff_lines = template.staff_lines;
+    chant.interpretation = template.interpretation;
+    chant.next_id = chant.next_id.max(template.next_id);
+    Ok((chant, map.shifted_back(start)))
 }
 
 fn split_header(text: &str) -> (&str, &str) {
@@ -116,8 +189,9 @@ fn split_header(text: &str) -> (&str, &str) {
 }
 
 /// Splits the body into syllables. `%` starts a comment except inside `<sp>`, `<v>` and
-/// `<alt>` in text and inside `[…]` in notes; `$` escapes the next character.
-fn parse_body(body: &str, nabc_lines: usize) -> Result<Vec<Syllable>> {
+/// `<alt>` in text and inside `[…]` in notes; `$` escapes the next character. The map has
+/// character offsets into `body`.
+fn parse_body(body: &str, nabc_lines: usize) -> Result<(Vec<Syllable>, SourceMap)> {
     let c: Vec<char> = body.chars().collect();
     let starts = |i: usize, s: &str| {
         s.chars()
@@ -125,12 +199,16 @@ fn parse_body(body: &str, nabc_lines: usize) -> Result<Vec<Syllable>> {
             .all(|(k, ch)| c.get(i + k) == Some(&ch))
     };
     let mut syllables = Vec::new();
+    let mut map = SourceMap::default();
     let mut text = String::new();
+    // Where the text of the syllable being read begins (its first character that is not blank).
+    let mut text_start: Option<usize> = None;
     let mut tag: Option<&str> = None;
     let mut i = 0;
     while i < c.len() {
         let ch = c[i];
         if ch == '$' && i + 1 < c.len() {
+            text_start.get_or_insert(i);
             text.push(ch);
             text.push(c[i + 1]);
             i += 2;
@@ -158,12 +236,16 @@ fn parse_body(body: &str, nabc_lines: usize) -> Result<Vec<Syllable>> {
             .into_iter()
             .find(|t| starts(i, &format!("<{t}>")))
         {
+            text_start.get_or_insert(i);
             text.push_str(&format!("<{t}>"));
             i += t.len() + 2;
             tag = Some(t);
             continue;
         }
         if ch != '(' {
+            if !ch.is_whitespace() {
+                text_start.get_or_insert(i);
+            }
             text.push(ch);
             i += 1;
             continue;
@@ -171,6 +253,8 @@ fn parse_body(body: &str, nabc_lines: usize) -> Result<Vec<Syllable>> {
         // Notes up to the closing parenthesis.
         let open = i;
         let mut notes = String::new();
+        // Where each character of `notes` is in the body.
+        let mut at: Vec<usize> = Vec::new();
         let mut depth = 0;
         i += 1;
         loop {
@@ -194,8 +278,10 @@ fn parse_body(body: &str, nabc_lines: usize) -> Result<Vec<Syllable>> {
                 _ => {}
             }
             notes.push(n);
+            at.push(i);
             i += 1;
         }
+        let close = i;
         i += 1;
         let word_start = syllables.is_empty() || text.starts_with(char::is_whitespace);
         // Leading whitespace separates words; trailing whitespace is part of the text.
@@ -203,36 +289,73 @@ fn parse_body(body: &str, nabc_lines: usize) -> Result<Vec<Syllable>> {
         if t.ends_with(['\n', '\r', '\t']) {
             t = format!("{} ", t.trim_end());
         }
+        let start = text_start.take().unwrap_or(open);
+        let (items, spans) = parse_notes_spanned(&notes, nabc_lines);
+        let mut src = SyllableSource {
+            range: start..close + 1,
+            text: start..open,
+            notation: open + 1..close,
+            items: Vec::with_capacity(items.len()),
+            first_note: map.notes.len(),
+        };
+        for (item, span) in items.iter().zip(&spans) {
+            let r = at[span.start]..at[span.end - 1] + 1;
+            if matches!(item, NeumeItem::Note(_)) {
+                map.notes.push(r.clone());
+            }
+            src.items.push(r);
+        }
+        map.syllables.push(src);
         syllables.push(Syllable {
             text: t,
             word_start,
-            items: parse_notes(&notes, nabc_lines),
+            items,
         });
         text.clear();
     }
-    Ok(syllables)
+    Ok((syllables, map))
 }
 
 /// Parses the notation inside one pair of parentheses. Sections after `|` are adiastematic
 /// (NABC) neumes, kept verbatim.
 pub fn parse_notes(s: &str, nabc_lines: usize) -> Vec<NeumeItem> {
+    parse_notes_spanned(s, nabc_lines).0
+}
+
+/// Like [`parse_notes`], with the character range of `s` each item was read from.
+pub fn parse_notes_spanned(s: &str, nabc_lines: usize) -> (Vec<NeumeItem>, Vec<Range<usize>>) {
     let mut items = Vec::new();
+    let mut spans: Vec<Range<usize>> = Vec::new();
+    let mut offset = 0;
     for (k, part) in s.split('|').enumerate() {
+        let len = part.chars().count();
         if k % (nabc_lines + 1) != 0 {
             items.push(NeumeItem::Raw(format!("|{part}")));
+            spans.push(offset - 1..offset + len);
         } else {
             if k > 0 {
                 items.push(NeumeItem::Raw("|".into()));
+                spans.push(offset - 1..offset);
             }
-            items.extend(parse_gabc_notes(part));
+            let (found, found_spans) = parse_gabc_notes(part);
+            items.extend(found);
+            spans.extend(
+                found_spans
+                    .into_iter()
+                    .map(|r| r.start + offset..r.end + offset),
+            );
         }
+        offset += len + 1;
     }
-    items
+    (items, spans)
 }
 
-fn parse_gabc_notes(s: &str) -> Vec<NeumeItem> {
+/// The items of notation with the character range of each. A modifier or comment that joins
+/// the item before it extends that item's range.
+fn parse_gabc_notes(s: &str) -> (Vec<NeumeItem>, Vec<Range<usize>>) {
     let c: Vec<char> = s.chars().collect();
     let mut items: Vec<NeumeItem> = Vec::new();
+    let mut spans: Vec<Range<usize>> = Vec::new();
     let mut i = 0;
     let at = |i: usize| c.get(i).copied().unwrap_or('\0');
     // Takes `[` … `]` (nested brackets allowed) starting at i.
@@ -256,6 +379,7 @@ fn parse_gabc_notes(s: &str) -> Vec<NeumeItem> {
     };
     while i < c.len() {
         let ch = c[i];
+        let began = i;
         match ch {
             '\n' | '\r' | '\t' => i += 1,
             ' ' => {
@@ -402,8 +526,16 @@ fn parse_gabc_notes(s: &str) -> Vec<NeumeItem> {
                 }
             }
         }
+        if items.len() > spans.len() {
+            spans.push(began..i);
+        } else if !matches!(ch, '\n' | '\r' | '\t') {
+            // A modifier or more of the same unknown run: part of the item before.
+            if let Some(last) = spans.last_mut() {
+                last.end = i;
+            }
+        }
     }
-    items
+    (items, spans)
 }
 
 /// Reads a note (pitch letter then modifiers) starting at the pitch letter.
@@ -469,18 +601,23 @@ fn note_at(c: &[char], start: usize) -> (ChantNote, usize) {
     (note, i)
 }
 
-/// Writes the first chant track as GABC.
+/// Writes the first chant track as GABC. The body is the chant's kept text (the user's own
+/// layout) while that still reads as the chant, else it is written out afresh.
 pub fn write_gabc(score: &Score) -> Result<Vec<u8>> {
     let chant = score
         .tracks
         .iter()
         .find_map(|t| t.chant.as_deref())
         .ok_or_else(|| Error::Unsupported("GABC needs a chant track".into()))?;
-    Ok(write(chant, &score.meta.title).into_bytes())
+    let mut out = header_text(chant, &score.meta.title);
+    out.push_str("%%\n");
+    out.push_str(&source_of(chant).text);
+    out.push('\n');
+    Ok(out.into_bytes())
 }
 
-/// GABC text of a chant; `title` replaces the `name` header when set.
-pub fn write(chant: &Chant, title: &str) -> String {
+/// The header lines of a chant as GABC; `title` replaces the `name` header when set.
+fn header_text(chant: &Chant, title: &str) -> String {
     let mut out = String::new();
     let mut headers = chant.headers.clone();
     if !title.is_empty() {
@@ -492,7 +629,21 @@ pub fn write(chant: &Chant, title: &str) -> String {
     for (k, v) in &headers {
         out.push_str(&format!("{k}: {v};\n"));
     }
+    out
+}
+
+/// GABC text of a chant; `title` replaces the `name` header when set.
+pub fn write(chant: &Chant, title: &str) -> String {
+    write_with_map(chant, title).0
+}
+
+/// GABC text of a chant with the map of it: the same map [`parse_with_map`] gives for that
+/// text (character indexes into the whole text, header included).
+pub fn write_with_map(chant: &Chant, title: &str) -> (String, SourceMap) {
+    let mut out = header_text(chant, title);
     out.push_str("%%\n");
+    let mut pos = out.chars().count();
+    let mut map = SourceMap::default();
     let mut line = 0;
     for (i, s) in chant.syllables.iter().enumerate() {
         if s.word_start && i > 0 {
@@ -503,13 +654,121 @@ pub fn write(chant: &Chant, title: &str) -> String {
                 out.push(' ');
                 line += 1;
             }
+            pos += 1;
         }
         let text = s.gabc();
-        line += text.chars().count();
+        let len = text.chars().count();
+        line += len;
+        // The text starts at its first character that is not blank (none: at the `(`).
+        let tlen = s.text.chars().count();
+        let lead = s.text.chars().take_while(|c| c.is_whitespace()).count();
+        let open = pos + tlen;
+        let mut src = SyllableSource {
+            range: pos + if lead == tlen { tlen } else { lead }..pos + len,
+            text: pos + if lead == tlen { tlen } else { lead }..open,
+            notation: open + 1..pos + len - 1,
+            items: Vec::with_capacity(s.items.len()),
+            first_note: map.notes.len(),
+        };
+        let mut at = open + 1;
+        for item in &s.items {
+            let n = item.gabc().chars().count();
+            if matches!(item, NeumeItem::Note(_)) {
+                map.notes.push(at..at + n);
+            }
+            src.items.push(at..at + n);
+            at += n;
+        }
+        map.syllables.push(src);
         out.push_str(&text);
+        pos += len;
     }
     out.push('\n');
-    out
+    (out, map)
+}
+
+/// A chant's GABC body as the lyrics text area shows it (without its header or trailing
+/// blank space) with the map of it, indexing characters of that body.
+pub fn body_with_map(chant: &Chant) -> (String, SourceMap) {
+    let (text, map) = write_with_map(chant, "");
+    let start = body_start(&text);
+    let body: String = text.chars().skip(start).collect();
+    (body.trim_end().to_string(), map.shifted_back(start))
+}
+
+/// Whether `source` reads as `chant` (its text parses to the same notation) and its map is the
+/// text's.
+fn source_reads_as(chant: &Chant, source: &ChantSource) -> Option<SourceMap> {
+    let (read, map) = reparse_body(chant, &source.text).ok()?;
+    (read.syllables == chant.syllables).then_some(map)
+}
+
+/// The chant's kept GABC body when it still reads as the chant, else the chant written out
+/// afresh. The map is always the text's own.
+pub fn source_of(chant: &Chant) -> ChantSource {
+    if let Some(src) = &chant.source {
+        if let Some(map) = source_reads_as(chant, src) {
+            return ChantSource {
+                text: src.text.clone(),
+                map,
+            };
+        }
+    }
+    let (text, map) = body_with_map(chant);
+    ChantSource { text, map }
+}
+
+/// Makes the chant's kept text and map consistent (after a file was read: the maps are not
+/// saved). A text that no longer reads as the chant is dropped.
+pub fn refresh_source(chant: &mut Chant) {
+    if let Some(src) = chant.source.take() {
+        if let Some(map) = source_reads_as(chant, &src) {
+            chant.source = Some(ChantSource {
+                text: src.text,
+                map,
+            });
+        }
+    }
+}
+
+/// What [`sync_source`] did.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum SourceSync {
+    /// The chant already had text that reads as it.
+    Kept,
+    /// The text was changed only where the chant changed.
+    Spliced(SpliceKind),
+    /// The whole text was written again (no kept text read as `old`, or the splice did not
+    /// give the new chant).
+    Written,
+}
+
+/// Brings the kept text of `new` (a chant made by editing `old`) up to date: the text of `old`
+/// gets a splice at the place the chants differ, so the rest of it stays byte for byte; when
+/// that does not read as `new` the whole text is written afresh.
+pub fn sync_source(old: &Chant, new: &mut Chant) -> SourceSync {
+    if let Some(src) = &new.source {
+        if let Some(map) = source_reads_as(new, src) {
+            new.source = Some(ChantSource {
+                text: src.text.clone(),
+                map,
+            });
+            return SourceSync::Kept;
+        }
+    }
+    let before = source_of(old);
+    if let Some(splice) = plan_splice(old, &before.map, new) {
+        let text = splice.apply(&before.text);
+        if let Ok((read, map)) = reparse_body(new, &text) {
+            if read.syllables == new.syllables {
+                new.source = Some(ChantSource { text, map });
+                return SourceSync::Spliced(splice.kind);
+            }
+        }
+    }
+    let (text, map) = body_with_map(new);
+    new.source = Some(ChantSource { text, map });
+    SourceSync::Written
 }
 
 #[cfg(test)]

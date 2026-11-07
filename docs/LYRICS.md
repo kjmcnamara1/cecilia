@@ -490,3 +490,7 @@ beat after the point. The eighth on the upbeat of beat 3 of bar 5 is `5:3.5`. A 
 more than its count goes on counting: the sixth quarter of a 4/4 bar is `2:6.0`. The status line,
 marks, `:5:3.5` (go there), `:lyrics` and lyrics anchors use it; an anchor may leave out a zero
 fraction (`(2:6)`).
+
+In the GABC editor (insert mode of the lyrics text area) `(` also writes the closing `)` with the
+caret between them (not before a letter), `)` before an existing `)` steps over it, and `<BS>`
+between an empty pair removes both.

@@ -943,7 +943,7 @@ mod tests {
     }
 
     #[test]
-    fn a_chant_made_again_from_text_inherits_the_ids_of_the_notes_it_kept() {
+    fn a_chant_made_again_from_text_keeps_the_ids_of_the_notes_it_matches() {
         let mut old = small();
         old.assign_ids();
         // The same melody with a note added in the middle and one dropped at the end.
@@ -955,7 +955,7 @@ mod tests {
                 n.id = 0;
             }
         }
-        new.inherit_ids(&old);
+        new.match_ids(&old);
         let ids = new.note_ids();
         // The new note has a fresh id, the others their old ones.
         assert_eq!(&ids[..2], [1, 2]);
@@ -963,7 +963,7 @@ mod tests {
         assert_eq!(&ids[3..], [3, 4]);
         // Identical text: every id stays.
         let mut same = small();
-        same.inherit_ids(&old);
+        same.match_ids(&old);
         assert_eq!(same.note_ids(), old.note_ids());
     }
 }

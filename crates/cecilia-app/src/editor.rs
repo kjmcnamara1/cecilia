@@ -725,6 +725,7 @@ impl App {
         let mut sync_dropped = 0;
         if let (Some(before), true) = (&chant_before, result.is_ok()) {
             cx.score.refresh_chant_sync();
+            cx.sync_chant_source(before);
             sync_dropped = lost_sync_points(before, cx.score);
         }
         if result.is_ok() {
@@ -747,10 +748,13 @@ impl App {
         }
         clamp_cursor(&buffer.score, &mut cursor);
         self.panes.get_mut(&id).unwrap().cursor = cursor;
+        if chant_before.is_some() {
+            // An open text area shows the spliced text, the caret on the edited note.
+            self.follow_score_edit_in_text();
+        }
         if sync_dropped > 0 {
             self.info(format!(
-                "{sync_dropped} sync point{} dropped with the deleted note{}",
-                if sync_dropped == 1 { "" } else { "s" },
+                "{sync_dropped} sync point{} lost",
                 if sync_dropped == 1 { "" } else { "s" },
             ));
         }

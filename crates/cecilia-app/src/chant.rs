@@ -168,15 +168,32 @@ impl App {
         });
     }
 
-    /// The cursor note and its pitch, for a new note to start at.
-    fn pitch_of(chant: &Chant, at: Option<usize>) -> u8 {
-        at.and_then(|n| chant.note(n)).map_or(6, |n| n.pitch)
+    /// Puts the cursor on the staff line of the note it is on.
+    pub(crate) fn chant_line_follows_note(&mut self) {
+        if !self.cursor_on_chant() {
+            return;
+        }
+        let pitch = self
+            .chant_cursor_note()
+            .and_then(|n| {
+                self.buffer().score.tracks[self.pane().cursor.track]
+                    .chant
+                    .as_deref()?
+                    .note(n)
+            })
+            .map(|n| n.pitch);
+        if let Some(p) = pitch {
+            self.pane_mut().cursor.line = p as i32;
+        }
     }
 
-    /// Inserts a note next to the cursor note.
-    fn chant_insert(&mut self, after: bool, join: Join) {
+    /// Inserts a note next to the cursor note: on the staff line the cursor is on (`on_row`,
+    /// the Insert-mode keys) or at the pitch of the cursor note.
+    fn chant_insert(&mut self, after: bool, join: Join, on_row: bool) {
+        let line = self.pane().cursor.line.clamp(0, 14) as u8;
         self.chant_op(move |chant, at| {
-            let pitch = Self::pitch_of(chant, at);
+            let near = at.and_then(|n| chant.note(n)).map_or(6, |n| n.pitch);
+            let pitch = if on_row { line } else { near };
             chant
                 .insert_note(at.unwrap_or(0), after, join, pitch)
                 .map(Some)
@@ -264,12 +281,13 @@ impl App {
                 Ok((left > 0).then(|| n.saturating_sub(1)))
             }),
             // A new beat is a new note.
-            InsertNext | BeatNew => self.chant_insert(true, Join::Neume),
-            InsertEnter => self.chant_insert(true, Join::NewSyllable),
+            InsertNext | BeatNew => self.chant_insert(true, Join::Neume, true),
+            InsertEnter => self.chant_insert(true, Join::NewSyllable, true),
             // `i` `a` `I` `A` open no beat in chant: they only start Insert mode, where
             // `<Space>` adds a note.
             InsertBeat(_) => {
                 self.ed.group = Some(false);
+                self.chant_line_follows_note();
                 self.enter_insert();
             }
             Duration(_) => refuse(self, "duration"),
@@ -372,9 +390,9 @@ impl App {
                 };
                 self.info(msg);
             }
-            ChantAppend => self.chant_insert(true, Join::Neume),
-            ChantBreak => self.chant_insert(true, Join::NewNeume),
-            ChantSyllable => self.chant_insert(true, Join::NewSyllable),
+            ChantAppend => self.chant_insert(true, Join::Neume, false),
+            ChantBreak => self.chant_insert(true, Join::NewNeume, true),
+            ChantSyllable => self.chant_insert(true, Join::NewSyllable, true),
             ChantBar(sign) => {
                 let sign = sign.clone();
                 self.chant_op(move |chant, at| {
@@ -459,7 +477,7 @@ impl App {
                         None => chant.syllables[si].items = notes,
                     }
                     // Notes the replacement leaves as they were keep their ids (and sync).
-                    chant.inherit_ids(&old);
+                    chant.match_ids(&old);
                     retranscribe(score, t);
                     Ok(())
                 });
@@ -680,6 +698,45 @@ mod tests {
             n += 1;
         }
         n
+    }
+
+    #[test]
+    fn w_e_b_walk_the_notes_and_the_cursor_stands_on_their_line() {
+        let mut a = app();
+        let at = |a: &App| {
+            let c = a.pane().cursor;
+            (c.beat, c.line)
+        };
+        // Notes: f g h g f (beats 0..4); positions f=5 g=6 h=7.
+        keys(&mut a, "w");
+        assert_eq!(at(&a), (1, 6));
+        keys(&mut a, "ww");
+        assert_eq!(at(&a), (3, 6));
+        keys(&mut a, "b");
+        assert_eq!(at(&a), (2, 7));
+        keys(&mut a, "bb");
+        assert_eq!(at(&a), (0, 5));
+        keys(&mut a, "e");
+        assert_eq!(at(&a), (1, 6));
+        keys(&mut a, "l");
+        assert_eq!(
+            at(&a),
+            (2, 7),
+            "h and l put the cursor on the note's line too"
+        );
+    }
+
+    #[test]
+    fn enter_and_space_enter_a_note_on_the_cursor_row() {
+        let mut a = app();
+        // Up two rows from the first note (f), then a note after it on that row.
+        keys(&mut a, "ikk<Space>");
+        assert_eq!(gabc(&a), "(c4) Al(fhg) le(h) lu(g) ia.(f.) (::)");
+        assert_eq!(a.pane().cursor.line, 7);
+        // Enter: a punctum of its own syllable, on the row the cursor was moved to.
+        keys(&mut a, "jj<CR>");
+        assert_eq!(gabc(&a), "(c4) Al(fhg) (f) le(h) lu(g) ia.(f.) (::)");
+        assert_eq!(a.pane().cursor.line, 5);
     }
 
     #[test]

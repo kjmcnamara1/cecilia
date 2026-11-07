@@ -4,6 +4,7 @@
 
 mod app;
 mod chant;
+mod chant_text;
 mod chantsync;
 pub mod clipboard;
 pub mod command;
@@ -45,6 +46,7 @@ pub use app::{
     PaneKind, ScrollTo, View, ViewInfo, beat_at_tick, beats, cursor_tick, file_kind, staff_index,
     truncate_middle,
 };
+pub use chant_text::TextMarks;
 pub use command::{Command, Strip};
 pub use config::{Config, Mode};
 pub use editor::Clip;

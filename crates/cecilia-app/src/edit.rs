@@ -88,6 +88,23 @@ impl<'a> EditCx<'a> {
         Ok(())
     }
 
+    /// Brings the kept GABC text of every chant that changed up to date: the text splices at the
+    /// place the chant changed (the user's layout stays elsewhere), or is written afresh when
+    /// that does not give the chant (see [`cecilia_formats::gabc::sync_source`]).
+    pub fn sync_chant_source(&mut self, before: &Score) {
+        for t in 0..self.score.tracks.len().min(before.tracks.len()) {
+            let Some(old) = before.tracks[t].chant.as_deref() else {
+                continue;
+            };
+            let Some(new) = self.score.tracks[t].chant.as_deref_mut() else {
+                continue;
+            };
+            if *new != *old {
+                cecilia_formats::gabc::sync_source(old, new);
+            }
+        }
+    }
+
     /// Lays every track's lyrics text out on its beats again (an edit may have changed which
     /// beats sing): the syllables follow the text one to a note in sung order, so a deleted
     /// note hands its syllable on, new notes take the next ones, and syllables past the last

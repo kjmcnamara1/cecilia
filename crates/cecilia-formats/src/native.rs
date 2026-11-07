@@ -113,6 +113,9 @@ pub fn read_cecilia(bytes: &[u8]) -> Result<Score> {
         let t = score.tracks.iter().position(|t| t.chant.is_some()).unwrap();
         if let Some(c) = score.tracks[t].chant.as_deref_mut() {
             c.assign_ids();
+            // The kept GABC text comes back with its map (a text that no longer reads as the
+            // chant is dropped).
+            crate::gabc::refresh_source(c);
         }
         if score
             .audio

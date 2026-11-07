@@ -9,6 +9,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- The lyrics text area of a chant score keeps the GABC as typed: score edits splice into the kept
+  text at the changed note (the rest of your layout stays), typing re-reads the chant after each
+  key that parses (a parse error is marked at its position and the last good chant stays), notes
+  keep their ids and audio sync across text edits, and the text caret and the score cursor follow
+  each other.
+- The GABC editor (the Lyrics text area) closes parentheses: `(` writes `()` with the caret
+  inside (not before a letter), `)` before one steps over it, and Backspace between an empty pair
+  removes both.
+
 - The interface follows the kind of score. The status line has a `MODERN` / `CHANT` chip beside the
   mode (theme colors `score_modern`, new, and `icon_chant`; clicking it names the conversion
   command, `:score-kind`), a chant score's tab has the chant icon and its pane title ends
@@ -39,6 +48,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `:chant-to-modern` turns the bar points into the modern score's own and `:modern-to-chant`
   puts each bar point on the note that starts that bar. `:sync-detect` is not available for chant
   yet.
+
+### Fixed
+
+- On a chant score `w` / `e` / `b` step to the next note / the end of the note / the previous
+  note again, and the cursor stands on the staff line of the note it moves to (`h` `l` too), so
+  `j` / `k` then choose the pitch of a note to enter.
+- In Insert mode on a chant score `<Space>` (a note in the same neume), `<CR>` (a note on a new
+  syllable) and `/` (a new neume) enter the note on the staff line the cursor is on, not at the
+  pitch of the note beside it.
+- The asterisk in a chant's text is the red six-pointed one, as in lyrics.
 
 ### Removed
 
