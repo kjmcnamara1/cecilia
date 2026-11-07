@@ -108,7 +108,7 @@ fn main() -> Result<()> {
             if matches!(ext.as_str(), "wav" | "flac") {
                 return export_audio(&score, &input, &output, &ext, &config);
             }
-            if ext == "gabc" && score.tracks.iter().all(|t| t.chant.is_none()) {
+            if ext == "gabc" && !score.is_chant() {
                 let index = track
                     .saturating_sub(1)
                     .min(score.tracks.len().saturating_sub(1));
@@ -133,6 +133,13 @@ fn main() -> Result<()> {
                 );
                 return Ok(());
             }
+            // Modern formats hold staff tracks: a chant score goes through the same conversion as
+            // `:chant-to-modern` (its cached bars as a pitched track, syllables as lyrics).
+            let score = if score.is_chant() && ext != "gabc" && ext != "cc" {
+                score.chant_to_modern().unwrap_or(score)
+            } else {
+                score
+            };
             cecilia_formats::write_file(&score, &output)
                 .with_context(|| format!("writing {}", output.display()))?;
             eprintln!("wrote {}", output.display());

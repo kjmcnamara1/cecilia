@@ -141,11 +141,26 @@ bars (durations, tuplets, rests, ties, effects, bar insert / delete, paste, note
 report "not in chant" on a chant track, and the central edit path refuses any edit that changes
 the bars of a chant track without changing its chant.
 
-**No chant staff on ordinary tracks.** Square notation belongs to chant tracks only (a track with
-`chant` set, e.g. read from a `.gabc` file). An ordinary track has standard, tab, tab+ and slash
-staves (`:notation chant` and `:staff-add chant` are gone; a `.cc` file that still names a chant
-staff on an ordinary track loses it on load). To see a hymn in square notation, convert it with
-`:modern-to-chant` (a new buffer) or `cecilia convert in.gp5 out.gabc`. The conversion is built in
+**Chant scores.** A score is either a *modern score* (staff tracks only: standard, tab, tab+,
+slash) or a *chant score*: exactly one track, with `chant` set (`Score::is_chant()`, the one test
+the app uses). A `.gabc` file reads as a chant score; a chant file cannot hold other tracks, and
+`:track-add` refuses on a chant score (and refuses a chant track on a modern one), pointing at the
+conversions. Moving between the kinds is explicit and never changes the buffer you start from:
+
+- `:chant-to-modern` opens a **new buffer** `[modern] name` holding a modern score: the chant's
+  bars as a pitched track (name, instrument and volume kept), master bars and title kept, the
+  syllables as lyrics text on the beats, audio sync points carried over. `cecilia convert in.gabc
+  out.gp5` (any modern format) does the same.
+- `:modern-to-chant` opens a **new buffer** `[chant] name` from the cursor track only; other
+  tracks are left out (the message says so).
+- A `.cc` file from an older version that holds a chant track beside other tracks loads as a modern
+  score, the chant track converted in place as `:chant-to-modern` does (there is no message).
+
+To accompany a chant: `:chant-to-modern`, clean up the bars, `:track-add organ`. There are no chant
+staves on ordinary tracks (`:notation chant` and `:staff-add chant` are gone; a `.cc` file that
+still names a chant staff on an ordinary track loses it on load). To see a hymn in square
+notation, convert it with `:modern-to-chant` or `cecilia convert in.gp5 out.gabc`. The conversion
+is built in
 `cecilia-core` (`melody::ChantView`):
 
 - Only the first voice is read. Chant is monophonic, so a chord shows one note, chosen by

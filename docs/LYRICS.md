@@ -42,6 +42,15 @@ is laid out.
   notes that play and that the other staves show are transcribed from it again. Chant tracks
   don't take the `:lyrics` and `:lyrics-clear` commands.
 
+### Chant and modern scores
+
+A score is a *modern score* (staff tracks, lyrics in the syntax below) or a *chant score* (one
+chant track, lyrics are its GABC). A chant file cannot hold other tracks. `:chant-to-modern` opens
+a new buffer with a modern score: the chant's notes as a pitched track and its syllables as lyrics
+text on the beats (`Al(fg)le(h)` becomes `Al- _ le`, a dash covering the second note of "Al"); the
+chant buffer is not changed. `:modern-to-chant` goes the other way for the cursor track only. See
+[CHANT.md](CHANT.md).
+
 ### Files
 
 | format | reading | writing |

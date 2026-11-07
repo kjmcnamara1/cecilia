@@ -691,12 +691,7 @@ impl App {
         // the edit. Syllables still only on the beats get their text first.
         cecilia_core::gabcplus::ensure_text(&mut buffer.score);
         // A chant score's bars are a cache of its chant: see `EditCx::guard_chant`.
-        let chant_before = buffer
-            .score
-            .tracks
-            .iter()
-            .any(|t| t.chant.is_some())
-            .then(|| buffer.score.clone());
+        let chant_before = buffer.score.is_chant().then(|| buffer.score.clone());
         let mut cx = EditCx::new(&mut buffer.score, pane.cursor);
         let mut result = f(&mut cx);
         if let Some(before) = &chant_before {
@@ -1800,6 +1795,18 @@ impl App {
     }
 
     fn add_track(&mut self, kind: &str) {
+        if self.buffer().score.is_chant() {
+            return self.error(
+                "track-add: a chant score holds one chant track and nothing else \
+                 (:chant-to-modern makes a modern score to add tracks to)",
+            );
+        }
+        if kind == "chant" {
+            return self.error(
+                "track-add: a chant track cannot join a modern score (:modern-to-chant \
+                 makes a chant score from the cursor track)",
+            );
+        }
         let (name, kind, strings, program, channel) = match kind {
             "bass" => ("Bass", TrackKind::Fretted, vec![43, 38, 33, 28], 33, 2),
             "drums" => ("Drums", TrackKind::Drums, vec![0; 6], 0, 9),
@@ -1933,12 +1940,7 @@ impl App {
     /// Whether the cursor is on a chant track, whose single square-notation staff cannot be
     /// changed (`what` is the command refused); says so if it is.
     fn on_chant_track(&mut self, what: &str) -> bool {
-        let chant = self
-            .buffer()
-            .score
-            .tracks
-            .get(self.pane().cursor.track)
-            .is_some_and(|t| t.chant.is_some());
+        let chant = self.buffer().score.is_chant();
         if chant {
             self.error(format!(
                 "{what}: a chant track has one square-notation staff"

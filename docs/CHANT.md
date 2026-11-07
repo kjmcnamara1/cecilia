@@ -13,6 +13,29 @@ Square notation belongs to **chant tracks** (`Track.chant` set): from a `.gabc` 
 `:modern-to-chant`. Their source of truth is the chant itself (syllables, neumes, clefs in GABC
 form); the track's bars are a *transcription* of it (§4), rewritten after each edit.
 
+### Chant and modern scores
+
+A score is one of two kinds, and a score is never both:
+
+| | modern score | chant score |
+|---|---|---|
+| tracks | any number of staff tracks | exactly one, with `chant` set |
+| source of truth | the bars | the `Chant` (bars are a cache) |
+| files | all formats | `.gabc` (and `.cc`) |
+
+`Score::is_chant()` is the test. `:track-add` refuses on a chant score and refuses a chant track
+on a modern one; a chant file cannot hold other tracks. The conversions open a new buffer and leave
+the one you started from alone:
+
+- `:chant-to-modern` → `[modern] name`: the cached bars as a pitched track, the syllables as
+  lyrics text, title and audio sync kept. Also what `cecilia convert in.gabc out.gp5` writes.
+- `:modern-to-chant` → `[chant] name`: the cursor track only (other tracks are left out), lossy as
+  §3 describes.
+
+To add an organ to a chant: `:chant-to-modern`, clean up the bars, `:track-add organ`. A `.cc` file
+from an older version with a chant track and other tracks loads as a modern score (the chant track
+converted in place).
+
 An ordinary track has no chant staff: `:notation chant` and `:staff-add chant` do not exist, and a
 `.cc` file that still names one drops it on load. To see a melody in square notation, convert it
 (`:modern-to-chant`, or `cecilia convert in.gp5 out.gabc`); the conversion uses `ChantView`, which

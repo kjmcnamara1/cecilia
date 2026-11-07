@@ -91,6 +91,9 @@ pub fn read_cecilia(bytes: &[u8]) -> Result<Score> {
     if version < 2 {
         upgrade_lyrics(&mut score);
     }
+    // A score is chant or modern, not both: old files could hold a chant track beside others.
+    // It loads as a modern score (the chant's bars and syllables), as `:chant-to-modern` makes.
+    score.one_kind();
     score.normalize_dynamics();
     Ok(score)
 }
@@ -217,6 +220,34 @@ mod tests {
         // Only a chant staff: the track gets its default staves again.
         assert!(back.tracks[1].staves.is_empty());
         assert!(!back.tracks[1].staves().is_empty());
+    }
+
+    #[test]
+    fn a_file_mixing_chant_and_other_tracks_loads_as_a_modern_score() {
+        let chant =
+            crate::gabc::parse("name: t;\n%%\n(c4) Al(fg)le(h) lu(g)ia.(f.) (::)\n").unwrap();
+        let chant_only = crate::gabc::chant_score(chant);
+        // A chant score stays one: it round-trips as it is.
+        let back = read_cecilia(&write_cecilia(&chant_only).unwrap()).unwrap();
+        assert!(back.is_chant());
+        assert_eq!(back, chant_only);
+        // An old file could hold another track beside the chant.
+        let mut mixed = chant_only.clone();
+        mixed.tracks.push(Track {
+            name: "Organ".into(),
+            kind: TrackKind::Pitched,
+            bars: vec![Bar::default(); mixed.master_bars.len()],
+            ..Track::default()
+        });
+        assert!(!mixed.is_chant());
+        let back = read_cecilia(&write_cecilia(&mixed).unwrap()).unwrap();
+        assert!(!back.is_chant());
+        assert_eq!(back.tracks.len(), 2);
+        assert!(back.tracks.iter().all(|t| t.chant.is_none()));
+        assert_eq!(back.tracks[0].kind, TrackKind::Pitched);
+        assert_eq!(back.tracks[0].bars, chant_only.tracks[0].bars);
+        assert_eq!(back.tracks[0].lyrics_text, "Al- _ le lu-ia.");
+        assert_eq!(back.tracks[1].name, "Organ");
     }
 
     #[test]

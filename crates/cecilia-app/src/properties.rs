@@ -931,12 +931,7 @@ impl App {
     /// Whether the lyrics text area (of the cursor track) holds GABC (a chant track) rather than
     /// the modern lyrics syntax: it decides how the text is colored.
     pub fn lyrics_is_gabc(&self) -> bool {
-        let cursor = self.pane().cursor;
-        self.buffer()
-            .score
-            .tracks
-            .get(cursor.track)
-            .is_some_and(|t| t.chant.is_some())
+        self.buffer().score.is_chant()
     }
 
     /// The selected row, clamped to the rows there are.

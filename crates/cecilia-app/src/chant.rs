@@ -5,7 +5,6 @@
 //! edit. Nothing here (or anywhere) edits those bars: keys that would are mapped to a chant
 //! operation or refused with "not in chant".
 
-use cecilia_core::TrackKind;
 use cecilia_core::chant::{self, Chant, Liquescence, Shape, retranscribe, transcribe};
 use cecilia_core::chant_edit::{Alter, Join};
 
@@ -63,14 +62,24 @@ fn toggle_modifier(chant: &mut Chant, n: usize, m: &str) -> Result<(), String> {
 }
 
 impl App {
-    /// Whether the cursor is on a chant score's track.
+    /// Whether the buffer shown is a chant score.
     pub(crate) fn cursor_on_chant(&self) -> bool {
-        let c = self.pane().cursor;
-        self.buffer()
-            .score
-            .tracks
-            .get(c.track)
-            .is_some_and(|t| t.chant.is_some())
+        self.buffer().score.is_chant()
+    }
+
+    /// Opens `score` as a new unsaved buffer and shows it.
+    fn open_new_buffer(&mut self, name: String, score: cecilia_core::Score) {
+        self.buffers.push(Buffer {
+            path: None,
+            name,
+            score,
+            modified: true,
+            history: Default::default(),
+            version: 0,
+            disk: None,
+        });
+        let b = self.buffers.len() - 1;
+        self.show_buffer(b);
     }
 
     fn require_chant(&mut self) -> bool {
@@ -403,14 +412,15 @@ impl App {
                 if !self.require_chant() {
                     return true;
                 }
-                self.edit(|cx| {
-                    let t = cx.cursor.track;
-                    let track = &mut cx.whole().tracks[t];
-                    track.chant = None;
-                    track.kind = TrackKind::Pitched;
-                    Ok(())
-                });
-                self.info("chant track is now a staff track (its transcription)");
+                let Some(new) = self.buffer().score.chant_to_modern() else {
+                    return true;
+                };
+                let name = format!("[modern] {}", self.buffer().name);
+                self.open_new_buffer(name, new);
+                self.info(
+                    "modern score (the chant's notes as a staff track, its syllables as lyrics); \
+                     the chant is unchanged; :w name.cc to save",
+                );
             }
             ModernToChant => {
                 let c = self.pane().cursor;
@@ -421,19 +431,18 @@ impl App {
                         let mut new = cecilia_formats::gabc::chant_score(r.chant);
                         new.meta.title = score.meta.title.clone();
                         let name = format!("[chant] {}", self.buffer().name);
-                        self.buffers.push(Buffer {
-                            path: None,
-                            name,
-                            score: new,
-                            modified: true,
-                            history: Default::default(),
-                            version: 0,
-                            disk: None,
-                        });
-                        let b = self.buffers.len() - 1;
-                        self.show_buffer(b);
+                        let left_out = self.buffer().score.tracks.len() - 1;
+                        self.open_new_buffer(name, new);
+                        let others = if left_out > 0 {
+                            format!(
+                                "; only the cursor track was converted, {left_out} other track{} left out",
+                                if left_out == 1 { "" } else { "s" }
+                            )
+                        } else {
+                            String::new()
+                        };
                         self.info(format!(
-                            "chant (lossy): transposed {:+} semitones, {} notes rounded, {} chords reduced; :w name.gabc to save",
+                            "chant (lossy): transposed {:+} semitones, {} notes rounded, {} chords reduced{others}; :w name.gabc to save",
                             r.transpose, r.rounded, r.chords
                         ));
                     }
@@ -459,6 +468,7 @@ mod tests {
     use super::*;
     use crate::Config;
     use crate::keys::Key;
+    use cecilia_core::TrackKind;
 
     const TEXT: &str = "name: t;\n%%\n(c4) Al(fg)le(h) lu(g)ia.(f.) (::)\n";
 
@@ -928,12 +938,106 @@ mod tests {
         app.run(Command::ChantClef("c3".into()));
         assert!(gabc(&app).starts_with("(c3)"));
         assert_cache(&app);
+        let chant_score = app.buffer().score.clone();
         app.run(Command::ChantToModern);
+        assert_eq!(app.buffers.len(), 2);
+        assert_eq!(
+            app.buffers[0].score, chant_score,
+            "the chant buffer is untouched"
+        );
         let t = &app.buffer().score.tracks[0];
         assert!(t.chant.is_none() && t.kind == TrackKind::Pitched);
         app.run(Command::ModernToChant);
-        assert_eq!(app.buffers.len(), 2);
+        assert_eq!(app.buffers.len(), 3);
         assert!(app.buffer().score.tracks[0].chant.is_some());
+    }
+
+    #[test]
+    fn chant_to_modern_opens_a_modern_score_and_leaves_the_chant() {
+        let mut a = app();
+        let chant = a.buffers[0].score.clone();
+        let modified = a.buffers[0].modified;
+        a.run(Command::ChantToModern);
+        assert_eq!(a.buffers.len(), 2);
+        assert_eq!(a.buffers[0].score, chant);
+        assert_eq!(a.buffers[0].modified, modified);
+        let b = &a.buffers[1];
+        assert_eq!(b.name, format!("[modern] {}", a.buffers[0].name));
+        assert!(b.modified && b.path.is_none());
+        let m = &b.score;
+        assert!(!m.is_chant() && chant.is_chant());
+        let (old, new) = (&chant.tracks[0], &m.tracks[0]);
+        assert!(new.chant.is_none() && new.kind == TrackKind::Pitched);
+        assert_eq!((&new.name, &new.midi), (&old.name, &old.midi));
+        assert_eq!(m.master_bars, chant.master_bars);
+        assert_eq!(m.meta, chant.meta);
+        let pitches = |t: &cecilia_core::Track| -> Vec<Vec<(u8, u8)>> {
+            t.bars
+                .iter()
+                .flat_map(|b| &b.voices[0].beats)
+                .map(|beat| beat.notes.iter().map(|n| (n.string, n.fret)).collect())
+                .collect()
+        };
+        assert_eq!(pitches(new), pitches(old));
+        // The syllables are the lyrics text of the new score.
+        assert_eq!(new.lyrics_text, "Al- _ le lu-ia.");
+        // The chant buffer's text still edits like a chant.
+        a.show_buffer(0);
+        assert!(a.buffer().score.is_chant());
+    }
+
+    #[test]
+    fn modern_to_chant_says_other_tracks_were_left_out() {
+        let mut a = App::new(Config::default(), None);
+        a.run(Command::New);
+        keys(&mut a, "i1<Space>2<Esc>");
+        a.run(Command::TrackAdd("piano".into()));
+        a.run(Command::Track(1));
+        a.run(Command::ModernToChant);
+        assert!(a.buffer().score.is_chant(), "{:?}", a.message);
+        let msg = a.message.as_ref().unwrap().text.clone();
+        assert!(
+            msg.contains("only the cursor track") && msg.contains("1 other track"),
+            "{msg}"
+        );
+    }
+
+    #[test]
+    fn a_score_holds_one_kind_of_track() {
+        // A chant score takes no further track.
+        let mut a = app();
+        let before = a.buffer().score.clone();
+        a.run(Command::TrackAdd("piano".into()));
+        assert!(a.message.as_ref().unwrap().error);
+        assert!(
+            a.message
+                .as_ref()
+                .unwrap()
+                .text
+                .contains(":chant-to-modern")
+        );
+        assert_eq!(a.buffer().score, before);
+        // Its only track stays too.
+        a.run(Command::TrackDelete);
+        assert!(a.message.as_ref().unwrap().error);
+        assert_eq!(a.buffer().score, before);
+        // A modern score takes no chant track.
+        let mut m = App::new(Config::default(), None);
+        m.run(Command::New);
+        let before = m.buffer().score.clone();
+        m.run(Command::TrackAdd("chant".into()));
+        assert!(m.message.as_ref().unwrap().error);
+        assert!(
+            m.message
+                .as_ref()
+                .unwrap()
+                .text
+                .contains(":modern-to-chant")
+        );
+        assert_eq!(m.buffer().score, before);
+        // Ordinary tracks still can be added.
+        m.run(Command::TrackAdd("piano".into()));
+        assert_eq!(m.buffer().score.tracks.len(), before.tracks.len() + 1);
     }
 
     #[test]

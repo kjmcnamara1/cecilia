@@ -215,10 +215,7 @@ impl<'a> EditCx<'a> {
 
     /// Whether the cursor is on a chant track: one note per beat, at its chant position.
     fn on_chant(&self) -> bool {
-        self.score
-            .tracks
-            .get(self.cursor.track)
-            .is_some_and(|t| t.chant.is_some())
+        self.score.is_chant()
     }
 
     /// Whether the cursor is on a staff's lines (not a tab's strings).

@@ -9,6 +9,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- One kind per score: a score is a modern score (staff tracks) or a chant score (exactly one chant
+  track; `Score::is_chant()`). `:chant-to-modern` no longer changes the chant in place: it opens a
+  new buffer `[modern] name` with the chant's bars as a pitched track, its syllables as lyrics
+  text, title and audio sync kept; the chant buffer is untouched. `:modern-to-chant` says that
+  only the cursor track was converted and other tracks were left out. `:track-add` refuses on a
+  chant score (and a chant track on a modern one), pointing at the conversions. `cecilia convert
+  in.gabc out.gp5` (and other modern formats) writes the same conversion. A `.cc` file from an
+  older version with a chant track beside other tracks loads as a modern score, the chant track
+  converted in place (there is no load message for it).
+
 - Chant scores are edited through the chant, never through their bars. New edit operations on
   `Chant` (`cecilia-core/src/chant_edit.rs`) address notes by index in reading order: insert
   (same neume, new neume, new syllable), delete, move by staff positions, flat / natural /

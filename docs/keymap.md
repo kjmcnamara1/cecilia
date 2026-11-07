@@ -695,7 +695,7 @@ e.g. `"<C-g>" = "completion-ignore-case"`, `"<C-f>" = "completion-fuzzy"`.
 | `:note C#4` / `:voice 2`                                             | set the cursor note's pitch / edit voice N (1–4) of the bar, creating it empty if new                                                                                                                                            |
 | `:tuning drop-d` or `:tuning D2 A2 D3 G3 B3 E4` / `:capo 2`          | retune keeping pitches                                                                                                                                                                      |
 | `:refinger` / `:transpose 2`                                         | re-finger the track to minimise hand movement / transpose                                                                                                                                   |
-| `:track-add bass` / `:track-delete` / `:new`                         | tracks and new scores (`:track-add piano` gets a grand staff)                                                                                                                                 |
+| `:track-add bass` / `:track-delete` / `:new`                         | tracks and new scores (`:track-add piano` gets a grand staff; refused on a chant score, which holds one chant track: `:chant-to-modern` first)                                                                                                                                 |
 | `:staff-add [staff…]`                                               | add one or more staves at the bottom of the cursor's track, in the order given (`:staff-add treble tab slash`); staves only show the track's notes, so each track can have as many as you like |
 | `:incomplete-bars [on\|off\|toggle]` | draw the staff lines of bars that don't hold their full count in red (`theme.incomplete_bar`; `ui.highlight_incomplete_bars = true` sets it at start-up). A bar is flagged when any of its voices that holds notes or rests is shorter or longer than the time signature (tuplets and dots counted exactly, a few ticks of rounding allowed); bars with nothing in them, free-time bars and a pickup first bar are never flagged. All staff kinds are marked in the GUI engraving; the TUI tab view colors the bar's dashed staff lines |
 | `:bar-numbers [every\|system\|toggle]` | number every bar, or only the first bar of each line (the default; `ui.bar_numbers = "every"` in `config.toml` sets it at start-up). The GUI engraving shows the numbers; the TUI tab view always numbers every bar |
@@ -788,8 +788,8 @@ chant keys, and which modern-track keys answer "not in chant").
 | `:interpretation [equalist\|solesmes]`       | rhythm used for playback and the modern transcription                                                 |
 | `:clef c3`                                   | change the chant clef (`c1`–`c4`, `f1`–`f4`, `cb3` for a flat clef); notes keep their staff positions |
 | `:chant-view`                                | square notation / modern transcription of chant tracks                                                |
-| `:modern-to-chant`                           | open the cursor track's melody as chant in a new buffer (syllables from lyrics; a chord keeps the note `ui.chant_chords` picks) |
-| `:chant-to-modern`                           | turn the chant track into an ordinary staff track                                                     |
+| `:modern-to-chant`                           | open the cursor track's melody as chant in a new buffer `[chant] name` (syllables from lyrics; a chord keeps the note `ui.chant_chords` picks); other tracks are left out |
+| `:chant-to-modern`                           | open the chant score as a modern score in a new buffer `[modern] name` (bars as a pitched track, syllables as lyrics); the chant buffer is unchanged |
 
 ### Play-along _(M5)_
 

@@ -1208,6 +1208,48 @@ fn beats_label(ticks: u32) -> String {
 }
 
 impl Score {
+    /// Whether this is a chant score: exactly one track, and it is a chant. Every other score is
+    /// a modern score (staff tracks only). The app asks this, never the track, to decide how a
+    /// score behaves.
+    pub fn is_chant(&self) -> bool {
+        self.tracks.len() == 1 && self.tracks[0].chant.is_some()
+    }
+
+    /// The modern score a chant score converts to: its cached bars as a pitched track (name,
+    /// instrument and volume kept, `chant` none), master bars and metadata kept, the syllables
+    /// turned into lyrics text on the beats. Audio sync points are carried over unchanged. None
+    /// when the score has no chant track; other tracks of a mixed score are kept.
+    pub fn chant_to_modern(&self) -> Option<Score> {
+        if self.tracks.iter().all(|t| t.chant.is_none()) {
+            return None;
+        }
+        let mut out = self.clone();
+        for t in 0..out.tracks.len() {
+            if out.tracks[t].chant.is_none() {
+                continue;
+            }
+            let text = crate::gabcplus::text_from_beats(&out, t);
+            let track = &mut out.tracks[t];
+            track.chant = None;
+            track.kind = TrackKind::Pitched;
+            track.lyrics_text = text;
+        }
+        Some(out)
+    }
+
+    /// Makes the score one kind: a chant track in a score with other tracks is converted in
+    /// place ([`Score::chant_to_modern`]), so no score mixes chant and modern tracks, and a score
+    /// with several chant tracks has none. True if tracks were converted.
+    pub fn one_kind(&mut self) -> bool {
+        if self.tracks.len() <= 1 || self.tracks.iter().all(|t| t.chant.is_none()) {
+            return false;
+        }
+        if let Some(modern) = self.chant_to_modern() {
+            *self = modern;
+        }
+        true
+    }
+
     /// Puts every beat's dynamic on all its notes' velocities (for formats that keep a velocity
     /// per note).
     pub fn apply_dynamics(&mut self) {
