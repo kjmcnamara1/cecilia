@@ -76,23 +76,26 @@ impl NoteWarp {
 
 impl Score {
     /// Start tick of every chant note (reading order) in the performance of the cached bars.
-    fn chant_note_ticks(&self, positions: &[(usize, usize)], lengths: &[u32]) -> Vec<u64> {
+    fn chant_note_ticks(&self, tr: &crate::chant::Transcription) -> Vec<u64> {
         let mut bar_start = Vec::with_capacity(self.master_bars.len());
         let mut tick = 0u64;
         for b in 0..self.master_bars.len() {
             bar_start.push(tick);
             tick += self.played_ticks(b) as u64;
         }
-        let mut out = Vec::with_capacity(positions.len());
-        let mut cur = (usize::MAX, 0u64);
-        for (i, &(bar, _)) in positions.iter().enumerate() {
-            if cur.0 != bar {
-                cur = (bar, bar_start.get(bar).copied().unwrap_or(tick));
-            }
-            out.push(cur.1);
-            cur.1 += lengths[i] as u64;
-        }
-        out
+        tr.positions
+            .iter()
+            .map(|&(bar, beat)| {
+                let before: u64 = tr
+                    .bars
+                    .get(bar)
+                    .and_then(|b| b.voices.first())
+                    .map_or(0, |v| {
+                        v.beats.iter().take(beat).map(|b| b.ticks() as u64).sum()
+                    });
+                bar_start.get(bar).copied().unwrap_or(tick) + before
+            })
+            .collect()
     }
 
     /// Keeps a chant score's audio sync in step with its chant: drops note points whose note is
@@ -114,7 +117,7 @@ impl Score {
             .map(|(i, id)| (id, i))
             .collect();
         let tr = transcribe(chant);
-        let starts = self.chant_note_ticks(&tr.positions, &tr.ticks);
+        let starts = self.chant_note_ticks(&tr);
         let audio = self.audio.as_mut().unwrap();
         let before = audio.chant_points.len();
         audio.chant_points.retain(|p| ids.contains_key(&p.note));
@@ -185,7 +188,7 @@ impl Score {
             return None;
         }
         let tr = transcribe(chant);
-        let starts = self.chant_note_ticks(&tr.positions, &tr.ticks);
+        let starts = self.chant_note_ticks(&tr);
         let warp = NoteWarp::new(
             audio
                 .chant_points

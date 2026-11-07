@@ -38,6 +38,20 @@ impl ToChant {
     }
 }
 
+/// A chant with nothing in it yet: a name (when there is one) and a clef.
+pub fn empty_chant(name: &str) -> Chant {
+    let mut chant = Chant::default();
+    if !name.is_empty() {
+        chant.headers.push(("name".into(), name.to_string()));
+    }
+    chant.syllables.push(Syllable {
+        text: String::new(),
+        word_start: true,
+        items: vec![NeumeItem::Clef(Default::default())],
+    });
+    chant
+}
+
 /// Converts a track's melody to chant: syllables follow its lyrics (or quarter-note groups
 /// without lyrics), the melody moves to the white-key scale with B♭, and a clef is chosen to
 /// keep it on the staff. Chords are reduced as `policy` says (an error under
@@ -51,6 +65,22 @@ pub fn modern_to_chant(
     let t = score.tracks.get(track).ok_or("no such track")?;
     if t.kind == TrackKind::Drums {
         return Err("drum tracks cannot become chant".into());
+    }
+    // A track with no notes becomes an empty chant (a clef and nothing to sing yet).
+    let has_notes = t
+        .bars
+        .iter()
+        .filter_map(|b| b.voices.first())
+        .flat_map(|v| &v.beats)
+        .any(|b| !b.empty && !b.notes.is_empty());
+    if !has_notes {
+        return Ok(ToChant {
+            chant: empty_chant(&score.meta.title),
+            transpose: 0,
+            rounded: 0,
+            chords: 0,
+            bar_notes: vec![None; score.master_bars.len()],
+        });
     }
     let view = ChantView::build(score, t, policy).map_err(|e| e.to_string())?;
     if view.events.is_empty() {

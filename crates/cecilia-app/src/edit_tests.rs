@@ -716,7 +716,12 @@ fn chant_insert_moves_like_standard_and_keeps_its_letters() {
     let a_key = crate::keys::parse_keys("a", &[]).unwrap();
     assert!(!chant.bindings.contains_key(&a_key));
     assert_eq!(names("v"), vec!["chant-mod v".to_string()]);
-    assert_eq!(names("<CR>"), vec!["chant-syllable".to_string()]);
+    // Enter is the general Insert key (a note on the cursor's row, on to a new beat).
+    assert!(
+        !chant
+            .bindings
+            .contains_key(&crate::keys::parse_keys("<CR>", &[]).unwrap())
+    );
     assert_eq!(names("<Space>"), vec!["insert-next".to_string()]);
 }
 
@@ -1333,6 +1338,13 @@ fn chant_score_properties_edit_the_chant() {
     assert_eq!(chant_of(&a).staff_lines, 4);
     a.run(Command::Undo);
     assert!(!chant_of(&a).headers.iter().any(|(k, _)| k == "mode"));
+    // The header that names the score is its title on the page.
+    let name = crate::properties::chant_header_keys(&chant_of(&a))
+        .iter()
+        .position(|k| k == "name")
+        .unwrap();
+    a.commit_property(Field::ChantHeader(name), "New name", false);
+    assert_eq!(a.buffer().score.meta.title, "New name");
 }
 
 #[test]

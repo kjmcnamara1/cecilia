@@ -3021,7 +3021,7 @@ impl App {
         if (c.track, c.bar, c.beat) != before {
             if let Some(chant) = cursor_chant(score, c) {
                 let t = cecilia_core::chant::transcribe(chant);
-                if let Some(note) = t.note_near(c.bar, c.beat).and_then(|n| chant.note(n)) {
+                if let Some(note) = t.note_at(c.bar, c.beat).and_then(|n| chant.note(n)) {
                     c.line = note.pitch as i32;
                 }
             }

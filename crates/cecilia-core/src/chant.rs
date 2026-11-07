@@ -521,6 +521,33 @@ impl Syllable {
         self.text.contains("<i>")
     }
 
+    /// An empty group, `()`: a place in the chant where a note or a division can be entered.
+    pub fn is_slot(&self) -> bool {
+        self.items.is_empty()
+    }
+
+    /// A division written as its own symbol, `(:)`: no notes, only a division (and spacing).
+    pub fn is_division_cell(&self) -> bool {
+        self.items.iter().any(|i| matches!(i, NeumeItem::Bar(_)))
+            && self
+                .items
+                .iter()
+                .all(|i| matches!(i, NeumeItem::Bar(_) | NeumeItem::Space(_)))
+    }
+
+    /// The division that ends the syllable's group (`g::` in `(fg::)`), as written.
+    pub fn trailing_division(&self) -> Option<&str> {
+        let mut rest = self
+            .items
+            .iter()
+            .rev()
+            .skip_while(|i| matches!(i, NeumeItem::Space(_)));
+        match rest.next() {
+            Some(NeumeItem::Bar(b)) => Some(b),
+            _ => None,
+        }
+    }
+
     pub fn division(&self) -> Option<Division> {
         self.items.iter().find_map(|i| match i {
             NeumeItem::Bar(b) => Some(Division::of(b)),
@@ -844,9 +871,70 @@ pub struct Transcription {
     /// Ticks each chant note sounds in all (its beats' ticks added up: mora, Solesmes
     /// lengthening and repeats counted), parallel to `positions`.
     pub ticks: Vec<u32>,
+    /// Everything the cursor can stand on, in reading order: notes, empty groups and divisions
+    /// written as their own symbol. The last two are beats that take no time.
+    pub cells: Vec<Cell>,
+}
+
+/// What a [`Cell`] is.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum CellKind {
+    Note,
+    /// An empty group `()`.
+    Slot,
+    /// A division written as its own symbol `(:)`.
+    Division,
+}
+
+/// A place of the chant the cursor can stand on, and the beats it has in the transcription.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct Cell {
+    pub kind: CellKind,
+    pub syllable: usize,
+    /// The item of the syllable (a note's, a division's; 0 for an empty group).
+    pub item: usize,
+    /// The note's index in reading order ([`Chant::resolved`]) for a note cell.
+    pub note: Option<usize>,
+    pub bar: usize,
+    pub beat: usize,
+    /// Beats it sounds (a stropha sounds several).
+    pub len: usize,
 }
 
 impl Transcription {
+    /// The cell standing on a beat.
+    pub fn cell_at(&self, bar: usize, beat: usize) -> Option<usize> {
+        let k = self
+            .cells
+            .partition_point(|c| (c.bar, c.beat) <= (bar, beat));
+        let k = k.checked_sub(1)?;
+        let c = &self.cells[k];
+        (c.bar == bar && beat < c.beat + c.len).then_some(k)
+    }
+
+    /// Like [`Self::cell_at`], but a beat with no cell maps to the last cell before it, or the
+    /// first one.
+    pub fn cell_near(&self, bar: usize, beat: usize) -> Option<usize> {
+        self.cell_at(bar, beat).or_else(|| {
+            let k = self
+                .cells
+                .partition_point(|c| (c.bar, c.beat) <= (bar, beat));
+            match k {
+                0 => (!self.cells.is_empty()).then_some(0),
+                k => Some(k - 1),
+            }
+        })
+    }
+
+    /// The cell of a syllable's item (a note, or a division cell's division), else of the
+    /// syllable's first cell.
+    pub fn cell_of(&self, syllable: usize, item: usize) -> Option<usize> {
+        self.cells
+            .iter()
+            .position(|c| c.syllable == syllable && c.item == item)
+            .or_else(|| self.cells.iter().position(|c| c.syllable == syllable))
+    }
+
     /// The chant note (index in reading order, see [`Chant::resolved`]) sounded by a beat of
     /// the transcription. Every beat of a stropha or bivirga maps to its note.
     pub fn note_at(&self, bar: usize, beat: usize) -> Option<usize> {
@@ -888,6 +976,30 @@ pub fn transcribe(chant: &Chant) -> Transcription {
             }
             return;
         }
+        // Beats that take no time (empty groups, divisions of their own) make no bar by
+        // themselves: they stand at the end of the bar before, or go on into the next one.
+        if beats.iter().all(|b| b.empty) {
+            if out.bars.is_empty() {
+                if division.is_some() {
+                    return;
+                }
+            } else {
+                let pending = out.bars.len();
+                let prev = pending - 1;
+                let offset = out.bars[prev].voices[0].beats.len();
+                for c in out.cells.iter_mut().filter(|c| c.bar == pending) {
+                    c.bar = prev;
+                    c.beat += offset;
+                }
+                out.bars[prev].voices[0].beats.append(beats);
+                if let (Some(Division::Finalis), Some(last)) =
+                    (division, out.master_bars.last_mut())
+                {
+                    last.double_bar = true;
+                }
+                return;
+            }
+        }
         let ticks: u32 = beats.iter().map(Beat::ticks).sum();
         let eighths = (ticks / EIGHTH).clamp(1, 255) as u8;
         out.master_bars.push(MasterBar {
@@ -906,12 +1018,43 @@ pub fn transcribe(chant: &Chant) -> Transcription {
             ..Default::default()
         });
     };
+    // An empty group or a division of its own is a beat that takes no time: the cursor can
+    // stand on it, playback and the audio sync pass over it.
+    let place_beat = || Beat {
+        empty: true,
+        ..Beat::default()
+    };
     let mut k = 0;
     for (si, s) in chant.syllables.iter().enumerate() {
         let mut first_in_syllable = true;
-        for item in &s.items {
+        if s.is_slot() {
+            out.cells.push(Cell {
+                kind: CellKind::Slot,
+                syllable: si,
+                item: 0,
+                note: None,
+                bar: out.bars.len(),
+                beat: beats.len(),
+                len: 1,
+            });
+            beats.push(place_beat());
+        }
+        let own_division = s.is_division_cell();
+        for (ii, item) in s.items.iter().enumerate() {
             match item {
                 NeumeItem::Bar(b) => {
+                    if own_division {
+                        out.cells.push(Cell {
+                            kind: CellKind::Division,
+                            syllable: si,
+                            item: ii,
+                            note: None,
+                            bar: out.bars.len(),
+                            beat: beats.len(),
+                            len: 1,
+                        });
+                        beats.push(place_beat());
+                    }
                     let d = Division::of(b);
                     if d != Division::Virgula {
                         finish(&mut beats, &mut out, Some(d));
@@ -932,6 +1075,15 @@ pub fn transcribe(chant: &Chant) -> Transcription {
                     {
                         ticks = EIGHTH * 3 / 2;
                     }
+                    out.cells.push(Cell {
+                        kind: CellKind::Note,
+                        syllable: si,
+                        item: ii,
+                        note: Some(k - 1),
+                        bar: out.bars.len(),
+                        beat: beats.len(),
+                        len: n.repeats() as usize,
+                    });
                     out.positions.push((out.bars.len(), beats.len()));
                     out.lengths.push(n.repeats());
                     out.ticks.push(ticks * n.repeats() as u32);
@@ -1129,14 +1281,20 @@ mod tests {
         let t = transcribe(&chant);
         assert_eq!(t.master_bars.len(), 2);
         let beats = &t.bars[0].voices[0].beats;
-        let pitches: Vec<u8> = beats.iter().map(|b| b.notes[0].fret).collect();
+        let pitches: Vec<u8> = beats
+            .iter()
+            .filter(|b| !b.empty)
+            .map(|b| b.notes[0].fret)
+            .collect();
         assert_eq!(pitches, [65, 70, 70]); // F4, B♭4, B♭4 (same word)
         assert_eq!(beats[2].duration.value, DurationValue::Quarter);
+        assert!(beats[3].empty, "the division is a cell of its own");
         assert_eq!(beats[0].lyrics, ["Sal-"]);
         // The flat ends with the word; the distropha sounds twice.
         let b2 = &t.bars[1].voices[0].beats;
         assert_eq!(b2.len(), 2);
         assert_eq!(b2[0].notes[0].fret, 71);
+        assert_eq!(t.cells.len(), 5);
         assert_eq!(t.positions, [(0, 0), (0, 1), (0, 2), (1, 0)]);
         assert_eq!(t.master_bars[0].time_signature.numerator, 4);
     }

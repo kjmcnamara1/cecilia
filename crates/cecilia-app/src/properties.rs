@@ -2069,8 +2069,17 @@ impl App {
                 if let Some(key) = key {
                     let value = text.to_string();
                     self.edit(|cx| {
-                        let chant = cx
-                            .whole()
+                        let score = cx.whole();
+                        // The score's title, subtitle and author are what the page shows: the
+                        // header fields that name them keep them in step (as reading the file
+                        // sets them).
+                        match key.as_str() {
+                            "name" => score.meta.title = value.clone(),
+                            "office-part" => score.meta.subtitle = value.clone(),
+                            "transcriber" => score.meta.tab_author = value.clone(),
+                            _ => {}
+                        }
+                        let chant = score
                             .tracks
                             .get_mut(t)
                             .and_then(|k| k.chant.as_deref_mut())

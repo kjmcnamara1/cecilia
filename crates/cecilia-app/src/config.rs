@@ -694,7 +694,6 @@ const DEFAULT_INSERT_CHANT: &[(&str, &str)] = &[
     ("<Space>", "insert-next"),
     ("<Right>", "beat-next"),
     ("/", "chant-break"),
-    ("<CR>", "chant-syllable"),
     ("<Del>", "delete-note"),
 ];
 

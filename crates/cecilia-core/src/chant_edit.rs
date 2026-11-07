@@ -492,6 +492,75 @@ impl Chant {
         Ok(())
     }
 
+    /// Inserts an empty group `()` as syllable `at` (clamped); returns where it went.
+    pub fn insert_slot(&mut self, at: usize) -> usize {
+        let at = at.min(self.syllables.len());
+        self.syllables.insert(
+            at,
+            Syllable {
+                word_start: true,
+                ..Syllable::default()
+            },
+        );
+        at
+    }
+
+    /// An empty group takes a note at staff position `pitch`. Returns the note's index.
+    pub fn fill_slot(&mut self, si: usize, pitch: u8) -> Result<usize, String> {
+        if pitch as i32 > TOP {
+            return Err("pitch above the staff".into());
+        }
+        if !self.syllables.get(si).ok_or("no such syllable")?.is_slot() {
+            return Err("not an empty group".into());
+        }
+        self.assign_ids();
+        let id = self.next_id;
+        self.next_id += 1;
+        self.syllables[si].items.push(NeumeItem::Note(ChantNote {
+            id,
+            ..ChantNote::new(pitch)
+        }));
+        self.note_index(si, 0).ok_or_else(|| "no such note".into())
+    }
+
+    /// Takes syllable `si` out (an empty group, a division of its own, a note's whole group).
+    pub fn remove_syllable(&mut self, si: usize) -> Result<(), String> {
+        if si >= self.syllables.len() {
+            return Err("no such syllable".into());
+        }
+        self.syllables.remove(si);
+        Ok(())
+    }
+
+    /// The division that ends the group of syllable `si` (`;` in `(fg;)`, or an own symbol's).
+    pub fn group_division(&self, si: usize) -> Option<&str> {
+        self.syllables.get(si)?.trailing_division()
+    }
+
+    /// Sets (or, with `None`, takes away) the division of the group of syllable `si`: an empty
+    /// group becomes a division of its own `(:)`, a group with notes gets it after them
+    /// (`(g::)`), and a division of its own is replaced.
+    pub fn set_group_division(&mut self, si: usize, sign: Option<&str>) -> Result<(), String> {
+        if let Some(sign) = sign {
+            if !Self::is_division(sign) {
+                return Err(format!("'{sign}' is not a division (, ; : :: `)"));
+            }
+        }
+        let s = self.syllables.get_mut(si).ok_or("no such syllable")?;
+        // The division at the end goes first.
+        while matches!(
+            s.items.last(),
+            Some(NeumeItem::Bar(_) | NeumeItem::Space(_))
+        ) && s.items.iter().any(|i| matches!(i, NeumeItem::Bar(_)))
+        {
+            s.items.pop();
+        }
+        if let Some(sign) = sign {
+            s.items.push(NeumeItem::Bar(sign.into()));
+        }
+        Ok(())
+    }
+
     /// Sets the clef the chant starts with (the first clef, or one before everything).
     pub fn set_initial_clef(&mut self, clef: ChantClef) -> Result<(), String> {
         let first = self
@@ -896,7 +965,13 @@ mod tests {
             ..crate::Track::default()
         });
         retranscribe(&mut score, 0);
-        let beats = |s: &crate::Score| s.tracks[0].bars[0].voices[0].beats.len();
+        let beats = |s: &crate::Score| {
+            s.tracks[0].bars[0].voices[0]
+                .beats
+                .iter()
+                .filter(|b| !b.empty)
+                .count()
+        };
         assert_eq!(beats(&score), 5);
         let mut c = (**score.tracks[0].chant.as_ref().unwrap()).clone();
         c.insert_note(4, true, Join::Neume, 3).unwrap();

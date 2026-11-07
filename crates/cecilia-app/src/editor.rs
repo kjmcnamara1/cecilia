@@ -1542,6 +1542,7 @@ impl App {
                 });
             }
             New => self.new_score(),
+            NewChant => self.new_chant_score(),
             Voice(n) => {
                 let v = n.clamp(&1, &(cecilia_core::MAX_VOICES)) - 1;
                 self.switch_voice(|_, _| v);
@@ -2161,6 +2162,24 @@ impl App {
             cx.cursor.staff = target;
             Ok(())
         });
+    }
+
+    /// A new empty chant score in its own buffer: a clef, ready for notes (`i`).
+    fn new_chant_score(&mut self) {
+        let score =
+            cecilia_formats::gabc::chant_score(cecilia_convert::chant::empty_chant("Untitled"));
+        self.buffers.push(Buffer {
+            path: None,
+            name: "[New chant]".into(),
+            score,
+            modified: false,
+            history: Default::default(),
+            version: 0,
+            disk: None,
+        });
+        let b = self.buffers.len() - 1;
+        self.show_buffer(b);
+        self.info("new chant: i to insert a beat, Enter a note, :w name.gabc to save");
     }
 
     fn new_score(&mut self) {

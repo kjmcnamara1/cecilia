@@ -177,7 +177,10 @@ pub enum Mark {
     },
     /// Flat, natural or sharp at a staff position.
     Alter(i32, char),
-    Division(Division),
+    /// A division, and the transcription beat it stands on when it is a cell of its own.
+    Division(Division, Option<(usize, usize)>),
+    /// An empty group, at its beat.
+    Slot((usize, usize)),
     Clef(ChantClef),
     Custos(i32),
 }
@@ -207,7 +210,7 @@ impl Syl {
             && self
                 .marks
                 .iter()
-                .any(|(_, m)| matches!(m, Mark::Division(_)))
+                .any(|(_, m)| matches!(m, Mark::Division(..)))
     }
 
     /// The clef a line starting with this syllable opens with.
@@ -235,12 +238,15 @@ pub(crate) fn alter_char(sign: &str, ascii: bool) -> char {
 pub fn layout(chant: &Chant, ascii: bool) -> Vec<Syl> {
     let t = transcribe(chant);
     let mut beats = HashMap::new();
-    for (k, r) in chant.resolved().iter().enumerate() {
-        if let (Some(&(bar, beat)), NeumeItem::Note(n)) = (
-            t.positions.get(k),
-            &chant.syllables[r.syllable].items[r.item],
-        ) {
-            beats.insert((r.syllable, r.item), (bar, beat, n.repeats()));
+    let mut cells = HashMap::new();
+    for c in &t.cells {
+        match (c.note, &chant.syllables[c.syllable].items.get(c.item)) {
+            (Some(_), Some(NeumeItem::Note(n))) => {
+                beats.insert((c.syllable, c.item), (c.bar, c.beat, n.repeats()));
+            }
+            _ => {
+                cells.insert((c.syllable, c.item), (c.bar, c.beat));
+            }
         }
     }
     let mut out: Vec<Syl> = Vec::new();
@@ -251,6 +257,12 @@ pub fn layout(chant: &Chant, ascii: bool) -> Vec<Syl> {
         let mut marks = Vec::new();
         let mut col: u16 = 0;
         let mut gap = false;
+        if s.is_slot() {
+            if let Some(&at) = cells.get(&(si, 0)) {
+                marks.push((0, Mark::Slot(at)));
+                col = 1;
+            }
+        }
         for (ii, item) in s.items.iter().enumerate() {
             match item {
                 NeumeItem::Note(n) => {
@@ -291,7 +303,10 @@ pub fn layout(chant: &Chant, ascii: bool) -> Vec<Syl> {
                         col += 1;
                     }
                     gap = false;
-                    marks.push((col, Mark::Division(Division::of(b))));
+                    marks.push((
+                        col,
+                        Mark::Division(Division::of(b), cells.get(&(si, ii)).copied()),
+                    ));
                     col += 1;
                 }
                 NeumeItem::Clef(c) => {
@@ -340,6 +355,11 @@ fn finish(
         Mark::Note { pos, beat, .. } => Some((*pos, beat.map(|(b, i, _)| (b, i)))),
         _ => None,
     });
+    // Without notes, the cell it is (an empty group, a division of its own).
+    let cell_beat = marks.iter().find_map(|(_, m)| match m {
+        Mark::Slot(at) | Mark::Division(_, Some(at)) => Some(*at),
+        _ => None,
+    });
     out.push(Syl {
         width: col.max(text_w) + 1,
         marks,
@@ -347,7 +367,7 @@ fn finish(
         hyphen,
         italic,
         clef_in,
-        first_beat: first_note.and_then(|n| n.1),
+        first_beat: first_note.and_then(|n| n.1).or(cell_beat),
         first_pitch: first_note.map(|n| n.0),
     });
 }
@@ -617,7 +637,7 @@ impl Painter<'_> {
                             }
                         }
                     }
-                    Mark::Division(d) => {
+                    Mark::Division(d, _) => {
                         for (p, c) in division_cells(*d, self.ascii) {
                             put(buf, x, row(p), &c.to_string(), faint);
                         }
@@ -704,7 +724,43 @@ impl Painter<'_> {
                     Mark::Custos(p) => {
                         put(buf, x, row(*p), if self.ascii { "v" } else { "∨" }, faint)
                     }
-                    Mark::Division(_) => {}
+                    Mark::Division(_, cell) => {
+                        // A division of its own is a place for the cursor.
+                        if let Some(&(bar, beat)) = cell.as_ref() {
+                            let column = Rect {
+                                x,
+                                y: y0,
+                                width: 1,
+                                height: range.rows(),
+                            };
+                            let c = self.cursor;
+                            if (c.bar, c.beat) == (bar, beat)
+                                && !self.app.cursor_hidden(pane.buffer)
+                            {
+                                buf.set_style(column, cursor_style);
+                            }
+                            if self.selected(bar, beat) {
+                                buf.set_style(column, select_style);
+                            }
+                        }
+                    }
+                    Mark::Slot((bar, beat)) => {
+                        let c = self.cursor;
+                        let y = row(c.line.clamp(0, 13));
+                        let on_cursor = (c.bar, c.beat) == (*bar, *beat)
+                            && !self.app.cursor_hidden(pane.buffer);
+                        let style = if on_cursor { cursor_style } else { faint };
+                        put(buf, x, y, if self.ascii { "_" } else { "·" }, style);
+                        let column = Rect {
+                            x,
+                            y: y0,
+                            width: 1,
+                            height: range.rows(),
+                        };
+                        if self.selected(*bar, *beat) {
+                            buf.set_style(column, select_style);
+                        }
+                    }
                 }
             }
             // A click anywhere on the syllable picks its first note.
@@ -953,7 +1009,7 @@ mod tests {
         assert!(matches!(syls[1].marks[0].1, Mark::Note { mora: 1, .. }));
         assert!(matches!(
             syls.last().unwrap().marks[0].1,
-            Mark::Division(Division::Finalis)
+            Mark::Division(Division::Finalis, _)
         ));
     }
 

@@ -277,7 +277,12 @@ mod tests {
         assert_eq!(back.tracks.len(), 2);
         assert!(back.tracks.iter().all(|t| t.chant.is_none()));
         assert_eq!(back.tracks[0].kind, TrackKind::Pitched);
-        assert_eq!(back.tracks[0].bars, chant_only.tracks[0].bars);
+        // (The chant's division beat takes no time and is not a beat of a modern score.)
+        let mut sounding = chant_only.tracks[0].bars.clone();
+        for v in sounding.iter_mut().flat_map(|b| &mut b.voices) {
+            v.beats.retain(|b| !b.empty);
+        }
+        assert_eq!(back.tracks[0].bars, sounding);
         assert_eq!(back.tracks[0].lyrics_text, "Al- _ le lu-ia.");
         assert_eq!(back.tracks[1].name, "Organ");
     }

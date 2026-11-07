@@ -613,7 +613,7 @@ Shared keys:
 | `<Space>`                    | next beat, appending one (or moving to the next bar) at the end |
 | `<Left>` `<Right>` / `<Up>` `<Down>` | the same as `h` `l` / `k` `j`: previous / next beat (no beat is added), row up / down (across staves). On chant and on drum tracks, where those letters are pitches and instruments, the arrows still move |
 | `h` `l` / `j` `k`            | previous / next beat (no beat is added), row down / up. Not on chant, where they are pitches; on drum tracks `h` and `k` are the hi-hat and kick |
-| `<CR>`                       | finish the beat: on a tab the fret typed stays (an empty beat becomes a rest); on a standard staff a note is put at the cursor's line or space (in the key; nothing if the beat has a note there already); on a slash staff the slash. Then the cursor goes to the next beat, as `<Space>` (appending one while the bar has room for it, else to the start of the next bar, adding a bar at the end of the score). The beats get the insert duration: the duration tool of the palette, `+` `-` `<A-1>`…`<A-7>`. Chant keeps `<CR>` = a new syllable (`:insert-enter`) |
+| `<CR>`                       | finish the beat: on a tab the fret typed stays (an empty beat becomes a rest); on a standard staff a note is put at the cursor's line or space (in the key; nothing if the beat has a note there already); on a slash staff the slash. Then the cursor goes to the next beat, as `<Space>` (appending one while the bar has room for it, else to the start of the next bar, adding a bar at the end of the score). The beats get the insert duration: the duration tool of the palette, `+` `-` `<A-1>`…`<A-7>`. On a chant score `<CR>` puts a note in the empty beat the cursor is on, see "Chant" |
 | `<A-CR>`                     | new beat after the cursor, staying (`:beat-new`; the old `<CR>`) |
 | `<A-v>` / `<A-V>` / `<A-F1>`…`<A-F4>` | next / previous voice, voice 1…4 (see Voices) |
 | `<BS>`                       | delete the note                                                 |
@@ -646,26 +646,30 @@ the staff they go on to the tab below or the next staff):
 On a **slash** staff: `/` puts a slash on the beat (`:slash`; `<CR>` does as well); `t` tie, `>` accent.
 
 On a **chant score** (opened from GABC; there is no chant staff on modern tracks), the cursor is
-on a note: a single square on that position of the chant staff. The chant is what is edited; the
+on a *cell*: a note, an empty beat `()` or a division written as its own symbol `(:)` (a single
+square on that position of the chant staff). The chant is what is edited; the
 bars of a chant track are only a transcription made from it, so every key below changes the chant
 (one undo step each), the bars are written again and the cursor stays on the edited note.
 
 | keys                                      | command                                                                         |
 | ----------------------------------------- | ------------------------------------------------------------------------------- |
 | `h` `j` `k` `l`                           | move the cursor, as on a standard staff (beat back / position down / up / beat on) |
-| `<Space>`                                 | a new note after the cursor note, in the same neume (`:chant-append`) |
-| `/`                                       | a new note after the cursor note, starting a new neume (`:chant-break`)         |
-| `<CR>`                                    | a new syllable after the cursor syllable (`:chant-syllable`) |
+| `i` `a`                                   | a new empty beat `()` before / after the cursor cell, then Insert mode on it (an empty beat you leave without entering anything is taken away again by `<Esc>`) |
+| `I` `A`                                   | a new empty beat at the start of the bar (phrase) / at its end, before the division that closes it |
+| `<CR>`                                    | the note on the staff line the cursor is on goes into the empty beat the cursor is on (after the cursor cell otherwise), as a group of its own, and the cursor moves on to a new empty beat after it (`:insert-enter`) |
+| `<Space>`                                 | on to the next cell, or a new empty beat after the last one (`:insert-next`); `<A-CR>` a new empty beat after the cursor cell (`:beat-new`) |
+| `/`                                       | a new note after the cursor note, starting a new neume (`:chant-break`); `:chant-append`, `:chant-syllable` add a note in the same neume / a new syllable |
 | `<C-a>` `<C-x>`                           | the note up / down one staff position (`:pitch-up`, `:pitch-down`); `:octave-up` / `:octave-down` move seven. A pitch moves by position, not semitone; the top and bottom of the staff stop it |
 | `v` `s` `o` `q` `w` `~`                   | virga, stropha, oriscus, quadratum, quilisma, liquescent (toggles, `:chant-mod`; `:chant-mod ss` / `vv` / `V` / `<` / `>` also) |
 | `.` `_` `'` `-`                           | mora, episema, ictus, initio debilis (`:chant-mod`; `:dot` is the mora too)     |
 | `:accidental flat` / `natural` / `sharp`  | the flat, natural or sharp before the note (a second time takes it away)        |
 | `+` `-` (normal mode)                     | horizontal episema on / off (`:duration-longer`, `:duration-shorter`)           |
-| `,` `;` `:`                               | a division after the syllable (`:` cycles major, double, none; `:chant-bar`)    |
-| `x` `<BS>` `<Del>`, Visual `d`            | delete the note (the notes of the selection); a syllable left with no text and no notes goes. The cursor goes to the note before |
+| `,` `;` `:`                               | a division (`:chant-bar`): on a note it goes into the note's own parentheses, `(g::)`; on an empty beat it is a division of its own, `(:)`; on a division of its own it replaces that one. `,` and `;` again take it off, `:` goes between single `:` and double `::` |
+| `x` `<BS>` `<Del>`, Visual `d`            | delete the cell (the cells of the selection): a note, an empty beat or a division of its own; a syllable left with no text and no notes goes. The cursor goes to the cell before |
+| `w` `e` `b`                               | next note / end of the note / previous note; the cursor stands on the staff line of the note it moves to (`h` `l` too), so `j` `k` choose the pitch of a note to enter |
 | `<Right>`                                 | next note                                                                       |
 
-`i` `a` `I` `A` only start Insert mode on a chant track (no empty beat is made). Everything that
+Everything that
 edits the bars of a modern track reports **"not in chant"** and changes nothing: durations
 (`:duration`, `+` `-` `<A-1>`…`<A-7>` in insert mode), tuplets, rests, ties and the other
 `:toggle` effects, dynamics, beams, stems, `:note-letter`, double sharps and flats, bar insert /
@@ -716,7 +720,7 @@ e.g. `"<C-g>" = "completion-ignore-case"`, `"<C-f>" = "completion-fuzzy"`.
 | `:note C#4` / `:voice 2`                                             | set the cursor note's pitch / edit voice N (1–4) of the bar, creating it empty if new                                                                                                                                            |
 | `:tuning drop-d` or `:tuning D2 A2 D3 G3 B3 E4` / `:capo 2`          | retune keeping pitches                                                                                                                                                                      |
 | `:refinger` / `:transpose 2`                                         | re-finger the track to minimise hand movement / transpose                                                                                                                                   |
-| `:track-add bass` / `:track-delete` / `:new`                         | tracks and new scores (`:track-add piano` gets a grand staff; refused on a chant score, which holds one chant track: `:chant-to-modern` first)                                                                                                                                 |
+| `:track-add bass` / `:track-delete` / `:new [modern\|chant]`                         | tracks and new scores (`:track-add piano` gets a grand staff; refused on a chant score, which holds one chant track: `:chant-to-modern` first)                                                                                                                                 |
 | `:staff-add [staff…]`                                               | add one or more staves at the bottom of the cursor's track, in the order given (`:staff-add treble tab slash`); staves only show the track's notes, so each track can have as many as you like |
 | `:incomplete-bars [on\|off\|toggle]` | draw the staff lines of bars that don't hold their full count in red (`theme.incomplete_bar`; `ui.highlight_incomplete_bars = true` sets it at start-up). A bar is flagged when any of its voices that holds notes or rests is shorter or longer than the time signature (tuplets and dots counted exactly, a few ticks of rounding allowed); bars with nothing in them, free-time bars and a pickup first bar are never flagged. All staff kinds are marked in the GUI engraving; the TUI tab view colors the bar's dashed staff lines |
 | `:bar-numbers [every\|system\|toggle]` | number every bar, or only the first bar of each line (the default; `ui.bar_numbers = "every"` in `config.toml` sets it at start-up). The GUI engraving shows the numbers; the TUI tab view always numbers every bar |

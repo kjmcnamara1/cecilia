@@ -2520,7 +2520,11 @@ fn draw_pane_content(
         } else if let Some((y, step)) = pos.line_y(c.staff, c.line) {
             // The square sits on the note head: chant beats are the neume glyph itself, others
             // start 0.4 spaces before the head.
-            let cx = if chant_layout { x + w / 2.0 } else { pos.head };
+            let cx = if chant_layout {
+                x + (pos.head - pos.x)
+            } else {
+                pos.head
+            };
             square(cx, y, (step * 3.0).clamp(10.0, 22.0))
         } else {
             whole

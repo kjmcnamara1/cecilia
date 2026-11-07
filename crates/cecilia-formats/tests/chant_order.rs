@@ -42,19 +42,23 @@ fn note_order_is_the_order_of_the_beats() {
         // The beats follow: note n starts at positions[n], in increasing order, and lasts
         // lengths[n] beats; together they cover every beat of every bar exactly once.
         assert!(t.positions.windows(2).all(|w| w[0] < w[1]), "{name}");
+        // The cells (notes, empty groups, divisions of their own) cover every beat once.
         let mut next = (0, 0);
+        for (k, c) in t.cells.iter().enumerate() {
+            let in_bar = |b: usize| t.bars[b].voices[0].beats.len();
+            if (c.bar, c.beat) != next {
+                // A new bar starts where the previous one ended.
+                assert_eq!((c.bar, c.beat), (next.0 + 1, 0), "{name}: cell {k}");
+                assert_eq!(next.1, in_bar(next.0), "{name}: cell {k}");
+            }
+            assert_eq!(t.cell_at(c.bar, c.beat), Some(k), "{name}: cell {k}");
+            next = (c.bar, c.beat + c.len);
+        }
         for (n, r) in resolved.iter().enumerate() {
             let (bar, beat) = t.place_of(n).unwrap();
-            let in_bar = |b: usize| t.bars[b].voices[0].beats.len();
-            if (bar, beat) != next {
-                // A new bar starts where the previous one ended.
-                assert_eq!((bar, beat), (next.0 + 1, 0), "{name}: note {n}");
-                assert_eq!(next.1, in_bar(next.0), "{name}: note {n}");
-            }
             for k in 0..t.lengths[n] as usize {
                 assert_eq!(t.note_at(bar, beat + k), Some(n), "{name}: note {n}");
             }
-            next = (bar, beat + t.lengths[n] as usize);
 
             // The beat's pitch is the note's resolved pitch, its lyric the syllable's text.
             let first = &t.bars[bar].voices[0].beats[beat];
@@ -81,7 +85,15 @@ fn note_order_is_the_order_of_the_beats() {
             }
         }
         let total: usize = t.bars.iter().map(|b| b.voices[0].beats.len()).sum();
+        let cells: usize = t.cells.iter().map(|c| c.len).sum();
+        assert_eq!(total, cells, "{name}");
         let sounded: usize = t.lengths.iter().map(|&l| l as usize).sum();
-        assert_eq!(total, sounded, "{name}");
+        let silent = t
+            .bars
+            .iter()
+            .flat_map(|b| &b.voices[0].beats)
+            .filter(|b| b.empty)
+            .count();
+        assert_eq!(total, sounded + silent, "{name}");
     }
 }

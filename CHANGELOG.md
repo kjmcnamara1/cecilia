@@ -9,6 +9,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- Chant cells. The cursor of a chant score stands on notes, on empty beats `()` and on divisions
+  written as their own symbol `(:)`. `i` `a` `I` `A` make an empty beat before / after the cursor
+  cell and at the start / end of the bar (before its closing division); `<CR>` in Insert mode puts a
+  note on the cursor's staff line into the empty beat and moves on to a new one (`<Esc>` takes the
+  last empty beat away), `<Space>` moves on to the next cell. `,` `;` `:` put a division into the
+  note's own parentheses, `(g::)`, make one of its own on an empty beat, `(:)`, or change the one
+  the cursor is on; `:` goes between single and double. Visual mode highlights the selected cells
+  as one band, as on modern scores, and `d` deletes them.
+- `:new [modern|chant]` (modern by default; `:new chant` opens an empty chant), and
+  `:modern-to-chant` works on an empty score (an empty chant).
 - The lyrics text area of a chant score keeps the GABC as typed: score edits splice into the kept
   text at the changed note (the rest of your layout stays), typing re-reads the chant after each
   key that parses (a parse error is marked at its position and the last good chant stays), notes
@@ -51,6 +61,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- Editing the score info `name`, `office-part` or `transcriber` of a chant score changes the
+  title, subtitle and author shown in the score pane.
 - On a chant score `w` / `e` / `b` step to the next note / the end of the note / the previous
   note again, and the cursor stands on the staff line of the note it moves to (`h` `l` too), so
   `j` / `k` then choose the pitch of a note to enter.

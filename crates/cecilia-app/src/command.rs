@@ -225,6 +225,8 @@ pub enum Command {
     /// Says whether this is a modern or a chant score and which command converts it.
     ScoreKind,
     New,
+    /// A new empty chant score (`:new chant`).
+    NewChant,
     Voice(usize),
     /// Edit the next / previous voice of the bar (going round, with one more to create).
     VoiceNext,
@@ -918,7 +920,11 @@ impl Command {
                     .to_string(),
             ),
             "score-kind" => ScoreKind,
-            "new" | "enew" => New,
+            "new" | "enew" => match arg.map(str::trim) {
+                None | Some("") | Some("modern") => New,
+                Some("chant") => NewChant,
+                Some(other) => return Err(format!("new: '{other}' is not modern or chant")),
+            },
             "voice" => Voice(number("voice")?),
             "voice-next" => VoiceNext,
             "voice-prev" => VoicePrev,

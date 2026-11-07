@@ -228,10 +228,15 @@ transcription to the chant. Edits are operations on the `Chant`, each returning
   a syllable of its own after the note's syllable), `set_initial_clef`, `set_clef_before(n, clef)`,
   `set_syllable_text(n, text)`, `split_syllable(n)` (before note `n`), `join_syllable(n)` (with
   the next one, its notes kept as a separate neume).
+- **Cells.** The cursor stands on a *cell*: a note, an empty group `()` (a place for a note or a
+  division) or a division written as its own symbol `(:)` (`Transcription::cells`). The last two
+  are beats that take no time (`Beat::empty`), so playback, bar lengths and the audio sync pass over
+  them; a modern conversion leaves them out. A division typed on a note goes into its group,
+  `(g::)`, and does not make a cell.
 - **Keys.** On a chant track the editing keys of a modern track map to these: `<C-a>` / `<C-x>`
   move a note up / down a position, `octave-up` / `octave-down` seven; `accidental flat|natural|
   sharp` toggles the sign; `.` is the mora (`..` two); `+` / `-` set / clear the horizontal
-  episema; `x`, `<BS>`, `<Del>` and Visual `d` delete notes; `<Space>` adds a note. A pitch moves
+  episema; `x`, `<BS>`, `<Del>` and Visual `d` delete cells; `i` `a` `I` `A` make an empty beat, `<CR>` puts a note in it and moves on to a new one, `<Space>` moves on, `,` `;` `:` add a division. A pitch moves
   by staff position, not by semitone: a flat is added or removed with `accidental flat`. Durations,
   tuplets, rests, ties, guitar effects, dynamics, beams, stems, note letters, bar insert / open /
   delete, put and Change report "not in chant".

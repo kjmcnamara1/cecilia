@@ -1253,6 +1253,13 @@ impl Score {
             track.chant = None;
             track.kind = TrackKind::Pitched;
             track.lyrics_text = text;
+            // The chant's empty groups and divisions of their own took no time and are not
+            // beats of a modern score.
+            for v in track.bars.iter_mut().flat_map(|b| &mut b.voices) {
+                if v.beats.iter().any(|b| !b.empty) {
+                    v.beats.retain(|b| !b.empty);
+                }
+            }
         }
         Some(out)
     }

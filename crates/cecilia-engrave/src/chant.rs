@@ -69,15 +69,10 @@ pub fn engrave_chant(
 ) -> Layout {
     let sp = options.sp * SCALE;
     let t = transcribe(chant);
+    // Every cell the cursor can stand on: a note, an empty group, a division of its own.
     let mut beats = HashMap::new();
-    for (k, r) in chant.resolved().iter().enumerate() {
-        if let Some(&(bar, beat)) = t.positions.get(k) {
-            let repeats = match &chant.syllables[r.syllable].items[r.item] {
-                NeumeItem::Note(n) => n.repeats(),
-                _ => 1,
-            };
-            beats.insert((r.syllable, r.item), (bar, beat, repeats));
-        }
+    for c in &t.cells {
+        beats.insert((c.syllable, c.item), (c.bar, c.beat, c.len as u8));
     }
     let _ = track;
     let ctx = Ctx {
@@ -411,15 +406,55 @@ impl Ctx<'_> {
                 }
             }
             let page_index = layout.pages.len();
+            // The beats' columns run on into each other (as on a modern staff), so a selection
+            // is one band: each takes half the space to its neighbours.
+            let widened: HashMap<BeatRef, (f64, f64)> = {
+                let mut scratch = Page::default();
+                let mut all: Vec<(BeatRef, Rect)> = Vec::new();
+                for p in line {
+                    let s = &self.chant.syllables[p.index];
+                    self.draw_syllable(p.index, s, p.x, &ymap, Some((&mut scratch, &mut all)));
+                }
+                all.sort_by(|a, b| a.1.x0.total_cmp(&b.1.x0).then(a.1.x1.total_cmp(&b.1.x1)));
+                // Distinct columns, left to right.
+                let mut cols: Vec<(f64, f64)> = Vec::new();
+                for (_, r) in &all {
+                    if cols.last().is_none_or(|c| (c.0, c.1) != (r.x0, r.x1)) {
+                        cols.push((r.x0, r.x1));
+                    }
+                }
+                let n = cols.len();
+                let edge = |k: usize, right: bool| -> f64 {
+                    if right {
+                        match cols.get(k + 1) {
+                            Some(next) => (cols[k].1 + next.0) / 2.0,
+                            None => cols[k].1 + 0.3 * sp,
+                        }
+                    } else if k == 0 {
+                        cols[0].0 - 0.3 * sp
+                    } else {
+                        (cols[k - 1].1 + cols[k].0) / 2.0
+                    }
+                };
+                let mut out = HashMap::new();
+                for (b, r) in &all {
+                    if let Some(k) = (0..n).find(|&k| (cols[k].0, cols[k].1) == (r.x0, r.x1)) {
+                        let (l, rr) = (edge(k, false), edge(k, true));
+                        out.insert(*b, (l, rr));
+                    }
+                }
+                out
+            };
             for (k, p) in line.iter().enumerate() {
                 let s = &self.chant.syllables[p.index];
                 let mut hits = Vec::new();
                 self.draw_syllable(p.index, s, p.x, &ymap, Some((&mut page, &mut hits)));
                 for (beat, rect) in hits {
+                    let (left, right) = widened.get(&beat).copied().unwrap_or((rect.x0, rect.x1));
                     let pos = BeatPos {
                         page: page_index,
-                        x: rect.x0,
-                        width: rect.width(),
+                        x: left,
+                        width: right - left,
                         top: ymap(top) - 1.5 * sp,
                         bottom: text_y + 0.4 * self.text_size,
                         head: (rect.x0 + rect.x1) / 2.0,
@@ -431,10 +466,10 @@ impl Ctx<'_> {
                         }],
                     };
                     if let Some(bar) = layout.bars.get_mut(beat.bar) {
-                        *bar = (page_index, bar.1.min(rect.x0), bar.2.max(rect.x1));
+                        *bar = (page_index, bar.1.min(left), bar.2.max(right));
                     }
                     page.hits.push(Hit {
-                        rect: Rect::new(rect.x0, pos.top, rect.x1, pos.bottom),
+                        rect: Rect::new(left, pos.top, right, pos.bottom),
                         beat,
                         string: None,
                         staff: 0,
@@ -577,6 +612,26 @@ impl Ctx<'_> {
             Some((p, h)) => (p, h),
             None => (&mut scratch, &mut scratch_hits),
         };
+        // An empty group: room for the cursor, nothing drawn.
+        if s.is_slot() {
+            if let Some(&(bar, beat, _)) = self.beats.get(&(si, 0)) {
+                let rect = Rect::new(x0, 0.0, x0 + 1.1 * sp, 0.0);
+                hits.push((
+                    BeatRef {
+                        track: self.track_index,
+                        bar,
+                        voice: 0,
+                        beat,
+                    },
+                    rect,
+                ));
+            }
+            m.width = 1.1 * sp;
+            m.anchor = Some(0.55 * sp);
+            m.low = 3;
+            m.high = 3;
+            return m;
+        }
         // Split into runs of notes between separators.
         let items = &s.items;
         let mut i = 0;
@@ -696,6 +751,18 @@ impl Ctx<'_> {
                     } else {
                         0.15 * sp
                     };
+                    // A division of its own is a place for the cursor.
+                    if let Some(&(bar, beat, _)) = self.beats.get(&(si, i)) {
+                        hits.push((
+                            BeatRef {
+                                track: self.track_index,
+                                bar,
+                                voice: 0,
+                                beat,
+                            },
+                            Rect::new(x - 0.45 * sp, 0.0, x + w + 0.45 * sp, 0.0),
+                        ));
+                    }
                     m.anchor.get_or_insert(x - x0 + w / 2.0);
                     x += w;
                     started = true;
