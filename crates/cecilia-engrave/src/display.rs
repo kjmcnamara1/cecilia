@@ -281,8 +281,23 @@ impl Page {
         for c in text.chars() {
             if c == '*' {
                 flush(self, &mut piece, &mut x, false);
-                piece.push(c);
-                flush(self, &mut piece, &mut x, true);
+                // The six-pointed asterisk, as the lyrics' ✻: three spokes through a centre a
+                // little above the middle of the letters, in the advance of a `*`.
+                let advance = fonts.text_width(font, "*", size);
+                let (cx, cy) = (x + advance / 2.0, at.y - 0.447 * size);
+                for a in [90.0f64, 30.0, 150.0] {
+                    let (dx, dy) = (
+                        a.to_radians().cos() * 0.263 * size,
+                        a.to_radians().sin() * 0.263 * size,
+                    );
+                    self.items.push(Item::Line {
+                        from: Point::new(cx - dx, cy - dy),
+                        to: Point::new(cx + dx, cy + dy),
+                        width: 0.105 * size,
+                        color: Color::RED,
+                    });
+                }
+                x += advance;
             } else {
                 piece.push(c);
             }
@@ -305,15 +320,16 @@ mod star_tests {
             10.0,
             Align::Left,
         );
-        let red: Vec<&str> = page
+        // The star is three red spokes, not a glyph; the text around it stays black.
+        let spokes = page
             .items
             .iter()
-            .filter_map(|i| match i {
-                Item::Text { text, color, .. } if *color == Color::RED => Some(text.as_str()),
-                _ => None,
-            })
-            .collect();
-        assert_eq!(red, ["*"]);
-        assert!(page.items.len() >= 3);
+            .filter(|i| matches!(i, Item::Line { color, .. } if *color == Color::RED))
+            .count();
+        assert_eq!(spokes, 3);
+        assert!(page.items.iter().all(|i| match i {
+            Item::Text { text, .. } => !text.contains('*'),
+            _ => true,
+        }));
     }
 }
