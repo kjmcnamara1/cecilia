@@ -690,9 +690,23 @@ impl App {
         // Lyrics follow the notes: each track's lyrics text is laid out on them again after
         // the edit. Syllables still only on the beats get their text first.
         cecilia_core::gabcplus::ensure_text(&mut buffer.score);
+        // A chant score's bars are a cache of its chant: see `EditCx::guard_chant`.
+        let chant_before = buffer
+            .score
+            .tracks
+            .iter()
+            .any(|t| t.chant.is_some())
+            .then(|| buffer.score.clone());
         let mut cx = EditCx::new(&mut buffer.score, pane.cursor);
-        let result = f(&mut cx);
-        cx.sync_chant();
+        let mut result = f(&mut cx);
+        if let Some(before) = &chant_before {
+            if let Err(e) = cx.guard_chant(before) {
+                cx.cursor = pane.cursor;
+                if result.is_ok() {
+                    result = Err(e);
+                }
+            }
+        }
         if result.is_ok() {
             cx.relayout_lyrics();
         }
@@ -743,6 +757,9 @@ impl App {
 
     fn operate_bars(&mut self, op: Operator, n: usize) {
         let c = self.pane().cursor;
+        if self.cursor_on_chant() && op != Operator::Yank {
+            return self.error("bar delete or change: not in chant");
+        }
         let (from, to) = (c.bar, c.bar + n.max(1) - 1);
         let clip = edit::yank_bars(&self.buffer().score, from, to);
         self.store(Clip::Bars(clip));
@@ -831,6 +848,15 @@ impl App {
 
     fn operate_range(&mut self, op: Operator, from: Pos, to: Pos) {
         let c = self.pane().cursor;
+        // On a chant score only deleting (and yanking) mean something: notes are deleted from
+        // the chant, nothing is cleared or pasted into its bars.
+        if self.cursor_on_chant() {
+            match op {
+                Operator::Yank => {}
+                Operator::Delete => return self.chant_delete_range(from, to),
+                Operator::Change => return self.error("change: not in chant"),
+            }
+        }
         let beats = edit::collect(&self.buffer().score, c.track, c.voice, from, to);
         let n = beats.len();
         self.store(Clip::Beats(beats));
@@ -933,18 +959,7 @@ impl App {
                     Ok(())
                 });
             }
-            // On a chant track (GABC) the next note is a new note of the neume instead.
-            InsertNext
-                if self.on_staff_kind(InsertKind::Chant)
-                    && self
-                        .buffer()
-                        .score
-                        .tracks
-                        .get(self.pane().cursor.track)
-                        .is_some_and(|t| t.chant.is_some()) =>
-            {
-                self.run_chant(&ChantAppend);
-            }
+            // (On a chant track the next note is a new note of the neume: see `run_chant`.)
             InsertNext => {
                 self.edit(|cx| {
                     edit::advance(cx, duration);
@@ -1534,7 +1549,7 @@ impl App {
         self.run(Command::InsertBeat(at));
     }
 
-    fn enter_insert(&mut self) {
+    pub(crate) fn enter_insert(&mut self) {
         if self.buffer().score.tracks.is_empty() {
             return self.error("no score to edit (use :new)");
         }

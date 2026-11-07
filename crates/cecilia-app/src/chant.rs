@@ -1,68 +1,100 @@
-//! Chant commands: GABC editing of syllables, interpretation, clefs, conversion to and from
-//! modern notation.
+//! Chant commands: editing the notes of a chant score through the operations on [`Chant`],
+//! syllables as GABC, interpretation, clefs, conversion to and from modern notation.
+//!
+//! A chant score's chant is its source; the bars are a cache made by `retranscribe` after every
+//! edit. Nothing here (or anywhere) edits those bars: keys that would are mapped to a chant
+//! operation or refused with "not in chant".
 
 use cecilia_core::TrackKind;
-use cecilia_core::chant::{self, Chant, NeumeItem, Syllable, retranscribe, transcribe};
+use cecilia_core::chant::{self, Chant, Liquescence, Shape, retranscribe, transcribe};
+use cecilia_core::chant_edit::{Alter, Join};
 
 use crate::app::{App, Buffer};
 use crate::command::Command;
-use crate::config::InsertKind;
 
-/// A chant note by place: (syllable, item).
-type NotePlace = (usize, usize);
+/// The shape a GABC modifier letter stands for.
+fn shape_of_token(m: &str) -> Option<Shape> {
+    Some(match m {
+        "v" => Shape::Virga,
+        "V" => Shape::VirgaReversa,
+        "vv" => Shape::Bivirga(2),
+        "vvv" => Shape::Bivirga(3),
+        "s" => Shape::Stropha(1),
+        "ss" => Shape::Stropha(2),
+        "sss" => Shape::Stropha(3),
+        "w" => Shape::Quilisma,
+        "o" => Shape::Oriscus(false),
+        "O" => Shape::Oriscus(true),
+        "q" => Shape::Quadratum,
+        _ => return None,
+    })
+}
+
+/// Toggles a modifier of note `n` the way a key does: the note takes it, or loses it when it
+/// already has it.
+fn toggle_modifier(chant: &mut Chant, n: usize, m: &str) -> Result<(), String> {
+    let note = chant.note(n).ok_or("no note under the cursor")?.clone();
+    if let Some(shape) = shape_of_token(m) {
+        let now = if note.shape() == shape {
+            Shape::Punctum
+        } else {
+            shape
+        };
+        return chant.set_shape(n, now);
+    }
+    let liquescence = |l: Liquescence| {
+        if note.liquescence() == l {
+            Liquescence::None
+        } else {
+            l
+        }
+    };
+    match m {
+        "-" => chant.set_initio_debilis(n, !note.initio_debilis),
+        "~" => chant.set_liquescence(n, liquescence(Liquescence::Deminutus)),
+        "<" => chant.set_liquescence(n, liquescence(Liquescence::AuctusAscendens)),
+        ">" => chant.set_liquescence(n, liquescence(Liquescence::AuctusDescendens)),
+        "." => chant.set_mora(n, u8::from(note.mora() == 0)),
+        ".." => chant.set_mora(n, if note.mora() == 2 { 0 } else { 2 }),
+        "_" => chant.set_episema(n, !note.episema()),
+        "'" => chant.set_ictus(n, !note.ictus()),
+        other => chant.toggle_mod(n, other),
+    }
+}
 
 impl App {
-    /// Index of the syllable holding the cursor note on a chant track.
-    fn cursor_syllable(&self) -> Option<usize> {
+    /// Whether the cursor is on a chant score's track.
+    pub(crate) fn cursor_on_chant(&self) -> bool {
         let c = self.pane().cursor;
-        let chant = self.buffer().score.tracks.get(c.track)?.chant.as_deref()?;
-        let t = transcribe(chant);
-        let resolved = chant.resolved();
-        let k = t
-            .positions
-            .iter()
-            .rposition(|&(bar, beat)| (bar, beat) <= (c.bar, c.beat))
-            .unwrap_or(0);
-        resolved.get(k).map(|r| r.syllable).or_else(|| {
-            chant
-                .syllables
-                .iter()
-                .position(|s| s.notes().next().is_some())
-        })
-    }
-
-    fn require_chant(&mut self) -> bool {
-        let c = self.pane().cursor;
-        let ok = self
-            .buffer()
+        self.buffer()
             .score
             .tracks
             .get(c.track)
-            .is_some_and(|t| t.chant.is_some());
+            .is_some_and(|t| t.chant.is_some())
+    }
+
+    fn require_chant(&mut self) -> bool {
+        let ok = self.cursor_on_chant();
         if !ok {
             self.error("not a chant track (open a .gabc file or use :modern-to-chant)");
         }
         ok
     }
 
-    /// The chant note under the cursor: (syllable, item) of the last note sounding at or
-    /// before the cursor beat.
-    fn chant_cursor_note(&self) -> Option<NotePlace> {
+    /// Index (in reading order) of the chant note under the cursor: the note sounded by the
+    /// cursor beat, else the last one before it. None in a chant without notes.
+    pub(crate) fn chant_cursor_note(&self) -> Option<usize> {
         let c = self.pane().cursor;
         let chant = self.buffer().score.tracks.get(c.track)?.chant.as_deref()?;
-        let t = transcribe(chant);
-        let k = t
-            .positions
-            .iter()
-            .rposition(|&(bar, beat)| (bar, beat) <= (c.bar, c.beat))?;
-        chant.resolved().get(k).map(|r| (r.syllable, r.item))
+        transcribe(chant).note_near(c.bar, c.beat)
     }
 
-    /// Edits the cursor track's chant, written out again afterwards; the cursor goes to the
-    /// note the edit returns.
-    fn chant_edit(
+    /// Edits the cursor track's chant as one undo step and writes its bars again. The closure
+    /// gets the cursor note (None in a chant without notes) and returns the note the cursor
+    /// should be on afterwards (None leaves the cursor where it is).
+    fn chant_op(
         &mut self,
-        f: impl FnOnce(&mut Chant, Option<NotePlace>) -> Result<Option<NotePlace>, String>,
+        f: impl FnOnce(&mut Chant, Option<usize>) -> Result<Option<usize>, String>,
     ) {
         if !self.require_chant() {
             return;
@@ -71,148 +103,211 @@ impl App {
         self.edit(|cx| {
             let t = cx.cursor.track;
             let score = cx.whole();
-            let mut chant = (**score.tracks[t].chant.as_ref().unwrap()).clone();
+            let mut chant = (**score.tracks[t].chant.as_ref().ok_or("not a chant track")?).clone();
             let target = f(&mut chant, at)?;
-            let written = transcribe(&chant);
-            let resolved = chant.resolved();
+            let placed = target.and_then(|k| {
+                let place = transcribe(&chant).place_of(k)?;
+                Some((place, chant.note(k)?.pitch))
+            });
             score.tracks[t].chant = Some(Box::new(chant));
             retranscribe(score, t);
-            if let Some(k) =
-                target.and_then(|p| resolved.iter().position(|r| (r.syllable, r.item) == p))
-            {
-                let (bar, beat) = written.positions[k];
+            if let Some(((bar, beat), pitch)) = placed {
                 cx.cursor.bar = bar;
                 cx.cursor.beat = beat;
-                let chant = cx.score.tracks[t].chant.as_deref().unwrap();
-                let (si, ii) = (resolved[k].syllable, resolved[k].item);
-                if let Some(NeumeItem::Note(n)) = chant.syllables[si].items.get(ii) {
-                    cx.cursor.line = n.pitch as i32;
-                }
+                cx.cursor.line = pitch as i32;
             }
             Ok(())
         });
     }
 
+    /// The cursor note and its pitch, for a new note to start at.
+    fn pitch_of(chant: &Chant, at: Option<usize>) -> u8 {
+        at.and_then(|n| chant.note(n)).map_or(6, |n| n.pitch)
+    }
+
+    /// Inserts a note next to the cursor note.
+    fn chant_insert(&mut self, after: bool, join: Join) {
+        self.chant_op(move |chant, at| {
+            let pitch = Self::pitch_of(chant, at);
+            chant
+                .insert_note(at.unwrap_or(0), after, join, pitch)
+                .map(Some)
+        });
+    }
+
+    /// Deletes the notes sounding in the beats `from` to `to` (a Visual selection, `d` with a
+    /// motion).
+    pub(crate) fn chant_delete_range(&mut self, from: (usize, usize), to: (usize, usize)) {
+        self.chant_op(move |chant, _| {
+            let t = transcribe(chant);
+            let doomed: Vec<usize> = (0..t.positions.len())
+                .filter(|&k| {
+                    let (bar, beat) = t.positions[k];
+                    let last = (bar, beat + t.lengths[k] as usize - 1);
+                    last >= from && (bar, beat) <= to
+                })
+                .collect();
+            if doomed.is_empty() {
+                return Err("no notes there".into());
+            }
+            for &k in doomed.iter().rev() {
+                chant.delete_note(k)?;
+            }
+            let left = chant.note_count();
+            Ok((left > 0).then(|| doomed[0].min(left - 1)))
+        });
+    }
+
+    /// Keys and commands that edit a modern score's bars, on a chant score: those that mean
+    /// something in chant do it with a chant operation, the others say "not in chant". True if
+    /// the command was one of them.
+    fn chant_bar_command(&mut self, cmd: &Command) -> bool {
+        use Command::*;
+        let refuse = |app: &mut App, what: &str| {
+            app.error(format!("{what}: not in chant"));
+        };
+        match cmd {
+            PitchUp | PitchDown | OctaveUp | OctaveDown => {
+                let delta = match cmd {
+                    PitchUp => 1,
+                    PitchDown => -1,
+                    OctaveUp => 7,
+                    _ => -7,
+                };
+                self.chant_op(move |chant, at| {
+                    let n = at.ok_or("no note under the cursor")?;
+                    chant.move_note(n, delta)?;
+                    Ok(Some(n))
+                });
+            }
+            Accidental(a) => {
+                let want = match a {
+                    -1 => Alter::Flat,
+                    0 => Alter::Natural,
+                    1 => Alter::Sharp,
+                    _ => {
+                        refuse(self, "double accidental");
+                        return true;
+                    }
+                };
+                self.chant_op(move |chant, at| {
+                    let n = at.ok_or("no note under the cursor")?;
+                    let now = chant.alteration_of(n);
+                    chant.set_alteration(n, if now == Some(want) { None } else { Some(want) })?;
+                    Ok(Some(n))
+                });
+            }
+            // A dot is the mora; a longer or shorter note is a horizontal episema.
+            Dot | DoubleDot => {
+                let m = if matches!(cmd, Dot) { "." } else { ".." };
+                self.chant_op(move |chant, at| {
+                    let n = at.ok_or("no note under the cursor")?;
+                    toggle_modifier(chant, n, m)?;
+                    Ok(Some(n))
+                });
+            }
+            DurationLonger | DurationShorter => {
+                let on = matches!(cmd, DurationLonger);
+                self.chant_op(move |chant, at| {
+                    let n = at.ok_or("no note under the cursor")?;
+                    chant.set_episema(n, on)?;
+                    Ok(Some(n))
+                });
+            }
+            DeleteNote | DeleteBeat => self.chant_op(|chant, at| {
+                let n = at.ok_or("no note under the cursor")?;
+                chant.delete_note(n)?;
+                let left = chant.note_count();
+                Ok((left > 0).then(|| n.saturating_sub(1)))
+            }),
+            // A new beat is a new note.
+            InsertNext | BeatNew => self.chant_insert(true, Join::Neume),
+            InsertEnter => self.chant_insert(true, Join::NewSyllable),
+            // `i` `a` `I` `A` open no beat in chant: they only start Insert mode, where
+            // `<Space>` adds a note.
+            InsertBeat(_) => {
+                self.ed.group = Some(false);
+                self.enter_insert();
+            }
+            Duration(_) => refuse(self, "duration"),
+            Tuplet(_) => refuse(self, "tuplet"),
+            Rest => refuse(self, "rest"),
+            Toggle(what) => refuse(self, &format!("toggle {what}")),
+            Dynamic(_) | DynamicStep(_) => refuse(self, "dynamics"),
+            Beams(_) => refuse(self, "beams"),
+            Stems(_) => refuse(self, "stems"),
+            NoteLetter(_) | Note(_) => refuse(self, "note entry by pitch name"),
+            Slash => refuse(self, "slash"),
+            Reflow => refuse(self, "reflow"),
+            Put { .. } => refuse(self, "paste"),
+            BarInsert { .. } | BarOpen { .. } | BarDelete => refuse(self, "bar edit"),
+            _ => return false,
+        }
+        true
+    }
+
     pub(crate) fn run_chant(&mut self, cmd: &Command) -> bool {
         use Command::*;
+        if self.cursor_on_chant() && self.chant_bar_command(cmd) {
+            return true;
+        }
         match cmd {
             ChantMod(m) => {
                 let m = m.clone();
-                self.chant_edit(|chant, at| {
-                    let (si, ii) = at.ok_or("chant-mod: no note under the cursor")?;
-                    if let Some(NeumeItem::Note(n)) = chant.syllables[si].items.get_mut(ii) {
-                        if m == "-" {
-                            n.initio_debilis = !n.initio_debilis;
-                        } else if let Some(i) = n.mods.iter().position(|x| *x == m) {
-                            n.mods.remove(i);
-                        } else {
-                            n.mods.push(m);
-                        }
-                    }
-                    Ok(Some((si, ii)))
+                self.chant_op(move |chant, at| {
+                    let n = at.ok_or("chant-mod: no note under the cursor")?;
+                    toggle_modifier(chant, n, &m)?;
+                    Ok(Some(n))
                 });
             }
-            ChantAppend | ChantBreak => {
-                let brk = matches!(cmd, ChantBreak);
-                self.chant_edit(|chant, at| {
-                    let (si, ii) = at.ok_or("no note to add after")?;
-                    let pitch = match chant.syllables[si].items.get(ii) {
-                        Some(NeumeItem::Note(n)) => n.pitch,
-                        _ => 6,
-                    };
-                    let items = &mut chant.syllables[si].items;
-                    let mut at = ii + 1;
-                    if brk {
-                        items.insert(at, NeumeItem::Space("/".into()));
-                        at += 1;
-                    }
-                    items.insert(
-                        at,
-                        NeumeItem::Note(chant::ChantNote {
-                            pitch,
-                            ..chant::ChantNote::default()
-                        }),
-                    );
-                    Ok(Some((si, at)))
-                });
-            }
-            ChantSyllable => {
-                self.chant_edit(|chant, at| {
-                    let (si, pitch) = match at {
-                        Some((si, ii)) => match chant.syllables[si].items.get(ii) {
-                            Some(NeumeItem::Note(n)) => (si, n.pitch),
-                            _ => (si, 6),
-                        },
-                        None => (chant.syllables.len().saturating_sub(1), 6),
-                    };
-                    let at = (si + 1).min(chant.syllables.len());
-                    chant.syllables.insert(
-                        at,
-                        Syllable {
-                            items: vec![NeumeItem::Note(chant::ChantNote {
-                                pitch,
-                                ..chant::ChantNote::default()
-                            })],
-                            ..Syllable::default()
-                        },
-                    );
-                    Ok(Some((at, 0)))
-                });
-            }
+            ChantAppend => self.chant_insert(true, Join::Neume),
+            ChantBreak => self.chant_insert(true, Join::NewNeume),
+            ChantSyllable => self.chant_insert(true, Join::NewSyllable),
             ChantBar(sign) => {
                 let sign = sign.clone();
-                self.chant_edit(|chant, at| {
-                    let si = at.map_or(chant.syllables.len().saturating_sub(1), |p| p.0);
+                self.chant_op(move |chant, at| {
+                    let n = at.unwrap_or(0);
                     // A second `:` makes the double bar `::`, a third takes it away.
-                    if let Some(next) = chant.syllables.get_mut(si + 1) {
-                        if sign == ":" && next.items == [NeumeItem::Bar(":".into())] {
-                            next.items[0] = NeumeItem::Bar("::".into());
-                            return Ok(at);
-                        }
-                        if sign == ":" && next.items == [NeumeItem::Bar("::".into())] {
-                            chant.syllables.remove(si + 1);
-                            return Ok(at);
+                    if sign == ":" {
+                        match chant.division_after(n) {
+                            Some(":") => {
+                                chant.set_division(n, "::")?;
+                                return Ok(at);
+                            }
+                            Some("::") => {
+                                chant.delete_division(n)?;
+                                return Ok(at);
+                            }
+                            _ => {}
                         }
                     }
-                    let at_bar = (si + 1).min(chant.syllables.len());
-                    chant.syllables.insert(
-                        at_bar,
-                        Syllable {
-                            word_start: true,
-                            items: vec![NeumeItem::Bar(sign)],
-                            ..Syllable::default()
-                        },
-                    );
+                    chant.insert_division(n, &sign)?;
                     Ok(at)
-                });
-            }
-            DeleteNote if self.on_staff_kind(InsertKind::Chant) => {
-                self.chant_edit(|chant, at| {
-                    let (si, ii) = at.ok_or("no note under the cursor")?;
-                    let syl = &mut chant.syllables[si];
-                    syl.items.remove(ii);
-                    // A neume break left at the end goes too.
-                    if ii > 0 && ii == syl.items.len() {
-                        if let Some(NeumeItem::Space(_)) = syl.items.last() {
-                            syl.items.pop();
-                        }
-                    }
-                    let notes_left = syl.notes().next().is_some();
-                    if !notes_left && syl.text.trim().is_empty() {
-                        chant.syllables.remove(si);
-                        return Ok(None);
-                    }
-                    let prev = (0..ii.min(syl.items.len()))
-                        .rev()
-                        .find(|&j| matches!(syl.items[j], NeumeItem::Note(_)));
-                    Ok(prev.map(|j| (si, j)))
                 });
             }
             Gabc(arg) => {
                 if !self.require_chant() {
                     return true;
                 }
-                let Some(si) = self.cursor_syllable() else {
+                let Some(si) = self
+                    .chant_cursor_note()
+                    .and_then(|n| {
+                        let c = self.pane().cursor;
+                        self.buffer().score.tracks[c.track]
+                            .chant
+                            .as_deref()?
+                            .syllable_of(n)
+                    })
+                    .or_else(|| {
+                        let c = self.pane().cursor;
+                        self.buffer().score.tracks[c.track]
+                            .chant
+                            .as_deref()?
+                            .syllables
+                            .iter()
+                            .position(|s| s.notes().next().is_some())
+                    })
+                else {
                     self.error("gabc: no syllable under the cursor");
                     return true;
                 };
@@ -299,24 +394,9 @@ impl App {
                     ));
                     return true;
                 };
-                self.edit(|cx| {
-                    let t = cx.cursor.track;
-                    let score = cx.whole();
-                    let chant = score.tracks[t].chant.as_mut().unwrap();
-                    let first = chant
-                        .syllables
-                        .iter_mut()
-                        .flat_map(|s| s.items.iter_mut())
-                        .find(|i| matches!(i, NeumeItem::Clef(_)));
-                    match first {
-                        Some(c) => *c = NeumeItem::Clef(clef),
-                        None => match chant.syllables.first_mut() {
-                            Some(s) => s.items.insert(0, NeumeItem::Clef(clef)),
-                            None => return Err("empty chant".into()),
-                        },
-                    }
-                    retranscribe(score, t);
-                    Ok(())
+                self.chant_op(move |chant, at| {
+                    chant.set_initial_clef(clef)?;
+                    Ok(at)
                 });
             }
             ChantToModern => {
@@ -380,13 +460,17 @@ mod tests {
     use crate::Config;
     use crate::keys::Key;
 
-    fn app() -> App {
+    const TEXT: &str = "name: t;\n%%\n(c4) Al(fg)le(h) lu(g)ia.(f.) (::)\n";
+
+    fn app_of(text: &str) -> App {
         let mut app = App::new(Config::default(), None);
-        let chant =
-            cecilia_formats::gabc::parse("name: t;\n%%\n(c4) Al(fg)le(h) lu(g)ia.(f.) (::)\n")
-                .unwrap();
+        let chant = cecilia_formats::gabc::parse(text).unwrap();
         app.buffers[0].score = cecilia_formats::gabc::chant_score(chant);
         app
+    }
+
+    fn app() -> App {
+        app_of(TEXT)
     }
 
     fn keys(app: &mut App, s: &str) {
@@ -395,13 +479,80 @@ mod tests {
         }
     }
 
+    fn chant_of(app: &App) -> &Chant {
+        app.buffer().score.tracks[0].chant.as_deref().unwrap()
+    }
+
+    /// The chant as GABC, syllable by syllable.
     fn gabc(app: &App) -> String {
-        let c = app.buffer().score.tracks[0].chant.as_ref().unwrap();
-        c.syllables
+        chant_of(app)
+            .syllables
             .iter()
             .map(|s| s.gabc())
             .collect::<Vec<_>>()
             .join(" ")
+    }
+
+    /// The GABC file the chant would be written as, without its header.
+    fn written(app: &App) -> String {
+        let text = cecilia_formats::gabc::write(chant_of(app), "");
+        text.split_once("%%\n").unwrap().1.trim().to_string()
+    }
+
+    /// The bars are the chant's transcription, always.
+    fn assert_cache(app: &App) {
+        let score = &app.buffer().score;
+        let t = transcribe(chant_of(app));
+        assert_eq!(score.tracks[0].bars, t.bars);
+        assert_eq!(score.master_bars, t.master_bars);
+    }
+
+    /// Whether the buffer's score is `score` (compared as chant and bars, to keep failures short).
+    fn same(app: &App, score: &cecilia_core::Score) -> bool {
+        let now = &app.buffer().score;
+        now.master_bars == score.master_bars
+            && now.tracks.len() == score.tracks.len()
+            && now.tracks[0].chant == score.tracks[0].chant
+            && now.tracks[0].bars == score.tracks[0].bars
+    }
+
+    fn pitches(app: &App) -> Vec<u8> {
+        app.buffer().score.tracks[0]
+            .bars
+            .iter()
+            .flat_map(|b| &b.voices[0].beats)
+            .map(|b| b.notes[0].fret)
+            .collect()
+    }
+
+    fn cursor_note(app: &App) -> Option<usize> {
+        app.chant_cursor_note()
+    }
+
+    fn at(app: &App) -> (usize, usize) {
+        let c = app.pane().cursor;
+        (c.bar, c.beat)
+    }
+
+    fn go(app: &mut App, bar: usize, beat: usize) {
+        let id = app.focused();
+        let p = app.panes.get_mut(&id).unwrap();
+        p.cursor.bar = bar;
+        p.cursor.beat = beat;
+    }
+
+    fn run(app: &mut App, line: &str) {
+        app.run(Command::parse(line).unwrap());
+    }
+
+    fn undo_steps(app: &App) -> usize {
+        let mut history = app.buffer().history.clone();
+        let mut score = app.buffer().score.clone();
+        let mut n = 0;
+        while history.undo(&mut score).is_some() {
+            n += 1;
+        }
+        n
     }
 
     #[test]
@@ -425,8 +576,10 @@ mod tests {
         assert_eq!(gabc(&a), "(c4) Al(fvf/g) (::) (;) le(h) lu(g) ia.(f.) (::)");
         keys(&mut a, ":");
         assert_eq!(gabc(&a), "(c4) Al(fvf/g) (;) le(h) lu(g) ia.(f.) (::)");
+        assert_cache(&a);
         keys(&mut a, "<Esc>uuuuuu");
         assert_eq!(gabc(&a), "(c4) Al(fg) le(h) lu(g) ia.(f.) (::)");
+        assert_cache(&a);
     }
 
     #[test]
@@ -458,22 +611,298 @@ mod tests {
         a.run(Command::Clef("treble".into()));
         assert!(a.message.as_ref().unwrap().error);
         assert!(gabc(&a).starts_with("(f3)"));
+        assert_cache(&a);
+        // The same notes under another clef sound at other pitches.
+        assert_ne!(pitches(&a), pitches(&app()));
     }
 
     #[test]
-    fn editing_keys_change_the_chant() {
-        let mut app = app();
-        // Raise the second note (g = G4): A♭ is not in the scale and rounds up to A (h),
-        // then A + 1 is B♭, a flat on i.
-        keys(&mut app, "l<C-a>");
-        assert_eq!(gabc(&app), "(c4) Al(fh) le(h) lu(g) ia.(f.) (::)");
-        keys(&mut app, "<C-a>");
-        assert_eq!(gabc(&app), "(c4) Al(fixi) le(h) lu(g) ia.(f.) (::)");
+    fn pitch_keys_move_notes_on_the_staff() {
+        let mut a = app();
+        assert_eq!(pitches(&a), [65, 67, 69, 67, 65]);
+        // Raise the second note a staff position at a time: g → h → i (B, natural).
+        keys(&mut a, "l<C-a>");
+        assert_eq!(gabc(&a), "(c4) Al(fh) le(h) lu(g) ia.(f.) (::)");
+        assert_eq!(pitches(&a), [65, 69, 69, 67, 65]);
+        keys(&mut a, "<C-a>");
+        assert_eq!(gabc(&a), "(c4) Al(fi) le(h) lu(g) ia.(f.) (::)");
+        assert_eq!(pitches(&a), [65, 71, 69, 67, 65]);
+        assert_cache(&a);
+        // The cursor stays on the note it moved.
+        assert_eq!(cursor_note(&a), Some(1));
+        assert_eq!(at(&a), (0, 1));
+        assert_eq!(a.pane().cursor.line, 8);
         // Delete the first note, then undo all three edits.
-        keys(&mut app, "0x");
-        assert_eq!(gabc(&app), "(c4) Al(ixi) le(h) lu(g) ia.(f.) (::)");
-        keys(&mut app, "uuu");
-        assert_eq!(gabc(&app), "(c4) Al(fg) le(h) lu(g) ia.(f.) (::)");
+        keys(&mut a, "0x");
+        assert_eq!(gabc(&a), "(c4) Al(i) le(h) lu(g) ia.(f.) (::)");
+        assert_eq!(at(&a), (0, 0));
+        assert_cache(&a);
+        keys(&mut a, "uuu");
+        assert_eq!(gabc(&a), "(c4) Al(fg) le(h) lu(g) ia.(f.) (::)");
+        assert_cache(&a);
+        // An octave is seven positions; the top and the bottom of the staff stop it.
+        run(&mut a, "octave-up");
+        assert_eq!(gabc(&a), "(c4) Al(fn) le(h) lu(g) ia.(f.) (::)");
+        run(&mut a, "octave-up");
+        assert!(a.message.as_ref().unwrap().error);
+        assert_eq!(gabc(&a), "(c4) Al(fn) le(h) lu(g) ia.(f.) (::)");
+        run(&mut a, "octave-down");
+        run(&mut a, "octave-down");
+        assert!(a.message.as_ref().unwrap().error);
+        assert_eq!(gabc(&a), "(c4) Al(fg) le(h) lu(g) ia.(f.) (::)");
+    }
+
+    #[test]
+    fn accidentals_and_signs() {
+        let mut a = app();
+        go(&mut a, 0, 2);
+        // A flat on the note, a second press takes it away; B♭ sounds a semitone lower.
+        run(&mut a, "accidental flat");
+        assert_eq!(gabc(&a), "(c4) Al(fg) le(hxh) lu(g) ia.(f.) (::)");
+        assert_eq!(at(&a), (0, 2));
+        run(&mut a, "accidental flat");
+        assert_eq!(gabc(&a), "(c4) Al(fg) le(h) lu(g) ia.(f.) (::)");
+        run(&mut a, "accidental natural");
+        assert_eq!(gabc(&a), "(c4) Al(fg) le(hyh) lu(g) ia.(f.) (::)");
+        run(&mut a, "accidental natural");
+        run(&mut a, "accidental double-sharp");
+        assert!(a.message.as_ref().unwrap().text.contains("not in chant"));
+        // The flat is on B: raise the note onto it and it sounds flat.
+        run(&mut a, "pitch-up");
+        run(&mut a, "accidental flat");
+        assert_eq!(gabc(&a), "(c4) Al(fg) le(ixi) lu(g) ia.(f.) (::)");
+        assert_eq!(pitches(&a)[2], 70);
+        assert_cache(&a);
+        run(&mut a, "pitch-down");
+        assert_eq!(gabc(&a), "(c4) Al(fg) le(hxh) lu(g) ia.(f.) (::)");
+        // The mora and the episema keys.
+        go(&mut a, 0, 2);
+        run(&mut a, "accidental flat");
+        assert_eq!(gabc(&a), "(c4) Al(fg) le(h) lu(g) ia.(f.) (::)");
+        go(&mut a, 0, 0);
+        run(&mut a, "dot");
+        assert_eq!(gabc(&a), "(c4) Al(f.g) le(h) lu(g) ia.(f.) (::)");
+        run(&mut a, "dot");
+        assert_eq!(gabc(&a), "(c4) Al(fg) le(h) lu(g) ia.(f.) (::)");
+        run(&mut a, "duration-longer");
+        assert_eq!(gabc(&a), "(c4) Al(f_g) le(h) lu(g) ia.(f.) (::)");
+        run(&mut a, "duration-shorter");
+        assert_eq!(gabc(&a), "(c4) Al(fg) le(h) lu(g) ia.(f.) (::)");
+        assert_cache(&a);
+    }
+
+    #[test]
+    fn shape_and_sign_toggles() {
+        let mut a = app();
+        for (cmd, expected) in [
+            ("chant-mod v", "(c4) Al(fvg) le(h) lu(g) ia.(f.) (::)"),
+            ("chant-mod v", "(c4) Al(fg) le(h) lu(g) ia.(f.) (::)"),
+            ("chant-mod w", "(c4) Al(fwg) le(h) lu(g) ia.(f.) (::)"),
+            ("chant-mod o", "(c4) Al(fog) le(h) lu(g) ia.(f.) (::)"),
+            ("chant-mod ss", "(c4) Al(fssg) le(h) lu(g) ia.(f.) (::)"),
+            ("chant-mod ss", "(c4) Al(fg) le(h) lu(g) ia.(f.) (::)"),
+            ("chant-mod ~", "(c4) Al(f~g) le(h) lu(g) ia.(f.) (::)"),
+            ("chant-mod ~", "(c4) Al(fg) le(h) lu(g) ia.(f.) (::)"),
+            ("chant-mod '", "(c4) Al(f'g) le(h) lu(g) ia.(f.) (::)"),
+            ("chant-mod _", "(c4) Al(f'_g) le(h) lu(g) ia.(f.) (::)"),
+            ("chant-mod -", "(c4) Al(-f'_g) le(h) lu(g) ia.(f.) (::)"),
+        ] {
+            run(&mut a, cmd);
+            assert_eq!(gabc(&a), expected, "{cmd}");
+            assert_cache(&a);
+            assert_eq!(at(&a), (0, 0), "{cmd}");
+        }
+        // A stropha sounds twice; the cursor beat after it is still its note.
+        run(&mut a, "chant-mod ss");
+        assert_eq!(a.buffer().score.tracks[0].bars[0].voices[0].beats.len(), 6);
+        go(&mut a, 0, 1);
+        assert_eq!(cursor_note(&a), Some(0));
+        go(&mut a, 0, 2);
+        assert_eq!(cursor_note(&a), Some(1));
+    }
+
+    #[test]
+    fn notes_syllables_and_divisions() {
+        let mut a = app_of("name: t;\n%%\n(c4) Al(fg)le(h) (;) lu(g)ia.(f.) (::)\n");
+        assert_eq!(a.buffer().score.tracks[0].bars.len(), 2);
+        // A new note in the neume of the cursor note; the cursor goes to it.
+        go(&mut a, 1, 0);
+        run(&mut a, "chant-append");
+        assert_eq!(gabc(&a), "(c4) Al(fg) le(h) (;) lu(gg) ia.(f.) (::)");
+        assert_eq!(at(&a), (1, 1));
+        assert_eq!(cursor_note(&a), Some(4));
+        // A new neume, then a new syllable after the syllable.
+        run(&mut a, "chant-break");
+        assert_eq!(gabc(&a), "(c4) Al(fg) le(h) (;) lu(gg/g) ia.(f.) (::)");
+        run(&mut a, "chant-syllable");
+        assert_eq!(gabc(&a), "(c4) Al(fg) le(h) (;) lu(gg/g) (g) ia.(f.) (::)");
+        assert_eq!(at(&a), (1, 3));
+        assert_cache(&a);
+        // The GABC written for the file has the same notes.
+        let text = written(&a);
+        assert!(text.contains("(;) lu(gg/g)(g)ia.(f.)"), "{text}");
+        assert!(text.starts_with("(c4) Al(fg)le(h)"), "{text}");
+        // A division after the cursor note's syllable splits the bar and moves the notes
+        // after it; the cursor stays on its note.
+        go(&mut a, 0, 1);
+        run(&mut a, "chant-bar ,");
+        assert_eq!(
+            gabc(&a),
+            "(c4) Al(fg) (,) le(h) (;) lu(gg/g) (g) ia.(f.) (::)"
+        );
+        assert_eq!(cursor_note(&a), Some(1));
+        assert_eq!(at(&a), (0, 1));
+        assert_eq!(a.buffer().score.tracks[0].bars.len(), 3);
+        assert_cache(&a);
+        // Deleting a note: the cursor goes to the one before it, even across a bar.
+        go(&mut a, 1, 0);
+        keys(&mut a, "x");
+        assert_eq!(
+            gabc(&a),
+            "(c4) Al(fg) (,) le() (;) lu(gg/g) (g) ia.(f.) (::)"
+        );
+        assert_eq!(cursor_note(&a), Some(1));
+        assert_cache(&a);
+        // Deleting a syllable's last note removes a syllable with no text.
+        keys(&mut a, "0");
+        run(&mut a, "chant-syllable");
+        let n = chant_of(&a).syllables.len();
+        keys(&mut a, "x");
+        assert_eq!(chant_of(&a).syllables.len(), n - 1);
+        assert_cache(&a);
+    }
+
+    #[test]
+    fn a_visual_selection_deletes_notes() {
+        let mut a = app();
+        keys(&mut a, "lvld");
+        assert_eq!(gabc(&a), "(c4) Al(f) le() lu(g) ia.(f.) (::)");
+        assert_cache(&a);
+        keys(&mut a, "u");
+        assert_eq!(gabc(&a), "(c4) Al(fg) le(h) lu(g) ia.(f.) (::)");
+        // Changing or pasting over bars is not something chant does.
+        keys(&mut a, "vlc");
+        assert!(a.message.as_ref().unwrap().error);
+        assert_eq!(gabc(&a), "(c4) Al(fg) le(h) lu(g) ia.(f.) (::)");
+    }
+
+    #[test]
+    fn keys_that_edit_bars_say_not_in_chant() {
+        let mut a = app();
+        let before = a.buffer().score.clone();
+        let steps = undo_steps(&a);
+        for cmd in [
+            "duration 8",
+            "tuplet 3",
+            "rest",
+            "toggle tie",
+            "toggle bend",
+            "note-letter c",
+            "dynamic f",
+            "beams auto",
+            "bar-insert-after",
+            "bar-delete",
+            "put",
+            "reflow",
+        ] {
+            a.message = None;
+            let Ok(c) = Command::parse(cmd) else {
+                panic!("{cmd} does not parse");
+            };
+            a.run(c);
+            let m = a
+                .message
+                .clone()
+                .unwrap_or_else(|| panic!("{cmd}: no message"));
+            assert!(
+                m.error && m.text.contains("not in chant"),
+                "{cmd}: {}",
+                m.text
+            );
+            assert!(same(&a, &before), "{cmd}");
+        }
+        // Digits do not type frets on a chant track either.
+        keys(&mut a, "i1");
+        assert!(same(&a, &before));
+        assert_eq!(undo_steps(&a), steps);
+        assert!(!a.buffer().modified);
+    }
+
+    #[test]
+    fn the_bars_of_a_chant_track_are_never_edited_directly() {
+        let mut a = app();
+        let before = a.buffer().score.clone();
+        // An edit that touches the bars without going through the chant is undone.
+        let r = a.edit(|cx| {
+            cx.bar(0, 0).voices[0].beats.remove(0);
+            Ok(())
+        });
+        assert!(r.is_none());
+        let m = a.message.clone().unwrap();
+        assert!(m.error && m.text.contains("not in chant"), "{}", m.text);
+        assert!(same(&a, &before));
+        assert_eq!(undo_steps(&a), 0);
+        assert!(!a.buffer().modified);
+        // So is one that adds a bar, or replaces them.
+        a.edit(|cx| {
+            cx.whole().master_bars.push(Default::default());
+            cx.whole().tracks[0].bars.push(Default::default());
+            Ok(())
+        });
+        assert!(same(&a, &before));
+        // An edit that changes the chant but leaves the bars old gets them made again.
+        a.edit(|cx| {
+            let t = cx.whole().tracks[0].chant.as_mut().unwrap();
+            t.delete_note(0).unwrap();
+            Ok(())
+        });
+        assert_eq!(chant_of(&a).note_count(), 4);
+        assert_cache(&a);
+        assert_eq!(undo_steps(&a), 1);
+    }
+
+    #[test]
+    fn every_operation_is_one_undo_step_and_comes_back() {
+        for cmd in [
+            "pitch-up",
+            "accidental flat",
+            "dot",
+            "chant-mod v",
+            "chant-append",
+            "chant-break",
+            "chant-syllable",
+            "chant-bar ;",
+            "delete-note",
+            "clef c3",
+        ] {
+            let mut a = app();
+            let before = a.buffer().score.clone();
+            run(&mut a, cmd);
+            assert_eq!(undo_steps(&a), 1, "{cmd}");
+            assert!(!same(&a, &before), "{cmd}");
+            assert_cache(&a);
+            let after = a.buffer().score.clone();
+            keys(&mut a, "u");
+            assert!(same(&a, &before), "{cmd}");
+            assert_eq!(
+                chant_of(&a),
+                before.tracks[0].chant.as_deref().unwrap(),
+                "{cmd}"
+            );
+            keys(&mut a, "U");
+            assert!(same(&a, &after), "{cmd}");
+        }
+    }
+
+    #[test]
+    fn the_first_note_of_an_empty_chant() {
+        let mut a = app_of("name: t;\n%%\n(c4)\n");
+        assert_eq!(cursor_note(&a), None);
+        run(&mut a, "chant-append");
+        assert_eq!(gabc(&a), "(c4g)");
+        assert_eq!(chant_of(&a).note_count(), 1);
+        assert_eq!(cursor_note(&a), Some(0));
+        assert_cache(&a);
     }
 
     #[test]
@@ -498,11 +927,23 @@ mod tests {
         );
         app.run(Command::ChantClef("c3".into()));
         assert!(gabc(&app).starts_with("(c3)"));
+        assert_cache(&app);
         app.run(Command::ChantToModern);
         let t = &app.buffer().score.tracks[0];
         assert!(t.chant.is_none() && t.kind == TrackKind::Pitched);
         app.run(Command::ModernToChant);
         assert_eq!(app.buffers.len(), 2);
         assert!(app.buffer().score.tracks[0].chant.is_some());
+    }
+
+    #[test]
+    fn a_modern_track_still_edits_its_bars() {
+        let mut a = App::new(Config::default(), None);
+        a.run(Command::New);
+        let before = a.buffer().score.clone();
+        a.run(Command::Rest);
+        keys(&mut a, "i1<Esc>");
+        assert_ne!(a.buffer().score, before);
+        assert!(a.buffer().score.tracks[0].chant.is_none());
     }
 }

@@ -60,25 +60,32 @@ impl<'a> EditCx<'a> {
         self.score
     }
 
-    /// Carries edits of a chant track's transcription back into its chant notation and
-    /// rewrites the transcription from it.
-    pub fn sync_chant(&mut self) {
-        let t = self.cursor.track;
-        let Some(chant) = self.score.tracks.get(t).and_then(|x| x.chant.as_deref()) else {
-            return;
-        };
-        let expected = cecilia_core::chant::transcribe(chant);
-        if expected.bars == self.score.tracks[t].bars
-            && expected.master_bars == self.score.master_bars
-        {
-            return;
+    /// Keeps a chant track's bars what they are: a cache of its chant. An edit that changed the
+    /// chant gets its bars written again from it; one that changed the bars of a chant track
+    /// without changing the chant is undone and refused, `before` being the score as it was.
+    pub fn guard_chant(&mut self, before: &Score) -> Result<(), String> {
+        for t in 0..self.score.tracks.len().min(before.tracks.len()) {
+            let (old, new) = (&before.tracks[t], &self.score.tracks[t]);
+            if new.chant.is_none() {
+                continue;
+            }
+            if new.chant != old.chant {
+                let expected = cecilia_core::chant::transcribe(new.chant.as_deref().unwrap());
+                if expected.bars != new.bars
+                    || expected.master_bars.len() != self.score.master_bars.len()
+                {
+                    cecilia_core::chant::retranscribe(self.whole(), t);
+                }
+            } else if new.bars != old.bars {
+                *self.score = before.clone();
+                return Err(
+                    "not in chant: the bars of a chant score are made from its chant; edit its \
+                     notes"
+                        .into(),
+                );
+            }
         }
-        let bars = self.score.tracks[t].bars.clone();
-        let score = self.whole();
-        let mut chant = (**score.tracks[t].chant.as_ref().unwrap()).clone();
-        cecilia_convert::chant::reconcile(&mut chant, &bars);
-        score.tracks[t].chant = Some(Box::new(chant));
-        cecilia_core::chant::retranscribe(score, t);
+        Ok(())
     }
 
     /// Lays every track's lyrics text out on its beats again (an edit may have changed which

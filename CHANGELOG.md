@@ -9,6 +9,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- Chant scores are edited through the chant, never through their bars. New edit operations on
+  `Chant` (`cecilia-core/src/chant_edit.rs`) address notes by index in reading order: insert
+  (same neume, new neume, new syllable), delete, move by staff positions, flat / natural /
+  sharp, shape, mora, episema, ictus, liquescence, divisions, clef, syllable text, split and
+  join. `Transcription::note_at` / `place_of` map the cursor to a note and back, so the cursor
+  stays on the edited note. The editing keys of a chant track use them (`<C-a>` / `<C-x>` now move
+  a note one staff position rather than one semitone; `accidental flat` adds the flat); keys that
+  edit modern bars (durations, tuplets, rests, ties, effects, dynamics, bar insert / delete,
+  paste …) report "not in chant", and an edit that changes the bars of a chant track without
+  changing its chant is refused. `cecilia_convert::chant::reconcile` is gone.
+
 - Modern lyrics syntax: lyrics anchors are `(bar:beat)` / `(bar:beat.fraction)` instead of
   `<bar:beat>`; `_` no longer prints italics (it only separates words and, alone, skips beats);
   styles use GABC markup tags `<i>` `<b>` `<ul>` `<sc>` `<c>` (italic, bold, underline, small

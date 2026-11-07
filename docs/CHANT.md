@@ -3,7 +3,8 @@
 How cecilia turns a modern melody (staff or tab) into chant (`:modern-to-chant`), and a chant back
 into modern notes. Source: `cecilia-core/src/chant.rs` (the chant model, clefs, transcription),
 `cecilia-core/src/melody.rs` (`ChantView`, the modern → chant view), `cecilia-convert/src/chant.rs`
-(`modern_to_chant`, `reconcile`), `cecilia-app/src/edit.rs` and `chant.rs` (editing), and
+(`modern_to_chant`), `cecilia-core/src/chant_edit.rs` (the edit operations),
+`cecilia-app/src/chant.rs` (editing keys and commands), and
 `cecilia-engrave` (drawing).
 
 ## 1. Chant tracks only
@@ -171,15 +172,42 @@ sync and the modern file formats work on it.
   edit; other tracks are padded or cut to the new bar count.
 - `:chant-to-modern` drops the chant and keeps this transcription as an ordinary pitched track.
 
-### Edits made to the transcription (`convert::reconcile`)
+### Edits (`chant_edit.rs`)
 
-If the bars of a chant track are edited as ordinary music (on its transcription), the changes are
-carried back: the old and new pitch sequences are compared with an edit script (Levenshtein,
-preferring replacements). A replacement moves the note to the staff position of the new pitch
-(rounded up or down by the direction of the change, adding a flat or natural before it if the
-alteration in force differs), a deletion removes the note, and an insertion adds a punctum after
-the previous note's syllable (before the first note, if none). Changes are applied from the end so
-indices stay valid, and the chant is transcribed again.
+The bars of a chant track are a cache and are never edited: there is no way back from the
+transcription to the chant. Edits are operations on the `Chant`, each returning
+`Result<_, String>` and leaving the chant unchanged on `Err`; the app runs one inside a single
+`edit(...)` (one undo step on the whole score) and calls `retranscribe` afterwards.
+
+- **Note index.** Notes are addressed by their index in *reading order*: syllable by syllable, item
+  by item, the order of `Chant::resolved` and of the beats `transcribe` makes
+  (`Transcription.positions[n]` is the first beat of note `n`, `lengths[n]` how many beats it
+  sounds: 1, or 2–3 for a stropha or bivirga). `Transcription::note_at(bar, beat)` and
+  `place_of(note)` convert between a cursor and a note; `note_near` takes the last note before a
+  beat that sounds none. `Chant::note_place`, `note_index` and `syllable_of` give the
+  `(syllable, item)` place. A test on the files of `test-corpus/gabc` pins this order.
+- **Notes.** `insert_note(n, after, Join::{Neume, NewNeume, NewSyllable}, pitch)` (a flat before
+  note `n` stays with it), `delete_note(n)` (a syllable left with no text and no signs goes;
+  one with text stays), `move_note(n, ±positions)` (a flat or natural right before it moves with
+  it; the staff's top and bottom stop it), `set_pitch`.
+- **Signs.** `set_alteration(n, Some(Alter::{Flat, Natural, Sharp}) | None)`, `set_shape(n,
+  Shape)` (shapes GABC writes in unusual ways, such as `o0`, are refused), `set_mora`,
+  `set_episema`, `set_ictus`, `set_initio_debilis`, `set_liquescence`, `toggle_mod` for any other
+  GABC modifier.
+- **Structure.** `insert_division(n, sign)`, `set_division`, `delete_division` (a division is
+  a syllable of its own after the note's syllable), `set_initial_clef`, `set_clef_before(n, clef)`,
+  `set_syllable_text(n, text)`, `split_syllable(n)` (before note `n`), `join_syllable(n)` (with
+  the next one, its notes kept as a separate neume).
+- **Keys.** On a chant track the editing keys of a modern track map to these: `<C-a>` / `<C-x>`
+  move a note up / down a position, `octave-up` / `octave-down` seven; `accidental flat|natural|
+  sharp` toggles the sign; `.` is the mora (`..` two); `+` / `-` set / clear the horizontal
+  episema; `x`, `<BS>`, `<Del>` and Visual `d` delete notes; `<Space>` adds a note. A pitch moves
+  by staff position, not by semitone: a flat is added or removed with `accidental flat`. Durations,
+  tuplets, rests, ties, guitar effects, dynamics, beams, stems, note letters, bar insert / open /
+  delete, put and Change report "not in chant".
+- **Guard.** `App::edit` compares a chant track before and after every edit: an edit that
+  changed the chant has its bars written again, one that changed the bars alone is undone and
+  refused with "not in chant".
 
 ## 5. Drawing (`cecilia-engrave`)
 
@@ -203,4 +231,4 @@ indices stay valid, and the chant is transcribed again.
 | `:modern-to-chant` | the track's melody as a new chant buffer |
 | `:chant-to-modern` | a chant track becomes an ordinary track (its transcription) |
 | `:interpretation equalist\|solesmes` | rhythm used for transcription and playback |
-| `:chant-mod`, `:chant-bar`, `:chant-break`, `:chant-append`, `:chant-syllable` | editing a chant track |
+| `:chant-mod`, `:chant-bar`, `:chant-break`, `:chant-append`, `:chant-syllable` | editing a chant track (see "Edits") |

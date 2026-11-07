@@ -625,19 +625,31 @@ the staff they go on to the tab below or the next staff):
 On a **slash** staff: `/` puts a slash on the beat (`:slash`; `<CR>` does as well); `t` tie, `>` accent.
 
 On a **chant track** (opened from GABC; there is no chant staff on other tracks), the cursor is
-on a note: a single square on that position of the chant staff. These keys edit the chant itself:
+on a note: a single square on that position of the chant staff. The chant is what is edited; the
+bars of a chant track are only a transcription made from it, so every key below changes the chant
+(one undo step each), the bars are written again and the cursor stays on the edited note.
 
 | keys                                      | command                                                                         |
 | ----------------------------------------- | ------------------------------------------------------------------------------- |
-| `h` `j` `k` `l`                           | move the cursor, as on a standard staff (beat back / position down / up / beat on); a pitch is entered by moving to its position and `<CR>` |
+| `h` `j` `k` `l`                           | move the cursor, as on a standard staff (beat back / position down / up / beat on) |
 | `<Space>`                                 | a new note after the cursor note, in the same neume (`:chant-append`) |
-| `/`                                       | a new note after the cursor note, starting a new neume                          |
+| `/`                                       | a new note after the cursor note, starting a new neume (`:chant-break`)         |
 | `<CR>`                                    | a new syllable after the cursor syllable (`:chant-syllable`) |
-| `v` `s` `o` `q` `w` `~`                   | virga, stropha, oriscus, quadratum, quilisma, liquescent (toggles, `:chant-mod`) |
-| `.` `_` `'` `-`                           | mora, episema, ictus, initio debilis                                            |
+| `<C-a>` `<C-x>`                           | the note up / down one staff position (`:pitch-up`, `:pitch-down`); `:octave-up` / `:octave-down` move seven. A pitch moves by position, not semitone; the top and bottom of the staff stop it |
+| `v` `s` `o` `q` `w` `~`                   | virga, stropha, oriscus, quadratum, quilisma, liquescent (toggles, `:chant-mod`; `:chant-mod ss` / `vv` / `V` / `<` / `>` also) |
+| `.` `_` `'` `-`                           | mora, episema, ictus, initio debilis (`:chant-mod`; `:dot` is the mora too)     |
+| `:accidental flat` / `natural` / `sharp`  | the flat, natural or sharp before the note (a second time takes it away)        |
+| `+` `-` (normal mode)                     | horizontal episema on / off (`:duration-longer`, `:duration-shorter`)           |
 | `,` `;` `:`                               | a division after the syllable (`:` cycles major, double, none; `:chant-bar`)    |
-| `<BS>` / `<Del>`                          | delete the note                                                                 |
+| `x` `<BS>` `<Del>`, Visual `d`            | delete the note (the notes of the selection); a syllable left with no text and no notes goes. The cursor goes to the note before |
 | `<Right>`                                 | next note                                                                       |
+
+`i` `a` `I` `A` only start Insert mode on a chant track (no empty beat is made). Everything that
+edits the bars of a modern track reports **"not in chant"** and changes nothing: durations
+(`:duration`, `+` `-` `<A-1>`…`<A-7>` in insert mode), tuplets, rests, ties and the other
+`:toggle` effects, dynamics, beams, stems, `:note-letter`, double sharps and flats, bar insert /
+open / delete, `p` `P` paste, Visual `c`, `:reflow`, and digits (no frets). The same refusal covers
+any other edit that would change the bars of a chant track without changing its chant.
 
 ## Command mode (selected)
 
@@ -766,8 +778,9 @@ autosaving that file until you choose:
 
 ### Chant _(M6)_
 
-On a chant track the cursor moves note by note; `<C-a>`/`<C-x>` move a note up or down (adding a
-flat or natural when needed), `x` deletes it and `u` undoes, as on any track.
+On a chant track the cursor moves note by note; `<C-a>`/`<C-x>` move a note up or down a staff
+position, `:accidental flat` adds a flat, `x` deletes it and `u` undoes (see "Insert mode" above for the
+chant keys, and which modern-track keys answer "not in chant").
 
 | command                                      |                                                                                                       |
 | -------------------------------------------- | ----------------------------------------------------------------------------------------------------- |

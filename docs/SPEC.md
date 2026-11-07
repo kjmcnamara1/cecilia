@@ -125,9 +125,21 @@ their modifiers kept in written order, spaces, clefs, divisions, alterations, cu
 else verbatim) and, in its ordinary bars, a transcription of it: one free-time bar per phrase
 between divisions, one eighth-note beat per sounded note (a mora doubles it; the `solesmes`
 reading also lengthens episemata and the note before a quilisma). Do under a C clef is C5. The
-transcription is what plays, exports to modern formats and carries the cursor; edits made to it
-(pitch changes, deletions, insertions) are reconciled back into the chant, adding flats or
-naturals where needed.
+transcription is what plays, exports to modern formats and carries the cursor, but it is only a
+**cache**: the chant is the source of truth, and the bars of a chant track are never edited. Every
+edit is an operation on the `Chant` (`cecilia-core/src/chant_edit.rs`) that addresses notes by
+their index in reading order (the order of `Chant::resolved`, which is also the order of the
+beats); `chant::retranscribe` then rewrites the bars, as one undo step. `Transcription::note_at`
+and `place_of` map the cursor's `(bar, beat)` to a note and back (every beat of a stropha or
+bivirga maps to its note), so the cursor stays on the edited note. Operations: insert a note
+before or after another (in the same neume, a new neume, or a new syllable), delete a note,
+move it by staff positions, flat / natural / sharp, shape (punctum, inclinatum, virga, stropha,
+bivirga, quilisma, oriscus, quadratum), mora, horizontal episema, ictus, initio debilis,
+liquescence, insert / replace / delete a division, change the clef (the first one or from a
+note on), set a syllable's text, split and join syllables. Keys and commands that edit modern
+bars (durations, tuplets, rests, ties, effects, bar insert / delete, paste, note letters …)
+report "not in chant" on a chant track, and the central edit path refuses any edit that changes
+the bars of a chant track without changing its chant.
 
 **No chant staff on ordinary tracks.** Square notation belongs to chant tracks only (a track with
 `chant` set, e.g. read from a `.gabc` file). An ordinary track has standard, tab, tab+ and slash
