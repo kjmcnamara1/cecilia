@@ -14,6 +14,11 @@ Planned work. Finished items move to `CHANGELOG.md` under `[Unreleased]`.
 
 ### Refactor
 
+- "Replace" mode in addition to insert mode?
+  - insert mode keeps adding new beats after every note added
+  - replace mode adds/replaces the note and then moves to the next note
+  - then won't need ":insert-here" command
+
 #### Options
 
 - All settings are "options"
