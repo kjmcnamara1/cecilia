@@ -2990,6 +2990,25 @@ mod tests {
     }
 
     #[test]
+    fn the_focus_ring_is_red_in_replace_mode() {
+        let mut a = app();
+        keys(&mut a, "i");
+        assert_eq!(
+            a.focus_ring_color(),
+            a.config.theme.mode_color(Mode::Insert)
+        );
+        keys(&mut a, "<Esc>");
+        a.ed.replace = true;
+        keys(&mut a, "i");
+        assert_eq!(a.focus_ring_color(), a.config.theme.error);
+        keys(&mut a, "<Esc>");
+        assert_eq!(
+            a.focus_ring_color(),
+            a.config.theme.mode_color(Mode::Normal)
+        );
+    }
+
+    #[test]
     fn o_in_visual_mode_moves_the_cursor_to_the_other_end() {
         let mut a = app();
         keys(&mut a, "a1<Space>2<Space>3<Space>4<Esc>gg");

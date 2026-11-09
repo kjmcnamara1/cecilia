@@ -2035,7 +2035,7 @@ fn ring(scene: &mut Scene, app: &App, rect: Rect, radius: f64) {
     if width <= 0.0 {
         return;
     }
-    let c = app.config.focus_ring_color(app.mode);
+    let c = app.focus_ring_color();
     scene.stroke(
         &Stroke::new(width),
         Affine::IDENTITY,

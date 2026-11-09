@@ -2652,7 +2652,7 @@ impl App {
                     SettingArg::Default => ui.focus_ring_color = None,
                     SettingArg::Show => {}
                 }
-                let c = self.config.focus_ring_color(self.mode).hex();
+                let c = self.focus_ring_color().hex();
                 let from = if self.config.file.ui.focus_ring_color.is_some() {
                     ""
                 } else {
@@ -4721,7 +4721,7 @@ pub(crate) mod tests {
         assert!(c.file.tabline.wrap);
         assert_eq!(c.file.ui.focus_ring_width, 4.0);
         assert_eq!(
-            c.focus_ring_color(Mode::Normal),
+            c.focus_ring_color(c.theme.mode_color(Mode::Normal)),
             c.theme.mode_color(Mode::Normal)
         );
         let (c, errors) =
@@ -4729,13 +4729,13 @@ pub(crate) mod tests {
         assert_eq!(errors.len(), 1, "{errors:?}");
         assert_eq!(c.file.ui.focus_ring_width, 8.0);
         assert_eq!(
-            c.focus_ring_color(Mode::Insert),
+            c.focus_ring_color(c.theme.mode_color(Mode::Insert)),
             crate::theme::Rgba::rgb(0x10, 0x20, 0x30)
         );
         let (c, errors) = Config::parse("[ui]\nfocus_ring_color = \"red\"\n").unwrap();
         assert_eq!(errors.len(), 1);
         assert_eq!(
-            c.focus_ring_color(Mode::Normal),
+            c.focus_ring_color(c.theme.mode_color(Mode::Normal)),
             c.theme.mode_color(Mode::Normal)
         );
     }
@@ -4759,7 +4759,7 @@ pub(crate) mod tests {
 
         run(&mut app, "focus-ring-color #102030");
         assert_eq!(
-            app.config.focus_ring_color(Mode::Normal),
+            app.focus_ring_color(),
             crate::theme::Rgba::rgb(0x10, 0x20, 0x30)
         );
         run(&mut app, "focus-ring-color");

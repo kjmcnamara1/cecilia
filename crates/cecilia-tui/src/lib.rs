@@ -780,7 +780,7 @@ fn draw(f: &mut Frame, app: &mut App, play: Option<(usize, Location, f64, f64)>,
         }
         let area = to_rect(r);
         let style = if id == focused {
-            Style::default().fg(rc(app.config.focus_ring_color(app.mode)))
+            Style::default().fg(rc(app.focus_ring_color()))
         } else {
             Style::default().fg(rc(app.config.theme.dim))
         };
@@ -848,7 +848,7 @@ fn draw(f: &mut Frame, app: &mut App, play: Option<(usize, Location, f64, f64)>,
             None => format!(" {} — {} ", buffer.name, app.score_kind_name(pane.buffer)),
         };
         let border_style = if id == focused {
-            Style::default().fg(rc(app.config.focus_ring_color(app.mode)))
+            Style::default().fg(rc(app.focus_ring_color()))
         } else {
             Style::default().fg(rc(app.config.theme.dim))
         };
@@ -1060,7 +1060,7 @@ fn draw_dashboard(f: &mut Frame, app: &App, area: Rect, ui: &mut Ui) {
         let block = Block::bordered()
             .border_type(border_type(app, focused))
             .border_style(if focused {
-                Style::default().fg(rc(app.config.focus_ring_color(app.mode)))
+                Style::default().fg(rc(app.focus_ring_color()))
             } else {
                 Style::default().fg(rc(t.dim))
             })

@@ -179,6 +179,11 @@ impl App {
     }
 
     /// The color of the mode as shown: its theme color, but the theme's red in Replace mode.
+    /// The focus ring's color: `ui.focus_ring_color`, else the mode's color (red in replace mode).
+    pub fn focus_ring_color(&self) -> crate::theme::Rgba {
+        self.config.focus_ring_color(self.mode_color())
+    }
+
     pub fn mode_color(&self) -> crate::theme::Rgba {
         if self.ed.replace && self.mode == Mode::Insert {
             self.config.theme.error

@@ -1293,13 +1293,15 @@ impl Config {
     }
 
     /// The color of the focus ring in `mode`: `ui.focus_ring_color`, else the mode's color.
-    pub fn focus_ring_color(&self, mode: Mode) -> crate::theme::Rgba {
+    /// The focus ring's color: `ui.focus_ring_color` when set, else `fallback` (the mode's color,
+    /// see [`crate::App::focus_ring_color`]).
+    pub fn focus_ring_color(&self, fallback: crate::theme::Rgba) -> crate::theme::Rgba {
         self.file
             .ui
             .focus_ring_color
             .as_deref()
             .and_then(crate::theme::Rgba::parse)
-            .unwrap_or_else(|| self.theme.mode_color(mode))
+            .unwrap_or(fallback)
     }
 
     pub fn keymap(&self, mode: Mode) -> &Keymap {

@@ -155,6 +155,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- The focus ring is red in Replace mode (it was the Insert color there), as the status line is.
 - Visual mode: `o` moves the cursor to the other end of the selection (`:visual-other-end`).
 - Visual selection in the score highlights the barlines between the selected beats too, instead of breaking at each barline.
 - Sync mode: moving the cursor (Enter moves it on) no longer seeks the playback, which runs on by itself; with following
