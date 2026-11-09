@@ -14,10 +14,9 @@ Planned work. Finished items move to `CHANGELOG.md` under `[Unreleased]`.
 
 ### Refactor
 
-- "Replace" mode in addition to insert mode?
-  - insert mode keeps adding new beats after every note added
-  - replace mode adds/replaces the note and then moves to the next note
-  - then won't need ":insert-here" command
+- [ ] Split chant and modern scores into 2 file extensions:
+  - .ccc for cecilia chant
+  - .ccm for cecilia modern
 
 #### Options
 
@@ -85,31 +84,6 @@ Planned work. Finished items move to `CHANGELOG.md` under `[Unreleased]`.
       text edit and `:gabc` already match reparsed notes to the old ones by longest common
       subsequence on pitch and signs (`Chant::inherit_ids`); phase 4's splice edits should keep
       ids exactly, and the match could use the syllable text and shape too.
-
-- [ ] TODO: Deep dive on chant staff representation
-- [ ] Draw the chant staff of an ordinary track from the GABC groups in its gabc+ lyrics (they
-      are kept and shown, not yet used): `some(g)---one(e)` two descending punctums under
-      "some - one"; `some(gh) -- one(e)` a pes on "some", a punctum on "one"; `some(gh) --- one(e)`
-      needs another note after `gh`, filled in as `(ghh)`
-
-- [ ] NEED TO WORK THIS OUT!
-
-i should be able to live edit the gabc in the lyrics pane and see the real time update in the score.
-it should essentially function like a live gabc preview/editor.
-the standard notes should always stay in sync with chant and the gabc lyrics.
-
-There should be a fixed semitone offset between standard C4 and the do clef.
-this should be displayed as an editable textbox to the right of the gabc toggle in the lyrics pane, but only when gabc is toggled on.
-the initial value of this offset should be determined by the app using the existing logic, but can be changed manually by the user.
-there should be a command to update this offset calculation again if the user wants.
-
-changing gabc should only change standard notes if the two would simply not agree.
-deleting a note should remove the gabc, but leave the lyrics
-
-what does adding a divisio in chant staff do to standard staff?
-what does adding a rest in standard staff do to chant staff?
-likewise for deleting notes/rests/beats/bars to the lyrics?
-what about mapping durations? bistropha vs mora and half or dotted half...
 
 ### File Save/Export
 
