@@ -202,6 +202,11 @@ pub struct Views {
     select_tick: Option<std::time::Instant>,
 }
 
+/// Where the playhead lands in a waveform when it pages (a fraction of its span from the left).
+const WAVE_PAGE_LEAD: f64 = 0.05;
+/// How fast a waveform slides to its new page (1/s; the easing settles in ~0.15 s).
+const WAVE_PAGE_RATE: f64 = 20.0;
+
 /// A waveform's view: where it starts when scrolled by hand (else it follows the playhead or
 /// cursor), and the seconds it spans.
 #[derive(Debug, Clone, PartialEq)]
@@ -212,6 +217,11 @@ struct WaveView {
     anchor: Option<(usize, usize, bool)>,
     /// Where it started when last drawn.
     drawn: f64,
+    /// Where the following view rests (the playhead crosses it); it pages when the playhead
+    /// leaves it, and `drawn` eases there.
+    page: Option<f64>,
+    /// When it was last drawn, for the easing.
+    stamp: Option<std::time::Instant>,
     /// A mouse press on it is held (Sync mode): it stays where it is.
     hold: bool,
 }
@@ -223,6 +233,8 @@ impl Default for WaveView {
             span: 16.0,
             anchor: None,
             drawn: 0.0,
+            page: None,
+            stamp: None,
             hold: false,
         }
     }
@@ -2741,14 +2753,51 @@ fn draw_waveform(
             .or_else(|| playback.time_of(app, buffer, cursor.bar, tick))
             .unwrap_or(0.0),
     };
-    // Follow the playhead (or cursor) unless scrolled by hand since they last moved.
-    let anchor = (cursor.bar, cursor.beat, app.playing);
-    if view.anchor != Some(anchor) && !view.hold {
-        view.anchor = Some(anchor);
-        view.start = None;
-    }
+    // Follow the playhead (or cursor) unless scrolled by hand since they last moved. While
+    // playing, a view scrolled by hand stays until the playhead leaves it.
     let span = view.span;
-    let t0 = view.start.unwrap_or(now - span * 0.35);
+    let anchor = (cursor.bar, cursor.beat, app.playing);
+    if !view.hold {
+        let kept = app.playing && view.start.is_some_and(|s| now >= s && now < s + span);
+        if view.anchor != Some(anchor) || (app.playing && !kept) {
+            view.anchor = Some(anchor);
+            if !kept {
+                view.start = None;
+            }
+        }
+    }
+    let t0 = match view.start {
+        Some(t0) => {
+            // It rests where scrolled; if the playhead leaves it, it pages from here.
+            view.page = Some(t0);
+            t0
+        }
+        None => {
+            // The view rests while the playhead crosses it, then pages to put the playhead near
+            // the left edge; when playing, the waveform slides quickly to the new page.
+            let page = match view.page {
+                Some(p) if now >= p && now < p + span => p,
+                _ => now - span * WAVE_PAGE_LEAD,
+            };
+            let stamp = std::time::Instant::now();
+            let dt = view.stamp.map_or(0.0, |s| (stamp - s).as_secs_f64());
+            let shown = match view.page {
+                Some(_) if app.playing => {
+                    let k = 1.0 - (-dt * WAVE_PAGE_RATE).exp();
+                    let shown = view.drawn + (page - view.drawn) * k;
+                    if (page - shown).abs() < span * 1e-3 {
+                        page
+                    } else {
+                        shown
+                    }
+                }
+                _ => page,
+            };
+            view.page = Some(page);
+            shown
+        }
+    };
+    view.stamp = Some(std::time::Instant::now());
     view.drawn = t0;
     let x_of = |t: f64| r.x0 + (t - t0) / span * r.width();
     let mid = r.center().y;

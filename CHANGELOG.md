@@ -9,6 +9,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- The waveform stays still while the red playhead crosses it; at the right edge the playhead returns to the left and the waveform slides quickly forward to catch up (GUI).
 - Audio sync of modern scores works by beat, as on chants: every beat has a stable id (`Beat::id`, kept through edits, new for pasted beats; saved in `.cc` files) and a sync point of its own. In Sync mode `<CR>` syncs the cursor beat at the playhead and moves to the next one; `:sync-here`, `:sync-nudge`, `:sync-undo`, `x`, `d` / `c` over a range, Visual mode and the mouse on the waveform (click to add, drag to move, plays while held) do what they do on a chant, the waveform's top ruler marks the beats of the time signature (4/4: major on 1, minor on 2 3 4; 6/8: 1 to 6), not every note, the red playhead at rest stands at the cursor beat's time and the MIDI notes sound where the ruler puts them. Bar points of a Guitar Pro score are kept (and become beat points) when the first beat is synced; `.gp` files still save bar points. Repeated bars are synced on their first play.
 - The waveform's red playhead at rest stands at the cursor's cell on the ruler: on a division (`5:0`), at its own tick, not at
   the first note after it.

@@ -60,10 +60,6 @@ Planned work. Finished items move to `CHANGELOG.md` under `[Unreleased]`.
 ### Tool Panes
 
 - [x] TODO: Deep dive on waveform ux and audio track syncing (auto, manual, & tapping)
-- [ ] Change waveform tool: waveform should stay stationary and red playhead
-      moves across it until it reaches the end. the playhead loops around to the
-      beginning of the frame again and the waveform quickly animates forward to catch
-      up with the new playhead position
 - [ ] Add ability to create multitracks that are a combination of other tracks
 - [ ] Voice selection indicator in tool palette should be color coded by selected voice #
 - [ ] Toolbar
