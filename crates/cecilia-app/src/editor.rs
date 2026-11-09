@@ -1139,9 +1139,6 @@ impl App {
                 let kind = self.insert_kind();
                 let replace = self.ed.replace;
                 let slot = self.edit(|cx| {
-                    if replace && kind == crate::config::InsertKind::Standard {
-                        edit::clear_other_notes(cx);
-                    }
                     edit::enter(cx, kind, duration)?;
                     Ok((!replace)
                         .then(|| edit::add_slot_after(cx, duration))

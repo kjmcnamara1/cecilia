@@ -659,14 +659,6 @@ pub fn add_slot_after(cx: &mut EditCx, duration: Duration) -> Option<Pos> {
     Some((bar, i + 1))
 }
 
-/// Replace mode on a standard staff: what the cursor beat has is replaced by the note at the
-/// cursor's line, not added to (a note on that line stays).
-pub fn clear_other_notes(cx: &mut EditCx) {
-    if cx.on_lines() && cx.beat_note_at_cursor().is_none() {
-        cx.beat().notes.clear();
-    }
-}
-
 /// Moves to the next beat, appending a rest (or moving to the next bar, creating one at the end
 /// of the score) when the cursor is on the last beat. Used while typing in insert mode.
 pub fn advance(cx: &mut EditCx, duration: Duration) {
