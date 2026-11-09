@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.33.0] - 2026-11-09
+
 ### Added
 
 - Built-in themes `cecilia-dark` (dark UI and page, light engraving), `cecilia-hybrid` (dark UI, light page, black engraving) and `cecilia-light` (light UI and page, black engraving), in the gold and cream of the logo on neutral charcoal: `[theme] preset = "cecilia-dark"`.
