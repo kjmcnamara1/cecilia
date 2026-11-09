@@ -81,7 +81,7 @@ pub fn detect(bytes: &[u8], path: Option<&Path>) -> Option<Format> {
         "mid" | "midi" => Some(Format::Midi),
         "musicxml" | "xml" => Some(Format::MusicXml),
         "mxl" => Some(Format::Mxl),
-        "cc" => Some(Format::Cecilia),
+        "cc" | "ccc" | "ccm" => Some(Format::Cecilia),
         "gabc" => Some(Format::Gabc),
         _ => None,
     }
@@ -148,7 +148,7 @@ pub fn write_bytes(score: &Score, extension: &str) -> Result<Vec<u8>> {
         "mid" | "midi" => midi::write_midi(score),
         "musicxml" | "xml" => musicxml::write_musicxml(score),
         "mxl" => musicxml::write_mxl(score),
-        "cc" => native::write_cecilia(score),
+        "cc" | "ccc" | "ccm" => native::write_cecilia(score),
         "gabc" => gabc::write_gabc(score),
         other => Err(Error::Unsupported(format!("cannot write .{other} files"))),
     }
@@ -182,7 +182,7 @@ pub fn lyric_rows_lost(score: &Score, extension: &str) -> usize {
 }
 
 /// True when writing a score with audio sync to a file of this extension drops the audio and
-/// its sync: `.gabc` keeps only the chant (use `.cc`), so callers can warn.
+/// its sync: `.gabc` keeps only the chant (use `.ccc`), so callers can warn.
 pub fn audio_lost(score: &Score, extension: &str) -> bool {
     extension.eq_ignore_ascii_case("gabc") && score.audio.is_some()
 }

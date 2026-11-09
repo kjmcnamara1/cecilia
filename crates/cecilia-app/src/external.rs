@@ -114,7 +114,7 @@ mod tests {
     fn app_with_file(tag: &str) -> (App, std::path::PathBuf, std::path::PathBuf) {
         let dir = std::env::temp_dir().join(format!("cecilia-ext-{tag}-{}", std::process::id()));
         std::fs::create_dir_all(&dir).unwrap();
-        let file = dir.join("song.cc");
+        let file = dir.join("song.ccm");
         let mut app = App::new(Config::default(), None);
         app.run(Command::New);
         app.run(Command::Write(Some(file.clone())));

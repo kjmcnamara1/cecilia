@@ -1168,7 +1168,7 @@ impl App {
                 self.open_new_buffer(name, new);
                 self.info(
                     "modern score (the chant's notes as a staff track, its syllables as lyrics); \
-                     the chant is unchanged; :w name.cc to save",
+                     the chant is unchanged; :w name.ccm to save",
                 );
             }
             ModernToChant => {

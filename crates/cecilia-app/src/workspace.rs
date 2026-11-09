@@ -840,7 +840,7 @@ mod tests {
         // Three small scores to open.
         let mut app = App::new(Config::default(), None);
         app.run(Command::New);
-        let (a, b, c) = (dir.join("a.cc"), dir.join("b.cc"), dir.join("c.cc"));
+        let (a, b, c) = (dir.join("a.ccm"), dir.join("b.ccm"), dir.join("c.ccm"));
         for f in [&a, &b, &c] {
             app.run(Command::Write(Some(f.clone())));
         }

@@ -675,7 +675,7 @@ fn voice_shape(s: &Score) -> Vec<(usize, u8)> {
 fn four_voices_survive_gpx_gp_and_native_and_musicxml() {
     let score = four_voices();
     let want = vec![(8, 1), (4, 2), (2, 3), (1, 4)];
-    for ext in ["gpx", "gp", "cc", "musicxml"] {
+    for ext in ["gpx", "gp", "ccm", "ccc", "cc", "musicxml"] {
         let bytes = cecilia_formats::write_bytes(&score, ext).unwrap();
         let name = format!("x.{ext}");
         let back = cecilia_formats::read_bytes(&bytes, Some(std::path::Path::new(&name))).unwrap();
@@ -796,4 +796,20 @@ fn gp5_writes_the_lyrics_text_back_in_guitar_pro_syntax() {
             })
             .collect::<Vec<_>>()
     );
+}
+
+#[test]
+fn native_files_use_ccc_and_ccm_and_legacy_cc_still_opens() {
+    let score = four_voices();
+    let bytes = cecilia_formats::write_bytes(&score, "ccm").unwrap();
+    assert_eq!(bytes, cecilia_formats::write_bytes(&score, "ccc").unwrap());
+    for ext in ["ccc", "ccm", "cc", "CCM"] {
+        let name = format!("x.{ext}");
+        let path = std::path::Path::new(&name);
+        assert_eq!(
+            cecilia_formats::detect(&bytes, Some(path)),
+            Some(cecilia_formats::Format::Cecilia),
+            "{ext}"
+        );
+    }
 }

@@ -291,7 +291,7 @@ mod tests {
         std::fs::create_dir_all(&dir).unwrap();
         let mut app = App::new(Config::default(), None);
         app.run(Command::New);
-        let (a, b) = (dir.join("a.cc"), dir.join("b.cc"));
+        let (a, b) = (dir.join("a.ccm"), dir.join("b.ccm"));
         app.run(Command::Write(Some(a.clone())));
         app.run(Command::Write(Some(b.clone())));
         let mut app = App::new(Config::default(), None);
@@ -310,7 +310,7 @@ mod tests {
         keys(&mut app, "'a");
         assert!(app.message.as_ref().unwrap().error);
         keys(&mut app, "`B");
-        assert_eq!(app.buffer().name, "a.cc");
+        assert_eq!(app.buffer().name, "a.ccm");
         assert_eq!(app.pane().cursor.bar, 6);
         // Even after the file was closed.
         app.run(Command::Edit(b.clone()));
@@ -318,7 +318,7 @@ mod tests {
         keys(&mut app, "'B");
         assert_eq!(
             (app.buffer().name.as_str(), app.pane().cursor.bar),
-            ("a.cc", 6)
+            ("a.ccm", 6)
         );
         // ' and ` open the which-key popup with the marks (and the way back).
         keys(&mut app, "'");
@@ -326,7 +326,7 @@ mod tests {
         assert_eq!(title, "'");
         assert!(
             rows.iter()
-                .any(|(k, d)| k == "B" && d.contains("a.cc · 7:1")),
+                .any(|(k, d)| k == "B" && d.contains("a.ccm · 7:1")),
             "{rows:?}"
         );
         assert!(

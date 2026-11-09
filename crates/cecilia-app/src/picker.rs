@@ -1149,7 +1149,7 @@ mod tests {
         std::fs::create_dir_all(&dir).unwrap();
         let mut app = App::new(Config::default(), None);
         app.run(Command::New);
-        let names = ["Wonderwall.cc", "Hurt.cc", "Yesterday.cc"];
+        let names = ["Wonderwall.ccm", "Hurt.ccm", "Yesterday.ccm"];
         for n in names {
             app.run(Command::Write(Some(dir.join(n))));
         }
@@ -1164,15 +1164,15 @@ mod tests {
         assert_eq!((p.title.as_str(), p.items.len()), ("Buffers", 3));
         keys(&mut app, "wndw");
         let p = app.palette().unwrap();
-        assert_eq!(p.items[0].text, "Wonderwall.cc");
+        assert_eq!(p.items[0].text, "Wonderwall.ccm");
         keys(&mut app, "<CR>");
         assert_eq!(app.mode, Mode::Normal);
-        assert_eq!(app.buffer().name, "Wonderwall.cc");
+        assert_eq!(app.buffer().name, "Wonderwall.ccm");
         // Up/Down move; Esc cancels without switching.
         keys(&mut app, "<Space>b<Down><Down><Esc>");
-        assert_eq!(app.buffer().name, "Wonderwall.cc");
+        assert_eq!(app.buffer().name, "Wonderwall.ccm");
         keys(&mut app, "<Space>b<Down><CR>");
-        assert_eq!(app.buffer().name, "Hurt.cc");
+        assert_eq!(app.buffer().name, "Hurt.ccm");
         // Views.
         app.run(Command::ViewNew(None));
         app.run(Command::ViewRename(Some("practice".into())));

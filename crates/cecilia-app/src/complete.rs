@@ -371,11 +371,13 @@ pub fn check_scope(name: &str, chant_score: bool) -> Result<(), String> {
 
 /// File extensions cecilia opens.
 const SCORE_EXTENSIONS: &[&str] = &[
-    "gp3", "gp4", "gp5", "gpx", "gp", "mid", "midi", "musicxml", "xml", "mxl", "gabc", "cc",
+    "gp3", "gp4", "gp5", "gpx", "gp", "mid", "midi", "musicxml", "xml", "mxl", "gabc", "ccc",
+    "ccm", "cc",
 ];
 /// Extensions `:w` writes (scores, engravings, audio).
 const WRITE_EXTENSIONS: &[&str] = &[
-    "gp5", "gpx", "gp", "mid", "musicxml", "mxl", "gabc", "cc", "pdf", "svg", "png", "wav", "flac",
+    "gp5", "gpx", "gp", "mid", "musicxml", "mxl", "gabc", "ccc", "ccm", "pdf", "svg", "png", "wav",
+    "flac",
 ];
 
 /// Fixed argument values per command.

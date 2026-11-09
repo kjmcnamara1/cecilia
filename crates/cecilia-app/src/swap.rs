@@ -2,7 +2,7 @@
 //! the last change and removed once the buffer is saved or closed, so work survives a crash.
 //!
 //! A swap file is a small text header (magic, owning process id, the buffer's path) followed by
-//! the score in the native `.cc` format, which stores the whole score model.
+//! the score in the native `.ccc` / `.ccm` format, which stores the whole score model.
 
 use std::collections::{HashMap, HashSet};
 use std::path::{Path, PathBuf};
@@ -434,7 +434,7 @@ mod tests {
     }
 
     fn make_file(dir: &Path) -> PathBuf {
-        let file = dir.join("a.cc");
+        let file = dir.join("a.ccm");
         let mut app = test_app();
         app.run(Command::Write(Some(file.clone())));
         file
