@@ -30,6 +30,48 @@ pub enum FontKind {
     Text,
     Bold,
     Italic,
+    /// Bold, slanted.
+    BoldItalic,
+    /// Noto Serif, and its bold; slanted for italic.
+    Serif,
+    SerifBold,
+    SerifItalic,
+    SerifBoldItalic,
+}
+
+/// The family of a chant score's lyrics (`ui.chant_text_font`).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum TextFamily {
+    /// Noto Serif.
+    #[default]
+    Serif,
+    /// Source Sans 3, the app's text font.
+    Sans,
+}
+
+impl TextFamily {
+    /// The family a config name stands for (`noto-serif`, `source-sans`).
+    pub fn parse(name: &str) -> Option<Self> {
+        match name.trim().to_ascii_lowercase().as_str() {
+            "noto-serif" | "serif" => Some(Self::Serif),
+            "source-sans" | "sans" => Some(Self::Sans),
+            _ => None,
+        }
+    }
+
+    /// The face of this family for a weight and slant.
+    pub fn kind(self, bold: bool, italic: bool) -> FontKind {
+        match (self, bold, italic) {
+            (Self::Serif, false, false) => FontKind::Serif,
+            (Self::Serif, true, false) => FontKind::SerifBold,
+            (Self::Serif, false, true) => FontKind::SerifItalic,
+            (Self::Serif, true, true) => FontKind::SerifBoldItalic,
+            (Self::Sans, false, false) => FontKind::Text,
+            (Self::Sans, true, false) => FontKind::Bold,
+            (Self::Sans, false, true) => FontKind::Italic,
+            (Self::Sans, true, true) => FontKind::BoldItalic,
+        }
+    }
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -243,6 +285,130 @@ impl Page {
         });
     }
 
+    /// A line of chant text in runs of style (see [`cecilia_core::chant::text_runs`]): italic
+    /// (slanted), bold, underlined, small capitals, red, monospaced, small (elision), in the
+    /// font `family`. The versicle ℣, response ℟, dagger † and barred Ⱥ are always the serif
+    /// font's (the sans font lacks some of them). The asterisk is drawn as a six-pointed star.
+    /// Only `<c>` colors anything.
+    pub fn rich_text(
+        &mut self,
+        runs: &[cecilia_core::chant::TextRun],
+        at: Point,
+        size: f64,
+        align: Align,
+        family: TextFamily,
+    ) {
+        let fonts = crate::fonts::fonts();
+        let total: f64 = runs.iter().map(|r| run_width(r, size, family)).sum();
+        let mut x = match align {
+            Align::Left => at.x,
+            Align::Center => at.x - total / 2.0,
+            Align::Right => at.x - total,
+        };
+        for run in runs {
+            let rs = run_size(run, size);
+            let width = run_width(run, size, family);
+            let color = if run.colored {
+                Color::RED
+            } else {
+                Color::BLACK
+            };
+            let mut piece = String::new();
+            let mut piece_size = rs;
+            let mut piece_font = char_font(run, family, ' ');
+            let mut px = x;
+            let flush =
+                |page: &mut Page, piece: &mut String, px: &mut f64, ps: f64, pf: FontKind| {
+                    if piece.is_empty() {
+                        return;
+                    }
+                    page.items.push(Item::Text {
+                        font: pf,
+                        text: piece.clone(),
+                        at: Point::new(*px, at.y),
+                        size: ps,
+                        align: Align::Left,
+                        color,
+                    });
+                    *px += fonts.text_width(pf, piece, ps);
+                    piece.clear();
+                };
+            // The advance and font of the last character drawn, for a combining mark to centre
+            // on.
+            let (mut last_adv, mut last_font) = (0.0, piece_font);
+            for c in run.text.chars() {
+                let (ch, cs) = char_style(run, c, rs);
+                let font = char_font(run, family, c);
+                if ('\u{300}'..='\u{36F}').contains(&c) {
+                    // A combining mark goes over the letter before it.
+                    flush(self, &mut piece, &mut px, piece_size, piece_font);
+                    let b = fonts.bbox(last_font, c, cs);
+                    self.items.push(Item::Text {
+                        font: last_font,
+                        text: c.to_string(),
+                        at: Point::new(px - last_adv / 2.0 - (b.x0 + b.x1) / 2.0, at.y),
+                        size: cs,
+                        align: Align::Left,
+                        color,
+                    });
+                    continue;
+                }
+                let star = matches!(c, '*' | '✱');
+                if star || cs != piece_size || font != piece_font || run.mono {
+                    flush(self, &mut piece, &mut px, piece_size, piece_font);
+                    piece_size = cs;
+                    piece_font = font;
+                }
+                let advance = char_advance(run, font, c, cs);
+                (last_adv, last_font) = (advance, font);
+                if run.mono && !star {
+                    self.items.push(Item::Text {
+                        font,
+                        text: ch.to_string(),
+                        at: Point::new(
+                            px + (advance - fonts.text_width(font, &ch.to_string(), cs)) / 2.0,
+                            at.y,
+                        ),
+                        size: cs,
+                        align: Align::Left,
+                        color,
+                    });
+                    px += advance;
+                    continue;
+                }
+                if !star {
+                    piece.push(ch);
+                    continue;
+                }
+                // The six-pointed asterisk, as the lyrics' ✻: three spokes.
+                let (cx, cy) = (px + advance / 2.0, at.y - 0.447 * cs);
+                for a in [90.0f64, 30.0, 150.0] {
+                    let (dx, dy) = (
+                        a.to_radians().cos() * 0.263 * cs,
+                        a.to_radians().sin() * 0.263 * cs,
+                    );
+                    self.items.push(Item::Line {
+                        from: Point::new(cx - dx, cy - dy),
+                        to: Point::new(cx + dx, cy + dy),
+                        width: 0.105 * cs,
+                        color,
+                    });
+                }
+                px += advance;
+            }
+            flush(self, &mut piece, &mut px, piece_size, piece_font);
+            if run.underline {
+                self.items.push(Item::Line {
+                    from: Point::new(x, at.y + 0.14 * size),
+                    to: Point::new(x + width, at.y + 0.14 * size),
+                    width: 0.06 * size,
+                    color,
+                });
+            }
+            x += width;
+        }
+    }
+
     /// A line of text in which every `*` is red (the asterisk of chant and of lyrics).
     pub fn text_red_stars(
         &mut self,
@@ -306,6 +472,52 @@ impl Page {
     }
 }
 
+/// The font of a character of a run: the family's face for its weight and slant, but the
+/// serif font for the signs the sans font lacks.
+fn char_font(run: &cecilia_core::chant::TextRun, family: TextFamily, c: char) -> FontKind {
+    let family = if matches!(c, '℟' | '℣' | '†' | 'Ⱥ') {
+        TextFamily::Serif
+    } else {
+        family
+    };
+    family.kind(run.bold, run.italic)
+}
+
+/// The em size of a run: an elision is set smaller.
+fn run_size(run: &cecilia_core::chant::TextRun, size: f64) -> f64 {
+    if run.elision { size * 0.78 } else { size }
+}
+
+/// A character as a run shows it, and the size it is drawn at (small capitals draw lower case
+/// as smaller capitals).
+fn char_style(run: &cecilia_core::chant::TextRun, c: char, size: f64) -> (char, f64) {
+    if run.small_caps && c.is_lowercase() {
+        (c.to_uppercase().next().unwrap_or(c), size * 0.8)
+    } else {
+        (c, size)
+    }
+}
+
+/// The advance of a character in a run (the asterisk as the star's width).
+fn char_advance(run: &cecilia_core::chant::TextRun, font: FontKind, c: char, size: f64) -> f64 {
+    if run.mono {
+        return 0.6 * size;
+    }
+    let shown = if c == '✱' { '*' } else { c };
+    crate::fonts::fonts().text_width(font, &shown.to_string(), size)
+}
+
+fn run_width(run: &cecilia_core::chant::TextRun, size: f64, family: TextFamily) -> f64 {
+    let rs = run_size(run, size);
+    run.text
+        .chars()
+        .map(|c| {
+            let (_, cs) = char_style(run, c, rs);
+            char_advance(run, char_font(run, family, c), c, cs)
+        })
+        .sum()
+}
+
 #[cfg(test)]
 mod star_tests {
     use super::*;
@@ -331,5 +543,125 @@ mod star_tests {
             Item::Text { text, .. } => !text.contains('*'),
             _ => true,
         }));
+    }
+
+    #[test]
+    fn the_asterisk_is_black_unless_colored_and_a_combining_mark_sits_on_its_letter() {
+        use cecilia_core::chant::text_runs;
+        let spokes = |text: &str, color: Color| {
+            let (runs, _) = text_runs(text);
+            let mut page = Page::default();
+            page.rich_text(
+                &runs,
+                Point::new(0.0, 0.0),
+                10.0,
+                Align::Left,
+                TextFamily::Sans,
+            );
+            page.items
+                .iter()
+                .filter(|i| matches!(i, Item::Line { color: c, .. } if *c == color))
+                .count()
+        };
+        assert_eq!(spokes("*", Color::BLACK), 3);
+        assert_eq!(spokes("<c>*</c>", Color::RED), 3);
+        // œ́: the acute is drawn over the œ, not after it.
+        let (runs, _) = text_runs("<sp>'oe</sp>");
+        let mut page = Page::default();
+        page.rich_text(
+            &runs,
+            Point::new(0.0, 0.0),
+            10.0,
+            Align::Left,
+            TextFamily::Sans,
+        );
+        let xs: Vec<f64> = page
+            .items
+            .iter()
+            .filter_map(|i| match i {
+                Item::Text { at, .. } => Some(at.x),
+                _ => None,
+            })
+            .collect();
+        let w = crate::fonts::fonts().text_width(FontKind::Text, "œ", 10.0);
+        assert_eq!(xs.len(), 2);
+        assert!(xs[1] < xs[0] + w, "{xs:?} {w}");
+    }
+
+    #[test]
+    fn rich_text_styles_runs_and_draws_the_signs_the_font_lacks() {
+        use cecilia_core::chant::text_runs;
+        let (runs, _) = text_runs("<b>B</b><ul>u</ul><c>c</c>†℟℣");
+        let mut page = Page::default();
+        page.rich_text(
+            &runs,
+            Point::new(0.0, 0.0),
+            10.0,
+            Align::Left,
+            TextFamily::Sans,
+        );
+        let fonts_used = |k: FontKind| {
+            page.items
+                .iter()
+                .any(|i| matches!(i, Item::Text { font, .. } if *font == k))
+        };
+        assert!(fonts_used(FontKind::Bold));
+        // Bold and italic together are both: the bold face, slanted.
+        let (both, _) = text_runs("<b><i>x</i></b>");
+        let mut page2 = Page::default();
+        page2.rich_text(
+            &both,
+            Point::new(0.0, 0.0),
+            10.0,
+            Align::Left,
+            TextFamily::Sans,
+        );
+        assert!(page2.items.iter().any(|i| matches!(
+            i,
+            Item::Text {
+                font: FontKind::BoldItalic,
+                ..
+            }
+        )));
+        // Nothing is colored but what `<c>` colors: no red line, the colored run is red text.
+        assert!(
+            !page
+                .items
+                .iter()
+                .any(|i| matches!(i, Item::Line { color, .. } if *color == Color::RED))
+        );
+        assert!(page.items.iter().any(
+            |i| matches!(i, Item::Text { text, color, .. } if text == "c" && *color == Color::RED)
+        ));
+        // The underline; and ℟ ℣ † are Noto Serif's, even with the sans family.
+        let black_lines = page
+            .items
+            .iter()
+            .filter(|i| matches!(i, Item::Line { color, .. } if *color == Color::BLACK))
+            .count();
+        assert_eq!(black_lines, 1);
+        assert!(page.items.iter().any(|i| matches!(
+            i,
+            Item::Text { font: FontKind::Serif, text, .. } if text.contains('℟') && text.contains('℣')
+        )));
+        // The serif family draws everything in it, the bold as its bold.
+        let (runs, _) = text_runs("a<b>b</b>");
+        let mut serif = Page::default();
+        serif.rich_text(
+            &runs,
+            Point::new(0.0, 0.0),
+            10.0,
+            Align::Left,
+            TextFamily::Serif,
+        );
+        let used: Vec<FontKind> = serif
+            .items
+            .iter()
+            .filter_map(|i| match i {
+                Item::Text { font, .. } => Some(*font),
+                _ => None,
+            })
+            .collect();
+        assert_eq!(used, [FontKind::Serif, FontKind::SerifBold]);
     }
 }

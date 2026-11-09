@@ -5,7 +5,7 @@
 mod app;
 mod chant;
 mod chant_text;
-mod chantsync;
+pub mod chantsync;
 pub mod clipboard;
 pub mod command;
 pub mod complete;
@@ -39,6 +39,7 @@ mod textobj;
 pub mod theme;
 pub mod toolbar;
 pub mod tracks;
+mod wavesync;
 pub mod workspace;
 
 pub use app::{

@@ -575,7 +575,7 @@ impl Painter<'_> {
         let faint = Style::default().fg(rc(th.chrome_text.mix(th.dim, 0.5)));
         let on = |bg| Style::default().fg(rc(th.text_on(bg))).bg(rc(bg));
         let cursor_style = if self.focused {
-            on(th.mode_color(self.app.mode))
+            on(self.app.mode_color())
         } else {
             on(th.dim)
         };

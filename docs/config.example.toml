@@ -8,7 +8,7 @@ leader = "<Space>"
 tab_width = 2            # horizontal spacing of the tab view (1–8)
 follow_playback = true   # the cursor and view move with the playhead (red bar) while playing
 jk_moves_between_staves = false   # true: j/k go on from a staff's last row into the next staff (default: they stay on the staff, with ledger-line rows above and below; <A-j>/<A-k> change staff)
-lyrics_select_cursor = true   # going from a chant score to its lyrics text area selects (Visual mode) the GABC of the note the cursor is on; :lyrics-select (<leader>g) always does
+lyrics_select_cursor = true   # going from a chant score to its lyrics text area puts the caret (Normal mode) on the pitch letter of the note the cursor is on; :lyrics-select (<leader>g) always does
 bar_numbers = "system"   # "system": a bar number at the start of each line; "every": every bar is numbered (GUI)
 highlight_incomplete_bars = false   # draw the staff lines of bars whose beats don't fill the time signature in red (:incomplete-bars)
 chant_chords = "top"   # chant is monophonic: which note of a chord `:modern-to-chant` and `cecilia convert … .gabc` keep — "top", "bottom", or "error" (refuse the conversion; a message names the chord)
@@ -39,6 +39,16 @@ tracks_peek = 1.0        # seconds the tracks show when the track changes, while
 lyrics_font = "Source Sans 3"   # GUI: font of the lyrics text area (properties pane); the app's
                          # text font, or any installed family
 lyrics_font_size = 12.0  # GUI: its size in points
+chant_text_font = "noto-serif"   # the font of the lyrics of a chant score: noto-serif or source-sans (the
+                         # versicle, response, dagger and barred A are Noto Serif's either way)
+waveform_time_ticks = "all"      # GUI waveform pane: the time ruler along the bottom (fixed scale: a tick a second,
+                         # a tall one every five): "all", "major" or "off"
+waveform_beat_ticks = "all"      # the score ruler along the top (stretches with the sync points; a chant's bars are
+                         # the tall ticks, its syllables the short ones): "all", "major" or "off"
+waveform_time_labels = true      # label the time ruler's tall ticks (minutes left of the tick, seconds right)
+sync_snap = 70.0                # Sync mode: move a new sync point to the strongest onset of the audio within this many
+                         # milliseconds (0 to 200; 0: off, exactly where it was put)
+waveform_beat_labels = true      # label the score ruler (the bar left of a tall tick, the syllable right)
 
 [tabline]
 new_view = "copy"        # a new view starts with: "copy" (this view's buffers), "current", "empty"
@@ -178,6 +188,12 @@ clef = "treble"          # clef of a standard staff added without one: treble, b
 # you can bind in other modes too: e.g. "<leader>b" = "beams break", "<leader>s" = "stems up",
 # "<leader>f" = "toggle fermata", "<leader>r" = "bar-repeat 1", "<leader>k" = "key G".
 # "<CR>" = "palette-activate"
+
+[keymap.sync]
+# Keys in Sync mode (:sync), looked up before the Normal-mode keys, of which only motions and
+# commands that change nothing work. Defaults: <Esc> leaves, <Space> plays/pauses, <CR> syncs the
+# cursor's cell and moves on, u undoes, [ ] { } nudge, y / n set the unit.
+# "<CR>" = "sync-tap"
 
 [keymap.design]
 # Keys while design mode is on (<leader>d, page layout), looked up before [keymap.normal].

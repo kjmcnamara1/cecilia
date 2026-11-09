@@ -7,6 +7,7 @@
 //! formats work on chant like on any other track.
 
 use serde::{Deserialize, Serialize};
+use std::collections::HashMap;
 
 use crate::{
     Bar, Beat, Duration, DurationValue, MasterBar, Note, TICKS_PER_QUARTER, TimeSignature, Voice,
@@ -64,13 +65,28 @@ pub enum Interpretation {
     Solesmes,
 }
 
-#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
 pub struct Syllable {
+    /// Stable identity (0 = none) of an empty group or a division of its own, the cells that
+    /// are not notes: kept by edits so a sync point stays with it. Not written to GABC and
+    /// ignored when comparing syllables.
+    #[serde(default, skip_serializing_if = "is_zero")]
+    pub id: u32,
     /// Text as written in GABC, markup included (`<i>…</i>`, `<sp>V/</sp>`, `{` `}`).
     pub text: String,
     /// The syllable begins a word (a space precedes it in GABC).
     pub word_start: bool,
     pub items: Vec<NeumeItem>,
+}
+
+fn is_zero(n: &u32) -> bool {
+    *n == 0
+}
+
+impl PartialEq for Syllable {
+    fn eq(&self, o: &Self) -> bool {
+        self.text == o.text && self.word_start == o.word_start && self.items == o.items
+    }
 }
 
 /// One element of a syllable's notation, in GABC order.
@@ -535,6 +551,17 @@ impl Syllable {
                 .all(|i| matches!(i, NeumeItem::Bar(_) | NeumeItem::Space(_)))
     }
 
+    /// A clef or a division of its own with no text: the GABC editor gives it a line, the
+    /// division with a space before it.
+    pub fn on_own_line(&self) -> bool {
+        self.is_clef_line() || (self.text.trim().is_empty() && self.is_division_cell())
+    }
+
+    /// A clef with no text: the GABC editor gives it a line.
+    pub fn is_clef_line(&self) -> bool {
+        self.text.trim().is_empty() && matches!(self.items.as_slice(), [NeumeItem::Clef(_)])
+    }
+
     /// The division that ends the syllable's group (`g::` in `(fg::)`), as written.
     pub fn trailing_division(&self) -> Option<&str> {
         let mut rest = self
@@ -562,7 +589,7 @@ pub fn special(name: &str) -> Option<&'static str> {
         "V/" => "℣",
         "R/" => "℟",
         "A/" => "Ⱥ",
-        "+" => "✠",
+        "+" => "†",
         "*" => "✱",
         "ae" => "æ",
         "'ae" | "'æ" => "ǽ",
@@ -619,6 +646,170 @@ pub fn plain_text(text: &str) -> String {
     out
 }
 
+/// A stretch of a syllable's text in one style (see [`text_runs`]).
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct TextRun {
+    pub text: String,
+    /// `<i>`.
+    pub italic: bool,
+    /// `<b>`.
+    pub bold: bool,
+    /// `<ul>`.
+    pub underline: bool,
+    /// `<sc>`: small capitals.
+    pub small_caps: bool,
+    /// `<c>`: colored (red).
+    pub colored: bool,
+    /// `<tt>`: monospaced.
+    pub mono: bool,
+    /// `<e>`: an elision, set small.
+    pub elision: bool,
+}
+
+/// A syllable's text split into runs of one style, and the text of its `<alt>` tags (set above
+/// the staff). `<sp>` specials are resolved; `<v>` verbatim TeX, `{` `}` and unknown tags are
+/// dropped, `$x` is the character `x` (as [`plain_text`]).
+pub fn text_runs(text: &str) -> (Vec<TextRun>, Vec<String>) {
+    let mut runs: Vec<TextRun> = Vec::new();
+    let mut alt: Vec<String> = Vec::new();
+    // The tags open now, innermost last.
+    let mut open: Vec<&str> = Vec::new();
+    let style = |open: &[&str]| {
+        let has = |t: &str| open.contains(&t);
+        TextRun {
+            text: String::new(),
+            italic: has("i"),
+            bold: has("b"),
+            underline: has("ul"),
+            small_caps: has("sc"),
+            colored: has("c"),
+            mono: has("tt"),
+            elision: has("e"),
+        }
+    };
+    let push = |runs: &mut Vec<TextRun>, open: &[&str], s: &str| {
+        if s.is_empty() {
+            return;
+        }
+        let st = style(open);
+        match runs.last_mut() {
+            Some(r)
+                if (
+                    r.italic,
+                    r.bold,
+                    r.underline,
+                    r.small_caps,
+                    r.colored,
+                    r.mono,
+                    r.elision,
+                ) == (
+                    st.italic,
+                    st.bold,
+                    st.underline,
+                    st.small_caps,
+                    st.colored,
+                    st.mono,
+                    st.elision,
+                ) =>
+            {
+                r.text.push_str(s)
+            }
+            _ => runs.push(TextRun {
+                text: s.to_string(),
+                ..st
+            }),
+        }
+    };
+    let mut rest = text;
+    while let Some(i) = rest.find(['<', '{', '}', '$']) {
+        push(&mut runs, &open, &rest[..i]);
+        let tail = &rest[i..];
+        if let Some(t) = tail.strip_prefix('$') {
+            let mut c = t.chars();
+            if let Some(ch) = c.next() {
+                push(&mut runs, &open, &ch.to_string());
+            }
+            rest = c.as_str();
+            continue;
+        }
+        if tail.starts_with('{') || tail.starts_with('}') {
+            rest = &tail[1..];
+            continue;
+        }
+        let Some(end) = tail.find('>') else {
+            push(&mut runs, &open, tail);
+            rest = "";
+            break;
+        };
+        let tag = &tail[1..end];
+        rest = &tail[end + 1..];
+        if let Some(name) = tag.strip_prefix('/') {
+            if let Some(k) = open.iter().rposition(|t| *t == name) {
+                open.truncate(k);
+            }
+            continue;
+        }
+        match tag {
+            "sp" | "v" | "alt" => {
+                let close = format!("</{tag}>");
+                let Some(j) = rest.find(&close) else {
+                    continue;
+                };
+                let inner = &rest[..j];
+                rest = &rest[j + close.len()..];
+                match tag {
+                    "sp" => push(&mut runs, &open, special(inner).unwrap_or(inner)),
+                    "alt" => alt.push(plain_text(inner)),
+                    _ => {}
+                }
+            }
+            "i" | "b" | "ul" | "sc" | "c" | "tt" | "e" => open.push(tag),
+            _ => {}
+        }
+    }
+    push(&mut runs, &open, rest);
+    (runs, alt)
+}
+
+/// The text inside one `<name>…</name>` that wraps all of `text`: `(name, inner)`.
+fn outer_wrapper(text: &str) -> Option<(&str, &str)> {
+    let rest = text.strip_prefix('<')?;
+    let name = &rest[..rest.find('>')?];
+    if name.is_empty() || !name.chars().all(|c| c.is_ascii_alphabetic()) {
+        return None;
+    }
+    let close = format!("</{name}>");
+    let inner = text[name.len() + 2..].strip_suffix(&close)?;
+    (!inner.contains(&close)).then_some((name, inner))
+}
+
+/// A syllable's text with `<tag>…</tag>` around all of it, or without it when it is there
+/// (also inside other tags that wrap all of it).
+pub fn toggle_markup(text: &str, tag: &str) -> String {
+    fn remove(text: &str, tag: &str) -> Option<String> {
+        let (name, inner) = outer_wrapper(text)?;
+        if name == tag {
+            return Some(inner.to_string());
+        }
+        let done = remove(inner, tag)?;
+        Some(format!("<{name}>{done}</{name}>"))
+    }
+    remove(text, tag).unwrap_or_else(|| format!("<{tag}>{text}</{tag}>"))
+}
+
+/// Where typed text goes in a syllable's text: before the closing tags it ends with, so text
+/// typed into an empty `<i></i>` is in it.
+pub fn typing_end(text: &str) -> usize {
+    let mut end = text.len();
+    while let Some(before) = text[..end].strip_suffix('>') {
+        match before.rfind("</") {
+            Some(i) if before[i + 2..].chars().all(|c| c.is_ascii_alphabetic()) => end = i,
+            _ => break,
+        }
+    }
+    end
+}
+
 impl Chant {
     /// The first clef, or C on the fourth line.
     pub fn initial_clef(&self) -> ChantClef {
@@ -632,26 +823,59 @@ impl Chant {
             .unwrap_or_default()
     }
 
-    /// Gives every note without an id (or with one already used) a fresh one. Ids of the other
-    /// notes stay.
+    /// Whether a syllable is a cell of its own (an empty group or a division of its own) that
+    /// takes an id.
+    fn is_cell(s: &Syllable) -> bool {
+        s.is_slot() || s.is_division_cell()
+    }
+
+    /// Gives every note and every cell of its own without an id (or with one already used) a
+    /// fresh one. The other ids stay.
     pub fn assign_ids(&mut self) {
         let mut seen = std::collections::HashSet::new();
         let mut next = self.next_id.max(1);
-        for n in self.syllables.iter().flat_map(|s| &s.items) {
-            if let NeumeItem::Note(n) = n {
-                next = next.max(n.id.saturating_add(1));
+        for s in &mut self.syllables {
+            if !Self::is_cell(s) {
+                s.id = 0;
             }
-        }
-        for item in self.syllables.iter_mut().flat_map(|s| &mut s.items) {
-            if let NeumeItem::Note(n) = item {
-                if n.id == 0 || !seen.insert(n.id) {
-                    n.id = next;
-                    next += 1;
-                    seen.insert(n.id);
+            next = next.max(s.id.saturating_add(1));
+            for n in &s.items {
+                if let NeumeItem::Note(n) = n {
+                    next = next.max(n.id.saturating_add(1));
                 }
             }
         }
+        let mut take = |id: &mut u32| {
+            if *id == 0 || !seen.insert(*id) {
+                *id = next;
+                next += 1;
+                seen.insert(*id);
+            }
+        };
+        // The notes first, so a chant's notes are numbered 1, 2, 3, … as before.
+        for item in self.syllables.iter_mut().flat_map(|s| &mut s.items) {
+            if let NeumeItem::Note(n) = item {
+                take(&mut n.id);
+            }
+        }
+        for s in &mut self.syllables {
+            if Self::is_cell(s) {
+                take(&mut s.id);
+            }
+        }
         self.next_id = next;
+    }
+
+    /// The id of a cell: its note's, else its syllable's.
+    pub fn cell_id(&self, cell: &Cell) -> Option<u32> {
+        match cell.note {
+            Some(n) => self.note_ids().get(n).copied(),
+            None => self
+                .syllables
+                .get(cell.syllable)
+                .map(|s| s.id)
+                .filter(|&i| i != 0),
+        }
     }
 
     /// For a chant made again from text (its notes all have fresh ids): gives the notes that
@@ -757,6 +981,44 @@ impl Chant {
                 k += 1;
             }
         }
+        // Cells of their own (empty groups, divisions): the same kinds before and after the
+        // changed ones, or all in order when as many.
+        let key = |s: &Syllable| {
+            s.items
+                .iter()
+                .filter_map(|i| match i {
+                    NeumeItem::Bar(b) => Some(b.as_str()),
+                    _ => None,
+                })
+                .collect::<String>()
+        };
+        let olds: Vec<(String, u32)> = old
+            .syllables
+            .iter()
+            .filter(|s| Self::is_cell(s))
+            .map(|s| (key(s), s.id))
+            .collect();
+        let news: Vec<usize> = (0..self.syllables.len())
+            .filter(|&i| Self::is_cell(&self.syllables[i]))
+            .collect();
+        let same = |i: usize, j: usize| olds[i].0 == key(&self.syllables[news[j]]);
+        let lead = (0..olds.len().min(news.len()))
+            .take_while(|&i| same(i, i))
+            .count();
+        let trail = (0..olds.len().min(news.len()) - lead)
+            .take_while(|&k| same(olds.len() - 1 - k, news.len() - 1 - k))
+            .count();
+        for i in 0..lead {
+            self.syllables[news[i]].id = olds[i].1;
+        }
+        for k in 0..trail {
+            self.syllables[news[news.len() - 1 - k]].id = olds[olds.len() - 1 - k].1;
+        }
+        if olds.len() == news.len() {
+            for (i, &j) in news.iter().enumerate() {
+                self.syllables[j].id = olds[i].1;
+            }
+        }
         self.next_id = self.next_id.max(old.next_id);
         self.assign_ids();
     }
@@ -842,6 +1104,150 @@ impl Chant {
                     _ => {}
                 }
             }
+        }
+        out
+    }
+}
+
+/// Where something is in a chant, as shown everywhere (status line, waveform ruler, `:goto`):
+/// `bar:syllable.note`. A bar starts after every division (the first is bar 1); the syllables
+/// of a bar are counted from 1 (only those that are not a division of their own), and the
+/// notes of a syllable from 1. A division of its own is `bar:0`, the bar it starts.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct Place {
+    pub bar: usize,
+    /// 0 for a division.
+    pub syllable: usize,
+    /// 0 for a division; an empty group has no note either (it reads as `.1`).
+    pub note: usize,
+}
+
+impl Place {
+    /// `3:4.2`; a place that has no decimal part reads as `.1` (`3:4` is `3:4.1`), and a
+    /// division is `3:0`.
+    pub fn label(&self) -> String {
+        if self.syllable == 0 {
+            format!("{}:0", self.bar)
+        } else {
+            format!("{}:{}.{}", self.bar, self.syllable, self.note.max(1))
+        }
+    }
+
+    /// Reads `bar:syllable` or `bar:syllable.note`: a missing note is 1, and `bar:0` is the
+    /// division.
+    pub fn parse(s: &str) -> Option<Place> {
+        let (bar, rest) = s.trim().split_once(':')?;
+        let bar: usize = bar.trim().parse().ok().filter(|&b| b > 0)?;
+        let (syllable, note) = match rest.trim().split_once('.') {
+            Some((a, b)) => (a.trim().parse().ok()?, b.trim().parse().ok()?),
+            None => (rest.trim().parse().ok()?, 1),
+        };
+        if syllable == 0 {
+            return Some(Place {
+                bar,
+                syllable: 0,
+                note: 0,
+            });
+        }
+        (note > 0).then_some(Place {
+            bar,
+            syllable,
+            note,
+        })
+    }
+}
+
+/// The [`Place`] of everything in a chant, from [`Chant::places`].
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct ChantPlaces {
+    /// Of every note, in reading order.
+    pub notes: Vec<Place>,
+    /// Of a note, an empty group or a division of its own, by (syllable, item).
+    cells: HashMap<(usize, usize), Place>,
+    /// For every syllable: the bar it is in when it starts, and whether a bar starts there
+    /// (the number of a bar is shown where it starts).
+    pub syllables: Vec<(usize, bool)>,
+}
+
+impl ChantPlaces {
+    /// The place of a cell of the transcription.
+    pub fn of_cell(&self, cell: &Cell) -> Option<Place> {
+        self.cells.get(&(cell.syllable, cell.item)).copied()
+    }
+}
+
+impl Chant {
+    /// The places of everything in the chant.
+    pub fn places(&self) -> ChantPlaces {
+        let mut out = ChantPlaces::default();
+        let (mut bar, mut syl) = (1, 0);
+        // A bar starts at the next syllable that is not a division of its own: the first bar,
+        // and each after a division.
+        let mut pending = true;
+        for (si, s) in self.syllables.iter().enumerate() {
+            let own_division = s.is_division_cell();
+            let start = bar;
+            let mut starts = false;
+            if s.is_slot() {
+                syl += 1;
+                out.cells.insert(
+                    (si, 0),
+                    Place {
+                        bar,
+                        syllable: syl,
+                        note: 0,
+                    },
+                );
+                out.syllables.push((bar, std::mem::take(&mut pending)));
+                continue;
+            }
+            let mut counted = false;
+            let mut note = 0;
+            for (ii, item) in s.items.iter().enumerate() {
+                match item {
+                    NeumeItem::Bar(_) => {
+                        bar += 1;
+                        syl = 0;
+                        counted = false;
+                        note = 0;
+                        if own_division {
+                            out.cells.insert(
+                                (si, ii),
+                                Place {
+                                    bar,
+                                    syllable: 0,
+                                    note: 0,
+                                },
+                            );
+                            starts = true;
+                            pending = false;
+                        } else {
+                            pending = true;
+                        }
+                    }
+                    NeumeItem::Note(_) => {
+                        if !counted {
+                            syl += 1;
+                            counted = true;
+                            note = 0;
+                            if std::mem::take(&mut pending) {
+                                starts = true;
+                            }
+                        }
+                        note += 1;
+                        let place = Place {
+                            bar,
+                            syllable: syl,
+                            note,
+                        };
+                        out.notes.push(place);
+                        out.cells.insert((si, ii), place);
+                    }
+                    _ => {}
+                }
+            }
+            out.syllables
+                .push((if own_division { bar } else { start }, starts));
         }
         out
     }
@@ -1087,12 +1493,19 @@ pub fn transcribe(chant: &Chant) -> Transcription {
                     out.positions.push((out.bars.len(), beats.len()));
                     out.lengths.push(n.repeats());
                     out.ticks.push(ticks * n.repeats() as u32);
-                    for _ in 0..n.repeats() {
+                    // A note of the same pitch right after another in a neume (`gg`) goes on
+                    // with it: one note of both lengths, not two attacks.
+                    let continues_note = ii > 0
+                        && matches!(s.items[ii - 1], NeumeItem::Note(_))
+                        && k >= 2
+                        && notes[k - 2].midi == r.midi;
+                    for rep in 0..n.repeats() {
                         let mut beat = Beat {
                             duration: duration_of(ticks),
                             notes: vec![Note::new(0, r.midi)],
                             ..Beat::default()
                         };
+                        beat.notes[0].tie = continues_note && rep == 0;
                         if first_in_syllable {
                             let text = s.plain_text();
                             let text = text.trim();
@@ -1159,56 +1572,349 @@ fn duration_of(ticks: u32) -> Duration {
     d
 }
 
-/// Groups a run of notes (no separators) into neumes (ligatures): the pes, clivis, torculus,
-/// porrectus, climacus, scandicus and so on, as every renderer and converter shows them.
-pub fn group_neumes<'a>(run: &[(usize, &'a ChantNote)]) -> Vec<Vec<(usize, &'a ChantNote)>> {
-    let ligates = |n: &ChantNote| matches!(n.shape(), Shape::Punctum) && !n.cavum() && !n.linea();
-    let mut out: Vec<Vec<(usize, &ChantNote)>> = Vec::new();
-    let mut cur: Vec<(usize, &ChantNote)> = Vec::new();
-    for (i, &(k, n)) in run.iter().enumerate() {
-        let extend = match cur.last() {
-            None => false,
-            Some(&(_, prev)) => {
-                let starts_ok = match cur[0].1.shape() {
-                    Shape::Punctum => ligates(cur[0].1) || cur[0].1.initio_debilis,
-                    // A quilisma or square note joins the next, higher note.
-                    Shape::Quilisma | Shape::Quadratum => cur.len() == 1 && n.pitch > prev.pitch,
-                    _ => false,
-                };
-                let dirs: Vec<bool> = cur
-                    .windows(2)
-                    .map(|p| p[1].1.pitch > p[0].1.pitch)
-                    .chain([n.pitch > prev.pitch])
-                    .collect();
-                let pattern_ok = matches!(
-                    dirs.as_slice(),
-                    [_] | [true, false]
-                        | [false, true]
-                        | [true, false, true]
-                        | [false, true, false]
-                );
-                // Scandicus: three rising notes are a punctum and a pes.
-                let scandicus = cur.len() == 1
-                    && n.pitch > prev.pitch
-                    && run
-                        .get(i + 1)
-                        .is_some_and(|&(_, nx)| nx.pitch > n.pitch && ligates(nx));
-                starts_ok
-                    && ligates(n)
-                    && n.pitch != prev.pitch
-                    && pattern_ok
-                    && !scandicus
-                    && (prev.liquescence() == Liquescence::None)
+/// The kinds of glyph (ligature) of Gregorio's `gabc-glyphs-determination.c`.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum G {
+    Undetermined,
+    Punctum,
+    Podatus,
+    PesQuadratumFirst,
+    PesQuadratum,
+    PesAscendensOriscus,
+    Salicus,
+    SalicusFlexus,
+    Flexa,
+    Torculus,
+    TorculusResupinus,
+    TorculusResupinusFlexus,
+    TorculusLiquescens,
+    Porrectus,
+    PorrectusFlexus,
+    Scandicus,
+    Ancus,
+    Virga,
+    Bivirga,
+    Trivirga,
+    VirgaReversa,
+    Stropha,
+    Distropha,
+    Tristropha,
+    /// One punctum inclinatum.
+    Inclinatum,
+    /// Two to five puncta inclinata one way (`true`: ascending).
+    Inclinata(u8, bool),
+    /// Puncta inclinata that change direction.
+    InclinataMixed,
+}
+
+impl G {
+    fn is_inclinata(self) -> bool {
+        matches!(self, G::Inclinatum | G::Inclinata(..) | G::InclinataMixed)
+    }
+}
+
+/// What a note did to the glyph being determined.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum End {
+    /// The note joined the glyph, which may go on.
+    No,
+    /// The note starts the next glyph.
+    Previous,
+    /// The note joined the glyph, which is complete.
+    Current,
+    /// The note stands alone, and the glyph before it is complete.
+    Both,
+}
+
+/// How far apart notes of one glyph may be (Gregorio's `MAX_AMBITUS`).
+const MAX_AMBITUS: i32 = 5;
+
+/// Gregorio's `add_note_to_a_glyph`: whether the note `n` (at pitch `pitch`, after a note at
+/// `last`) joins the glyph of type `cur` that began with `first`, and what the glyph is then.
+fn add_note_to_glyph(
+    mut cur: G,
+    pitch: i32,
+    last: Option<i32>,
+    n: &ChantNote,
+    first: Option<&ChantNote>,
+) -> (G, End) {
+    let normal_first =
+        first.is_some_and(|f| f.shape() == Shape::Punctum && !f.initio_debilis && !f.inclinatum);
+    let mut end = End::No;
+    let next;
+    let far = last.is_some_and(|l| (pitch - l).abs() > MAX_AMBITUS);
+    if far {
+        cur = G::Undetermined;
+    }
+    let lq = n.liquescence();
+    let starts_new = |end: &mut End| {
+        *end = End::Previous;
+        G::Punctum
+    };
+    let last_p = last.unwrap_or(-1);
+    let shape = if n.inclinatum {
+        Shape::Inclinatum
+    } else {
+        n.shape()
+    };
+    if n.linea() {
+        // A punctum linea stands alone.
+        next = G::Punctum;
+        end = End::Both;
+    } else {
+        match shape {
+            Shape::Punctum => {
+                if last == Some(pitch) {
+                    next = starts_new(&mut end);
+                } else {
+                    match cur {
+                        G::Punctum => {
+                            next = if pitch > last_p { G::Podatus } else { G::Flexa };
+                        }
+                        G::Podatus => {
+                            if pitch > last_p {
+                                if normal_first {
+                                    next = G::Scandicus;
+                                    end = End::Current;
+                                } else {
+                                    next = starts_new(&mut end);
+                                }
+                            } else {
+                                next = G::Torculus;
+                            }
+                        }
+                        G::PesQuadratumFirst => {
+                            if pitch > last_p {
+                                next = G::PesQuadratum;
+                                end = End::Current;
+                            } else {
+                                next = G::Flexa;
+                            }
+                        }
+                        G::PesAscendensOriscus => {
+                            if pitch > last_p {
+                                next = G::Salicus;
+                            } else {
+                                next = starts_new(&mut end);
+                            }
+                        }
+                        G::Salicus => {
+                            if pitch < last_p {
+                                next = G::SalicusFlexus;
+                                end = End::Current;
+                            } else {
+                                next = starts_new(&mut end);
+                            }
+                        }
+                        G::Flexa => {
+                            if pitch > last_p {
+                                if normal_first {
+                                    next = G::Porrectus;
+                                } else {
+                                    next = starts_new(&mut end);
+                                }
+                            } else if lq == Liquescence::Deminutus {
+                                end = End::Current;
+                                next = G::Ancus;
+                            } else {
+                                next = starts_new(&mut end);
+                            }
+                        }
+                        G::Torculus => {
+                            if pitch > last_p {
+                                next = G::TorculusResupinus;
+                            } else if lq == Liquescence::Deminutus {
+                                end = End::Current;
+                                next = G::TorculusLiquescens;
+                            } else {
+                                next = starts_new(&mut end);
+                            }
+                        }
+                        G::TorculusResupinus => {
+                            if pitch > last_p {
+                                next = starts_new(&mut end);
+                            } else {
+                                end = End::Current;
+                                next = G::TorculusResupinusFlexus;
+                            }
+                        }
+                        G::Porrectus => {
+                            if pitch > last_p {
+                                next = starts_new(&mut end);
+                            } else {
+                                end = End::Current;
+                                next = G::PorrectusFlexus;
+                            }
+                        }
+                        _ => next = starts_new(&mut end),
+                    }
+                }
             }
-        };
-        if !extend && !cur.is_empty() {
-            out.push(std::mem::take(&mut cur));
+            Shape::Oriscus(false) | Shape::Quilisma => next = starts_new(&mut end),
+            Shape::Virga => {
+                if cur == G::Virga && last == Some(pitch) {
+                    next = G::Bivirga;
+                } else if cur == G::Bivirga && last == Some(pitch) {
+                    next = G::Trivirga;
+                } else {
+                    end = End::Previous;
+                    next = G::Virga;
+                }
+            }
+            Shape::VirgaReversa => {
+                end = End::Previous;
+                next = G::VirgaReversa;
+            }
+            Shape::Bivirga(2) => {
+                if cur == G::Virga && last == Some(pitch) {
+                    end = End::Current;
+                    next = G::Trivirga;
+                } else {
+                    end = End::Previous;
+                    next = G::Bivirga;
+                }
+            }
+            Shape::Bivirga(_) => {
+                end = End::Both;
+                next = G::Trivirga;
+            }
+            Shape::Quadratum => {
+                end = End::Previous;
+                next = G::PesQuadratumFirst;
+            }
+            Shape::Oriscus(true) => {
+                if cur == G::Punctum && last_p < pitch {
+                    next = G::PesAscendensOriscus;
+                } else {
+                    next = starts_new(&mut end);
+                }
+            }
+            Shape::Inclinatum => {
+                if cur.is_inclinata() && cur != G::Inclinatum || cur == G::Inclinatum {
+                    if last == Some(pitch) {
+                        end = End::Previous;
+                        next = G::Inclinatum;
+                    } else {
+                        let up = last_p < pitch;
+                        next = match cur {
+                            G::Inclinatum => G::Inclinata(2, up),
+                            G::Inclinata(k, dir) if dir == up && k < 5 => G::Inclinata(k + 1, dir),
+                            _ => G::InclinataMixed,
+                        };
+                    }
+                } else {
+                    end = End::Previous;
+                    next = G::Inclinatum;
+                }
+            }
+            Shape::Stropha(1) => {
+                if last != Some(pitch) {
+                    end = End::Previous;
+                    next = G::Stropha;
+                } else {
+                    match cur {
+                        G::Stropha => next = G::Distropha,
+                        G::Distropha => {
+                            end = End::Current;
+                            next = G::Tristropha;
+                        }
+                        _ => {
+                            end = End::Previous;
+                            next = G::Stropha;
+                        }
+                    }
+                }
+            }
+            Shape::Stropha(2) => {
+                if last == Some(pitch) && cur == G::Stropha {
+                    end = End::Current;
+                    next = G::Tristropha;
+                } else {
+                    end = End::Previous;
+                    next = G::Distropha;
+                }
+            }
+            Shape::Stropha(_) => {
+                end = End::Both;
+                next = G::Tristropha;
+            }
         }
-        cur.push((k, n));
     }
-    if !cur.is_empty() {
-        out.push(cur);
+    if cur == G::Undetermined {
+        // The first glyph, or the one before has been closed already.
+        end = match end {
+            End::Previous => End::No,
+            End::Both => End::Current,
+            e => e,
+        };
     }
+    if far {
+        end = if matches!(end, End::Current | End::Both) {
+            End::Both
+        } else {
+            End::Previous
+        };
+    }
+    (next, end)
+}
+
+/// Groups a run of notes (no separators) into glyphs (ligatures): the pes, clivis, torculus,
+/// porrectus, climacus, scandicus and so on, as Gregorio determines them
+/// (`gabc_det_glyphs_from_notes`), and as every renderer and converter shows them.
+pub fn group_neumes<'a>(run: &[(usize, &'a ChantNote)]) -> Vec<Vec<(usize, &'a ChantNote)>> {
+    let mut out: Vec<Vec<(usize, &ChantNote)>> = Vec::new();
+    // The glyph being determined: its type and the run indices of its notes.
+    let mut cur = G::Undetermined;
+    let mut open: Vec<usize> = Vec::new();
+    let mut last: Option<i32> = None;
+    let close = |out: &mut Vec<Vec<(usize, &'a ChantNote)>>, open: &mut Vec<usize>| {
+        if !open.is_empty() {
+            out.push(open.drain(..).map(|i| run[i]).collect());
+        }
+    };
+    for (i, &(_, n)) in run.iter().enumerate() {
+        let pitch = n.pitch as i32;
+        // A weak beginning (initio debilis) starts a glyph.
+        if n.initio_debilis && cur != G::Undetermined {
+            close(&mut out, &mut open);
+            cur = G::Undetermined;
+        }
+        let first = open.first().map(|&k| run[k].1);
+        let (next, end) = add_note_to_glyph(cur, pitch, last, n, first);
+        let tail = n.liquescence() != Liquescence::None;
+        match end {
+            End::No => {
+                cur = next;
+                open.push(i);
+                if tail {
+                    close(&mut out, &mut open);
+                    cur = G::Undetermined;
+                }
+            }
+            End::Previous => {
+                close(&mut out, &mut open);
+                cur = next;
+                open.push(i);
+                if tail {
+                    close(&mut out, &mut open);
+                    cur = G::Undetermined;
+                }
+            }
+            End::Current => {
+                open.push(i);
+                close(&mut out, &mut open);
+                cur = G::Undetermined;
+            }
+            End::Both => {
+                close(&mut out, &mut open);
+                open.push(i);
+                close(&mut out, &mut open);
+                cur = G::Undetermined;
+            }
+        }
+        last = Some(pitch);
+    }
+    close(&mut out, &mut open);
     out
 }
 
@@ -1222,6 +1928,45 @@ mod tests {
             mods: mods.iter().map(|s| s.to_string()).collect(),
             ..ChantNote::default()
         })
+    }
+
+    /// The glyphs Gregorio finds in gabc notes (`/` separates runs), as the pitch letters of
+    /// each.
+    fn glyphs(gabc: &str) -> Vec<String> {
+        let mut out = Vec::new();
+        for part in gabc.split('/') {
+            let mut notes: Vec<ChantNote> = Vec::new();
+            for c in part.chars() {
+                match c {
+                    'a'..='m' if !matches!(c, 'v' | 'w' | 's') => notes.push(ChantNote {
+                        pitch: c as u8 - b'a',
+                        ..ChantNote::default()
+                    }),
+                    'v' | 'w' | 's' | 'V' | 'W' | 'O' | '\'' => {
+                        notes.last_mut().unwrap().mods.push(c.to_string())
+                    }
+                    _ => {}
+                }
+            }
+            let run: Vec<(usize, &ChantNote)> = notes.iter().enumerate().collect();
+            out.extend(group_neumes(&run).iter().map(|g| {
+                g.iter()
+                    .map(|(_, n)| (b'a' + n.pitch) as char)
+                    .collect::<String>()
+            }));
+        }
+        out
+    }
+
+    #[test]
+    fn glyphs_are_found_the_way_gregorio_finds_them() {
+        // Gregorio's own output for these (gregorio -S): a quilisma starts a glyph that a
+        // note above makes a pes quilisma; the notes at one pitch are glyphs of their own.
+        assert_eq!(glyphs("efwg"), ["e", "fg"]);
+        assert_eq!(glyphs("efwghVg"), ["e", "fg", "h", "g"]);
+        // A porrectus flexus, then a flexus; or, after a break, a torculus.
+        assert_eq!(glyphs("jjjghf'fd"), ["j", "j", "jghf", "fd"]);
+        assert_eq!(glyphs("jjj/ghf'fd"), ["j", "j", "j", "ghf", "fd"]);
     }
 
     #[test]
@@ -1247,6 +1992,7 @@ mod tests {
                     text: String::new(),
                     word_start: true,
                     items: vec![NeumeItem::Clef(ChantClef::default())],
+                    ..Default::default()
                 },
                 Syllable {
                     text: "Sal".into(),
@@ -1259,21 +2005,25 @@ mod tests {
                         },
                         note(8, &[]),
                     ],
+                    ..Default::default()
                 },
                 Syllable {
                     text: "ve".into(),
                     word_start: false,
                     items: vec![note(8, &["."])],
+                    ..Default::default()
                 },
                 Syllable {
                     text: String::new(),
                     word_start: true,
                     items: vec![NeumeItem::Bar(";".into())],
+                    ..Default::default()
                 },
                 Syllable {
                     text: "Re".into(),
                     word_start: true,
                     items: vec![note(8, &["ss"])],
+                    ..Default::default()
                 },
             ],
             ..Chant::default()
@@ -1305,5 +2055,97 @@ mod tests {
         assert_eq!(plain_text("<sp>V/</sp>. Ex"), "℣. Ex");
         assert_eq!(plain_text("Dó{mi}nus<v>\\x</v>"), "Dóminus");
         assert_eq!(plain_text("c<sp>'ae</sp>"), "cǽ");
+    }
+}
+
+#[cfg(test)]
+mod text_run_tests {
+    use super::*;
+
+    #[test]
+    fn markup_toggles_around_all_the_text_and_typing_goes_inside() {
+        assert_eq!(toggle_markup("Ky", "i"), "<i>Ky</i>");
+        assert_eq!(toggle_markup("<i>Ky</i>", "i"), "Ky");
+        assert_eq!(
+            toggle_markup("<i>a</i> b <i>c</i>", "i"),
+            "<i><i>a</i> b <i>c</i></i>"
+        );
+        assert_eq!(toggle_markup("", "b"), "<b></b>");
+        assert_eq!(&"<i><b></b></i>"[..typing_end("<i><b></b></i>")], "<i><b>");
+        assert_eq!(typing_end("a<i>b</i>"), "a<i>b".len());
+        assert_eq!(typing_end("a"), 1);
+    }
+
+    #[test]
+    fn markup_makes_runs_and_alt_text() {
+        let (runs, alt) = text_runs("a<i>b<b>c</b></i>d<alt>up</alt><sp>R/</sp>$<");
+        let t: Vec<(&str, bool, bool)> = runs
+            .iter()
+            .map(|r| (r.text.as_str(), r.italic, r.bold))
+            .collect();
+        assert_eq!(
+            t,
+            [
+                ("a", false, false),
+                ("b", true, false),
+                ("c", true, true),
+                ("d℟<", false, false)
+            ]
+        );
+        assert_eq!(alt, ["up"]);
+        let (runs, _) = text_runs("<sc>x</sc><ul>y</ul><c>z</c><tt>m</tt><e>e</e>");
+        assert!(runs[0].small_caps && runs[1].underline && runs[2].colored);
+        assert!(runs[3].mono && runs[4].elision);
+    }
+}
+
+#[cfg(test)]
+mod repeated_note_tests {
+    use super::*;
+    use crate::performance::Performance;
+    use crate::{Score, Track, TrackKind};
+
+    fn sounded(notes: Vec<Vec<u8>>) -> Vec<(u64, u64)> {
+        let syllables = notes
+            .into_iter()
+            .map(|g| Syllable {
+                text: "a".into(),
+                word_start: true,
+                items: g
+                    .into_iter()
+                    .map(|p| NeumeItem::Note(ChantNote::new(p)))
+                    .collect(),
+                ..Default::default()
+            })
+            .collect();
+        let mut score = Score::default();
+        score.tracks.push(Track {
+            kind: TrackKind::Chant,
+            chant: Some(Box::new(Chant {
+                syllables,
+                ..Chant::default()
+            })),
+            ..Track::default()
+        });
+        retranscribe(&mut score, 0);
+        Performance::build(&score, &[])
+            .notes
+            .iter()
+            .map(|n| (n.start, n.end))
+            .collect()
+    }
+
+    #[test]
+    fn two_notes_of_one_pitch_in_a_neume_sound_as_one_of_both_lengths() {
+        let one = sounded(vec![vec![5]]);
+        assert_eq!(one.len(), 1);
+        let len = one[0].1 - one[0].0;
+        // (gg): one note twice as long.
+        let two = sounded(vec![vec![5, 5]]);
+        assert_eq!(two.len(), 1, "{two:?}");
+        assert_eq!(two[0].1 - two[0].0, 2 * len);
+        // A different pitch, or another syllable, is another note.
+        assert_eq!(sounded(vec![vec![5, 6]]).len(), 2);
+        assert_eq!(sounded(vec![vec![5], vec![5]]).len(), 2);
     }
 }

@@ -167,6 +167,9 @@ pub struct Pane {
     /// Where `zz` / `zt` / `zb` asked the cursor to sit in the view, until the frontend that
     /// owns the scroll position has applied it (`App::take_scroll_request`).
     pub scroll_request: Option<ScrollTo>,
+    /// A waveform pane's pending zoom (`:zoom-in`, `:zoom-out`; 0 resets it), until the
+    /// frontend that owns its view has applied it ([`App::take_wave_zoom`]).
+    pub wave_zoom: Option<f64>,
 }
 
 /// Where in a score pane's view the cursor is placed (`zz`, `zt`, `zb`): the middle, the top
@@ -297,40 +300,73 @@ fn split_off_leaf(root: Node, id: Option<PaneId>) -> (Node, Option<Node>) {
     }
 }
 
-/// Puts a pane along the left of the panes above the bottom tools (`is_tool` tells those): the
-/// tools stay at the root, at its full width.
-fn dock_left(main: Node, id: PaneId, is_tool: impl Fn(&Node) -> bool) -> Node {
-    let side_by_side = |body: Node| Node::Split {
+/// Puts a pane along the left of everything but the properties pane: the bottom tools sit
+/// inside it, as wide as the scores.
+fn dock_left(main: Node, id: PaneId) -> Node {
+    Node::Split {
         axis: Axis::SideBySide,
-        children: vec![Node::Leaf(id), body],
+        children: vec![Node::Leaf(id), main],
         weights: vec![1.0, 1.0],
+    }
+}
+
+/// Takes the tracks pane off the bottom of a root stack (what remains is the first result); a
+/// root without it is returned as it is.
+fn split_off_tracks(root: Node, id: Option<PaneId>) -> (Node, Option<Node>) {
+    let Some(id) = id else {
+        return (root, None);
     };
-    match main {
+    match root {
         Node::Split {
             axis: Axis::Stacked,
-            children,
-            ..
-        } if children.iter().any(&is_tool) => {
-            let (tools, mut body): (Vec<Node>, Vec<Node>) =
-                children.into_iter().partition(&is_tool);
-            let body = if body.len() == 1 {
-                body.remove(0)
+            mut children,
+            mut weights,
+        } if children.last() == Some(&Node::Leaf(id)) => {
+            let leaf = children.pop();
+            weights.pop();
+            let main = if children.len() == 1 {
+                children.remove(0)
             } else {
                 Node::Split {
                     axis: Axis::Stacked,
-                    weights: vec![1.0; body.len()],
-                    children: body,
+                    children,
+                    weights,
                 }
             };
-            let mut children = vec![side_by_side(body)];
-            children.extend(tools);
+            (main, leaf)
+        }
+        root => (root, None),
+    }
+}
+
+/// Puts the tracks pane along the bottom of everything, at the full width of the window.
+fn with_tracks(main: Node, tracks: Option<Node>) -> Node {
+    match tracks {
+        Some(Node::Leaf(id)) => dock_bottom(main, id),
+        _ => main,
+    }
+}
+
+/// Puts a bottom tool under the scores: inside the palette along the left, if there is one.
+fn dock_tool(main: Node, id: PaneId, palette: Option<PaneId>) -> Node {
+    match (main, palette) {
+        (
             Node::Split {
-                axis: Axis::Stacked,
-                weights: vec![1.0; children.len()],
+                axis: Axis::SideBySide,
+                mut children,
+                weights,
+            },
+            Some(p),
+        ) if children.first() == Some(&Node::Leaf(p)) && children.len() == 2 => {
+            let body = children.remove(1);
+            children.push(dock_bottom(body, id));
+            Node::Split {
+                axis: Axis::SideBySide,
                 children,
+                weights,
             }
         }
-        main => side_by_side(main),
+        (main, _) => dock_bottom(main, id),
     }
 }
 
@@ -479,6 +515,10 @@ pub enum Effect {
     SyncDetect,
     /// Sync the chant note under the cursor at the playhead.
     SyncHere,
+    /// The mouse went down on the waveform in Sync mode (`App::wave_press`): the cell under the
+    /// cursor gets a point there (snapped to the amplitude) unless one is close, which is then
+    /// grabbed; the audio plays from there until the button is released.
+    WavePress,
 }
 
 pub const DEFAULT_TRACKS_ROWS: usize = 8;
@@ -508,6 +548,13 @@ pub struct App {
     /// The command line was opened from Visual mode: a line run with Enter finds the
     /// selection again, so commands apply to it.
     cmd_from_visual: bool,
+    /// Syncing audio (`:sync`): Sync mode is the mode while nothing else (Visual, the command
+    /// line) is, and the waveform shows the sync points and rulers.
+    pub syncing: bool,
+    /// The sync point being dragged along the waveform (a chant cell's id).
+    pub(crate) wave_grab: Option<u32>,
+    /// A press on the waveform waiting for the player: buffer, audio seconds, tolerance.
+    pub(crate) wave_press: Option<(usize, f64, f64)>,
     /// The line was begun by a palette tool that asks for an argument: `.` repeats the tool.
     pub(crate) cmd_from_palette: bool,
     history: Vec<String>,
@@ -529,7 +576,7 @@ pub struct App {
     /// Playback is paused (Play mode stays on until stopped).
     pub paused: bool,
     /// Where the cursor was when playback paused: resuming carries on only if it's still there.
-    paused_at: Option<(PaneId, usize, Cursor)>,
+    pub(crate) paused_at: Option<(PaneId, usize, Cursor)>,
     pub follow: bool,
     /// When the cursor last moved the play position: playhead updates from just before the
     /// player caught up are ignored, so the cursor doesn't bounce back.
@@ -653,6 +700,7 @@ impl App {
                 recent: Vec::new(),
                 jump_back: None,
                 scroll_request: None,
+                wave_zoom: None,
             },
         );
         let mut app = Self {
@@ -678,6 +726,9 @@ impl App {
             count: None,
             cmdline: String::new(),
             cmd_from_visual: false,
+            syncing: false,
+            wave_grab: None,
+            wave_press: None,
             cmd_from_palette: false,
             history: Vec::new(),
             history_pos: None,
@@ -987,6 +1038,10 @@ impl App {
 
     /// The pending `zz` / `zt` / `zb` request of a pane, which the frontend applies to its own
     /// scroll position; taking it clears it, so it applies once.
+    pub fn take_wave_zoom(&mut self, pane: PaneId) -> Option<f64> {
+        self.panes.get_mut(&pane)?.wave_zoom.take()
+    }
+
     pub fn take_scroll_request(&mut self, pane: PaneId) -> Option<ScrollTo> {
         self.panes.get_mut(&pane)?.scroll_request.take()
     }
@@ -1067,9 +1122,10 @@ impl App {
     }
 
     /// Nests every view's global tool panes the way `set_tool` builds them, whatever shape the
-    /// tree was saved or edited in: the properties pane outermost along the right, the bottom
-    /// tools at the full width of what is left of it, the palette along the left of the panes
-    /// above them, the scores innermost. Sizes belong to the panes, so they are kept; a tree
+    /// tree was saved or edited in: the tracks pane along the bottom at the window's full width; above
+    /// it the properties pane outermost along the right, the palette along the left of what is
+    /// left of it, and between them the scores with the other bottom tools under them (as wide
+    /// as the scores). Sizes belong to the panes, so they are kept; a tree
     /// already in that shape is left alone (split weights included).
     pub(crate) fn normalize_layouts(&mut self) {
         for v in 0..self.views.len() {
@@ -1082,13 +1138,17 @@ impl App {
                     .find(|id| owner_of(id) == Some((kind, None)))
             };
             let (props, palette) = (find(PaneKind::Properties), find(PaneKind::Palette));
+            let tracks = find(PaneKind::Tracks);
             let tools: Vec<PaneId> = panes
                 .iter()
                 .copied()
                 .filter(|id| match owner_of(id) {
                     Some((kind, None)) => !matches!(
                         kind,
-                        PaneKind::Score | PaneKind::Properties | PaneKind::Palette
+                        PaneKind::Score
+                            | PaneKind::Properties
+                            | PaneKind::Palette
+                            | PaneKind::Tracks
                     ),
                     _ => false,
                 })
@@ -1098,18 +1158,17 @@ impl App {
             }
             let mut main = self.views[v].root.clone();
             let mut removed = true;
-            for id in props.iter().chain(&palette).chain(&tools) {
+            for id in props.iter().chain(&palette).chain(&tools).chain(&tracks) {
                 removed &= main.remove(*id);
             }
             if !removed {
                 continue;
             }
-            let is_tool = |n: &Node| matches!(n, Node::Leaf(i) if tools.contains(i));
-            if let Some(p) = palette {
-                main = dock_left(main, p, is_tool);
-            }
             for t in &tools {
                 main = dock_bottom(main, *t);
+            }
+            if let Some(p) = palette {
+                main = dock_left(main, p);
             }
             let root = match props {
                 Some(p) => Node::Split {
@@ -1119,6 +1178,7 @@ impl App {
                 },
                 None => main,
             };
+            let root = with_tracks(root, tracks.map(Node::Leaf));
             if root.shape() != self.views[v].root.shape() {
                 self.views[v].root = root;
             }
@@ -1153,39 +1213,49 @@ impl App {
                 if !self.viewport_known {
                     self.unfitted.push(id);
                 }
-                let is_tool = |n: &Node| match n {
-                    Node::Leaf(i) => self
-                        .panes
+                let palette = self.view().root.panes().into_iter().find(|i| {
+                    self.panes
                         .get(i)
-                        .is_some_and(|p| p.kind != PaneKind::Score && p.owner.is_none()),
-                    _ => false,
-                };
+                        .is_some_and(|p| p.kind == PaneKind::Palette)
+                });
                 let props = self.view().root.panes().into_iter().find(|i| {
                     self.panes
                         .get(i)
                         .is_some_and(|p| p.kind == PaneKind::Properties)
+                });
+                let tracks = self.view().root.panes().into_iter().find(|i| {
+                    self.panes
+                        .get(i)
+                        .is_some_and(|p| p.kind == PaneKind::Tracks && p.owner.is_none())
                 });
                 let view = &mut self.views[self.active_view];
                 if !global {
                     // Under the score pane it works on, as wide as it.
                     view.root.split(score, id, Axis::Stacked);
                 } else {
-                    // The properties pane is outermost, along the right at the full height;
-                    // what is left of it takes the bottom tools at its full width, then the
-                    // palette above them along the left, then the scores.
+                    // The tracks pane is along the bottom of the whole window. Above it the
+                    // properties pane is outermost, along the right at the full height;
+                    // then the palette along the left; between them the scores with the
+                    // other bottom tools under them.
                     let root = std::mem::replace(&mut view.root, Node::Leaf(0));
+                    let (root, tracks_leaf) = if kind == PaneKind::Tracks {
+                        (root, Some(Node::Leaf(id)))
+                    } else {
+                        split_off_tracks(root, tracks)
+                    };
                     let (main, props_leaf) = split_off_leaf(root, props);
                     let main = match kind {
                         PaneKind::Properties => main,
-                        PaneKind::Palette => dock_left(main, id, is_tool),
-                        _ => dock_bottom(main, id),
+                        PaneKind::Palette => dock_left(main, id),
+                        PaneKind::Tracks => main,
+                        _ => dock_tool(main, id, palette),
                     };
                     let side = if kind == PaneKind::Properties {
                         Some(Node::Leaf(id))
                     } else {
                         props_leaf
                     };
-                    view.root = match side {
+                    let root = match side {
                         Some(side) => Node::Split {
                             axis: Axis::SideBySide,
                             children: vec![main, side],
@@ -1193,6 +1263,7 @@ impl App {
                         },
                         None => main,
                     };
+                    view.root = with_tracks(root, tracks_leaf);
                 }
             }
             _ => return,
@@ -2144,8 +2215,23 @@ impl App {
         self.history_pos = None;
     }
 
-    fn leave_command_mode(&mut self) {
+    /// Leaves Sync mode: tapping stops (the sync points stay).
+    pub(crate) fn leave_sync_mode(&mut self) {
+        self.syncing = false;
         self.mode = Mode::Normal;
+        self.pending.clear();
+        self.ed.operator = None;
+        self.pa.chant_tap = None;
+        self.pa.sync_next = None;
+        self.info("sync mode off");
+    }
+
+    fn leave_command_mode(&mut self) {
+        self.mode = if self.syncing {
+            Mode::Sync
+        } else {
+            Mode::Normal
+        };
         self.cmdline.clear();
         self.history_pos = None;
         self.completion = None;
@@ -2366,6 +2452,16 @@ impl App {
                     GotoFirst => self.move_cursor(|s, c| set_bar(s, c, 0)),
                     GotoLast => self.move_cursor(|s, c| set_bar(s, c, usize::MAX)),
                     GotoBar(n) => self.move_cursor(|s, c| set_bar(s, c, n.saturating_sub(1))),
+                    // A chant: `bar:syllable.note` (a missing note is the first, a division 0).
+                    GotoPos(n, pos) if self.cursor_on_chant() => {
+                        match self.chant_place_target(n, pos) {
+                            Some((bar, beat)) => self.move_cursor(|_, c| {
+                                c.bar = bar;
+                                c.beat = beat;
+                            }),
+                            None => self.error(format!("no such place: {n}:{pos}")),
+                        }
+                    }
                     GotoPos(n, pos) => self.move_cursor(|s, c| {
                         set_bar(s, c, n.saturating_sub(1));
                         let Some(track) = s.tracks.get(c.track) else {
@@ -2401,8 +2497,9 @@ impl App {
                 } else if self.playing {
                     // Another file is playing: it stops, and this one starts.
                     self.run(Play)
-                } else if self.paused && self.paused_at == Some(here) {
-                    // The cursor is still where playback paused: carry on exactly from there.
+                } else if self.paused && self.paused_at == Some(here) && !self.syncing {
+                    // The cursor is still where playback paused: carry on exactly from there
+                    // (Sync mode always starts at the cursor).
                     self.paused = false;
                     self.effects.push(Effect::Resume);
                 } else {
@@ -2746,6 +2843,9 @@ impl App {
             Source => self.reload_config(),
             CommandMode => self.open_command_line(""),
             Normal => {
+                if self.mode == Mode::Sync {
+                    return self.leave_sync_mode();
+                }
                 self.leave_command_mode();
                 self.ed.visual_anchor = None;
             }
@@ -2768,6 +2868,17 @@ impl App {
                 let id = self.focused();
                 if let Some(p) = self.panes.get_mut(&id) {
                     p.scroll_request = Some(to);
+                }
+            }
+            // The waveform pane, when it has the focus, zooms its own timeline.
+            ZoomIn | ZoomOut | ZoomReset if self.focused_kind() == PaneKind::Audio => {
+                let id = self.window_focus();
+                if let Some(p) = self.panes.get_mut(&id) {
+                    p.wave_zoom = Some(match cmd {
+                        ZoomIn => 1.25,
+                        ZoomOut => 0.8,
+                        _ => 0.0,
+                    });
                 }
             }
             ZoomIn => self.zoom_pane(self.focused(), 1.15),
@@ -3059,6 +3170,7 @@ impl App {
                 recent: Vec::new(),
                 jump_back: None,
                 scroll_request: None,
+                wave_zoom: None,
             },
         );
         id
@@ -3194,8 +3306,11 @@ impl App {
     pub(crate) fn seek_to_cursor(&mut self, before: (PaneId, usize, Cursor)) {
         let pane = self.pane();
         let now = (self.focused(), pane.buffer, pane.cursor);
+        // Syncing: moving the cursor (Enter moves it on) does not move the playback, which
+        // runs on by itself; the cursor follows it when following is on.
         if !(self.playing || self.paused)
             || !self.follow
+            || self.syncing
             || now == before
             || self.playing_buffer != Some(now.1)
             // Play and Stop already put the playhead at the cursor.
@@ -3524,10 +3639,46 @@ fn move_row(score: &Score, c: &mut Cursor, down: bool, between_staves: bool) {
 
 /// A cursor's place as `bar:beat.fraction` (`5:3.5`).
 pub fn position_text(score: &Score, c: &Cursor) -> String {
+    // A chant: `bar:syllable.note`, as everywhere (the start of the song, before any note, is
+    // `1:0`).
+    if let Some(chant) = score.tracks.get(c.track).and_then(|t| t.chant.as_deref()) {
+        let t = cecilia_core::chant::transcribe(chant);
+        return t
+            .cell_near(c.bar, c.beat)
+            .and_then(|i| chant.places().of_cell(&t.cells[i]))
+            .map_or_else(|| "1:0".to_string(), |p| p.label());
+    }
     let pos = score.tracks.get(c.track).map_or(1.0 + c.beat as f64, |t| {
         cecilia_core::position::beat_position(score, t, c.bar, c.voice, c.beat)
     });
     cecilia_core::position::format_position(c.bar, pos, false)
+}
+
+impl App {
+    /// The `(bar, beat)` of the cell of a chant at place `n:pos` (`pos` as `syllable.note`).
+    fn chant_place_target(&self, n: usize, pos: f64) -> Option<(usize, usize)> {
+        let c = self.pane().cursor;
+        let chant = self.buffer().score.tracks.get(c.track)?.chant.as_deref()?;
+        let (syllable, note) = (
+            pos.floor() as usize,
+            ((pos.fract() * 10.0).round() as usize).max(1),
+        );
+        let want = cecilia_core::chant::Place {
+            bar: n,
+            syllable,
+            note: if syllable == 0 { 0 } else { note },
+        };
+        let (t, places) = (cecilia_core::chant::transcribe(chant), chant.places());
+        t.cells
+            .iter()
+            .find(|cell| {
+                places.of_cell(cell).is_some_and(|p| {
+                    (p.bar, p.syllable, p.note.max(usize::from(p.syllable > 0)))
+                        == (want.bar, want.syllable, want.note)
+                })
+            })
+            .map(|cell| (cell.bar, cell.beat))
+    }
 }
 
 fn set_bar(score: &Score, c: &mut Cursor, bar: usize) {

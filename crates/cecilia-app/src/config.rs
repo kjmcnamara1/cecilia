@@ -25,6 +25,9 @@ pub enum Mode {
     Properties,
     /// Names the editing palette's keymap (`[keymap.palette]`), like [`Mode::Tracks`].
     Palette,
+    /// Syncing audio to the score (`:sync`): the waveform shows the sync points and rulers, and
+    /// the keys of `[keymap.sync]` apply (the motions of Normal mode too).
+    Sync,
 }
 
 #[derive(Debug, Clone, Default, Deserialize)]
@@ -166,8 +169,8 @@ pub struct UiConfig {
     /// `:string-up` once always did; off, they keep to the cursor's staff (`:staff-next` and
     /// `:staff-prev` change staff).
     pub jk_moves_between_staves: bool,
-    /// Going from a chant score to its lyrics text area (`<leader>P`, a pane switch) selects, in
-    /// Visual mode, the GABC of the note the cursor is on (`:lyrics-select` does so always).
+    /// Going from a chant score to its lyrics text area (`<leader>P`, a pane switch) puts the
+    /// caret (Normal mode) on the note the cursor is on (`:lyrics-select` does so always).
     pub lyrics_select_cursor: bool,
     /// Command-line Tab completion ignores letter case.
     pub completion_ignore_case: bool,
@@ -236,6 +239,43 @@ pub struct UiConfig {
     pub lyrics_font: String,
     /// GUI: its size in points.
     pub lyrics_font_size: f64,
+    /// The font of the lyrics of a chant score: `noto-serif` (default) or `source-sans`. The
+    /// versicle ℣, response ℟, dagger † and barred Ⱥ are Noto Serif's either way.
+    pub chant_text_font: String,
+    /// GUI: the waveform's time ruler along the bottom (a fixed scale): `all` (a tick each second,
+    /// a tall one every five), `major` or `off`.
+    pub waveform_time_ticks: Ticks,
+    /// GUI: the waveform's score ruler along the top, which stretches with the sync points (a
+    /// chant's bars are its major ticks, its syllables the minor ones).
+    pub waveform_beat_ticks: Ticks,
+    /// GUI: label the major ticks of the time ruler (minutes left of the tick, seconds right).
+    pub waveform_time_labels: bool,
+    /// GUI: label the ticks of the score ruler (the bar left of a major tick, the syllable right).
+    pub waveform_beat_labels: bool,
+    /// Sync mode: how far (milliseconds, 0 to 200) a sync point is moved to reach the strongest
+    /// onset of the audio near where it was put; 0 puts it exactly there.
+    pub sync_snap: f64,
+}
+
+/// Which ticks of a waveform ruler are drawn.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum Ticks {
+    #[default]
+    All,
+    Major,
+    Off,
+}
+
+impl Ticks {
+    /// Whether a major (`true`) or minor tick is drawn.
+    pub fn shows(self, major: bool) -> bool {
+        match self {
+            Ticks::All => true,
+            Ticks::Major => major,
+            Ticks::Off => false,
+        }
+    }
 }
 
 impl Default for UiConfig {
@@ -276,6 +316,12 @@ impl Default for UiConfig {
             zoom: 1.0,
             lyrics_font: "Source Sans 3".into(),
             lyrics_font_size: 12.0,
+            chant_text_font: "noto-serif".into(),
+            waveform_time_ticks: Ticks::All,
+            waveform_beat_ticks: Ticks::All,
+            waveform_time_labels: true,
+            waveform_beat_labels: true,
+            sync_snap: 70.0,
         }
     }
 }
@@ -364,6 +410,7 @@ pub struct KeymapConfig {
     pub tracks: HashMap<String, Binding>,
     pub properties: HashMap<String, Binding>,
     pub palette: HashMap<String, Binding>,
+    pub sync: HashMap<String, Binding>,
     /// Keys that apply while design mode is on, looked up before the normal ones.
     pub design: HashMap<String, Binding>,
     /// No longer used (Play mode was removed); kept so old configs still load, with a warning.
@@ -371,6 +418,7 @@ pub struct KeymapConfig {
 }
 
 const DEFAULT_NORMAL: &[(&str, &str)] = &[
+    ("S", "sync"),
     ("h", "beat-prev"),
     ("<Left>", "beat-prev"),
     ("l", "beat-next"),
@@ -481,7 +529,6 @@ const DEFAULT_NORMAL: &[(&str, &str)] = &[
     ("A", "append-bar-end"),
     ("gi", "insert-last"),
     ("gv", "visual-reselect"),
-    ("<CR>", "insert-here"),
     ("x", "delete-note"),
     ("d", "delete"),
     ("y", "yank"),
@@ -560,6 +607,11 @@ const DEFAULT_NORMAL_SLASH: &[(&str, &str)] = &[("ta", "toggle accent"), ("tt", 
 /// note (heads, rhythmic signs, alterations), `tc` / `tF` set the clef and `td` adds a division.
 /// They are looked up before `[keymap.normal]` and only on chant scores, so no modern key is lost.
 const DEFAULT_NORMAL_CHANT: &[(&str, &str)] = &[
+    ("R", "replace-mode"),
+    ("<A-i>", "lyric-mode"),
+    ("<A-J>", "chant-join"),
+    ("<A-S>", "chant-split"),
+    ("<S-Del>", "lyrics-delete"),
     ("tp", "chant-shape punctum"),
     ("ti", "chant-shape inclinatum"),
     ("tv", "chant-shape virga"),
@@ -683,12 +735,24 @@ const DEFAULT_INSERT_SLASH: &[(&str, &str)] =
 
 /// Insert mode on chant: GABC pitch letters and signs.
 const DEFAULT_INSERT_CHANT: &[(&str, &str)] = &[
+    ("G", "chant-shape inclinatum"),
     ("v", "chant-mod v"),
+    ("V", "chant-mod V"),
     ("s", "chant-mod s"),
     ("o", "chant-mod o"),
+    ("O", "chant-mod O"),
     ("q", "chant-mod q"),
     ("w", "chant-mod w"),
     ("~", "chant-mod ~"),
+    ("<lt>", "chant-liquescence ascendens"),
+    (">", "chant-liquescence descendens"),
+    ("+", "chant-custos"),
+    ("r", "chant-mod r"),
+    ("x", "chant-alter flat"),
+    ("y", "chant-alter natural"),
+    ("#", "chant-alter sharp"),
+    ("z", "chant-linebreak z"),
+    ("Z", "chant-linebreak Z"),
     (".", "chant-mod ."),
     ("_", "chant-mod _"),
     ("'", "chant-mod '"),
@@ -698,7 +762,10 @@ const DEFAULT_INSERT_CHANT: &[(&str, &str)] = &[
     (":", "chant-bar :"),
     ("<Space>", "insert-next"),
     ("<Right>", "beat-next"),
-    ("/", "chant-break"),
+    ("/", "chant-sep /"),
+    ("!", "chant-sep !"),
+    ("<A-J>", "chant-join"),
+    ("<A-S>", "chant-split"),
     ("<Del>", "delete-note"),
 ];
 
@@ -748,6 +815,21 @@ const DEFAULT_DESIGN: &[(&str, &str)] = &[
     ("-", "bars-per-line -1"),
     ("<A-=>", "bars-per-line auto"),
     ("<leader>d", "design off"),
+];
+
+const DEFAULT_SYNC: &[(&str, &str)] = &[
+    ("<Esc>", "normal"),
+    ("<Space>", "play-toggle"),
+    ("<CR>", "sync-tap"),
+    ("u", "sync-undo"),
+    ("<BS>", "sync-undo"),
+    ("x", "sync-remove"),
+    ("[", "sync-nudge -10"),
+    ("]", "sync-nudge 10"),
+    ("{", "sync-nudge -50"),
+    ("}", "sync-nudge 50"),
+    ("y", "sync-unit syllable"),
+    ("n", "sync-unit note"),
 ];
 
 const DEFAULT_PALETTE: &[(&str, &str)] = &[
@@ -840,6 +922,7 @@ const DEFAULT_VISUAL: &[(&str, &str)] = &[
     ("<A-->", "dynamic-step -1"),
     ("i", "visual-insert"),
     ("a", "visual-append"),
+    ("o", "visual-other-end"),
 ];
 
 /// Resolved key bindings for one mode.
@@ -1004,6 +1087,19 @@ impl Config {
             &mut errors,
         );
         keymaps.insert(Mode::Palette, palette);
+        let mut sync = Keymap::default();
+        for (keys, cmd) in DEFAULT_SYNC {
+            let keys = parse_keys(keys, &leader).expect("valid default key");
+            sync.bind_default(keys, cmd);
+        }
+        apply_user(
+            &mut sync,
+            &file.keymap.sync,
+            &leader,
+            "keymap.sync",
+            &mut errors,
+        );
+        keymaps.insert(Mode::Sync, sync);
         let mut design_keymap = Keymap::default();
         for (keys, cmd) in DEFAULT_DESIGN {
             let keys = parse_keys(keys, &leader).expect("valid default key");
@@ -1102,6 +1198,16 @@ impl Config {
                 file.ui.bar_numbers
             ));
         }
+        if !matches!(
+            file.ui.chant_text_font.as_str(),
+            "noto-serif" | "source-sans"
+        ) {
+            errors.push(format!(
+                "ui.chant_text_font: '{}' is not noto-serif or source-sans (using noto-serif)",
+                file.ui.chant_text_font
+            ));
+        }
+        file.ui.sync_snap = file.ui.sync_snap.clamp(0.0, 200.0);
         if cecilia_core::melody::ChordPolicy::parse(&file.ui.chant_chords).is_none() {
             errors.push(format!(
                 "ui.chant_chords: '{}' is not top, bottom or error (using top)",
@@ -1369,6 +1475,32 @@ mod tests {
     fn invalid_toml_is_an_error() {
         assert!(Config::parse("[general]\nleader = ").is_err());
         assert!(Config::parse("[nope]\n").is_err());
+    }
+
+    #[test]
+    fn the_waveform_rulers_are_settings() {
+        let c = Config::default();
+        assert!(c.file.ui.waveform_time_ticks.shows(false));
+        let (c, errors) = Config::parse(
+            "[ui]\nwaveform_time_ticks = \"major\"\nwaveform_beat_ticks = \"off\"\nwaveform_time_labels = false\n",
+        )
+        .unwrap();
+        assert!(errors.is_empty());
+        assert!(!c.file.ui.waveform_time_ticks.shows(false));
+        assert!(c.file.ui.waveform_time_ticks.shows(true));
+        assert!(!c.file.ui.waveform_beat_ticks.shows(true));
+        assert!(!c.file.ui.waveform_time_labels && c.file.ui.waveform_beat_labels);
+    }
+
+    #[test]
+    fn the_chant_text_font_is_noto_serif_or_source_sans() {
+        let (c, errors) = Config::parse("").unwrap();
+        assert!(errors.is_empty());
+        assert_eq!(c.file.ui.chant_text_font, "noto-serif");
+        let (_, errors) = Config::parse("[ui]\nchant_text_font = \"source-sans\"\n").unwrap();
+        assert!(errors.is_empty(), "{errors:?}");
+        let (_, errors) = Config::parse("[ui]\nchant_text_font = \"comic\"\n").unwrap();
+        assert_eq!(errors.len(), 1, "{errors:?}");
     }
 
     #[test]

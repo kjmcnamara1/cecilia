@@ -84,6 +84,8 @@ type CacheKey = (
     [u8; 8],
     &'static str,
     bool,
+    // The font of chant lyrics.
+    String,
     // The incomplete-bar color, while highlighted.
     Option<[u8; 3]>,
     usize,
@@ -210,6 +212,8 @@ struct WaveView {
     anchor: Option<(usize, usize, bool)>,
     /// Where it started when last drawn.
     drawn: f64,
+    /// A mouse press on it is held (Sync mode): it stays where it is.
+    hold: bool,
 }
 
 impl Default for WaveView {
@@ -219,6 +223,7 @@ impl Default for WaveView {
             span: 16.0,
             anchor: None,
             drawn: 0.0,
+            hold: false,
         }
     }
 }
@@ -243,6 +248,12 @@ enum Drag {
     Divider(cecilia_app::layout::Divider),
     /// A waveform's top edge: where the drag began and the height then.
     Wave(f64, u16),
+    /// A drag along a waveform scrolls it: the waveform, where the drag began, the time at its
+    /// left edge then and the seconds a pixel is.
+    WavePan(Option<PaneId>, f64, f64, f64),
+    /// A press on a waveform in Sync mode (it plays, and moves a sync point): the waveform,
+    /// where the press was, the time at its left edge and the seconds a pixel is.
+    WaveSync(Option<PaneId>, f64, f64, f64),
     /// A buffer tab: its position now, and where the press was (it moves past a few pixels).
     Tab(usize, f64),
     /// A pane's scrollbar thumb (horizontal or vertical), held this far (pixels) from its start.
@@ -1111,7 +1122,14 @@ pub fn build(
                 match playback.as_deref_mut() {
                     Some(pb) if app.buffers[buffer].score.audio.is_some() => {
                         pb.ensure_audio(app, buffer);
+                        let zoom = app.take_wave_zoom(id);
                         let view = views.waves.entry(None).or_default();
+                        // `:zoom-in`, `:zoom-out` and `:zoom-reset` with this pane focused.
+                        match zoom {
+                            Some(0.0) => view.span = WaveView::default().span,
+                            Some(z) => view.span = (view.span / z).clamp(1.0, 900.0),
+                            None => {}
+                        }
                         draw_waveform(scene, app, pb, buffer, rect, play, view);
                     }
                     _ => {
@@ -2169,9 +2187,11 @@ fn draw_pane_content(
         content.y1 -= SCROLLBAR;
         (right, bottom)
     });
-    // Pages fit the pane's width; zoom is relative to that.
+    // Pages fit the pane's width; zoom is relative to that. A page is as wide as the score's
+    // page setup says.
+    let page_w = cecilia_engrave::layout::mm_to_pt(score.page.width).max(1.0);
     let scale = if mode_name == "page" {
-        pane.zoom * (content.width() - 24.0).max(100.0) / 595.0
+        pane.zoom * (content.width() - 24.0).max(100.0) / page_w
     } else {
         BASE_SCALE * pane.zoom
     };
@@ -2193,6 +2213,7 @@ fn draw_pane_content(
         },
         app.chord_policy().name(),
         app.every_bar_number,
+        app.config.file.ui.chant_text_font.clone(),
         app.highlight_incomplete_bars.then(|| {
             let c = app.config.theme.incomplete_bar;
             [c.r, c.g, c.b]
@@ -2218,11 +2239,21 @@ fn draw_pane_content(
             chant: true,
             chords: app.chord_policy(),
             every_bar_number: app.every_bar_number,
+            chant_font: cecilia_engrave::display::TextFamily::parse(
+                &app.config.file.ui.chant_text_font,
+            )
+            .unwrap_or_default(),
             incomplete_bars: app.highlight_incomplete_bars.then(|| {
                 let c = app.config.theme.incomplete_bar;
                 cecilia_engrave::display::Color::rgb(c.r, c.g, c.b)
             }),
             ..Options::default()
+        };
+        // A page layout is the score's page setup: its size and margins.
+        let options = if mode_name == "page" {
+            options.for_page(&score.page)
+        } else {
+            options
         };
         let layout = cecilia_engrave::engrave(score, pane.cursor.track, &options);
         let (page, ink) = (app.config.theme.page, app.config.theme.ink);
@@ -2250,7 +2281,7 @@ fn draw_pane_content(
         );
     }
     let linked = app.linked_note(&pane).map(|n| {
-        let m = app.config.theme.mode_color(app.mode);
+        let m = app.mode_color();
         (n, [m.r, m.g, m.b, m.a])
     });
     let cached = views.cache.get_mut(&id).unwrap();
@@ -2308,7 +2339,7 @@ fn draw_pane_content(
     // Keep the playhead in view while following playback, otherwise the cursor when it moves.
     // The page's x offset in scroll space (the page layout centres a page narrower than the view).
     let page_x = if mode_name == "page" {
-        ((view_w - 595.0) / 2.0).max(0.0)
+        ((view_w - page_w) / 2.0).max(0.0)
     } else {
         0.0
     };
@@ -2408,7 +2439,7 @@ fn draw_pane_content(
         fill(scene, content, background());
     }
     let center = if page_mode {
-        ((view_w - 595.0) / 2.0).max(0.0)
+        ((view_w - page_w) / 2.0).max(0.0)
     } else {
         0.0
     };
@@ -2437,25 +2468,40 @@ fn draw_pane_content(
         } else {
             (cursor, anchor)
         };
-        for (r, pos) in &cached.layout.beats {
-            if r.track != pane.cursor.track || r.voice != pane.cursor.voice {
-                continue;
-            }
-            let inside = if bars {
-                (a.bar..=b.bar).contains(&r.bar)
-            } else {
-                (a.bar, a.beat) <= (r.bar, r.beat) && (r.bar, r.beat) <= (b.bar, b.beat)
+        let mut inside: Vec<&cecilia_engrave::layout::BeatPos> = cached
+            .layout
+            .beats
+            .iter()
+            .filter(|(r, _)| r.track == pane.cursor.track && r.voice == pane.cursor.voice)
+            .filter(|(r, _)| {
+                if bars {
+                    (a.bar..=b.bar).contains(&r.bar)
+                } else {
+                    (a.bar, a.beat) <= (r.bar, r.beat) && (r.bar, r.beat) <= (b.bar, b.beat)
+                }
+            })
+            .map(|(_, pos)| pos)
+            .collect();
+        inside.sort_by(|x, y| {
+            (x.page, x.top, x.x)
+                .partial_cmp(&(y.page, y.top, y.x))
+                .unwrap_or(std::cmp::Ordering::Equal)
+        });
+        // A selected beat runs on to the next selected beat in its system, so the barlines
+        // between them are highlighted too.
+        for (k, pos) in inside.iter().enumerate() {
+            let right = match inside.get(k + 1) {
+                Some(next) if next.page == pos.page && next.top == pos.top => next.x,
+                _ => pos.x + pos.width,
             };
-            if inside {
-                let rect = Rect::new(pos.x, pos.top, pos.x + pos.width, pos.bottom);
-                scene.fill(
-                    Fill::NonZero,
-                    to_screen(pos.page),
-                    tc(|t| t.selection.with_alpha(55)),
-                    None,
-                    &rect,
-                );
-            }
+            let rect = Rect::new(pos.x, pos.top, right, pos.bottom);
+            scene.fill(
+                Fill::NonZero,
+                to_screen(pos.page),
+                tc(|t| t.selection.with_alpha(55)),
+                None,
+                &rect,
+            );
         }
     }
     // Cursor.
@@ -2484,7 +2530,7 @@ fn draw_pane_content(
         // A translucent shade in the mode's color over just what an edit changes: the note
         // place on the cursor's string, or the whole beat on staves without strings.
         let alpha = if focused { 110 } else { 45 };
-        let color = tc(|t| t.mode_color(app.mode).with_alpha(alpha));
+        let color = tc(|_| app.mode_color().with_alpha(alpha));
         // A square over the cursor's string or staff position. Chant positions only match
         // the square-notation layout (a chant track in square notation).
         let c = pane.cursor;
@@ -2676,7 +2722,8 @@ fn draw_waveform(
         );
         return;
     };
-    let (peaks, duration) = (audio.peaks.clone(), audio.clip.duration());
+    let (peaks, clip) = (audio.peaks.clone(), audio.clip.clone());
+    let duration = clip.duration();
     // The edit cursor: the focused pane's if it shows this file, else another pane's.
     let cursor = Some(app.pane())
         .filter(|p| p.buffer == buffer)
@@ -2686,13 +2733,17 @@ fn draw_waveform(
     let tick = cecilia_app::cursor_tick(&app.buffers[buffer].score, &cursor);
     let now = match play.filter(|p| p.0 == buffer && app.playing) {
         Some((_, _, t, _)) => t,
-        None => playback
-            .time_of(app, buffer, cursor.bar, tick)
+        // At rest, a chant's cursor stands where its cell is on the ruler (a division at its
+        // own tick, not at the note after it).
+        None => app
+            .chant_cursor_audio_time()
+            .filter(|_| app.pane().buffer == buffer)
+            .or_else(|| playback.time_of(app, buffer, cursor.bar, tick))
             .unwrap_or(0.0),
     };
     // Follow the playhead (or cursor) unless scrolled by hand since they last moved.
     let anchor = (cursor.bar, cursor.beat, app.playing);
-    if view.anchor != Some(anchor) {
+    if view.anchor != Some(anchor) && !view.hold {
         view.anchor = Some(anchor);
         view.start = None;
     }
@@ -2702,28 +2753,66 @@ fn draw_waveform(
     let x_of = |t: f64| r.x0 + (t - t0) / span * r.width();
     let mid = r.center().y;
     let amp = r.height() * 0.45;
+    // The waveform: half-pixel columns of the audio's own samples (the min/max body, and the
+    // RMS in a stronger tone inside it); when a column spans more than the peaks' 10 ms, from
+    // the peaks.
     let wave = tc(|t| t.waveform);
+    let rate = clip.rate.max(1) as f64;
+    let samples = &clip.samples;
+    let step = 0.5;
+    let per_col = span / r.width() * step;
+    fill(
+        scene,
+        Rect::new(r.x0, mid - 0.5, r.x1, mid + 0.5),
+        wave.with_alpha(0.35),
+    );
     let mut x = r.x0;
     while x < r.x1 {
         let t = t0 + (x - r.x0) / r.width() * span;
-        let t2 = t + span / r.width();
-        let (a, b) = (
-            (t.max(0.0) * 100.0) as usize,
-            ((t2.max(0.0) * 100.0) as usize).max((t.max(0.0) * 100.0) as usize + 1),
-        );
         if t >= 0.0 && t < duration {
-            let (lo, hi) = peaks[a.min(peaks.len())..b.min(peaks.len())]
-                .iter()
-                .fold((0f32, 0f32), |acc, p| (acc.0.min(p.0), acc.1.max(p.1)));
-            let rr = Rect::new(
+            let (lo, hi, rms) = if per_col <= 0.01 {
+                let a = ((t * rate) as usize).min(samples.len() / 2);
+                let b = (((t + per_col) * rate) as usize + 1)
+                    .max(a + 1)
+                    .min(samples.len() / 2);
+                let (mut lo, mut hi, mut sq) = (0f32, 0f32, 0f32);
+                for f in a..b {
+                    let m = (samples[f * 2] + samples[f * 2 + 1]) * 0.5;
+                    lo = lo.min(m);
+                    hi = hi.max(m);
+                    sq += m * m;
+                }
+                (lo, hi, (sq / (b - a).max(1) as f32).sqrt())
+            } else {
+                let a = (t.max(0.0) * 100.0) as usize;
+                let b = (((t + per_col).max(0.0) * 100.0) as usize).max(a + 1);
+                let (lo, hi) = peaks[a.min(peaks.len())..b.min(peaks.len())]
+                    .iter()
+                    .fold((0f32, 0f32), |acc, p| (acc.0.min(p.0), acc.1.max(p.1)));
+                (lo, hi, (hi - lo) * 0.25)
+            };
+            let body = Rect::new(
                 x,
                 mid - hi as f64 * amp,
-                x + 1.0,
-                mid - lo as f64 * amp + 1.0,
+                x + step,
+                mid - lo as f64 * amp + 0.5,
             );
-            scene.fill(Fill::NonZero, Affine::IDENTITY, wave, None, &rr);
+            scene.fill(
+                Fill::NonZero,
+                Affine::IDENTITY,
+                wave.with_alpha(0.55),
+                None,
+                &body,
+            );
+            let core = Rect::new(
+                x,
+                mid - rms as f64 * amp,
+                x + step,
+                mid + rms as f64 * amp + 0.5,
+            );
+            scene.fill(Fill::NonZero, Affine::IDENTITY, wave, None, &core);
         }
-        x += 1.0;
+        x += step;
     }
     // Loop region.
     if let Some((a, b)) = app.pa.loop_bars {
@@ -2743,32 +2832,119 @@ fn draw_waveform(
             }
         }
     }
-    // Sync points.
     let score = &app.buffers[buffer].score;
-    if let Some(sync) = &score.audio {
-        let pad = sync.frame_padding as f64 / cecilia_audio::SYNC_RATE;
-        for p in &sync.points {
-            let t = p.frame as f64 / cecilia_audio::SYNC_RATE - pad;
-            let x = x_of(t);
+    let pad = score
+        .audio
+        .as_ref()
+        .map_or(0.0, |a| a.frame_padding as f64 / cecilia_audio::SYNC_RATE);
+    let marks = score.chant_marks();
+    // Sync points (a line each) and the rulers show in Sync mode only.
+    let syncing = app.syncing;
+    if let Some(sync) = score.audio.as_ref().filter(|_| syncing) {
+        let frames: Vec<i64> = if score.is_chant() {
+            sync.chant_points.iter().map(|p| p.frame).collect()
+        } else {
+            sync.points.iter().map(|p| p.frame).collect()
+        };
+        for frame in frames {
+            let x = x_of(frame as f64 / cecilia_audio::SYNC_RATE - pad);
             if x >= r.x0 && x <= r.x1 {
                 fill(
                     scene,
                     Rect::new(x, r.y0, x + 1.5, r.y1),
                     tc(|t| t.sync_point),
                 );
-                text(
-                    scene,
-                    &format!("{}", p.bar + 1),
-                    x + 3.0,
-                    r.y0 + 12.0,
-                    11.0,
-                    Align::Left,
-                    accent(),
-                    false,
-                );
             }
         }
     }
+    let ui = &app.config.file.ui;
+    // The score ruler along the top (it stretches with the sync points): a tall tick at each
+    // bar (a chant's division) labelled `bar:syllable`, a short one at each syllable labelled
+    // with the syllable.
+    let by_note = app.pa.sync_unit == cecilia_app::chantsync::SyncUnit::Note;
+    if let Some(marks) = marks.as_ref().filter(|_| syncing) {
+        // A division (which starts a bar) is a tall tick, `bar:0`; a syllable a short one.
+        let mut ticks: Vec<Tick> = Vec::new();
+        for m in marks
+            .iter()
+            .filter(|m| m.is_bar() || m.is_syllable() || by_note)
+        {
+            let x = x_of(m.frame as f64 / cecilia_audio::SYNC_RATE - pad);
+            ticks.push(if m.is_bar() {
+                Tick {
+                    x,
+                    major: true,
+                    priority: 1,
+                    left: Some(format!("{}", m.place.bar)),
+                    right: "0".to_string(),
+                }
+            } else {
+                Tick {
+                    x,
+                    major: false,
+                    priority: 0,
+                    left: None,
+                    // By syllable they are all `.1`, which is left out.
+                    right: if by_note {
+                        format!("{}.{}", m.place.syllable, m.place.note)
+                    } else {
+                        format!("{}", m.place.syllable)
+                    },
+                }
+            });
+        }
+        ticks.retain(|t| t.x >= r.x0 && t.x <= r.x1);
+        draw_ruler(
+            scene,
+            r,
+            ticks,
+            true,
+            ui.waveform_beat_ticks,
+            ui.waveform_beat_labels,
+        );
+    }
+    // The time ruler along the bottom: a fixed scale, a tick every fifth of a second and a tall
+    // one each second, labelled `minutes:seconds`. Fifths closer than 3 pixels are left out.
+    let mut ticks: Vec<Tick> = Vec::new();
+    let fifth = r.width() / span / 5.0;
+    let (first, last) = (
+        (t0.max(0.0) * 10.0).floor() as i64,
+        ((t0 + span).min(duration) * 10.0).ceil() as i64,
+    );
+    for n in first..=last {
+        let major = n % 10 == 0;
+        // A minor tick every 0.2 s, when they are at least 3 pixels apart.
+        if !major && (n % 2 != 0 || fifth < 3.0) {
+            continue;
+        }
+        let k = n / 10;
+        ticks.push(Tick {
+            x: x_of(n as f64 / 10.0),
+            major,
+            priority: if k % 10 == 0 {
+                3
+            } else if k % 5 == 0 {
+                2
+            } else {
+                1
+            },
+            left: major.then(|| format!("{}", k / 60)),
+            right: if major {
+                format!("{:02}", k % 60)
+            } else {
+                String::new()
+            },
+        });
+    }
+    ticks.retain(|t| t.x >= r.x0 && t.x <= r.x1 && syncing);
+    draw_ruler(
+        scene,
+        r,
+        ticks,
+        false,
+        ui.waveform_time_ticks,
+        ui.waveform_time_labels,
+    );
     let px = x_of(now);
     fill(
         scene,
@@ -2786,6 +2962,92 @@ fn draw_waveform(
         chrome_text(),
         false,
     );
+}
+
+/// A tick of a waveform ruler and its label: `left:right`, the colon on the tick. A tick with
+/// no `left` has only `right`, on its right side.
+struct Tick {
+    x: f64,
+    major: bool,
+    /// Which labels win where they would overlap (higher first).
+    priority: u8,
+    left: Option<String>,
+    right: String,
+}
+
+/// A waveform's ruler along its top or bottom edge: ticks in the dim text color, 15 % (major)
+/// and 5 % of the strip's height, so they stay out of the waveform; the labels sit against the
+/// edge of the strip, straddling their tick, where there is room.
+fn draw_ruler(
+    scene: &mut Scene,
+    r: Rect,
+    mut ticks: Vec<Tick>,
+    top: bool,
+    show: cecilia_app::config::Ticks,
+    labels: bool,
+) {
+    const CHAR: f64 = 6.0;
+    let ink = dim();
+    let y = if top { r.y0 + 10.0 } else { r.y1 - 3.0 };
+    for t in &ticks {
+        if show.shows(t.major) {
+            let len = r.height() * if t.major { 0.15 } else { 0.05 };
+            let (y0, y1) = if top {
+                (r.y0, r.y0 + len)
+            } else {
+                (r.y1 - len, r.y1)
+            };
+            fill(scene, Rect::new(t.x, y0, t.x + 1.0, y1), ink);
+        }
+    }
+    if !labels {
+        return;
+    }
+    ticks.sort_by_key(|t| std::cmp::Reverse(t.priority));
+    // Where labels already stand (x ranges).
+    let mut taken: Vec<(f64, f64)> = Vec::new();
+    for t in &ticks {
+        let rw = t.right.chars().count() as f64 * CHAR;
+        let lw = t
+            .left
+            .as_ref()
+            .map_or(0.0, |l| l.chars().count() as f64 * CHAR);
+        let (a, b) = match t.left {
+            Some(_) => (t.x - CHAR / 2.0 - lw, t.x + CHAR / 2.0 + rw),
+            None => (t.x + 2.0, t.x + 2.0 + rw),
+        };
+        if t.right.is_empty() && t.left.is_none() || !taken.iter().all(|&(c, d)| b < c || a > d) {
+            continue;
+        }
+        taken.push((a, b));
+        let mid = t.x + 0.5;
+        match &t.left {
+            Some(l) => {
+                text(scene, ":", mid, y, 10.0, Align::Center, ink, false);
+                text(
+                    scene,
+                    l,
+                    mid - CHAR / 2.0,
+                    y,
+                    10.0,
+                    Align::Right,
+                    ink,
+                    false,
+                );
+                text(
+                    scene,
+                    &t.right,
+                    mid + CHAR / 2.0,
+                    y,
+                    10.0,
+                    Align::Left,
+                    ink,
+                    false,
+                );
+            }
+            None => text(scene, &t.right, a, y, 10.0, Align::Left, ink, false),
+        }
+    }
 }
 
 /// Draws design mode's handles over the pages: a line with a grip at each bar line of a system,
@@ -3005,7 +3267,20 @@ fn playhead_at(
     let a = points[k];
     let (next_tick, next_x, same_line) = match points.get(k + 1) {
         Some(b) => (b.0, b.2, b.1 == a.1 && (b.3 - a.3).abs() < 0.5),
-        None => (end_tick, bar_x1 - 2.0, bar_page == a.1 && bar_x1 > a.2),
+        None => {
+            // The last beat runs to the end of its bar on its own line: a bar that wraps over
+            // two lines (a chant) has beats on both, so its extent would sweep the playhead
+            // across the rest of the line and back.
+            let line_x1 = layout
+                .beats
+                .iter()
+                .filter(|(r, p)| {
+                    r.bar == bar && r.track == track && p.page == a.1 && (p.top - a.3).abs() < 0.5
+                })
+                .map(|(_, p)| p.x + p.width)
+                .fold(f64::MIN, f64::max);
+            (end_tick, line_x1 - 2.0, line_x1 > a.2)
+        }
     };
     let frac = if next_tick > a.0 {
         ((tick.saturating_sub(a.0)) as f64 / (next_tick - a.0) as f64).clamp(0.0, 1.0)
@@ -3337,7 +3612,8 @@ fn draw_command_line(scene: &mut Scene, app: &App, width: f64, height: f64) {
         | Mode::Visual
         | Mode::Tracks
         | Mode::Properties
-        | Mode::Palette => {
+        | Mode::Palette
+        | Mode::Sync => {
             if let Some(m) = &app.message {
                 let c = if m.error {
                     tc(|t| t.error)
@@ -3377,7 +3653,7 @@ fn draw_status(
     fill(scene, Rect::new(0.0, y0, width, height), chrome());
     let line = app.statusline(play.map(|(_, _, now, total)| (now, total)), true);
     let th = app.config.theme.clone();
-    let mode = th.mode_color(app.display_mode());
+    let mode = app.mode_color();
     let bg_of = |k: SegKind| match k {
         SegKind::Mode => mode,
         SegKind::ModeText => th.status_b,
@@ -3996,6 +4272,98 @@ fn draw_edit_palette(scene: &mut Scene, app: &App, views: &mut Views, r: Rect) {
     }
 }
 
+/// Draws the items of a chant palette icon (what the tool puts in the score, from the chant
+/// engraver's own symbols) as large as fit the icon, centred on `c`.
+fn draw_chant_icon(
+    scene: &mut Scene,
+    items: &[cecilia_engrave::display::Item],
+    c: vello::kurbo::Point,
+    color: Color,
+) {
+    use cecilia_engrave::display::Item;
+    let Some(b) = cecilia_engrave::symbols::icon_bounds(items).filter(|b| b.width() > 0.0) else {
+        return;
+    };
+    // About 17 x 16 px; a lone head is not blown up to fill it.
+    let k = (17.0 / b.width()).min(16.0 / b.height()).min(0.09);
+    let (cx, cy) = ((b.x0 + b.x1) / 2.0, (b.y0 + b.y1) / 2.0);
+    let at = |p: vello::kurbo::Point| {
+        vello::kurbo::Point::new(c.x + (p.x - cx) * k, c.y + (p.y - cy) * k)
+    };
+    let fonts = cecilia_engrave::fonts::fonts();
+    let base = color;
+    for item in items {
+        // Faint items (the staff) take their opacity from the item.
+        let color = match item {
+            Item::Line { color: c, .. } if c.a < 255 => base.multiply_alpha(c.a as f32 / 255.0),
+            // The red of colored text.
+            Item::Line { color: c, .. } if c.r > 0 => Color::from_rgba8(c.r, c.g, c.b, c.a),
+            _ => base,
+        };
+        match item {
+            Item::Glyph {
+                font,
+                ch,
+                at: p,
+                size,
+                ..
+            } => {
+                let o = at(*p);
+                if let Some(path) = fonts.glyph_path(*font, *ch, o.x, o.y, size * k) {
+                    scene.fill(Fill::NonZero, Affine::IDENTITY, color, None, &path);
+                }
+            }
+            Item::Line {
+                from, to, width, ..
+            } => {
+                let mut p = BezPath::new();
+                p.move_to(at(*from));
+                p.line_to(at(*to));
+                scene.stroke(
+                    &Stroke::new((width * k).max(0.5)),
+                    Affine::IDENTITY,
+                    color,
+                    None,
+                    &p,
+                );
+            }
+            Item::Path {
+                path, stroke: None, ..
+            } => {
+                let m = Affine::translate((c.x - cx * k, c.y - cy * k)) * Affine::scale(k);
+                scene.fill(Fill::NonZero, m, color, None, path);
+            }
+            Item::Path {
+                path,
+                stroke: Some(w),
+                ..
+            } => {
+                let m = Affine::translate((c.x - cx * k, c.y - cy * k)) * Affine::scale(k);
+                scene.stroke(&Stroke::new((w * k).max(0.8)), m, color, None, path);
+            }
+            Item::Text {
+                text: s,
+                at: p,
+                size,
+                align,
+                ..
+            } => {
+                let o = at(*p);
+                text(scene, s, o.x, o.y, (size * k).max(6.0), *align, color, true);
+            }
+            Item::Rect { rect, .. } => {
+                let r = Rect::new(
+                    at(rect.origin()).x,
+                    at(rect.origin()).y,
+                    at((rect.max_x(), rect.max_y()).into()).x,
+                    at((rect.max_x(), rect.max_y()).into()).y,
+                );
+                scene.fill(Fill::NonZero, Affine::IDENTITY, color, None, &r);
+            }
+        }
+    }
+}
+
 /// An icon of the editing palette for its command, in a 16 px square around `c`.
 /// Draws music-font glyphs (in a row, or stacked) centred on `c`, as large as fit the icon.
 fn draw_icon_glyphs(
@@ -4138,6 +4506,10 @@ fn draw_palette_icon(
         .trim_end()
         .split_once(' ')
         .unwrap_or((command.trim_end(), ""));
+    // The chant palette's symbols are drawn as the chant engraver draws them.
+    if let Some(items) = cecilia_engrave::symbols::chant_icon(command) {
+        return draw_chant_icon(scene, &items, c, color);
+    }
     // Symbols the engraver draws with a music-font glyph use that same glyph.
     match cecilia_engrave::symbols::palette_icon(command) {
         cecilia_engrave::symbols::Icon::Row(glyphs) => {
@@ -5212,7 +5584,7 @@ fn draw_fretboard(
         let w = 0.8 + s as f64 * 0.25;
         let cursor = v.cursor_string == Some(s);
         let c = if cursor {
-            th.mode_color(app.mode)
+            app.mode_color()
         } else {
             th.chrome_text.mix(th.panel, 0.35)
         };
@@ -5543,7 +5915,8 @@ impl Views {
             return None;
         }
         let cached = self.cache.get(&g.pane).filter(|c| c.key.2 == "page")?;
-        let center = ((g.content.width() / g.scale - 595.0) / 2.0).max(0.0);
+        let page_w = cecilia_engrave::layout::mm_to_pt(app.buffer().score.page.width);
+        let center = ((g.content.width() / g.scale - page_w) / 2.0).max(0.0);
         let page = cached.offsets.iter().rposition(|&o| o <= py)?;
         crate::design::handle_at(
             &cached.layout,
@@ -5719,6 +6092,14 @@ impl Views {
                     self.drag = Some(Drag::Tab(m, f64::NEG_INFINITY));
                 }
             }
+            Some(Drag::WaveSync(_, x0, start, per_px)) => {
+                app.wave_mouse_move(start + (x - x0) * per_px);
+            }
+            Some(Drag::WavePan(key, x0, start, per_px)) => {
+                if let Some(view) = self.waves.get_mut(&key) {
+                    view.start = Some(start - (x - x0) * per_px);
+                }
+            }
             Some(Drag::Wave(y0, h0)) => {
                 let h = h0 as f64 + (y0 - y);
                 app.run(cecilia_app::Command::WaveformResize(
@@ -5844,6 +6225,12 @@ impl Views {
             Some(Drag::Text) => app.text_release(),
             Some(Drag::Design(..)) => app.design_end(),
             Some(Drag::Select(..)) => app.mouse_release(),
+            Some(Drag::WaveSync(key, ..)) => {
+                if let Some(view) = self.waves.get_mut(&key) {
+                    view.hold = false;
+                }
+                app.wave_mouse_up();
+            }
             // Released on another staff: it moves there; on the same one: a click.
             Some(Drag::Prop(from, to, double)) if from == to => app.click_property(from, double),
             Some(Drag::Prop(from, to, _)) => app.drag_property(from, to),
@@ -6039,6 +6426,23 @@ impl Views {
             self.drag = Some(Drag::Divider(d));
             return;
         }
+        if let Some(&(r, key)) = self.wave_rects.iter().find(|(r, _)| r.contains((x, y))) {
+            let view = self.waves.entry(key).or_default();
+            let start = view.start.unwrap_or(view.drawn);
+            let per_px = view.span / r.width().max(1.0);
+            if app.wave_sync_editing() {
+                // Adds or grabs a sync point and plays while the button is down; the view
+                // stays put meanwhile.
+                view.start = Some(start);
+                view.hold = true;
+                let secs = start + (x - r.x0) * per_px;
+                app.wave_mouse_down(app.pane().buffer, secs, 5.0 * per_px);
+                self.drag = Some(Drag::WaveSync(key, x, secs, per_px));
+            } else {
+                self.drag = Some(Drag::WavePan(key, x, start, per_px));
+            }
+            return;
+        }
         if let Some(&(_, hit)) = self.tabline.iter().rev().find(|(r, _)| r.contains((x, y))) {
             // A tab can be dragged along the tabline to reorder it.
             if let TablineHit::Buffer(n) = hit {
@@ -6061,7 +6465,9 @@ impl Views {
         let page_mode = cached.key.2 == "page";
         let view_w = g.content.width() / g.scale;
         let center = if page_mode {
-            ((view_w - 595.0) / 2.0).max(0.0)
+            let buffer = &app.buffers[app.panes[&g.pane].buffer];
+            let page_w = cecilia_engrave::layout::mm_to_pt(buffer.score.page.width);
+            ((view_w - page_w) / 2.0).max(0.0)
         } else {
             0.0
         };
@@ -6215,6 +6621,56 @@ mod tests {
         assert!(x(960) > x(480) && x(3800) > x(2880));
         // The last beat runs on towards the barline.
         assert!(x(3800) < layout.bars[0].2);
+    }
+
+    #[test]
+    fn the_playhead_stays_on_its_line_in_a_chant_bar_that_wraps() {
+        use cecilia_core::chant::{Chant, ChantNote, NeumeItem, Syllable, retranscribe};
+        // One long phrase (no division), so a single bar that wraps over several lines.
+        let syllables = (0..40)
+            .map(|i| Syllable {
+                text: "la".into(),
+                word_start: true,
+                items: vec![NeumeItem::Note(ChantNote::new(5 + (i % 3) as u8))],
+                ..Default::default()
+            })
+            .collect();
+        let mut score = Score::default();
+        score.tracks.push(Track {
+            kind: TrackKind::Chant,
+            chant: Some(Box::new(Chant {
+                syllables,
+                ..Chant::default()
+            })),
+            ..Track::default()
+        });
+        retranscribe(&mut score, 0);
+        let options = Options {
+            mode: cecilia_engrave::Mode::Vertical { width: 300.0 },
+            ..Options::default()
+        };
+        let layout = cecilia_engrave::engrave(&score, 0, &options);
+        let tops: std::collections::BTreeSet<i64> = layout
+            .beats
+            .values()
+            .map(|p| (p.top * 10.0) as i64)
+            .collect();
+        assert!(tops.len() > 1, "the bar wraps");
+        // At every tick the playhead is on a line, and never to the right of that line's last
+        // beat's column.
+        let end = score.played_ticks(0);
+        let mut tick = 0;
+        while tick < end {
+            let (page, x, top, _) = playhead_at(&layout, &score, 0, 0, tick).unwrap();
+            let right = layout
+                .beats
+                .values()
+                .filter(|p| p.page == page && (p.top - top).abs() < 0.5)
+                .map(|p| p.x + p.width)
+                .fold(f64::MIN, f64::max);
+            assert!(x <= right, "tick {tick}: {x} > {right}");
+            tick += 120;
+        }
     }
 }
 

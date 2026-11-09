@@ -24,6 +24,8 @@ pub const HEAD_H: f64 = 158.0;
 pub enum Kind {
     Punctum,
     Virga,
+    /// A virga with its stem on the left (`V`).
+    VirgaReversa,
     Inclinatum,
     Quilisma,
     /// Oriscus; `true` ascending.
@@ -92,7 +94,7 @@ impl Typeset<'_> {
 
     fn head(&mut self, kind: Kind, n: i32, x: f64) -> f64 {
         let base = match kind {
-            Kind::Punctum => 0xE105,
+            Kind::Punctum | Kind::VirgaReversa => 0xE105,
             Kind::Virga => 0xE125,
             Kind::Inclinatum | Kind::Small => 0xE1D5,
             Kind::Quilisma => 0xE145,
@@ -102,6 +104,14 @@ impl Typeset<'_> {
             Kind::Hollow => 0xE275,
         };
         self.glyph(base + n, x, 0.0);
+        if kind == Kind::VirgaReversa {
+            // The stem hangs from the left edge of the head down past the next line below.
+            let len = if n % 2 == 1 { 317.0 } else { 193.0 };
+            let u = self.u();
+            let top = self.y(n);
+            let rect = kurbo::Rect::new(x, top, x + 14.0 * u, top + len * u);
+            fill(self.page, rect.to_path(0.1));
+        }
         match kind {
             Kind::Inclinatum | Kind::Small => 96.0,
             _ => HEAD,
@@ -153,16 +163,39 @@ impl Typeset<'_> {
             centers.push(x + (pen + 64.0) * u);
             return ((pen + HEAD) * u, centers);
         }
-        if all_punctum && notes.len() == 3 && d[1] < d[0] && d[2] > d[1] && d[0] - d[1] <= 4 {
-            // Porrectus: the oblique stroke glyph, then the last note joined to its end.
+        if notes.len() == 2 && notes[0].kind == Kind::Quilisma && d[1] > d[0] {
+            // A pes quilisma: the quilisma with the note above it, in one column.
+            self.head(Kind::Quilisma, d[0], x);
+            self.line(x, d[0], d[1] - d[0]);
+            self.head(notes[1].kind, d[1], x);
+            return (HEAD * u, vec![x + HEAD / 2.0 * u; 2]);
+        }
+        if all_punctum
+            && matches!(notes.len(), 3 | 4)
+            && d[1] < d[0]
+            && d[2] > d[1]
+            && d[0] - d[1] <= 4
+            && (notes.len() == 3 || d[3] < d[2])
+        {
+            // Porrectus: the oblique stroke glyph, then the last note joined to its end; a
+            // porrectus flexus goes on with a note below that, joined by a line.
             let k = d[0] - d[1];
             self.glyph(0xE220 + 0x10 * (k - 1) + 5 + d[0], x, 0.0);
             let adv = if k == 1 { 386.0 } else { 483.0 };
             self.glyph(0xE160 + 5 + d[2], x + adv * u, 0.0);
-            return (
-                adv * u,
-                vec![x + 64.0 * u, x + (adv - 190.0) * u, x + (adv - 59.0) * u],
-            );
+            let mut centers = vec![x + 64.0 * u, x + (adv - 190.0) * u, x + (adv - 59.0) * u];
+            let mut pen = adv;
+            if notes.len() == 4 {
+                let drop = d[2] - d[3];
+                self.line(x + pen * u, d[3], drop);
+                if drop >= 2 {
+                    pen += 11.0;
+                }
+                self.head(Kind::Punctum, d[3], x + pen * u);
+                centers.push(x + (pen + 64.0) * u);
+                pen += HEAD;
+            }
+            return (pen * u, centers);
         }
         for (i, note) in notes.iter().enumerate() {
             let adv = self.head(note.kind, d[i], x + pen * u);
@@ -293,3 +326,59 @@ impl Typeset<'_> {
 
 /// The divisions the font has glyphs for.
 pub type Division = cecilia_core::chant::Division;
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn set(notes: &[N]) -> (f64, Vec<f64>, usize) {
+        let mut page = Page::default();
+        let mut ts = Typeset {
+            page: &mut page,
+            bottom: 100.0,
+            g: 10.0,
+        };
+        let (w, c) = ts.neume(0.0, notes);
+        (w, c, page.items.len())
+    }
+
+    fn n(pos: i32, kind: Kind) -> N {
+        N { pos, kind }
+    }
+
+    #[test]
+    fn a_pes_quilisma_is_one_column_and_a_porrectus_flexus_one_glyph_and_a_head() {
+        // f quilisma, g: both in the column of one head.
+        let (w, centers, _) = set(&[n(5, Kind::Quilisma), n(6, Kind::Punctum)]);
+        assert_eq!(centers[0], centers[1]);
+        // One head wide (a line gap is 250 font units: 10 page units).
+        assert!((w - HEAD * 10.0 / 250.0).abs() < 1e-9, "{w}");
+        // j g h f: the porrectus of the first three, a head after it.
+        let three = set(&[
+            n(9, Kind::Punctum),
+            n(6, Kind::Punctum),
+            n(7, Kind::Punctum),
+        ]);
+        let four = set(&[
+            n(9, Kind::Punctum),
+            n(6, Kind::Punctum),
+            n(7, Kind::Punctum),
+            n(5, Kind::Punctum),
+        ]);
+        assert!(four.0 > three.0 && four.1.len() == 4);
+        assert_eq!(four.1[..3], three.1[..]);
+    }
+
+    #[test]
+    fn a_virga_reversa_hangs_its_stem_on_the_left() {
+        let mut page = Page::default();
+        let mut ts = Typeset {
+            page: &mut page,
+            bottom: 100.0,
+            g: 10.0,
+        };
+        ts.single(5.0, n(8, Kind::VirgaReversa), 1);
+        // The head and a filled stem.
+        assert_eq!(page.items.len(), 2);
+    }
+}

@@ -2,6 +2,7 @@
 
 pub mod beats;
 mod clip;
+pub mod pitch;
 mod player;
 mod sequence;
 mod synth;

@@ -644,6 +644,7 @@ impl App {
                     recent,
                     jump_back: None,
                     scroll_request: None,
+                    wave_zoom: None,
                 },
             );
         }
@@ -711,6 +712,7 @@ impl App {
                     recent: Vec::new(),
                     jump_back: None,
                     scroll_request: None,
+                    wave_zoom: None,
                 },
             );
             self.views.push(View {

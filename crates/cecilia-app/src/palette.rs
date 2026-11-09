@@ -271,10 +271,20 @@ pub const CHANT_SECTIONS: &[(&str, &[Item])] = &[
     (
         "Text",
         &[
+            ("Lyric mode (type the syllable's text)", "lyric-mode", "ly"),
+            ("Italic", "chant-markup i", "i"),
+            ("Bold", "chant-markup b", "b"),
+            ("Underline", "chant-markup ul", "u"),
+            ("Small capitals", "chant-markup sc", "sc"),
+            ("Colored text (red)", "chant-markup c", "c"),
+            ("Monospaced text", "chant-markup tt", "tt"),
+            ("Elision", "chant-markup e", "e"),
+            ("Text above the staff", "chant-markup alt", "alt"),
             ("Asterisk (end of the intonation)", "chant-symbol *", "*"),
             ("Plus", "chant-symbol +", "+"),
             ("Versicle", "chant-symbol ℣", "℣"),
             ("Response", "chant-symbol ℟", "℟"),
+            ("Barred A", "chant-symbol Ⱥ", "A/"),
         ],
     ),
 ];
@@ -650,16 +660,29 @@ impl App {
                     ("chant-symbol", a) => chant.zip(at).is_some_and(|(ch, n)| {
                         let sign = match a {
                             "℣" => "<sp>V/</sp>",
+                            "Ⱥ" => "<sp>A/</sp>",
                             "℟" => "<sp>R/</sp>",
                             other => other,
                         };
                         ch.syllable_of(n)
                             .is_some_and(|si| ch.syllables[si].text.ends_with(sign))
                     }),
+                    // Lyric mode is on; the cursor syllable's text has the tag around it.
+                    ("lyric-mode", _) => self.ed.lyric && self.mode == crate::config::Mode::Insert,
+                    ("chant-markup", tag) => chant
+                        .zip(self.chant_cursor_cell())
+                        .and_then(|(ch, cell)| ch.syllables.get(cell.syllable))
+                        .is_some_and(|s| {
+                            cecilia_core::chant::toggle_markup(&s.text, tag).len() < s.text.len()
+                        }),
                     _ => false,
                 };
-                // What needs a note under the cursor (the clef and divisions do not).
-                let needs_note = !matches!(name, "chant-clef" | "chant-division");
+                // What needs a note under the cursor (the clef, divisions and the text tools
+                // do not).
+                let needs_note = !matches!(
+                    name,
+                    "chant-clef" | "chant-division" | "lyric-mode" | "chant-markup"
+                );
                 rows.push(PaletteRow {
                     kind: PaletteKind::Item,
                     label,
@@ -1748,7 +1771,7 @@ mod tests {
     }
 
     #[test]
-    fn bottom_tools_run_under_the_palette_at_the_full_width() {
+    fn bottom_tools_run_under_the_scores_between_the_palette_and_properties() {
         let rect = |app: &App, id| app.layout().into_iter().find(|(p, _)| *p == id).unwrap().1;
         // Whichever is opened first, and with the properties pane too.
         for order in [[0, 1, 2], [1, 0, 2], [2, 1, 0], [1, 2, 0]] {
@@ -1766,11 +1789,15 @@ mod tests {
                 pane(&app, PaneKind::Fretboard),
                 pane(&app, PaneKind::Properties),
             );
-            assert!(
-                palette.y + palette.h <= tools.y,
+            // The palette runs the full height along the left; the tools are inside its right
+            // edge.
+            assert_eq!(palette.x, 0, "{order:?}");
+            assert_eq!(
+                tools.x,
+                palette.x + palette.w,
                 "{order:?}: {palette:?} {tools:?}"
             );
-            assert_eq!((palette.x, tools.x), (0, 0), "{order:?}");
+            assert_eq!(palette.y + palette.h, tools.y + tools.h, "{order:?}");
             // The properties pane stays outermost along the right, at the full height.
             assert_eq!(tools.x + tools.w, props.x, "{order:?}");
             assert_eq!(props.y, 0);
@@ -1784,21 +1811,21 @@ mod tests {
         }
     }
 
-    /// The old shape: the palette outermost with the bottom tool nested in the score column.
+    /// The old shape: the bottom tool at the full width, the palette above it with the scores.
     fn old_shape(app: &mut App) {
         let palette = app.tool_pane(PaneKind::Palette).unwrap();
         let tool = app.tool_pane(PaneKind::Fretboard).unwrap();
         let score = app.focused();
         let v = app.active_view;
         app.views[v].root = Node::Split {
-            axis: Axis::SideBySide,
+            axis: Axis::Stacked,
             children: vec![
-                Node::Leaf(palette),
                 Node::Split {
-                    axis: Axis::Stacked,
-                    children: vec![Node::Leaf(score), Node::Leaf(tool)],
+                    axis: Axis::SideBySide,
+                    children: vec![Node::Leaf(palette), Node::Leaf(score)],
                     weights: vec![1.0, 1.0],
                 },
+                Node::Leaf(tool),
             ],
             weights: vec![1.0, 1.0],
         };
@@ -1821,9 +1848,9 @@ mod tests {
         let rect = |app: &App, id| app.layout().into_iter().find(|(p, _)| *p == id).unwrap().1;
         let palette = rect(&other, other.tool_pane(PaneKind::Palette).unwrap());
         let tool = rect(&other, other.tool_pane(PaneKind::Fretboard).unwrap());
-        assert_eq!((tool.x, tool.w), (0, other.viewport.w), "{tool:?}");
-        assert!(palette.y + palette.h <= tool.y, "{palette:?} {tool:?}");
+        assert_eq!(tool.x, palette.x + palette.w, "{palette:?} {tool:?}");
         assert_eq!(palette.x, 0);
+        assert_eq!(palette.y + palette.h, tool.y + tool.h);
         assert_eq!(sizes(&other), before, "the sizes are kept");
     }
 

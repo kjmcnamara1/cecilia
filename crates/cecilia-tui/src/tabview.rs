@@ -663,7 +663,7 @@ impl Widget for TabView<'_> {
         let line_style = Style::default().fg(rc(th.chrome_text.mix(th.dim, 0.6)));
         let on = |bg| Style::default().fg(rc(th.text_on(bg))).bg(rc(bg));
         let cursor_style = if self.focused {
-            on(th.mode_color(self.app.mode))
+            on(self.app.mode_color())
         } else {
             on(th.dim)
         };
@@ -1031,7 +1031,7 @@ impl Widget for TabView<'_> {
                 }
                 let (add, remove) = (first + n < track.bars.len(), n > 1);
                 let bx = area.x + area.width;
-                let lit = on(th.mode_color(self.app.mode));
+                let lit = on(self.app.mode_color());
                 let y_minus = y0 + 1 + u16::from(rows > 1);
                 buf.set_string(bx, y0 + 1, "+", if add { lit } else { dim });
                 buf.set_string(bx, y_minus, "-", if remove { lit } else { dim });

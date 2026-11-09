@@ -800,7 +800,7 @@ fn the_palette_lists_the_tools_of_the_notation_and_mode() {
         assert!(
             chant
                 .iter()
-                .all(|c| c.starts_with("chant-") || c.starts_with("pitch-"))
+                .all(|c| c.starts_with("chant-") || c.starts_with("pitch-") || *c == "lyric-mode")
         );
         assert_eq!(
             titles(&c),
@@ -996,7 +996,7 @@ fn del_in_insert_mode_deletes_the_whole_beat() {
     let mut a = app();
     set_bar(&mut a, 0, &[&[(2, 5, false)], &[], &[], &[]]);
     let before = voices_of(&a, 0)[0].beats.len();
-    keys(&mut a, "<CR>");
+    keys(&mut a, "gi");
     keys(&mut a, "<Del>");
     assert_eq!(voices_of(&a, 0)[0].beats.len(), before - 1);
     assert!(

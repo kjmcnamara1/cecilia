@@ -79,6 +79,14 @@ pub const COMMAND_SCOPES: &[(&str, Scope)] = &[
     ("chant-bar", C),
     ("chant-break", C),
     ("chant-mod", C),
+    ("chant-join", C),
+    ("chant-custos", C),
+    ("lyrics-delete", C),
+    ("lyrics-shift", C),
+    ("chant-markup", C),
+    ("chant-linebreak", C),
+    ("chant-sep", C),
+    ("chant-split", C),
     ("chant-syllable", C),
     ("chant-to-modern", C),
     ("clef", B),
@@ -117,7 +125,6 @@ pub const COMMAND_SCOPES: &[(&str, Scope)] = &[
     ("insert", B),
     ("insert-bar-start", B),
     ("insert-enter", B),
-    ("insert-here", B),
     ("insert-last", B),
     ("append-bar-end", B),
     ("insert-next", B),
@@ -127,7 +134,7 @@ pub const COMMAND_SCOPES: &[(&str, Scope)] = &[
     ("layout", B),
     ("loop", B),
     ("loop-toggle", B),
-    ("lyrics", M),
+    ("lyrics", B),
     ("lyrics-attach", M),
     ("lyrics-clear", M),
     ("notation", M),
@@ -263,6 +270,7 @@ pub const COMMAND_SCOPES: &[(&str, Scope)] = &[
     ("sync-tap", B),
     ("sync-unit", C),
     ("sync-undo", C),
+    ("sync-remove", C),
     ("sync-here", C),
     ("sync-nudge", C),
     ("tempo", B),
@@ -293,6 +301,7 @@ pub const COMMAND_SCOPES: &[(&str, Scope)] = &[
     ("view-rename", B),
     ("visual", B),
     ("visual-reselect", B),
+    ("visual-other-end", B),
     ("visual-bar", B),
     ("visual-insert", B),
     ("visual-append", B),
@@ -328,6 +337,8 @@ pub const COMMAND_SCOPES: &[(&str, Scope)] = &[
     ("chant-ictus", C),
     ("chant-alter", C),
     ("lyrics-select", C),
+    ("lyric-mode", C),
+    ("replace-mode", C),
     ("chant-liquescence", C),
     ("chant-symbol", C),
     ("score-kind", B),
@@ -418,6 +429,7 @@ fn values(command: &str) -> Option<&'static [&'static str]> {
             "da-double-coda",
         ],
         "chant-bar" => &[",", ":", "::", ";"],
+        "chant-sep" => &["/", "!"],
         "chant-division" => &[
             ",", ";", ":", "::", ",?", ";1", ";2", ";3", ";4", ";5", ";6", "`", "``",
         ],
@@ -438,9 +450,11 @@ fn values(command: &str) -> Option<&'static [&'static str]> {
             "quadratum",
         ],
         "sync-unit" => &["syllable", "note"],
-        "chant-alter" => &["flat", "natural"],
+        "chant-alter" => &["flat", "natural", "sharp"],
+        "chant-markup" => &["i", "b", "ul", "sc", "c", "tt", "e", "alt"],
+        "chant-linebreak" => &["z", "Z"],
         "chant-liquescence" => &["deminutus", "ascendens", "descendens"],
-        "chant-symbol" => &["*", "+", "†", "℣", "℟"],
+        "chant-symbol" => &["*", "+", "†", "℣", "℟", "Ⱥ"],
         "volume" => &["audio", "metronome", "midi"],
         "pick" => &[
             "buffer",
@@ -939,6 +953,7 @@ mod tests {
                 "sync-detect",
                 "sync-here",
                 "sync-nudge",
+                "sync-remove",
                 "sync-tap",
                 "sync-undo",
                 "sync-unit"
@@ -1090,7 +1105,6 @@ pub fn describe(command: &str) -> Option<&'static str> {
         "insert" => "New beat before the cursor, then insert mode",
         "insert-bar-start" => "New beat at the start of the bar, then insert mode",
         "insert-enter" => "Insert mode: put a note at the cursor, next beat",
-        "insert-here" => "Insert mode on the cursor beat, adding nothing",
         "insert-last" => "Insert mode where it was last left",
         "insert-next" => "Insert after the cursor beat",
         "interpretation" => "Chant rhythm: equalist or solesmes",
@@ -1112,7 +1126,9 @@ pub fn describe(command: &str) -> Option<&'static str> {
         "layout" => "Score layout of this pane",
         "loop" => "Loop bars a–b",
         "loop-toggle" => "Loop the selection or cursor bar",
-        "lyrics" => "Lyrics from the cursor on (lyrics; \\n a line break)",
+        "lyrics" => {
+            "Lyrics from the cursor on (lyrics; \\n a line break); on chant all of it is the cursor syllable's text"
+        }
         "lyrics-attach" => "Attach lyrics to the cursor staff: above|below [track], or none",
         "notation" => "Notation of the cursor's staff (standard, tab, tab+, slash, chant)",
         "lyrics-clear" => "Remove the lyrics, or one verse row of them",
@@ -1269,9 +1285,10 @@ pub fn describe(command: &str) -> Option<&'static str> {
         "sync-clear" => "Remove all audio sync points",
         "sync-detect" => "Sync the audio by beat detection",
         "sync-tap" => "Sync point at the playing bar (chant: at the next syllable or note)",
-        "sync-unit" => "Chant: tap one syllable or one note at a time",
+        "sync-unit" => "Chant: tap one syllable or one cell (note, rest, division) at a time",
         "sync-undo" => "Chant: take back the last sync tap",
-        "sync-here" => "Chant: sync the cursor note at the playhead",
+        "sync-remove" => "Chant: remove the sync point of the cursor (or selection)",
+        "sync-here" => "Chant: sync the cursor cell at the playhead",
         "sync-nudge" => "Chant: move the sync point under the cursor by some milliseconds",
         "bdelete" | "buffer-close" => "Close the buffer's tab in this view",
         "bdelete!" | "buffer-close!" => "Close the buffer's tab, discarding changes",
@@ -1307,6 +1324,9 @@ pub fn describe(command: &str) -> Option<&'static str> {
         "chant-bar" => "Add a division after the cursor syllable",
         "chant-append" => "Add a chant note after the cursor note",
         "chant-break" => "Add a chant note after the cursor note, starting a new neume",
+        "chant-join" => "Chant: merge the selected syllables (the cursor's and the next) into one",
+        "chant-split" => "Chant: split the syllable after the cursor note (each selected note)",
+        "chant-sep" => "Chant: toggle a neume separator (/ or !) after the cursor note",
         "chant-syllable" => "Chant: a new syllable after the cursor syllable",
         "chant-shape" => "Give the cursor chant note a head (punctum, virga, quilisma, oriscus …)",
         "chant-division" => "Toggle a division after the cursor syllable (, ; : :: and variants)",
@@ -1314,10 +1334,27 @@ pub fn describe(command: &str) -> Option<&'static str> {
         "chant-mora" => "Toggle the mora (lengthening dot) of the cursor chant note",
         "chant-episema" => "Toggle the horizontal episema of the cursor chant note",
         "chant-ictus" => "Toggle the ictus of the cursor chant note",
-        "chant-alter" => "Toggle a flat or natural before the cursor chant note",
-        "lyrics-select" => "Select the cursor note's GABC in the lyrics text area (Visual mode)",
+        "chant-markup" => {
+            "Chant: put <i> <b> <ul> <sc> <c> <tt> <e> or <alt> around the cursor syllable's text, or take it off"
+        }
+        "lyrics-shift" => {
+            "Chant: move the notes N syllables on (back when negative) among the selected syllables, or from the cursor syllable to the end, the lyrics staying"
+        }
+        "lyrics-delete" => {
+            "Chant: delete the lyrics of the selected syllables (the cursor's without a selection), keeping the notes"
+        }
+        "chant-custos" => "Chant: change the cursor note into a custos (g+)",
+        "chant-alter" => "Toggle a flat, natural or sharp before the cursor chant note",
+        "chant-linebreak" => {
+            "Toggle a forced line break (z) or one that does not stretch the line (Z) after the cursor syllable"
+        }
+        "replace-mode" => {
+            "Chant: Insert mode that only changes the notes there, adding no empty groups (Esc leaves)"
+        }
+        "lyric-mode" => "Chant: type the cursor syllable's text, shown as you type (Esc leaves)",
+        "lyrics-select" => "Put the lyrics text area's caret on the cursor note's GABC",
         "chant-liquescence" => "Toggle a liquescence of the cursor chant note",
-        "chant-symbol" => "Add a symbol (* + † ℣ ℟) to the cursor syllable's text",
+        "chant-symbol" => "Add a symbol (* + † ℣ ℟ Ⱥ) to the cursor syllable's text",
         "score-kind" => "Say whether this is a modern or a chant score, and how to convert it",
         "track-next" => "Next track",
         "track-prev" => "Previous track",
@@ -1328,6 +1365,7 @@ pub fn describe(command: &str) -> Option<&'static str> {
         "undo" => "Undo",
         "visual" => "Visual mode (beats)",
         "visual-reselect" => "Reselect the last visual selection",
+        "visual-other-end" => "Move the cursor to the other end of the visual selection",
         "visual-bar" => "Visual mode (bars)",
         "visual-insert" => "Visual mode: new beat before the selection, then insert mode",
         "visual-append" => "Visual mode: new beat after the selection, then insert mode",

@@ -48,6 +48,7 @@ pub fn empty_chant(name: &str) -> Chant {
         text: String::new(),
         word_start: true,
         items: vec![NeumeItem::Clef(Default::default())],
+        ..Default::default()
     });
     chant
 }
@@ -106,6 +107,7 @@ pub fn modern_to_chant(
         text: String::new(),
         word_start: true,
         items: vec![NeumeItem::Clef(clef)],
+        ..Default::default()
     });
     let mut rounded = 0;
     let mut flats: Vec<u8> = Vec::new();
@@ -128,6 +130,7 @@ pub fn modern_to_chant(
                 text: escape(&text),
                 word_start,
                 items: Vec::new(),
+                ..Default::default()
             });
             continues = cont;
         }
@@ -158,6 +161,7 @@ pub fn modern_to_chant(
                 text: String::new(),
                 word_start: true,
                 items: vec![NeumeItem::Bar(d.clone())],
+                ..Default::default()
             });
             flats.clear();
             continues = false;
@@ -308,8 +312,8 @@ mod tests {
                 let mut open = false;
                 for g in cecilia_core::chant::group_neumes(run) {
                     let n = g[0].1;
-                    if open && g.len() == 1 && n.inclinatum {
-                        *sizes.last_mut().unwrap() += 1;
+                    if open && n.inclinatum {
+                        *sizes.last_mut().unwrap() += g.len();
                     } else {
                         sizes.push(g.len());
                         open = g.len() == 1 && n.mods.iter().any(|m| m == "v");

@@ -6,7 +6,7 @@
 //! operation or refused with "not in chant".
 
 use cecilia_core::chant::{
-    self, Cell, CellKind, Chant, Liquescence, Shape, retranscribe, transcribe,
+    self, Cell, CellKind, Chant, Liquescence, NeumeItem, Shape, Syllable, retranscribe, transcribe,
 };
 use cecilia_core::chant_edit::{Alter, Join};
 
@@ -93,6 +93,48 @@ enum Target {
     Cell(usize),
 }
 
+/// The syllables the cells in the beats `from` to `to` belong to, in order.
+struct Covered {
+    syllable: usize,
+    /// The notes (reading order) of the cells there.
+    notes: Vec<usize>,
+    /// Every cell of the syllable is there.
+    whole: bool,
+}
+
+fn covered(chant: &Chant, from: (usize, usize), to: (usize, usize)) -> Vec<Covered> {
+    let t = transcribe(chant);
+    let mut out: Vec<Covered> = Vec::new();
+    for c in t
+        .cells
+        .iter()
+        .filter(|c| (c.bar, c.beat + c.len - 1) >= from && (c.bar, c.beat) <= to)
+    {
+        if out.last().is_none_or(|o| o.syllable != c.syllable) {
+            out.push(Covered {
+                syllable: c.syllable,
+                notes: Vec::new(),
+                whole: false,
+            });
+        }
+        out.last_mut().unwrap().notes.extend(c.note);
+    }
+    for cv in &mut out {
+        let all = t.cells.iter().filter(|c| c.syllable == cv.syllable).count();
+        let here = t
+            .cells
+            .iter()
+            .filter(|c| {
+                c.syllable == cv.syllable
+                    && (c.bar, c.beat + c.len - 1) >= from
+                    && (c.bar, c.beat) <= to
+            })
+            .count();
+        cv.whole = here == all;
+    }
+    out
+}
+
 impl App {
     /// Whether the buffer shown is a chant score.
     pub(crate) fn cursor_on_chant(&self) -> bool {
@@ -124,20 +166,45 @@ impl App {
 
     /// Sets (or, when it is already there, takes off) the flat or natural before the cursor note.
     fn chant_alter(&mut self, want: Alter) {
-        self.chant_op(move |chant, at| {
-            let n = at.ok_or("no note under the cursor")?;
+        self.chant_note_op(move |chant, n| {
             let now = chant.alteration_of(n);
-            chant.set_alteration(n, if now == Some(want) { None } else { Some(want) })?;
-            Ok(Some(n))
+            chant.set_alteration(n, if now == Some(want) { None } else { Some(want) })
         });
     }
 
     /// Toggles a GABC modifier of the cursor note (see [`toggle_modifier`]).
     fn chant_toggle(&mut self, modifier: &'static str) {
-        self.chant_op(move |chant, at| {
-            let n = at.ok_or("no note under the cursor")?;
-            toggle_modifier(chant, n, modifier)?;
-            Ok(Some(n))
+        self.chant_note_op(move |chant, n| toggle_modifier(chant, n, modifier));
+    }
+
+    /// Like [`Self::chant_op`] for what changes a note's signs: where the cursor has no note
+    /// (an empty beat, a division, the end) a punctum on the cursor's staff line goes in first,
+    /// and the change is made to it. The closure gets the note.
+    fn chant_note_op(&mut self, f: impl FnOnce(&mut Chant, usize) -> Result<(), String>) {
+        let line = self.pane().cursor.line.clamp(0, 14) as u8;
+        // Insert mode keeps going: a note made here gets an empty group after it.
+        let insert = self.mode == crate::config::Mode::Insert && !self.ed.replace;
+        self.chant_cell_op(move |chant, at, cell| {
+            let made = at.is_none();
+            let n = match (at, cell) {
+                (Some(n), _) => n,
+                (None, Some(c)) if c.kind == CellKind::Slot => chant.fill_slot(c.syllable, line)?,
+                (None, Some(c)) => {
+                    let si = chant.slot_after(c.syllable);
+                    chant.fill_slot(si, line)?
+                }
+                (None, None) => {
+                    let si = chant.insert_slot(chant.syllables.len());
+                    chant.fill_slot(si, line)?
+                }
+            };
+            f(chant, n)?;
+            if insert && made {
+                if let Some(si) = chant.syllable_of(n) {
+                    chant.insert_slot(si + 1);
+                }
+            }
+            Ok(Some(Target::Note(n)))
         });
     }
 
@@ -228,27 +295,198 @@ impl App {
         });
     }
 
-    /// `<CR>` in Insert mode: the note on the staff line of the cursor goes into the empty group
-    /// the cursor is on (or into a new one after the cursor cell), and the cursor moves on to a
-    /// new empty group after it.
-    fn chant_enter(&mut self) {
-        let line = self.pane().cursor.line.clamp(0, 14) as u8;
+    /// `:lyrics TEXT` on a chant: `text` is the whole text of the cursor syllable.
+    pub(crate) fn chant_lyrics(&mut self, text: String) {
+        self.chant_syllable_text(text, None);
+    }
+
+    /// Sets the text of the cursor syllable, and whether a space precedes it (it starts a word).
+    fn chant_syllable_text(&mut self, text: String, word_start: Option<bool>) {
         self.chant_cell_op(move |chant, _, cell| {
-            let si = match cell {
-                Some(c) if c.kind == CellKind::Slot => c.syllable,
-                Some(c) => chant.insert_slot(c.syllable + 1),
-                None => chant.insert_slot(chant.syllables.len()),
-            };
-            chant.fill_slot(si, line)?;
-            Ok(Some(Target::Syllable(chant.insert_slot(si + 1))))
+            let si = cell
+                .ok_or("lyrics: the cursor is not on a syllable")?
+                .syllable;
+            chant.set_text_of_syllable(si, &text)?;
+            if let Some(w) = word_start {
+                chant.syllables[si].word_start = w;
+            }
+            Ok(None)
         });
     }
 
-    /// `<Space>` in Insert mode: on to the next cell, or a new empty group after the last.
-    fn chant_advance(&mut self) {
+    /// The text of the syllable the cursor is on, and whether it starts a word.
+    fn cursor_syllable_text(&self) -> Option<(String, bool)> {
+        let si = self.chant_cursor_cell()?.syllable;
+        let c = self.pane().cursor;
+        let chant = self.buffer().score.tracks.get(c.track)?.chant.as_deref()?;
+        chant
+            .syllables
+            .get(si)
+            .map(|s| (s.text.clone(), s.word_start))
+    }
+
+    /// `:lyric-mode` (`<A-i>`): Insert mode where the keys type the cursor syllable's text.
+    fn lyric_mode(&mut self) {
         if !self.require_chant() {
             return;
         }
+        // The palette's tool (or the key) again leaves it.
+        if self.ed.lyric && self.mode == crate::config::Mode::Insert {
+            self.ed.lyric = false;
+            return self.run(Command::Normal);
+        }
+        if self.chant_cursor_cell().is_none() {
+            return self.error("lyric-mode: the cursor is not on a syllable");
+        }
+        self.enter_insert();
+        self.ed.lyric = true;
+    }
+
+    /// In lyric mode, the cursor on the first note of the next (`by` = 1) or previous (`by` = -1)
+    /// syllable that has notes. Stays where it is at the first and last.
+    fn lyric_move(&mut self, by: isize) {
+        let c = self.pane().cursor;
+        let Some(cell) = self.chant_cursor_cell() else {
+            return;
+        };
+        let Some(chant) = self
+            .buffer()
+            .score
+            .tracks
+            .get(c.track)
+            .and_then(|t| t.chant.as_deref())
+        else {
+            return;
+        };
+        let has_notes = |i: usize| chant.syllables[i].notes().next().is_some();
+        let target = if by > 0 {
+            (cell.syllable + 1..chant.syllables.len()).find(|&i| has_notes(i))
+        } else {
+            (0..cell.syllable).rev().find(|&i| has_notes(i))
+        };
+        let Some(si) = target else {
+            return;
+        };
+        let t = transcribe(chant);
+        let Some(k) = t.cells.iter().position(|x| x.syllable == si) else {
+            return;
+        };
+        let to = t.cells[k];
+        let pitch = to.note.and_then(|n| chant.note(n)).map(|n| n.pitch);
+        let cur = &mut self.pane_mut().cursor;
+        cur.bar = to.bar;
+        cur.beat = to.beat;
+        if let Some(p) = pitch {
+            cur.line = p as i32;
+        }
+    }
+
+    /// A key in lyric mode: typed characters go to the end of the syllable's text, `<BS>` takes
+    /// one off, `<Tab>` and `<S-Tab>` go to the next and previous syllable, `<Esc>` and `<CR>`
+    /// leave. The score and the lyrics text area follow each key.
+    pub(crate) fn lyric_key(&mut self, key: crate::keys::Key) {
+        use crate::keys::KeyCode;
+        let plain = !key.ctrl && !key.alt && !key.sup;
+        let Some((mut text, mut word_start)) = self.cursor_syllable_text() else {
+            self.ed.lyric = false;
+            return self.run(Command::Normal);
+        };
+        match key.code {
+            KeyCode::Esc | KeyCode::Enter => {
+                self.ed.lyric = false;
+                return self.run(Command::Normal);
+            }
+            KeyCode::Tab if plain => return self.lyric_move(1),
+            KeyCode::BackTab => return self.lyric_move(-1),
+            // On a syllable without text a space is the one before it, which starts a word.
+            KeyCode::Backspace if text.is_empty() => word_start = false,
+            // Text goes before the closing tags it ends with (`<i>ab|</i>`).
+            KeyCode::Backspace => {
+                let end = cecilia_core::chant::typing_end(&text);
+                match text[..end].char_indices().next_back() {
+                    // An empty tag pair goes whole.
+                    Some((i, '>')) if text[..i].rfind('<').is_some() => {
+                        let open = text[..i].rfind('<').unwrap();
+                        let name = text[open + 1..i].to_string();
+                        text.replace_range(open..=i, "");
+                        let close = format!("</{name}>");
+                        if let Some(c) = text[open..].find(&close) {
+                            text.replace_range(open + c..open + c + close.len(), "");
+                        }
+                    }
+                    Some((i, _)) => {
+                        text.remove(i);
+                    }
+                    None => {}
+                }
+            }
+            KeyCode::Char(' ') if plain && text.is_empty() => word_start = true,
+            KeyCode::Char(c) if plain => text.insert(cecilia_core::chant::typing_end(&text), c),
+            _ => return,
+        }
+        self.chant_syllable_text(text, Some(word_start));
+    }
+
+    /// `<CR>` and `<Space>` in Insert and Replace mode: a punctum on the staff line of the
+    /// cursor goes into the empty group the cursor is on, or the note there is changed (see
+    /// [`Self::chant_put`]). The cursor stays where it is, on the note.
+    fn chant_enter(&mut self) {
+        self.chant_put(!self.ed.replace);
+    }
+
+    /// A punctum on the cursor's staff line goes into the empty group the cursor is on.
+    /// Elsewhere (a division, the end of the chant) it goes into a new group after the cursor
+    /// cell. On a note, the note moves to the line, keeping its modifiers, or, on its own line,
+    /// another of the same pitch is added after it in its neume. Insert mode (`insert`) also
+    /// adds an empty group after a group it put a note in, for the next note; Replace mode adds
+    /// none. The cursor goes to the note.
+    fn chant_put(&mut self, insert: bool) {
+        let line = self.pane().cursor.line.clamp(0, 14) as u8;
+        self.chant_cell_op(move |chant, _, cell| {
+            let (n, new_group) = match cell {
+                Some(c) if c.kind == CellKind::Slot => (chant.fill_slot(c.syllable, line)?, true),
+                Some(Cell {
+                    note: Some(n),
+                    kind: CellKind::Note,
+                    ..
+                }) => match chant.note(n).map(|x| x.pitch) {
+                    // On its own line: the same note again, in the same neume.
+                    Some(p) if p == line => (chant.insert_note(n, true, Join::Neume, p)?, false),
+                    _ => {
+                        chant.set_pitch(n, line)?;
+                        (n, false)
+                    }
+                },
+                Some(c) => {
+                    let si = chant.slot_after(c.syllable);
+                    (chant.fill_slot(si, line)?, true)
+                }
+                None => {
+                    let si = chant.insert_slot(chant.syllables.len());
+                    (chant.fill_slot(si, line)?, true)
+                }
+            };
+            if insert && new_group {
+                let si = chant.syllable_of(n).ok_or("no such note")?;
+                chant.insert_slot(si + 1);
+            }
+            Ok(Some(Target::Note(n)))
+        });
+    }
+
+    /// `:replace-mode` (`R`): Insert mode where entering notes only changes the notes there,
+    /// adding no empty groups.
+    fn replace_mode(&mut self) {
+        if !self.require_chant() {
+            return;
+        }
+        self.enter_insert();
+        self.ed.replace = true;
+    }
+
+    /// Leaving Insert mode takes away the empty group the cursor is left on, or the one right
+    /// after the cursor's note (nothing was entered there).
+    fn chant_drop_slot(&mut self) {
         let c = self.pane().cursor;
         let Some(chant) = self
             .buffer()
@@ -260,54 +498,30 @@ impl App {
             return;
         };
         let t = transcribe(chant);
-        let here = t.cell_near(c.bar, c.beat);
-        let next = here.and_then(|k| t.cells.get(k + 1)).copied();
-        let on_slot = here.is_some_and(|k| t.cells[k].kind == CellKind::Slot);
-        match next {
-            Some(next) => {
-                // Only along: the staff line stays the pitch of the next note entered.
-                let cur = &mut self.pane_mut().cursor;
-                cur.bar = next.bar;
-                cur.beat = next.beat;
-            }
-            // Nothing to advance to from an empty group that is itself the last one.
-            None if on_slot => {}
-            None => self.chant_new_slot(BeatAt::After),
-        }
-    }
-
-    /// Leaving Insert mode takes away the empty group the cursor is left on (nothing was
-    /// entered there).
-    fn chant_drop_slot(&mut self) {
-        let Some(cell) = self
-            .chant_cursor_cell()
-            .filter(|c| c.kind == CellKind::Slot)
-        else {
+        let Some(here) = t.cell_near(c.bar, c.beat) else {
             return;
         };
-        let empty = self.buffer().score.tracks[self.pane().cursor.track]
-            .chant
-            .as_deref()
-            .and_then(|c| c.syllables.get(cell.syllable))
-            .is_some_and(|s| s.text.trim().is_empty());
-        if !empty {
-            return;
-        }
-        let ordinal = {
-            let c = self.pane().cursor;
-            let chant = self.buffer().score.tracks[c.track]
-                .chant
-                .as_deref()
-                .unwrap();
-            transcribe(chant)
-                .cells
-                .iter()
-                .position(|k| k.syllable == cell.syllable)
-                .unwrap_or(0)
+        let empty = |k: usize| {
+            t.cells
+                .get(k)
+                .filter(|x| x.kind == CellKind::Slot)
+                .filter(|x| {
+                    chant
+                        .syllables
+                        .get(x.syllable)
+                        .is_some_and(|s| s.text.trim().is_empty())
+                })
+        };
+        // The slot the cursor is on goes and the cursor with it, to the cell before; else a
+        // slot right after the cursor's cell goes and the cursor stays.
+        let (doomed, land) = match (empty(here), empty(here + 1)) {
+            (Some(x), _) => (x.syllable, here.saturating_sub(1)),
+            (None, Some(x)) => (x.syllable, here),
+            _ => return,
         };
         self.chant_cell_op(move |chant, _, _| {
-            chant.remove_syllable(cell.syllable)?;
-            Ok(Some(Target::Cell(ordinal.saturating_sub(1))))
+            chant.remove_syllable(doomed)?;
+            Ok(Some(Target::Cell(land)))
         });
     }
 
@@ -316,7 +530,11 @@ impl App {
     /// division it changes that one. The same key again takes it off; with `cycle`, `:` goes
     /// between the single and the double.
     fn chant_division(&mut self, sign: String, cycle: bool) {
+        // Insert mode keeps going: a division entered in an empty group gets an empty group
+        // after it, as a note does.
+        let insert = self.mode == crate::config::Mode::Insert && !self.ed.replace;
         self.chant_cell_op(move |chant, _, cell| {
+            let was_empty = cell.is_none_or(|c| c.kind == CellKind::Slot);
             let si = match cell {
                 Some(c) => c.syllable,
                 None => chant.insert_slot(chant.syllables.len()),
@@ -335,6 +553,23 @@ impl App {
                 Some(sign)
             };
             chant.set_group_division(si, new.as_deref())?;
+            // Taking a division of its own off in Insert mode takes the empty group that
+            // followed it too.
+            if insert
+                && new.is_none()
+                && cell.is_some_and(|c| c.kind == CellKind::Division)
+                && chant
+                    .syllables
+                    .get(si + 1)
+                    .is_some_and(|s| s.is_slot() && s.text.is_empty())
+            {
+                chant.remove_syllable(si + 1)?;
+            }
+            if insert && was_empty && new.is_some() {
+                // The division ends its line in the text, so the group after it starts one.
+                let next = chant.insert_slot(si + 1);
+                chant.syllables[next].word_start = true;
+            }
             Ok(Some(match cell.and_then(|c| c.note) {
                 Some(n) => Target::Note(n),
                 None => Target::Syllable(si),
@@ -378,29 +613,247 @@ impl App {
         });
     }
 
-    /// Deletes what stands in the beats `from` to `to` (a Visual selection, `d` with a motion):
-    /// notes, empty groups and divisions of their own.
-    pub(crate) fn chant_delete_range(&mut self, from: (usize, usize), to: (usize, usize)) {
-        self.chant_cell_op(move |chant, _, _| {
-            let t = transcribe(chant);
-            let doomed: Vec<(usize, Cell)> = t
-                .cells
-                .iter()
-                .copied()
-                .enumerate()
-                .filter(|(_, c)| (c.bar, c.beat + c.len - 1) >= from && (c.bar, c.beat) <= to)
-                .collect();
+    /// The Visual selection as `(from, to)` beats, leaving Visual mode.
+    fn take_selection(&mut self) -> Option<((usize, usize), (usize, usize))> {
+        let (a, b, _) = self.selection()?;
+        self.run(Command::Normal);
+        let (a, b) = ((a.bar, a.beat), (b.bar, b.beat));
+        Some((a.min(b), a.max(b)))
+    }
+
+    /// `:lyrics-delete`: the text of the syllables of the Visual selection (else the cursor
+    /// syllable) goes, the notes stay.
+    fn lyrics_delete(&mut self) {
+        if !self.require_chant() {
+            return;
+        }
+        let span = self.take_selection();
+        self.chant_cell_op(move |chant, _, cell| {
+            let mut doomed: Vec<usize> = match span {
+                Some((from, to)) => transcribe(chant)
+                    .cells
+                    .iter()
+                    .filter(|c| (c.bar, c.beat + c.len - 1) >= from && (c.bar, c.beat) <= to)
+                    .map(|c| c.syllable)
+                    .collect(),
+                None => vec![cell.ok_or("not on a syllable")?.syllable],
+            };
+            doomed.dedup();
+            doomed.retain(|&si| !chant.syllables[si].text.is_empty());
             if doomed.is_empty() {
-                return Err("nothing there".into());
+                return Err("no lyrics there".into());
             }
-            // Last first, so the places of the others stay.
-            for (_, c) in doomed.iter().rev() {
-                match c.note {
-                    Some(n) => chant.delete_note(n)?,
-                    None => chant.remove_syllable(c.syllable)?,
+            for si in doomed {
+                chant.set_text_of_syllable(si, "")?;
+            }
+            Ok(None)
+        });
+    }
+
+    /// `:lyrics-shift N`: the notes of the syllables of the Visual selection (else from the
+    /// cursor syllable to the end of the chant) move `by` syllables on, the lyrics staying.
+    fn lyrics_shift(&mut self, by: isize) {
+        if !self.require_chant() {
+            return;
+        }
+        let span = self.take_selection();
+        self.chant_cell_op(move |chant, _, cell| {
+            let (from, to) = match span {
+                Some((from, to)) => {
+                    let t = transcribe(chant);
+                    let mut s = t
+                        .cells
+                        .iter()
+                        .filter(|c| (c.bar, c.beat + c.len - 1) >= from && (c.bar, c.beat) <= to)
+                        .map(|c| c.syllable);
+                    let first = s.next().ok_or("nothing selected")?;
+                    (first, s.next_back().unwrap_or(first))
+                }
+                None => (
+                    cell.ok_or("not on a syllable")?.syllable,
+                    chant.syllables.len(),
+                ),
+            };
+            chant.shift_notes(from, to, by)?;
+            Ok(None)
+        });
+    }
+
+    /// `:chant-join`: the syllables of the Visual selection (else the cursor syllable and the
+    /// next one with notes) become one: the notes go to the first, the text stays.
+    fn chant_join(&mut self) {
+        if !self.require_chant() {
+            return;
+        }
+        let span = self.take_selection();
+        self.chant_cell_op(move |chant, _, cell| {
+            let (first, last) = match span {
+                Some((from, to)) => {
+                    let t = transcribe(chant);
+                    let mut s = t
+                        .cells
+                        .iter()
+                        .filter(|c| (c.bar, c.beat + c.len - 1) >= from && (c.bar, c.beat) <= to)
+                        .map(|c| c.syllable);
+                    let first = s.next().ok_or("nothing selected")?;
+                    (first, s.next_back().unwrap_or(first))
+                }
+                None => {
+                    let first = cell.ok_or("not on a syllable")?.syllable;
+                    let next = (first + 1..chant.syllables.len())
+                        .find(|&i| chant.syllables[i].notes().next().is_some())
+                        .ok_or("no syllable after this one")?;
+                    (first, next)
+                }
+            };
+            chant.join_syllables(first, last)?;
+            Ok(Some(Target::Syllable(first)))
+        });
+    }
+
+    /// `:chant-split`: the syllable splits after the cursor note (after each selected note of
+    /// the Visual selection): what follows goes to a new syllable without text.
+    fn chant_split(&mut self) {
+        if !self.require_chant() {
+            return;
+        }
+        let span = self.take_selection();
+        self.chant_cell_op(move |chant, at, _| {
+            let (first, last) = match span {
+                Some((from, to)) => {
+                    let t = transcribe(chant);
+                    let notes = t
+                        .cells
+                        .iter()
+                        .filter(|c| (c.bar, c.beat + c.len - 1) >= from && (c.bar, c.beat) <= to)
+                        .filter_map(|c| c.note);
+                    let (lo, hi) =
+                        notes.fold((usize::MAX, 0), |(lo, hi), n| (lo.min(n), hi.max(n)));
+                    if lo > hi {
+                        return Err("no notes selected".into());
+                    }
+                    (lo, hi)
+                }
+                None => {
+                    let n = at.ok_or("not on a note")?;
+                    (n, n)
+                }
+            };
+            // Last first: splitting leaves the order of the notes as it was.
+            let mut split = false;
+            let mut error = String::new();
+            for n in (first..=last).rev() {
+                match chant.split_syllable_after(n) {
+                    Ok(()) => split = true,
+                    Err(e) => error = e,
                 }
             }
-            Ok(Some(Target::Cell(doomed[0].0)))
+            if !split {
+                return Err(error);
+            }
+            Ok(Some(Target::Note(first)))
+        });
+    }
+
+    /// `z` and `Z`: the forced line break after the cursor syllable goes in or out.
+    fn chant_line_break(&mut self, sign: String) {
+        self.chant_cell_op(move |chant, _, cell| {
+            let si = cell.ok_or("not on a syllable")?.syllable;
+            chant.toggle_line_break(si, &sign)?;
+            Ok(None)
+        });
+    }
+
+    /// `/` and `!`: the separator after the cursor note goes in or out.
+    fn chant_separator(&mut self, sign: String) {
+        self.chant_op(move |chant, at| {
+            let n = at.ok_or("not on a note")?;
+            chant.toggle_separator(n, &sign)?;
+            Ok(Some(n))
+        });
+    }
+
+    /// The cells in the beats `from` to `to` as groups to put back: a syllable all of whose
+    /// cells are there goes whole, lyrics and all; of one only partly there (some notes of a
+    /// neume) the notes are a group without lyrics.
+    pub(crate) fn chant_clip(&self, from: (usize, usize), to: (usize, usize)) -> Vec<Syllable> {
+        let c = self.pane().cursor;
+        let Some(chant) = self
+            .buffer()
+            .score
+            .tracks
+            .get(c.track)
+            .and_then(|t| t.chant.as_deref())
+        else {
+            return Vec::new();
+        };
+        covered(chant, from, to)
+            .into_iter()
+            .filter_map(|cv| {
+                if cv.whole {
+                    return chant.syllables.get(cv.syllable).cloned();
+                }
+                let items: Vec<NeumeItem> = cv
+                    .notes
+                    .iter()
+                    .filter_map(|&n| chant.note(n).cloned().map(NeumeItem::Note))
+                    .collect();
+                (!items.is_empty()).then(|| Syllable {
+                    items,
+                    ..Syllable::default()
+                })
+            })
+            .collect()
+    }
+
+    /// `p` and `P` on a chant: the groups of the register go in after (before) the cursor
+    /// cell's syllable, `count` times over, and the cursor goes to the first.
+    pub(crate) fn chant_paste(&mut self, groups: Vec<Syllable>, before: bool, count: usize) {
+        self.chant_cell_op(move |chant, _, cell| {
+            let at = match cell {
+                Some(c) => c.syllable + usize::from(!before),
+                None => chant.syllables.len(),
+            };
+            for (k, g) in std::iter::repeat_n(groups, count).flatten().enumerate() {
+                chant.syllables.insert(at + k, g);
+            }
+            chant.assign_ids();
+            Ok(Some(Target::Syllable(at)))
+        });
+    }
+
+    /// Deletes what stands in the beats `from` to `to` (a Visual selection, `d` with a motion):
+    /// a syllable all of whose cells are there goes whole, lyrics and all; of one only partly
+    /// there the notes go and the lyrics stay with the others.
+    pub(crate) fn chant_delete_range(&mut self, from: (usize, usize), to: (usize, usize)) {
+        self.chant_delete_cells(from, to, false);
+    }
+
+    /// [`Self::chant_delete_range`]; `back` puts the cursor on the cell before what went (`x`),
+    /// else on the one that took its place.
+    fn chant_delete_cells(&mut self, from: (usize, usize), to: (usize, usize), back: bool) {
+        self.chant_cell_op(move |chant, _, _| {
+            let t = transcribe(chant);
+            let first = t
+                .cells
+                .iter()
+                .position(|c| (c.bar, c.beat + c.len - 1) >= from && (c.bar, c.beat) <= to)
+                .ok_or("nothing there")?;
+            // Last first, so the places of the others stay.
+            for cv in covered(chant, from, to).into_iter().rev() {
+                if cv.whole {
+                    chant.remove_syllable(cv.syllable)?;
+                } else {
+                    for &n in cv.notes.iter().rev() {
+                        chant.delete_note(n)?;
+                    }
+                }
+            }
+            Ok(Some(Target::Cell(if back {
+                first.saturating_sub(1)
+            } else {
+                first
+            })))
         });
     }
 
@@ -441,35 +894,24 @@ impl App {
             // A dot is the mora; a longer or shorter note is a horizontal episema.
             Dot | DoubleDot => {
                 let m = if matches!(cmd, Dot) { "." } else { ".." };
-                self.chant_op(move |chant, at| {
-                    let n = at.ok_or("no note under the cursor")?;
-                    toggle_modifier(chant, n, m)?;
-                    Ok(Some(n))
-                });
+                self.chant_note_op(move |chant, n| toggle_modifier(chant, n, m));
             }
             DurationLonger | DurationShorter => {
                 let on = matches!(cmd, DurationLonger);
-                self.chant_op(move |chant, at| {
-                    let n = at.ok_or("no note under the cursor")?;
-                    chant.set_episema(n, on)?;
-                    Ok(Some(n))
-                });
+                self.chant_note_op(move |chant, n| chant.set_episema(n, on));
             }
-            DeleteNote | DeleteBeat => self.chant_cell_op(|chant, _, cell| {
-                let c = cell.ok_or("nothing under the cursor")?;
-                let ordinal = transcribe(chant)
-                    .cells
-                    .iter()
-                    .position(|k| (k.syllable, k.item) == (c.syllable, c.item))
-                    .unwrap_or(0);
-                match c.note {
-                    Some(n) => chant.delete_note(n)?,
-                    None => chant.remove_syllable(c.syllable)?,
+            DeleteNote | DeleteBeat => {
+                // What is deleted goes in the register, as with `d`.
+                let at = self.pane().cursor;
+                let (from, to) = ((at.bar, at.beat), (at.bar, at.beat));
+                let clip = self.chant_clip(from, to);
+                if !clip.is_empty() {
+                    self.store(crate::editor::Clip::Chant(clip));
                 }
-                Ok(Some(Target::Cell(ordinal.saturating_sub(1))))
-            }),
+                self.chant_delete_cells(from, to, true);
+            }
             // A beat of a chant is an empty group `()`, where a note or a division goes.
-            InsertNext => self.chant_advance(),
+            InsertNext => self.chant_enter(),
             BeatNew => self.chant_new_slot(BeatAt::After),
             InsertEnter => self.chant_enter(),
             InsertBeat(at) => {
@@ -488,6 +930,15 @@ impl App {
             NoteLetter(_) | Note(_) => refuse(self, "note entry by pitch name"),
             Slash => refuse(self, "slash"),
             Reflow => refuse(self, "reflow"),
+            // Only what `d` or `y` took from a chant goes in a chant.
+            Put { .. }
+                if matches!(
+                    self.ed.registers.get(&self.ed.register.unwrap_or('"')),
+                    Some(crate::editor::Clip::Chant(_))
+                ) =>
+            {
+                return false;
+            }
             Put { .. } => refuse(self, "paste"),
             BarInsert { .. } | BarOpen { .. } | BarDelete => refuse(self, "bar edit"),
             _ => return false,
@@ -502,35 +953,33 @@ impl App {
         }
         match cmd {
             // Leaving Insert mode drops an empty group nothing was entered in.
-            Normal if self.mode == crate::config::Mode::Insert && self.cursor_on_chant() => {
+            Normal
+                if self.mode == crate::config::Mode::Insert
+                    && self.cursor_on_chant()
+                    && !self.ed.replace =>
+            {
                 self.chant_drop_slot();
                 return false;
             }
             ChantMod(m) => {
                 let m = m.clone();
-                self.chant_op(move |chant, at| {
-                    let n = at.ok_or("chant-mod: no note under the cursor")?;
-                    toggle_modifier(chant, n, &m)?;
-                    Ok(Some(n))
-                });
+                self.chant_note_op(move |chant, n| toggle_modifier(chant, n, &m));
             }
             ChantShape(name) => {
                 let Some(shape) = shape_by_name(name) else {
                     return true;
                 };
-                self.chant_op(move |chant, at| {
-                    let n = at.ok_or("no note under the cursor")?;
+                self.chant_note_op(move |chant, n| {
                     let now = chant.note(n).ok_or("no note under the cursor")?.shape();
-                    chant.set_shape(n, if now == shape { Shape::Punctum } else { shape })?;
-                    Ok(Some(n))
+                    chant.set_shape(n, if now == shape { Shape::Punctum } else { shape })
                 });
             }
             ChantDivision(sign) => self.chant_division(sign.clone(), false),
             ChantAlter(name) => {
-                let want = if name == "flat" {
-                    Alter::Flat
-                } else {
-                    Alter::Natural
+                let want = match name.as_str() {
+                    "flat" => Alter::Flat,
+                    "sharp" => Alter::Sharp,
+                    _ => Alter::Natural,
                 };
                 self.chant_alter(want);
             }
@@ -546,6 +995,7 @@ impl App {
                 // The liturgical versicle and response signs are GABC specials.
                 let text = match symbol.as_str() {
                     "℣" => "<sp>V/</sp>",
+                    "Ⱥ" => "<sp>A/</sp>",
                     "℟" => "<sp>R/</sp>",
                     other => other,
                 }
@@ -563,6 +1013,8 @@ impl App {
                 });
             }
             LyricsSelect => self.lyrics_select(),
+            LyricMode => self.lyric_mode(),
+            ReplaceMode => self.replace_mode(),
             ScoreKind => {
                 let msg = if self.cursor_on_chant() {
                     "chant score; :chant-to-modern opens it as a modern score in a new buffer"
@@ -574,6 +1026,30 @@ impl App {
             ChantAppend => self.chant_insert(true, Join::Neume, false),
             ChantBreak => self.chant_insert(true, Join::NewNeume, true),
             ChantSyllable => self.chant_insert(true, Join::NewSyllable, true),
+            ChantMarkup(tag) => {
+                let tag = tag.clone();
+                self.chant_cell_op(move |chant, _, cell| {
+                    let si = cell.ok_or("not on a syllable")?.syllable;
+                    let text = chant
+                        .syllables
+                        .get(si)
+                        .ok_or("no such syllable")?
+                        .text
+                        .clone();
+                    chant.set_text_of_syllable(
+                        si,
+                        &cecilia_core::chant::toggle_markup(&text, &tag),
+                    )?;
+                    Ok(None)
+                });
+            }
+            LyricsDelete => self.lyrics_delete(),
+            LyricsShift(by) => self.lyrics_shift(*by),
+            ChantCustos => self.chant_note_op(|chant, n| chant.set_custos(n)),
+            ChantLineBreak(sign) => self.chant_line_break(sign.clone()),
+            ChantJoin => self.chant_join(),
+            ChantSplit => self.chant_split(),
+            ChantSeparator(sign) => self.chant_separator(sign.clone()),
             ChantBar(sign) => self.chant_division(sign.clone(), true),
             Gabc(arg) => {
                 if !self.require_chant() {
@@ -939,42 +1415,71 @@ mod tests {
     }
 
     #[test]
-    fn enter_puts_a_note_on_the_cursor_row_and_moves_to_a_new_empty_beat() {
+    fn insert_mode_puts_a_note_in_the_empty_group_and_adds_the_next_one_after_it() {
         let mut a = app();
+        // `<CR>` and `<Space>` put a punctum on the cursor's row in the empty group, and a new
+        // empty group follows it; the cursor stays on the note.
         keys(&mut a, "ikk<CR>");
         assert_eq!(gabc(&a), "(c4) (h) () Al(fg) le(h) lu(g) ia.(f.) (::)");
-        assert_eq!(a.chant_cursor_cell().unwrap().kind, CellKind::Slot);
-        keys(&mut a, "jj<CR>");
-        assert_eq!(gabc(&a), "(c4) (h) (f) () Al(fg) le(h) lu(g) ia.(f.) (::)");
-        // Esc leaves the notes and drops the empty beat it ends on.
+        assert_eq!(a.chant_cursor_cell().unwrap().kind, CellKind::Note);
+        assert_eq!(cursor_note(&a), Some(0));
+        // On the note, `<Space>` is the same as `<CR>`: another row moves it, its own row
+        // repeats it.
+        keys(&mut a, "jj<Space>");
+        assert_eq!(gabc(&a), "(c4) (f) () Al(fg) le(h) lu(g) ia.(f.) (::)");
+        keys(&mut a, "<CR>");
+        assert_eq!(gabc(&a), "(c4) (ff) () Al(fg) le(h) lu(g) ia.(f.) (::)");
+        // On to the empty group (the cursor moves only when asked to) for the next note.
+        keys(&mut a, "l<CR>");
+        assert_eq!(a.chant_cursor_cell().unwrap().kind, CellKind::Note);
+        assert_eq!(gabc(&a), "(c4) (ff) (f) () Al(fg) le(h) lu(g) ia.(f.) (::)");
+        // No space is written before the groups entered in the score.
+        assert_eq!(written(&a), "(c4)(ff)(f)() Al(fg)le(h) lu(g)ia.(f.) (::)");
+        // Esc drops the empty group after the note; the session is one undo step.
         keys(&mut a, "<Esc>");
-        assert_eq!(gabc(&a), "(c4) (h) (f) Al(fg) le(h) lu(g) ia.(f.) (::)");
+        assert_eq!(gabc(&a), "(c4) (ff) (f) Al(fg) le(h) lu(g) ia.(f.) (::)");
         assert_cache(&a);
-        // One undo step for the whole session.
         keys(&mut a, "u");
         assert_eq!(gabc(&a), ORIGINAL);
     }
 
     #[test]
-    fn space_moves_on_to_the_next_beat_and_makes_an_empty_one_at_the_end() {
+    fn replace_mode_changes_the_notes_there_and_adds_no_groups() {
         let mut a = app();
-        keys(&mut a, "i<Space>");
-        // The empty beat, then the first note (the cursor stands on its line).
-        assert_eq!(cursor_note(&a), Some(0));
-        assert_eq!(a.pane().cursor.line, 5);
-        keys(&mut a, "<Space><Space><Space><Space><Space>");
-        // Past the last note: the division, then a new empty beat after it.
-        assert_eq!(a.chant_cursor_cell().unwrap().kind, CellKind::Division);
+        keys(&mut a, "R");
+        assert_eq!(a.mode, crate::config::Mode::Insert);
+        assert_eq!(a.statusline(None, false).left[0].text, "REPLACE");
+        // Its color is the theme's red; Insert mode has its own.
+        assert_eq!(a.mode_color(), a.config.theme.error);
+        keys(&mut a, "<Esc>i");
+        assert_eq!(a.mode_color(), a.config.theme.mode_insert);
+        keys(&mut a, "<Esc>R");
+        // On a note another row moves it, with its modifiers.
+        run(&mut a, "chant-mod .");
+        keys(&mut a, "kk<CR>");
+        assert_eq!(gabc(&a), "(c4) Al(h.g) le(h) lu(g) ia.(f.) (::)");
+        // On its own row: the same note again in the same group; the cursor goes to it.
+        keys(&mut a, "<CR>");
+        assert_eq!(gabc(&a), "(c4) Al(h.hg) le(h) lu(g) ia.(f.) (::)");
+        assert_eq!(cursor_note(&a), Some(1));
+        // `<Space>` is `<CR>`: the cursor stays and no group is added.
         keys(&mut a, "<Space>");
-        assert_eq!(gabc(&a), "(c4) () Al(fg) le(h) lu(g) ia.(f.) (::) ()");
-        assert_eq!(a.chant_cursor_cell().unwrap().kind, CellKind::Slot);
+        assert_eq!(gabc(&a), "(c4) Al(h.hhg) le(h) lu(g) ia.(f.) (::)");
+        assert_eq!(cursor_note(&a), Some(2));
+        // Leaving takes nothing away and is one undo step.
+        keys(&mut a, "<Esc>");
+        assert_eq!(a.mode, crate::config::Mode::Normal);
+        assert!(!gabc(&a).contains("()"));
+        keys(&mut a, "u");
+        assert_eq!(gabc(&a), ORIGINAL);
+        assert_cache(&a);
     }
 
     #[test]
     fn division_keys_go_into_the_note_or_stand_alone_on_an_empty_beat() {
         let mut a = app();
         // On a note: in its parentheses; `:` goes round single, double, none.
-        keys(&mut a, "<CR>;");
+        keys(&mut a, "R;");
         assert_eq!(gabc(&a), "(c4) Al(fg;) le(h) lu(g) ia.(f.) (::)");
         keys(&mut a, ":");
         assert_eq!(gabc(&a), "(c4) Al(fg:) le(h) lu(g) ia.(f.) (::)");
@@ -994,12 +1499,13 @@ mod tests {
         keys(&mut a, "<Esc>");
         // On an empty beat: a division of its own, which the cursor can stand on.
         keys(&mut a, "a:");
-        assert_eq!(gabc(&a), "(c4) Al(fg) (:) le(h) lu(g) ia.(f.) (::)");
+        // (Insert mode adds the empty group after it, to go on in.)
+        assert_eq!(gabc(&a), "(c4) Al(fg) (:) () le(h) lu(g) ia.(f.) (::)");
         assert_eq!(a.chant_cursor_cell().unwrap().kind, CellKind::Division);
         keys(&mut a, ":");
-        assert_eq!(gabc(&a), "(c4) Al(fg) (::) le(h) lu(g) ia.(f.) (::)");
+        assert_eq!(gabc(&a), "(c4) Al(fg) (::) () le(h) lu(g) ia.(f.) (::)");
         keys(&mut a, ",");
-        assert_eq!(gabc(&a), "(c4) Al(fg) (,) le(h) lu(g) ia.(f.) (::)");
+        assert_eq!(gabc(&a), "(c4) Al(fg) (,) () le(h) lu(g) ia.(f.) (::)");
         assert_cache(&a);
         // Deleting a division of its own, with the cursor on it.
         keys(&mut a, "<Esc>x");
@@ -1017,7 +1523,7 @@ mod tests {
         assert!(a.buffer().score.is_chant());
         assert_eq!(chant_of(&a).note_count(), 0);
         // Notes go in as in any chant: i for a beat, Enter for a note.
-        keys(&mut a, "i<CR><CR><Esc>");
+        keys(&mut a, "i<CR><Esc>a<CR><Esc>");
         assert_eq!(chant_of(&a).note_count(), 2, "{}", gabc(&a));
         assert_cache(&a);
         // An empty modern score converts as well.
@@ -1150,6 +1656,428 @@ mod tests {
     }
 
     #[test]
+    fn syllables_split_and_join_and_separators_toggle() {
+        let mut a = app();
+        run(&mut a, "chant-sep /");
+        assert_eq!(gabc(&a), "(c4) Al(f/g) le(h) lu(g) ia.(f.) (::)");
+        run(&mut a, "chant-sep !");
+        assert_eq!(gabc(&a), "(c4) Al(f!g) le(h) lu(g) ia.(f.) (::)");
+        run(&mut a, "chant-sep !");
+        assert_eq!(gabc(&a), "(c4) Al(fg) le(h) lu(g) ia.(f.) (::)");
+        // The syllable splits after the cursor note (f).
+        run(&mut a, "chant-split");
+        assert_eq!(gabc(&a), "(c4) Al(f) (g) le(h) lu(g) ia.(f.) (::)");
+        // Joined again with the next syllable: the notes go to the first, the text stays.
+        run(&mut a, "chant-join");
+        assert_eq!(gabc(&a), "(c4) Al(fg) le(h) lu(g) ia.(f.) (::)");
+        run(&mut a, "chant-join");
+        assert_eq!(gabc(&a), "(c4) Al(fgh) le() lu(g) ia.(f.) (::)");
+        // A Visual selection joins every syllable it touches.
+        keys(&mut a, "vllll");
+        run(&mut a, "chant-join");
+        assert_eq!(a.mode, crate::config::Mode::Normal);
+        assert_eq!(gabc(&a), "(c4) Al(fghg) le() lu() ia.(f.) (::)");
+        assert_cache(&a);
+    }
+
+    #[test]
+    fn alt_shift_j_and_s_join_and_split_in_normal_insert_and_visual_mode() {
+        let mut a = app();
+        keys(&mut a, "<A-S>");
+        assert_eq!(gabc(&a), "(c4) Al(f) (g) le(h) lu(g) ia.(f.) (::)");
+        keys(&mut a, "<A-J>");
+        assert_eq!(gabc(&a), ORIGINAL);
+        // Insert mode.
+        let mut a = app();
+        keys(&mut a, "R<A-S>");
+        assert_eq!(a.mode, crate::config::Mode::Insert);
+        assert_eq!(gabc(&a), "(c4) Al(f) (g) le(h) lu(g) ia.(f.) (::)");
+        keys(&mut a, "<A-J>");
+        assert_eq!(gabc(&a), ORIGINAL);
+        keys(&mut a, "<Esc>");
+        // Visual mode: the syllables the selection touches join; the mode is left.
+        let mut a = app();
+        keys(&mut a, "vlll<A-J>");
+        assert_eq!(a.mode, crate::config::Mode::Normal);
+        assert_eq!(gabc(&a), "(c4) Al(fghg) le() lu() ia.(f.) (::)");
+        // After each selected note.
+        let mut a = app();
+        keys(&mut a, "vl<A-S>");
+        assert_eq!(a.mode, crate::config::Mode::Normal);
+        assert_eq!(gabc(&a), "(c4) Al(f) (g) le(h) lu(g) ia.(f.) (::)");
+        assert_cache(&a);
+    }
+
+    #[test]
+    fn lyric_mode_types_the_cursor_syllables_text() {
+        let mut a = app();
+        keys(&mut a, "<A-i>");
+        assert_eq!(a.mode, crate::config::Mode::Insert);
+        assert_eq!(a.statusline(None, false).left[0].text, "LYRIC");
+        // The text goes on the cursor syllable as it is typed: score and kept GABC follow.
+        keys(&mut a, "<BS><BS>Ky");
+        assert_eq!(gabc(&a), "(c4) Ky(fg) le(h) lu(g) ia.(f.) (::)");
+        assert!(
+            chant_of(&a)
+                .source
+                .as_ref()
+                .unwrap()
+                .text
+                .contains("Ky(fg)")
+        );
+        keys(&mut a, "ri<Esc>");
+        assert_eq!(gabc(&a), "(c4) Kyri(fg) le(h) lu(g) ia.(f.) (::)");
+        assert_eq!(a.mode, crate::config::Mode::Normal);
+        assert_cache(&a);
+        // Notes are not entered while typing, and the mode is one undo step.
+        keys(&mut a, "u");
+        assert_eq!(gabc(&a), ORIGINAL);
+        // A parenthesis is refused.
+        keys(&mut a, "<A-i>(<Esc>");
+        assert_eq!(gabc(&a), ORIGINAL);
+        // `:lyrics` puts all its text on the cursor syllable.
+        run(&mut a, "lyrics Kyrie e-le-i-son");
+        assert!(
+            gabc(&a).starts_with("(c4) Kyrie e-le-i-son(fg)"),
+            "{}",
+            gabc(&a)
+        );
+        assert_cache(&a);
+    }
+
+    #[test]
+    fn a_space_in_lyric_mode_is_just_a_space() {
+        let text = std::fs::read_to_string("../../test-corpus/gabc/10027.gabc").unwrap();
+        let mut a = app_of(&text);
+        let kept = |a: &App| chant_of(a).source.as_ref().unwrap().text.clone();
+        let before = kept(&a);
+        // After a word: a space in its text, nothing else in the text moves.
+        keys(&mut a, "<A-i>x <Esc>");
+        assert_eq!(kept(&a).replacen("Six (", "Si(", 1), before);
+        assert_eq!(kept(&a).matches('\n').count(), before.matches('\n').count());
+        keys(&mut a, "u");
+        // On a syllable without text: the space before it (it starts a word), then its text.
+        keys(&mut a, "i<CR><Esc><A-i> ");
+        assert!(kept(&a).starts_with("(c4) (g)\nSi"), "{}", kept(&a));
+        assert!(chant_of(&a).syllables[1].word_start);
+        keys(&mut a, "ab");
+        assert!(kept(&a).starts_with("(c4) ab(g)\nSi"), "{}", kept(&a));
+        keys(&mut a, "<BS><BS><BS>");
+        assert!(kept(&a).starts_with("(c4)(g)\nSi"), "{}", kept(&a));
+        assert_eq!(kept(&a).matches('\n').count(), before.matches('\n').count());
+    }
+
+    #[test]
+    fn tab_and_shift_tab_move_between_syllables_in_lyric_mode() {
+        let mut a = app();
+        keys(
+            &mut a,
+            "<A-i><BS><BS>A<Tab>B<Tab>C<Tab><BS>D<S-Tab><S-Tab>E",
+        );
+        assert_eq!(gabc(&a), "(c4) A(fg) leBE(h) luC(g) iaD(f.) (::)");
+        // At the ends the cursor stays.
+        keys(&mut a, "<S-Tab><S-Tab>");
+        keys(&mut a, "F<Esc>");
+        assert!(gabc(&a).starts_with("(c4) AF(fg)"), "{}", gabc(&a));
+        assert_eq!(a.mode, crate::config::Mode::Normal);
+        assert_eq!(undo_steps(&a), 1);
+    }
+
+    #[test]
+    fn a_division_of_its_own_gets_a_space_before_and_a_line_break_after_in_the_gabc() {
+        let mut a = app();
+        let kept = |a: &App| chant_of(a).source.as_ref().unwrap().text.clone();
+        // The clef has a line of its own.
+        assert_eq!(kept(&a), "(c4)\nAl(fg)le(h) lu(g)ia.(f.) (::)");
+        let original = kept(&a);
+        // A division on an empty beat: the space before it, the line break after it.
+        keys(&mut a, "lla;");
+        // (Insert mode adds the empty group after it, to go on in.)
+        assert_eq!(kept(&a), "(c4)\nAl(fg)le(h) (;)\n() lu(g)ia.(f.) (::)");
+        assert!(chant_of(&a).source.is_some());
+        // Taken off again, the white space goes with it.
+        keys(&mut a, ";");
+        assert_eq!(kept(&a), "(c4)\nAl(fg)le(h)() lu(g)ia.(f.) (::)");
+        keys(&mut a, "<Esc>");
+        assert_eq!(kept(&a), original);
+        // Deleting a division of its own takes the line break too.
+        keys(&mut a, "a:<Esc>");
+        assert_eq!(kept(&a), "(c4)\nAl(fg)le(h) (:)\nlu(g)ia.(f.) (::)");
+        keys(&mut a, "x");
+        assert_eq!(kept(&a), original);
+        assert_cache(&a);
+    }
+
+    #[test]
+    fn a_sign_on_a_cell_without_a_note_puts_a_note_there_first() {
+        let mut a = app();
+        // On an empty beat: a punctum on the cursor's line takes the sign, and (in Insert mode)
+        // an empty beat follows it.
+        keys(&mut a, "a");
+        run(&mut a, "chant-shape virga");
+        assert_eq!(gabc(&a), "(c4) Al(fg) (fv) () le(h) lu(g) ia.(f.) (::)");
+        assert_eq!(a.chant_cursor_cell().unwrap().kind, CellKind::Note);
+        // Again toggles it off, on the note that is there now.
+        run(&mut a, "chant-shape virga");
+        assert_eq!(gabc(&a), "(c4) Al(fg) (f) () le(h) lu(g) ia.(f.) (::)");
+        keys(&mut a, "<Esc>");
+        assert_eq!(gabc(&a), "(c4) Al(fg) (f) le(h) lu(g) ia.(f.) (::)");
+        // On a division of its own: the empty beat after it takes the note, and another
+        // follows.
+        keys(&mut a, "a;");
+        run(&mut a, "chant-mora");
+        assert!(gabc(&a).contains("(;) (f.) () le"), "{}", gabc(&a));
+        // In Replace mode no empty beat is added.
+        keys(&mut a, "<Esc>");
+        keys(&mut a, "R");
+        run(&mut a, "chant-ictus");
+        assert!(!gabc(&a).contains("()"), "{}", gabc(&a));
+        assert_cache(&a);
+    }
+
+    #[test]
+    fn insert_mode_keys_toggle_shapes_signs_and_line_breaks() {
+        let mut a = app();
+        for (keys_, expected) in [
+            ("RV", "(c4) Al(fVg) le(h) lu(g) ia.(f.) (::)"),
+            ("V", "(c4) Al(fg) le(h) lu(g) ia.(f.) (::)"),
+            ("O", "(c4) Al(fOg) le(h) lu(g) ia.(f.) (::)"),
+            ("O", "(c4) Al(fg) le(h) lu(g) ia.(f.) (::)"),
+            ("<lt>", "(c4) Al(f<g) le(h) lu(g) ia.(f.) (::)"),
+            ("<lt>>", "(c4) Al(f>g) le(h) lu(g) ia.(f.) (::)"),
+            (">", "(c4) Al(fg) le(h) lu(g) ia.(f.) (::)"),
+            ("r", "(c4) Al(frg) le(h) lu(g) ia.(f.) (::)"),
+            ("r", "(c4) Al(fg) le(h) lu(g) ia.(f.) (::)"),
+            ("G", "(c4) Al(Fg) le(h) lu(g) ia.(f.) (::)"),
+            ("G", "(c4) Al(fg) le(h) lu(g) ia.(f.) (::)"),
+            ("x", "(c4) Al(fxfg) le(h) lu(g) ia.(f.) (::)"),
+            ("y", "(c4) Al(fyfg) le(h) lu(g) ia.(f.) (::)"),
+            ("#", "(c4) Al(f#fg) le(h) lu(g) ia.(f.) (::)"),
+            ("#", "(c4) Al(fg) le(h) lu(g) ia.(f.) (::)"),
+        ] {
+            keys(&mut a, keys_);
+            assert_eq!(gabc(&a), expected, "{keys_}");
+        }
+        // Forced line breaks: `z` and `Z` toggle, each replacing the other.
+        keys(&mut a, "z");
+        assert_eq!(gabc(&a), "(c4) Al(fgz) le(h) lu(g) ia.(f.) (::)");
+        keys(&mut a, "Z");
+        assert_eq!(gabc(&a), "(c4) Al(fgZ) le(h) lu(g) ia.(f.) (::)");
+        keys(&mut a, "Z");
+        assert_eq!(gabc(&a), "(c4) Al(fg) le(h) lu(g) ia.(f.) (::)");
+        // `+` changes the note into a custos, which is not a note any more.
+        let notes = chant_of(&a).note_count();
+        keys(&mut a, "+");
+        assert_eq!(gabc(&a), "(c4) Al(f+g) le(h) lu(g) ia.(f.) (::)");
+        assert_eq!(chant_of(&a).note_count(), notes - 1);
+        assert_cache(&a);
+    }
+
+    #[test]
+    fn markup_tools_wrap_the_syllables_text_and_lyric_mode_types_inside() {
+        let mut a = app();
+        run(&mut a, "chant-markup i");
+        assert_eq!(gabc(&a), "(c4) <i>Al</i>(fg) le(h) lu(g) ia.(f.) (::)");
+        run(&mut a, "chant-markup b");
+        assert_eq!(
+            gabc(&a),
+            "(c4) <b><i>Al</i></b>(fg) le(h) lu(g) ia.(f.) (::)"
+        );
+        run(&mut a, "chant-markup i");
+        run(&mut a, "chant-markup b");
+        assert_eq!(gabc(&a), ORIGINAL);
+        // Typing goes inside the tags, and <BS> on an empty pair takes the pair away.
+        keys(&mut a, "<A-i><BS><BS>");
+        run(&mut a, "chant-markup alt");
+        keys(&mut a, "<A-i>x");
+        assert_eq!(gabc(&a), "(c4) <alt>x</alt>(fg) le(h) lu(g) ia.(f.) (::)");
+        keys(&mut a, "<BS><BS><Esc>");
+        assert_eq!(gabc(&a), "(c4) (fg) le(h) lu(g) ia.(f.) (::)");
+        assert_cache(&a);
+    }
+
+    #[test]
+    fn the_lyric_mode_tool_again_leaves_lyric_mode() {
+        let mut a = app();
+        let tool = |a: &mut App| {
+            let rows = a.palette_rows();
+            let at = rows.iter().position(|r| r.command == "lyric-mode").unwrap();
+            assert_eq!(rows[at].unavailable, None);
+            a.palette.selected = at;
+            a.activate_palette();
+        };
+        let active = |a: &App| {
+            a.palette_rows()
+                .iter()
+                .any(|r| r.command == "lyric-mode" && r.active)
+        };
+        assert!(!active(&a));
+        tool(&mut a);
+        assert!(a.ed.lyric && a.mode == crate::config::Mode::Insert);
+        assert!(active(&a));
+        keys(&mut a, "x");
+        tool(&mut a);
+        assert!(!a.ed.lyric);
+        assert_eq!(a.mode, crate::config::Mode::Normal);
+        assert!(!active(&a));
+        assert!(gabc(&a).contains("Alx("));
+    }
+
+    #[test]
+    fn the_barred_a_tool_puts_the_special_in_the_syllables_text() {
+        let mut a = app();
+        run(&mut a, "chant-symbol Ⱥ");
+        assert_eq!(gabc(&a), "(c4) Al<sp>A/</sp>(fg) le(h) lu(g) ia.(f.) (::)");
+        run(&mut a, "chant-symbol Ⱥ");
+        assert_eq!(gabc(&a), ORIGINAL);
+    }
+
+    #[test]
+    fn lyrics_delete_clears_the_text_of_the_selected_syllables_and_keeps_the_notes() {
+        let mut a = app();
+        // The syllables of the selection (Al, le): f g h are the first three notes.
+        keys(&mut a, "vll");
+        run(&mut a, "lyrics-delete");
+        assert_eq!(a.mode, crate::config::Mode::Normal);
+        assert_eq!(gabc(&a), "(c4) (fg) (h) lu(g) ia.(f.) (::)");
+        assert_eq!(chant_of(&a).note_count(), 5);
+        assert_cache(&a);
+        keys(&mut a, "u");
+        assert_eq!(gabc(&a), ORIGINAL);
+        // Without a selection: the cursor syllable's.
+        keys(&mut a, "ggll");
+        run(&mut a, "lyrics-delete");
+        assert_eq!(gabc(&a), "(c4) Al(fg) (h) lu(g) ia.(f.) (::)");
+        // Nothing to delete says so.
+        run(&mut a, "lyrics-delete");
+        assert!(a.message.as_ref().is_some_and(|m| m.error));
+    }
+
+    #[test]
+    fn lyrics_shift_moves_the_notes_among_the_syllables_and_shift_delete_deletes() {
+        let mut a = app_of("name: t;\n%%\n(c4) Et(g) Je-(hi)sum,(jj) be-()ne-(i)díc(g')tum(h)\n");
+        let before = gabc(&a);
+        assert_eq!(
+            Command::parse("lyrics-shift -2"),
+            Ok(Command::LyricsShift(-2))
+        );
+        assert!(Command::parse("lyrics-shift x").is_err());
+        // The empty group of "be-" goes to the end: the notes after it come a syllable earlier,
+        // the lyrics stay.
+        let at = a.buffer().score.tracks[0]
+            .chant
+            .as_deref()
+            .unwrap()
+            .syllables
+            .iter()
+            .position(|s| s.text == "be-")
+            .unwrap();
+        // Put the cursor on "be-"'s empty beat.
+        let cell = transcribe(chant_of(&a))
+            .cells
+            .iter()
+            .copied()
+            .find(|c| c.syllable == at)
+            .unwrap();
+        a.pane_mut().cursor.bar = cell.bar;
+        a.pane_mut().cursor.beat = cell.beat;
+        run(&mut a, "lyrics-shift -1");
+        assert_eq!(
+            gabc(&a),
+            "(c4) Et(g) Je-(hi) sum,(jj) be-(i) ne-(g') díc(h) tum()"
+        );
+        assert_cache(&a);
+        keys(&mut a, "u");
+        assert_eq!(gabc(&a), before);
+        // A selection limits the range: the end of the selection, not the song.
+        let cell = transcribe(chant_of(&a))
+            .cells
+            .iter()
+            .copied()
+            .find(|c| c.syllable == at)
+            .unwrap();
+        a.pane_mut().cursor.bar = cell.bar;
+        a.pane_mut().cursor.beat = cell.beat;
+        keys(&mut a, "vll");
+        run(&mut a, "lyrics-shift -1");
+        assert_eq!(a.mode, crate::config::Mode::Normal);
+        assert!(
+            gabc(&a).contains("be-(i) ne-(g') díc() tum(h)"),
+            "{}",
+            gabc(&a)
+        );
+        // Shift-Delete is :lyrics-delete, in Visual mode too.
+        keys(&mut a, "gg");
+        keys(&mut a, "vll<S-Del>");
+        assert!(gabc(&a).contains("(g) (hi) "), "{}", gabc(&a));
+    }
+
+    #[test]
+    fn what_d_takes_from_a_chant_is_put_back_with_p_and_capital_p() {
+        let mut a = app();
+        // Delete the notes f g (Visual `d`): all of the syllable Al goes, lyrics and all.
+        keys(&mut a, "vld");
+        assert_eq!(gabc(&a), "(c4) le(h) lu(g) ia.(f.) (::)");
+        // `p` puts it back after the cursor cell's syllable.
+        keys(&mut a, "p");
+        assert_eq!(gabc(&a), "(c4) le(h) Al(fg) lu(g) ia.(f.) (::)");
+        assert_eq!(a.chant_cursor_cell().unwrap().kind, CellKind::Note);
+        assert_cache(&a);
+        // `P` puts it before, and a count repeats it.
+        keys(&mut a, "gg");
+        keys(&mut a, "2P");
+        assert!(
+            gabc(&a).starts_with("(c4) Al(fg) Al(fg) le(h)"),
+            "{}",
+            gabc(&a)
+        );
+        keys(&mut a, "u");
+        keys(&mut a, "u");
+        // `y` takes without deleting.
+        keys(&mut a, "gg");
+        keys(&mut a, "vly");
+        assert_eq!(gabc(&a), "(c4) le(h) lu(g) ia.(f.) (::)");
+        let n = chant_of(&a).syllables.len();
+        keys(&mut a, "p");
+        // (le and lu, both whole, go in again after the cursor syllable)
+        assert_eq!(chant_of(&a).syllables.len(), n + 2, "{}", gabc(&a));
+        // A neume deleted in part goes as a group without lyrics.
+        let mut b = app();
+        keys(&mut b, "vd");
+        keys(&mut b, "p");
+        assert_eq!(gabc(&b), "(c4) Al(g) (f) le(h) lu(g) ia.(f.) (::)");
+        // Note ids stay unique.
+        let c = chant_of(&a);
+        let ids: Vec<u32> = c
+            .syllables
+            .iter()
+            .flat_map(|s| s.notes())
+            .map(|n| n.id)
+            .collect();
+        let mut sorted = ids.clone();
+        sorted.sort();
+        sorted.dedup();
+        assert_eq!(ids.len(), sorted.len());
+    }
+
+    #[test]
+    fn x_and_del_put_the_deleted_cell_in_the_register_for_p() {
+        let mut a = app();
+        // `x` deletes the note under the cursor (f) and `p` puts it back after the cursor cell.
+        keys(&mut a, "x");
+        assert_eq!(gabc(&a), "(c4) Al(g) le(h) lu(g) ia.(f.) (::)");
+        keys(&mut a, "p");
+        assert_eq!(gabc(&a), "(c4) Al(g) (f) le(h) lu(g) ia.(f.) (::)");
+        // The next `x` takes the pasted group (f), the cursor goes to the cell before (the g of
+        // Al), and `P` puts the group back before its syllable.
+        keys(&mut a, "x");
+        assert_eq!(gabc(&a), "(c4) Al(g) le(h) lu(g) ia.(f.) (::)");
+        keys(&mut a, "P");
+        assert_eq!(gabc(&a), "(c4) (f) Al(g) le(h) lu(g) ia.(f.) (::)");
+        assert_cache(&a);
+    }
+
+    #[test]
     fn shape_and_sign_toggles() {
         let mut a = app();
         for (cmd, expected) in [
@@ -1206,7 +2134,7 @@ mod tests {
         // The GABC written for the file has the same notes.
         let text = written(&a);
         assert!(text.contains("(;) lu(gg/g)(g)ia.(f.)"), "{text}");
-        assert!(text.starts_with("(c4) Al(fg)le(h)"), "{text}");
+        assert!(text.starts_with("(c4)\nAl(fg)le(h)"), "{text}");
         // A division on a note goes into its parentheses; it splits the bar and moves the notes
         // after it; the cursor stays on its note.
         go(&mut a, 0, 1);
@@ -1216,10 +2144,11 @@ mod tests {
         assert_eq!(at(&a), (0, 1));
         assert_eq!(a.buffer().score.tracks[0].bars.len(), 3);
         assert_cache(&a);
-        // Deleting a note: the cursor goes to the one before it, even across a bar.
+        // Deleting a syllable's only note takes the syllable, lyrics and all; the cursor goes to
+        // the cell before it, even across a bar.
         go(&mut a, 1, 0);
         keys(&mut a, "x");
-        assert_eq!(gabc(&a), "(c4) Al(fg,) le() (;) lu(gg/g) (g) ia.(f.) (::)");
+        assert_eq!(gabc(&a), "(c4) Al(fg,) (;) lu(gg/g) (g) ia.(f.) (::)");
         assert_eq!(cursor_note(&a), Some(1));
         assert_cache(&a);
         // Deleting a syllable's last note removes a syllable with no text.
@@ -1234,8 +2163,10 @@ mod tests {
     #[test]
     fn a_visual_selection_deletes_notes() {
         let mut a = app();
+        // The g of Al (only part of its syllable) and all of le: the g goes alone, le goes whole
+        // with its lyrics.
         keys(&mut a, "lvld");
-        assert_eq!(gabc(&a), "(c4) Al(f) le() lu(g) ia.(f.) (::)");
+        assert_eq!(gabc(&a), "(c4) Al(f) lu(g) ia.(f.) (::)");
         assert_cache(&a);
         keys(&mut a, "u");
         assert_eq!(gabc(&a), "(c4) Al(fg) le(h) lu(g) ia.(f.) (::)");
@@ -1281,7 +2212,7 @@ mod tests {
             assert!(same(&a, &before), "{cmd}");
         }
         // Digits do not type frets on a chant track either.
-        keys(&mut a, "<CR>1");
+        keys(&mut a, "R1<Esc>");
         assert!(same(&a, &before));
         assert_eq!(undo_steps(&a), steps);
         assert!(!a.buffer().modified);
@@ -1330,6 +2261,8 @@ mod tests {
             "chant-append",
             "chant-break",
             "chant-syllable",
+            "chant-split",
+            "chant-sep /",
             "chant-bar ;",
             "delete-note",
             "clef c3",

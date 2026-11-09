@@ -9,6 +9,97 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- The waveform's red playhead at rest stands at the cursor's cell on the ruler: on a division (`5:0`), at its own tick, not at
+  the first note after it.
+- A synced chant is timed note by note: the MIDI notes sound where the waveform's ruler puts them (before, they were
+  spread evenly between the bars' sync points, so they drifted from the ticks).
+- Sync points (taps, clicks, `:sync-here`) snap to the strongest onset of the audio within `ui.sync_snap` milliseconds
+  (default 70; 0 turns it off).
+- A chant's divisions take time in the audio sync (an eighth by default, between the notes either side of them): they have a
+  tick on the waveform ruler of their own (`bar:0`), a click on the waveform can put a sync point on one (the nearest
+  syllable *or* division), and `:sync-nudge` adds and moves theirs; Enter passes over them.
+- A place in a chant is `bar:syllable.note` everywhere (status line, waveform ruler, `:3:4.2` goto): a bar starts after
+  every division, which is itself `bar:0`; syllables count from 1 (not the divisions), a syllable's notes from `.1`;
+  a missing note reads as `.1`. The waveform's ruler shows exactly these. Chant scores number their bars above the staff
+  (`ui.bar_numbers`).
+- `x` in Sync mode (`:sync-remove`) takes the sync point at the cursor (or of the selection) away.
+- `S` in Normal mode enters Sync mode; Enter there passes over syllables without notes (rests, divisions).
+- Chant glyphs are determined the way Gregorio does it (a port of `gabc-glyphs-determination.c`): a quilisma starts a
+  glyph, so `efwg` is a punctum and a pes quilisma (drawn in one column), `h` + `V` is a virga reversa (stem on the
+  left), `jghf` is a porrectus flexus, `ghf` a torculus; the glyph of a note too far from the last, of the same
+  pitch, of a virga, a stropha, puncta inclinata and so on follow Gregorio's rules.
+- A horizontal episema over (or under) a note in a space rides clear of the staff line.
+- Sync mode: playback always starts at the cursor; `d` / `c` (with a motion, `dd`) take away sync points only, and in
+  Visual mode `d`, `c` and the nudge keys act on every sync point of the selection. A mouse press on the waveform
+  adds a sync point of a chant on the syllable (or note, by the sync unit) nearest the mouse (snapped to the amplitude) or grabs the one within 5 pixels,
+  plays the audio while the button is held and drags the point.
+- `:zoom-in`, `:zoom-out` and `:zoom-reset` zoom the focused pane: the waveform pane's timeline when it has the focus.
+- Sync mode: `:sync` enters it (`SYNC` in the status line, `[keymap.sync]`), opening the waveform pane; `<Space>`
+  plays and pauses, `<CR>` syncs the cell under the cursor and moves on by the sync unit, `<Esc>` leaves. The
+  waveform shows sync points and rulers in this mode only.
+- `:sync-detect` for a chant score: the pitch of the recording is tracked, cut into notes and the chant's
+  notes are aligned with them (transposition and missing notes allowed).
+- The waveform is drawn from the audio's samples at half-pixel columns with its RMS core; dragging along it
+  scrolls it.
+- The waveform pane has a fixed time ruler along the bottom (a tick every 0.2 s, a tall one each
+  second labelled `minutes:seconds`) and, for a chant score, a bar/syllable ruler along the top that stretches
+  with the sync points and shows before any is set (a tall tick at each bar labelled `bar:syllable`, a short one
+  at each syllable labelled with the syllable); the colons stand on the ticks and the labels sit against the
+  pane's edge. Every sync point is an unlabelled yellow line. `ui.waveform_time_ticks`, `waveform_beat_ticks`
+  (`all`, `major`, `off`), `waveform_time_labels` and `waveform_beat_labels` set what is shown.
+- A chant sync point can be on any cell: a note, a rest `()` or a division of its own (kept through edits by
+  an id on the cell). `:sync-tap` steps by `:sync-unit` (a syllable's first cell, or every cell); `:sync-nudge`
+  on a cell with no point adds one first. Sync points snap to the strongest onset of the audio within `ui.sync_snap` ms. A rest or division point does not change the timing of the notes.
+- The page layout (GUI, terminal and exported images) follows the score's page setup: the width and height
+  and the four margins of the Score tab (millimetres) set the page size and where the music starts, ends and
+  breaks to a new page. (The default A4 page has the setup's 10 / 15 / 10 mm margins, not a flat 40 pt.)
+- On a chant score `d`, `y` (and Visual `d` `y`), `x` and `<Del>` put what they take in the register: a syllable
+  all of whose cells are taken goes whole, lyrics and all (it is gone from the chant); of a neume taken in
+  part the notes are a group without lyrics. `p` and `P` put them in after / before the cursor syllable
+  (`3p` three times), one undo step.
+- `:lyrics-delete` (chant, `<S-Del>`): deletes the lyrics of the syllables of the Visual selection (the
+  cursor syllable without one), keeping the notes. `:lyrics-shift N` moves the notes N syllables on
+  (back when negative) among the syllables of the Visual selection, or from the cursor syllable to the
+  end of the chant, the lyrics staying: `be-() ne-(i) díc(g')` shifted by -1 is `be-(i) ne-(g') díc()`.
+- Noto Serif (SIL OFL, regular and bold) is bundled and is the default font of chant lyrics, as the
+  versicle ℣, response ℟, dagger † and barred Ⱥ are always Noto Serif's. `ui.chant_text_font =
+  "source-sans"` keeps the lyrics in the app's sans font.
+- Chant text markup is engraved: `<b>` bold, `<ul>` underline, `<sc>` small capitals, `<c>` red, `<tt>`
+  monospaced, `<e>` elision (small) and `<alt>` text above the staff, as well as `<i>`; `<sp>R/</sp>`
+  `<sp>V/</sp>` give ℟ and ℣ (the chant font's own glyphs), `<sp>A/</sp>` the barred A, `<sp>'oe</sp>` `<sp>'ae</sp>` the accented ligatures, and
+  a `+` in the text is the dagger †. The asterisk is the six-pointed star. Nothing in the text is colored
+  unless `<c>` says so. A custos written in the notation (`g+`) is engraved where it stands.
+- Chant Insert mode keys from the GABC shape table (`G` `V` `O` `<` `>` `r` `+` `x` `y` `#`; `+` turns the note into a custos, `:chant-custos`), and `z` / `Z`
+  for a forced line break / one that does not stretch the line (`:chant-linebreak`), which the engraver
+  now obeys. `:chant-alter sharp`.
+- The chant palette has a barred A tool (`:chant-symbol Ⱥ`, `<sp>A/</sp>`), icons for ℣ ℟ Ⱥ drawn as the
+  score draws them, a lyric mode tool and a tool for each text markup (italic, bold, underline, small
+  capitals, red, monospaced, elision, text above the staff; `:chant-markup TAG`) under Text. A markup tool
+  puts the tag around the cursor syllable's text, or takes it off; lyric mode types inside the tags.
+- Bold and italic together are both engraved (bold, slanted).
+- A chant sign (shape, liquescence, mora, episema, ictus, flat, natural, `:chant-mod`) used where the
+  cursor has no note (an empty beat, a division, the end) puts a punctum on the cursor's staff line
+  there first. In Insert mode an empty group follows the new note, as with `<CR>`.
+- Chant GABC layout: the clef has a line of its own in the GABC editor, and a division entered on its
+  own beat in the score gets a space before it and a line break after it, which go again when the
+  division is taken off (the rest of the text stays as it was).
+- The chant palette's icons (clefs, divisions, note shapes, liquescences, mora, episema, ictus) are the
+  symbols the engraver draws, in its chant font, instead of their key letters.
+- Lyrics on chant scores: `:lyrics TEXT` sets the cursor syllable's text, and `<A-i>` (`:lyric-mode`)
+  enters a mode where the keys type it, shown in the score and the lyrics pane as you type. `<Tab>` and `<S-Tab>` move to the next and previous syllable. A space adds just a space to the GABC (on a syllable
+  without text it is the space before the syllable), without rewriting the layout of the rest.
+- Chant Insert mode keeps adding notes as vim's does: `<CR>` and `<Space>` put a punctum in the empty
+  group under the cursor and add a new empty group after it; the cursor stays on the note. A division
+  entered in an empty group gets an empty group after it too (and takes it with it when toggled off). Groups entered in
+  the score are written without a space before them.
+- Chant Replace mode (`R`, `:replace-mode`): Insert mode that adds no empty groups. `<CR>` moves the note
+  under the cursor to the cursor's line (keeping its modifiers) or, on its own line, adds another note
+  of that pitch in the same group (`(g)` → `(gg)`); its status label and edit cursor are the theme's red; `<Space>` does the same.
+- `:chant-join` merges the syllables of the Visual selection (else the cursor syllable and the next)
+  into one, `:chant-split` splits the syllable after the cursor note (each selected note). `/` and `!`
+  toggle a neume separator after the cursor note (`:chant-sep`). `<A-J>` and `<A-S>` (Alt+Shift) run them in Normal, Insert and Visual mode.
+- Leaving the lyrics text area of a chant score (normal mode, `<Esc>`, a focus key) puts the score
+  cursor on the note the caret was in.
 - Chant cells. The cursor of a chant score stands on notes, on empty beats `()` and on divisions
   written as their own symbol `(:)`. `i` `a` `I` `A` make an empty beat before / after the cursor
   cell and at the start / end of the bar (before its closing division); `<CR>` in Insert mode puts a
@@ -64,6 +155,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- Visual mode: `o` moves the cursor to the other end of the selection (`:visual-other-end`).
+- Visual selection in the score highlights the barlines between the selected beats too, instead of breaking at each barline.
+- Sync mode: moving the cursor (Enter moves it on) no longer seeks the playback, which runs on by itself; with following
+  on the cursor follows the playhead, with it off (`follow-toggle`) it stays where you put it; Enter syncs the note it is on.
+- The playhead of a chant bar that wraps over two lines no longer sweeps to the end of the line and back
+  at the end of its first part (it jumped at the bar after, e.g. 5:1, 9:1, 12:1 and 14:1 of the Salve Regina).
+- Chant playback: two notes of one pitch together in a neume (`gg`) sound as one note of both lengths,
+  not two attacks. (A stropha or bivirga still repeats its note.)
 - Editing the score info `name`, `office-part` or `transcriber` of a chant score changes the
   title, subtitle and author shown in the score pane.
 - On a chant score `w` / `e` / `b` step to the next note / the end of the note / the previous
@@ -82,6 +181,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- The tracks pane is the only global tool pane along the whole width of the window; the others sit between the
+  palette and the properties pane.
 - One kind per score: a score is a modern score (staff tracks) or a chant score (exactly one chant
   track; `Score::is_chant()`). `:chant-to-modern` no longer changes the chant in place: it opens a
   new buffer `[modern] name` with the chant's bars as a pitched track, its syllables as lyrics
@@ -185,6 +286,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   argument is gone. `:lyrics-clear` clears the text; `:lyrics-clear N` removes a verse row.
 - Syllables past the last note are kept in the track's gabc+ text (they were kept in the score's
   Guitar Pro lyric lines).
+
+### Changed
+
+- The default colors of Insert and Command mode are swapped in every theme preset: Insert is the green, Command the amber.
+
+### Removed
+
+- `:insert-here` (Normal `<CR>`): `R` (Replace mode) and `gi` enter Insert mode without adding anything.
 
 ## [0.32.0] - 2026-11-06
 

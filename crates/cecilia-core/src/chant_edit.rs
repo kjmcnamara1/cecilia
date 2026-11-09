@@ -205,6 +205,135 @@ impl Chant {
             .ok_or_else(|| "internal error: inserted note not found".into())
     }
 
+    /// Merges syllables `first+1..=last` into syllable `first`: their notes (and what stands
+    /// among them) go after its last note, and their text stays where it was. A syllable left
+    /// with nothing goes. Errors when no note moves.
+    pub fn join_syllables(&mut self, first: usize, last: usize) -> Result<(), String> {
+        let last_note = |s: &Syllable| {
+            s.items
+                .iter()
+                .rposition(|i| matches!(i, NeumeItem::Note(_)))
+        };
+        let mut end = last.min(self.syllables.len().saturating_sub(1));
+        let mut moved = false;
+        let mut k = first + 1;
+        while k <= end {
+            let Some(upto) = last_note(&self.syllables[k]) else {
+                k += 1;
+                continue;
+            };
+            let Some(at) = last_note(self.syllables.get(first).ok_or("no such syllable")?) else {
+                return Err("no notes to join to".into());
+            };
+            let items: Vec<NeumeItem> = self.syllables[k].items.drain(..=upto).collect();
+            self.syllables[first].items.splice(at + 1..at + 1, items);
+            moved = true;
+            let donor = &self.syllables[k];
+            let blank = donor
+                .items
+                .iter()
+                .all(|i| matches!(i, NeumeItem::Space(_) | NeumeItem::Alteration { .. }));
+            if blank && donor.text.trim().is_empty() {
+                self.syllables.remove(k);
+                end -= 1;
+            } else {
+                k += 1;
+            }
+        }
+        moved.then_some(()).ok_or_else(|| "no notes to join".into())
+    }
+
+    /// Splits the syllable of note `n` after it ([`Self::split_syllable`] before the next
+    /// note). Errors when no note follows in the syllable.
+    pub fn split_syllable_after(&mut self, n: usize) -> Result<(), String> {
+        let si = self.syllable_of(n).ok_or("no such note")?;
+        if self.syllable_of(n + 1) != Some(si) {
+            return Err("no note after this one in the syllable".into());
+        }
+        self.split_syllable(n + 1).map(|_| ())
+    }
+
+    /// Moves the notes among the syllables `from..=to` `by` syllables on (back when negative),
+    /// the lyrics staying where they are. Only the syllables that sing take part: those with
+    /// notes and the empty groups (`be-()`); a clef or a division of its own stays. The notes
+    /// that go past the last of them come round to the first, so an empty group moves to the
+    /// other end: `be-() ne-(i) díc(g')` shifted by -1 is `be-(i) ne-(g') díc()`. Errors when
+    /// that changes nothing.
+    pub fn shift_notes(&mut self, from: usize, to: usize, by: isize) -> Result<(), String> {
+        let sings = |s: &Syllable| {
+            s.items.is_empty() || s.items.iter().any(|i| matches!(i, NeumeItem::Note(_)))
+        };
+        let last = to.min(self.syllables.len().saturating_sub(1));
+        let take: Vec<usize> = (from..=last)
+            .filter(|&i| sings(&self.syllables[i]))
+            .collect();
+        let n = take.len() as isize;
+        if n < 2 || by.rem_euclid(n) == 0 {
+            return Err("nothing to shift".into());
+        }
+        let mut groups: Vec<Vec<NeumeItem>> = take
+            .iter()
+            .map(|&i| self.syllables[i].items.clone())
+            .collect();
+        groups.rotate_right(by.rem_euclid(n) as usize);
+        for (&i, g) in take.iter().zip(groups) {
+            self.syllables[i].items = g;
+        }
+        Ok(())
+    }
+
+    /// Changes note `n` into a custos at its pitch (`f` → `f+`): the guide shown at the end of a
+    /// line for the next one. It is not a note any more: it sounds nothing and the notes after
+    /// it count one less.
+    pub fn set_custos(&mut self, n: usize) -> Result<(), String> {
+        let (si, ii) = self.note_place(n).ok_or("no such note")?;
+        let pitch = self.note(n).ok_or("no such note")?.pitch;
+        self.syllables[si].items[ii] = NeumeItem::Custos(Some(pitch));
+        Ok(())
+    }
+
+    /// Toggles a forced line break after syllable `si`: `z` (a break) or `Z` (a break that does
+    /// not stretch the line). The one there goes, another is replaced.
+    pub fn toggle_line_break(&mut self, si: usize, sign: &str) -> Result<(), String> {
+        let items = &mut self.syllables.get_mut(si).ok_or("no such syllable")?.items;
+        match items
+            .iter()
+            .position(|i| matches!(i, NeumeItem::LineBreak(_)))
+        {
+            Some(k) => match &items[k] {
+                NeumeItem::LineBreak(t) if t.starts_with(sign) => {
+                    items.remove(k);
+                }
+                _ => items[k] = NeumeItem::LineBreak(sign.into()),
+            },
+            None => items.push(NeumeItem::LineBreak(sign.into())),
+        }
+        Ok(())
+    }
+
+    /// Toggles the separator `sign` (`/`, `!`) after note `n`: one that is there goes, another
+    /// is replaced. Errors when no note follows in the syllable.
+    pub fn toggle_separator(&mut self, n: usize, sign: &str) -> Result<(), String> {
+        let (si, ii) = self.note_place(n).ok_or("no such note")?;
+        let items = &mut self.syllables[si].items;
+        match items.get(ii + 1) {
+            Some(NeumeItem::Space(s)) if s == sign => {
+                items.remove(ii + 1);
+            }
+            Some(NeumeItem::Space(_)) => items[ii + 1] = NeumeItem::Space(sign.into()),
+            _ => {
+                if !items[ii + 1..]
+                    .iter()
+                    .any(|i| matches!(i, NeumeItem::Note(_)))
+                {
+                    return Err("no note after this one in the syllable".into());
+                }
+                items.insert(ii + 1, NeumeItem::Space(sign.into()));
+            }
+        }
+        Ok(())
+    }
+
     /// Deletes note `n`. A syllable left with nothing (no text, no other signs) goes too, and
     /// so does a neume separator left dangling at its end.
     pub fn delete_note(&mut self, n: usize) -> Result<(), String> {
@@ -492,17 +621,20 @@ impl Chant {
         Ok(())
     }
 
-    /// Inserts an empty group `()` as syllable `at` (clamped); returns where it went.
+    /// Inserts an empty group `()` as syllable `at` (clamped); returns where it went. It is
+    /// written without a space before it: spaces are typed in the lyrics.
     pub fn insert_slot(&mut self, at: usize) -> usize {
         let at = at.min(self.syllables.len());
-        self.syllables.insert(
-            at,
-            Syllable {
-                word_start: true,
-                ..Syllable::default()
-            },
-        );
+        self.syllables.insert(at, Syllable::default());
         at
+    }
+
+    /// The empty group right after syllable `si` when there is one, else a new one there.
+    pub fn slot_after(&mut self, si: usize) -> usize {
+        match self.syllables.get(si + 1) {
+            Some(s) if s.is_slot() && s.text.is_empty() => si + 1,
+            _ => self.insert_slot(si + 1),
+        }
     }
 
     /// An empty group takes a note at staff position `pitch`. Returns the note's index.
@@ -558,6 +690,10 @@ impl Chant {
         if let Some(sign) = sign {
             s.items.push(NeumeItem::Bar(sign.into()));
         }
+        // A division of its own has a space before it; an empty group does not.
+        if s.text.is_empty() && s.items.iter().all(|i| matches!(i, NeumeItem::Bar(_))) {
+            s.word_start = !s.items.is_empty();
+        }
         Ok(())
     }
 
@@ -604,6 +740,14 @@ impl Chant {
     /// unescaped parenthesis or a line break is not).
     pub fn set_syllable_text(&mut self, n: usize, text: &str) -> Result<(), String> {
         let si = self.syllable_of(n).ok_or("no such note")?;
+        self.set_text_of_syllable(si, text)
+    }
+
+    /// Like [`Self::set_syllable_text`], for syllable `si` (which may have no notes).
+    pub fn set_text_of_syllable(&mut self, si: usize, text: &str) -> Result<(), String> {
+        if si >= self.syllables.len() {
+            return Err("no such syllable".into());
+        }
         let mut chars = text.chars();
         while let Some(c) = chars.next() {
             match c {
@@ -642,6 +786,7 @@ impl Chant {
                 text: String::new(),
                 word_start: false,
                 items: tail,
+                ..Default::default()
             },
         );
         Ok(si + 1)
@@ -702,6 +847,7 @@ mod tests {
             text: text.into(),
             word_start,
             items,
+            ..Default::default()
         }
     }
 
@@ -732,6 +878,36 @@ mod tests {
             .map(Syllable::gabc)
             .collect::<Vec<_>>()
             .join(" ")
+    }
+
+    #[test]
+    fn syllables_join_and_split_and_separators_toggle() {
+        let mut c = small();
+        // foo(e) bar(d) -> foo(ed) bar
+        c.join_syllables(1, 2).unwrap();
+        assert_eq!(c.syllables[1].gabc_notes(), "fgh");
+        assert_eq!(c.syllables[2].text, "le");
+        assert_eq!(c.syllables[2].gabc_notes(), "");
+        // foo(ed) bar -> foo(e) (d) bar
+        c.split_syllable_after(1).unwrap();
+        assert_eq!(c.syllables[1].gabc_notes(), "fg");
+        assert_eq!(c.syllables[2].text, "");
+        assert_eq!(c.syllables[2].gabc_notes(), "h");
+        assert!(c.split_syllable_after(2).is_err(), "nothing after it");
+        // A syllable without text and notes left behind goes.
+        c.join_syllables(1, 2).unwrap();
+        assert_eq!(c.syllables[1].gabc_notes(), "fgh");
+        assert_eq!(c.syllables[2].text, "le");
+        c.toggle_separator(0, "/").unwrap();
+        assert_eq!(c.syllables[1].gabc_notes(), "f/gh");
+        c.toggle_separator(0, "!").unwrap();
+        assert_eq!(c.syllables[1].gabc_notes(), "f!gh");
+        c.toggle_separator(0, "!").unwrap();
+        assert_eq!(c.syllables[1].gabc_notes(), "fgh");
+        assert!(
+            c.toggle_separator(2, "/").is_err(),
+            "last note of the syllable"
+        );
     }
 
     #[test]
@@ -985,16 +1161,16 @@ mod tests {
         let mut c = small();
         c.assign_ids();
         assert_eq!(c.note_ids(), [1, 2, 3, 4, 5]);
-        // New notes take fresh ids, the others keep theirs.
+        // New notes take fresh ids (the division of its own has 6), the others keep theirs.
         c.insert_note(1, true, Join::Neume, 8).unwrap();
-        assert_eq!(c.note_ids(), [1, 2, 6, 3, 4, 5]);
+        assert_eq!(c.note_ids(), [1, 2, 7, 3, 4, 5]);
         c.insert_note(0, false, Join::NewSyllable, 4).unwrap();
-        assert_eq!(c.note_ids(), [7, 1, 2, 6, 3, 4, 5]);
+        assert_eq!(c.note_ids(), [8, 1, 2, 7, 3, 4, 5]);
         c.delete_note(1).unwrap();
-        assert_eq!(c.note_ids(), [7, 2, 6, 3, 4, 5]);
+        assert_eq!(c.note_ids(), [8, 2, 7, 3, 4, 5]);
         // A deleted note's id is not handed out again.
         c.insert_note(0, true, Join::Neume, 4).unwrap();
-        assert_eq!(c.note_ids(), [7, 8, 2, 6, 3, 4, 5]);
+        assert_eq!(c.note_ids(), [8, 9, 2, 7, 3, 4, 5]);
         let before = c.note_ids();
         c.move_note(2, 2).unwrap();
         c.set_shape(2, Shape::Virga).unwrap();

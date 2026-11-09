@@ -233,7 +233,6 @@ is typed after it, is one undo step.
 | `I` / `A`                                              | same at the start / end of the bar (`:insert-bar-start`, `:append-bar-end`)                       |
 | `o` / `O`                                              | new bar after / before the cursor bar (`[count]` bars), then Insert mode on it (`:bar-open-after`, `:bar-open-before`) |
 | `gi`                                                   | Insert mode where Insert mode was last left in this file (on the cursor if never), adding nothing (`:insert-last`) |
-| `<CR>`                                                 | Insert mode on the cursor beat, adding nothing (`:insert-here`; the old `i` and, until 0.17, `gi`) |
 | `:reflow`                                              | redraw the barlines of the cursor's voice to fit the time signatures: excess beats move to the start of the next bar, short bars are filled from the next, and a beat straddling a barline is split and tied. Durations and pitches don't change; other voices are left alone. Over every bar, or in Visual mode over the selection only, whose last bar keeps whatever is left over |
 | `x`                                                    | delete the one note under the cursor: on the cursor string, or at the cursor line / space (`[count]x`); on a slash staff the beat's slash, i.e. all its notes |
 | `d{motion}` / `dd`                                     | delete beats / bars (`[count]dd`). `dl` the beat under the cursor, `dh` the one before it, `dw` `de` `db` `d$` `d^` …  |
@@ -268,6 +267,7 @@ current ones):
 | --- | --- |
 | `+` / `-` | step the duration of every selected beat one note value longer / shorter (dots and tuplets stay; a whole note is the longest; the status line says when a bar runs over) (`:duration-longer`, `:duration-shorter`) |
 | `t…` `H` `L` … (the Normal-mode technique keys of the staff), the palette | the range tools below, on every beat of the selection (the selection stays, so several can be applied; `<Esc>` leaves) |
+| `o` | move the cursor to the other end of the selection (`:visual-other-end`) |
 | `i` / `a` | leave the selection and insert a new beat before its first / after its last beat (a bar selection: at the start of its first bar / the end of its last bar), then Insert mode (`:visual-insert`, `:visual-append`) |
 
 **Selecting with the mouse** (GUI and terminal): press on a beat of a score pane and drag across
@@ -480,7 +480,7 @@ Clicking a tab shows it, a row selects it and a double click edits it; a click o
 
 ## Editing palette
 
-`<leader>e` shows or hides the editing palette, docked along the left of the window above the bottom tool panes (which run under it at the full width; the properties pane stays outermost along the right)
+`<leader>e` shows or hides the editing palette, docked along the left of the window (the bottom tool panes run under the scores only, between it and the properties pane; the tracks pane alone runs along the bottom of the whole window)
 (`ui.palette = true` shows it from the start). Like Guitar Pro's editing panel it is a grid of
 small icon buttons, wrapped to the pane's width, in collapsible sections: **Duration** (whole to
 64th, dotted, double dotted, triplet, rest), **Pitch** (sharp, flat, natural, double sharp, double
@@ -656,19 +656,27 @@ bars of a chant track are only a transcription made from it, so every key below 
 | `h` `j` `k` `l`                           | move the cursor, as on a standard staff (beat back / position down / up / beat on) |
 | `i` `a`                                   | a new empty beat `()` before / after the cursor cell, then Insert mode on it (an empty beat you leave without entering anything is taken away again by `<Esc>`) |
 | `I` `A`                                   | a new empty beat at the start of the bar (phrase) / at its end, before the division that closes it |
-| `<CR>`                                    | the note on the staff line the cursor is on goes into the empty beat the cursor is on (after the cursor cell otherwise), as a group of its own, and the cursor moves on to a new empty beat after it (`:insert-enter`) |
-| `<Space>`                                 | on to the next cell, or a new empty beat after the last one (`:insert-next`); `<A-CR>` a new empty beat after the cursor cell (`:beat-new`) |
-| `/`                                       | a new note after the cursor note, starting a new neume (`:chant-break`); `:chant-append`, `:chant-syllable` add a note in the same neume / a new syllable |
+| `<CR>` `<Space>` (Insert)                 | a punctum on the staff line the cursor is on goes into the empty beat the cursor is on (after the cursor cell otherwise), and a new empty beat follows it; the cursor stays on the note (`l` goes on to the empty beat for the next note). On a note: another staff line moves it there keeping its modifiers, its own line adds another note of that pitch after it in the same group (`(g)` → `(gg)`). `<Esc>` drops the empty beat after the cursor. A group entered this way is written without a space before it; spaces come with the lyrics (`:lyric-mode`) (`:insert-enter`, `:insert-next`) |
+| `R` (`:replace-mode`)                     | Replace mode: as Insert mode, but no empty beats are added after the notes entered. `<CR>` and `<Space>` move the note under the cursor to the cursor's line, keeping its modifiers, or, on its own line, add another note of the same pitch after it in the same group: `(g)` → `(gg)` → `(ggg)`; in an empty beat they put a note in. The cursor stays. `<Esc>` leaves |
+| `<A-CR>` (Insert) | a new empty beat after the cursor cell, entering nothing (`:beat-new`) |
+| `/` `!`                                   | toggle a neume separator `/` or `!` after the cursor note, inside its syllable: `foo(ed)` → `foo(e/d)` (`:chant-sep /`, `:chant-sep !`; another separator there is replaced). `:chant-break` adds a note after the cursor note starting a new neume; `:chant-append`, `:chant-syllable` add a note in the same neume / a new syllable |
+| `<A-i>` (`:lyric-mode`)                   | lyric mode: Insert mode where the keys type the cursor syllable's text (`<BS>` deletes, `<Tab>` / `<S-Tab>` go to the next / previous syllable with notes, `<Esc>` or `<CR>` leaves); the score and the lyrics text area follow every key, and the mode is one undo step. `:lyrics TEXT` sets the cursor syllable's text to all of TEXT |
+| `<S-Del>` (`:lyrics-delete`)              | delete the lyrics (the text) of the syllables of the Visual selection, or of the cursor syllable, keeping the notes; one undo step |
+| `:lyrics-shift N`                         | move the notes N syllables on, or back when negative, among the syllables of the Visual selection (else from the cursor syllable to the end of the chant), the lyrics staying where they are. Clefs and divisions of their own stay; notes pushed past the last syllable come round to the first, so an empty group moves to the other end: `be-() ne-(i) díc(g')` with -1 is `be-(i) ne-(g') díc()`. Not bound to a key |
+| `:chant-markup TAG`                       | `<TAG>…</TAG>` (`i` `b` `ul` `sc` `c` `tt` `e` `alt`) goes around the cursor syllable's text, or comes off when it is there; the Text section of the palette has a tool for each |
+| `<A-J>` / `<A-S>` (`:chant-join` / `:chant-split`) | join: the syllables of the Visual selection (else the cursor syllable and the next one with notes) become one, the notes going to the first and the text staying: `foo(e) bar(d)` → `foo(ed) bar()`. Split: the syllable splits after the cursor note (after each selected note): `foo(ed) bar` → `foo(e) (d) bar`. Bound to `<A-J>` / `<A-S>` (Alt+Shift) in Normal, Insert and Visual mode (in Visual they act on the selection) |
 | `<C-a>` `<C-x>`                           | the note up / down one staff position (`:pitch-up`, `:pitch-down`); `:octave-up` / `:octave-down` move seven. A pitch moves by position, not semitone; the top and bottom of the staff stop it |
 | `v` `s` `o` `q` `w` `~`                   | virga, stropha, oriscus, quadratum, quilisma, liquescent (toggles, `:chant-mod`; `:chant-mod ss` / `vv` / `V` / `<` / `>` also) |
+| `G` `V` `O` `<` `>` `r` `+` `x` `y` `#` (Insert mode) | the same toggles as the Normal-mode `t` keys, by GABC letter: inclinatum `G`, virga reversa `V`, oriscus with stem `O`, liquescent ascendens `<` / descendens `>`, cavum `r`, custos `+` (`:chant-custos`: the note becomes a custos, `g` → `g+`, and is not a note any more), flat `x`, natural `y`, sharp `#` (`:chant-alter`); with `v` `s` `o` `w` `q` `~` they follow the GABC shape table. On an empty beat a punctum goes in first |
+| `z` `Z` (Insert mode)                   | a forced line break after the cursor syllable goes in or out: `z` breaks the line, `Z` breaks it without stretching the line to the width (`:chant-linebreak z`, `:chant-linebreak Z`) |
 | `.` `_` `'` `-`                           | mora, episema, ictus, initio debilis (`:chant-mod`; `:dot` is the mora too)     |
 | `:accidental flat` / `natural` / `sharp`  | the flat, natural or sharp before the note (a second time takes it away)        |
 | `+` `-` (normal mode)                     | horizontal episema on / off (`:duration-longer`, `:duration-shorter`)           |
-| `,` `;` `:`                               | a division (`:chant-bar`): on a note it goes into the note's own parentheses, `(g::)`; on an empty beat it is a division of its own, `(:)`; on a division of its own it replaces that one. `,` and `;` again take it off, `:` goes round single `:`, double `::`, none |
+| `,` `;` `:`                               | a division (`:chant-bar`): on a note it goes into the note's own parentheses, `(g::)`; on an empty beat it is a division of its own, `(:)` (written with a space before it and a line break after it in the GABC text, which go with it when it is taken off; in Insert mode an empty beat follows it, as after a note); on a division of its own it replaces that one. `,` and `;` again take it off, `:` goes round single `:`, double `::`, none |
 | `x` `<BS>` `<Del>`, Visual `d`            | delete the cell (the cells of the selection): a note, an empty beat or a division of its own; a syllable left with no text and no notes goes. The cursor goes to the cell before |
 | `h` `l`                                   | in Normal mode, the previous / next cell, the cursor standing on the staff line of a note it lands on (on an empty beat or a division it only moves along); in Insert mode they just move left / right and the staff line stays, so `j` `k` choose the pitch of the next note entered |
 | `w` `e` `b`                               | next note / end of the note / previous note *on the cursor's staff position* |
-| `<leader>g` (`:lyrics-select`)            | jump to the lyrics text area with the GABC of the cursor's note selected in Visual mode (`ui.lyrics_select_cursor`, on by default, does so whenever focus goes from the score to the lyrics pane, as `<leader>P`) |
+| `<leader>g` (`:lyrics-select`)            | jump to the lyrics text area with the caret on the cursor note's pitch letter in Normal mode (`ui.lyrics_select_cursor`, on by default, does so whenever focus goes from the score to the lyrics pane, as `<leader>P`) |
 | `<Right>`                                 | next note                                                                       |
 
 Everything that
@@ -829,10 +837,26 @@ accepted as well), looked up before `[keymap.normal]` and only on chant scores:
 | `<leader>y[` `<leader>y]` `<leader>y{` `<leader>y}` | nudge the sync point under the cursor by −10 / +10 / −50 / +50 ms (`:sync-nudge`) |
 | `<leader>yy` `<leader>yn` | tap per syllable / per note (`:sync-unit`) |
 
-**Audio sync of a chant score.** `:sync` plays and starts tapping at the cursor note; `<leader>t`
-(`:sync-tap`) on each syllable as it is sung sets that syllable's first note at the playhead
-(snapped to the nearest sung onset), the cursor follows and the status shows `tap: next …`.
-`:sync` again stops. The sync is kept on notes, so editing the chant does not move it.
+**Sync mode.** `S` (or `:sync`) enters Sync mode (status line `SYNC`; `:sync` or `<Esc>` leaves it) and opens
+the waveform pane if it is not open. The waveform shows the sync points (a yellow line each) and its
+rulers only in this mode. Keys (`[keymap.sync]`, with Normal mode's motions and anything that changes
+nothing): `<Space>` plays and pauses (`:play-toggle`); `<CR>` syncs the note under the cursor at the
+playhead (a chant: moved to the strongest onset within `ui.sync_snap` ms, 70 by default, 0: off) and moves the cursor on by the sync unit
+(`:sync-tap`); `u` / `<BS>` takes the last tap back; `x` (`:sync-remove`) removes the sync point at the cursor (or of the selection); starting playback always starts at the cursor; `[` `]` `{` `}` nudge the point under the cursor
+by −10 / +10 / −50 / +50 ms; `y` / `n` set the unit (a syllable's first note / every note). Enter passes over rests and divisions (syllables
+without notes). `:` opens the command line
+and returns to Sync mode. The sync of a chant is kept on notes, so editing the chant does not move it.
+`:sync-detect` on a chant finds the notes sung in the recording by pitch and lays the chant's notes
+along them in order (allowing for a transposition and for notes left out), placing a point at each
+syllable (each note with `:sync-unit note`); fix the rest by hand.
+
+In Sync mode `d{motion}`, `dd` and `c{motion}` take away the sync points of the range (nothing else is
+changed, and `c` does not start Insert mode); in Visual mode (`v` from Sync mode) `d` / `c` do so for the
+selection and `[` `]` `{` `}` move every sync point in it. On the waveform of a chant, a mouse press adds a sync
+point on the syllable (or note, by the sync unit) nearest the mouse, the cursor following (snapped to an onset, `ui.sync_snap`) unless one is within 5 pixels, which
+is grabbed; the audio plays from there as long as the button is held, and dragging moves the point
+(one undo step). Outside Sync mode a drag scrolls the waveform. `:zoom-in`, `:zoom-out` and `:zoom-reset`
+zoom the pane that has the focus: the waveform pane's timeline when it does.
 
 On a chant track the cursor moves note by note (`w` `e` `b` go to the next note, the end of the
 note, the previous note; the cursor stands on the staff line of the note, `j` / `k` move it to
@@ -862,12 +886,13 @@ chant keys, and which modern-track keys answer "not in chant").
 | command                                    |                                                                                                                                                                                                          |
 | ------------------------------------------ | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | `:audio [file]` / `:audio off`             | attach a recording (mp3, m4a/aac, flac, ogg, wav; relative to the score). Without a file, the best name match next to the score or in its `mp3/`/`audio/` folder                                         |
-| `:sync`                                    | start (or stop) sync tapping from the cursor bar: play, then `<leader>t` on each downbeat                                                                                                                |
+| `:sync`                                    | enter (or leave) Sync mode: the waveform shows the sync points and rulers, `<Space>` plays, `<CR>` syncs the cursor's cell (a modern score: the bar) and moves on, `<Esc>` leaves                                                                                                                |
 | `:sync-tap` / `:sync-clear`                | add a sync point at the playing bar / remove all sync points                                                                                                                                             |
 | `:sync-unit syllable\|note`                | chant: what one sync tap sets (default a syllable; also a row in the chant Score tab)                    |
+| `:sync-remove`                             | chant: remove the sync point of the cursor (or selection)                                               |
 | `:sync-undo`                               | chant: take back the last sync tap (while tapping)                                                      |
 | `:sync-here` / `:sync-nudge MS`            | chant: sync the cursor note at the playhead / move the sync point under the cursor by MS milliseconds   |
-| `:sync-detect`                             | beat-detection assist: fill in sync points from the last existing one (tap the first downbeat first for best results)                                                                                    |
+| `:sync-detect`                             | modern: beat-detection assist: fill in sync points from the last existing one (tap the first downbeat first for best results); chant: place the notes along the pitches sung                                                                                    |
 | `:mix [both\|audio\|midi]`                 | what plays when a recording is attached (no argument cycles)                                                                                                                                             |
 | `:volume midi\|audio\|metronome\|master {percent}` | source levels (`master` scales the whole output)                                                                                                                                                                                            |
 | `:mute` / `:solo [n\|audio\|master]`       | toggle a track's (cursor track by default), the audio track's or the master's mute / solo                                                                                                                                                |

@@ -5,13 +5,52 @@
 //! The player works on bars, so after every change [`Score::refresh_chant_sync`] derives
 //! bar-level [`SyncPoint`]s from the note points.
 
-use std::collections::HashMap;
-
-use crate::chant::transcribe;
+use crate::chant::{CellKind, Chant, transcribe};
 use crate::{ChantSyncPoint, Score, SyncPoint, TICKS_PER_QUARTER};
 
 /// Audio frames per second of sync points.
 pub const SYNC_FRAME_RATE: f64 = 44_100.0;
+
+/// How long (ticks) a division takes in the singing, on the sync timeline.
+const DIVISION_TICKS: u64 = TICKS_PER_QUARTER as u64 / 2;
+
+/// The sync timeline of the cells of a chant.
+struct CellTiming {
+    /// Start tick of each cell on the sync timeline (divisions take time there).
+    ticks: Vec<u64>,
+    /// Start tick of each cell in the performance of the cached bars.
+    perf: Vec<u64>,
+    /// Stable id of each cell (a note's, or that of a division or empty group).
+    ids: Vec<Option<u32>>,
+}
+
+/// A chant note's place on the waveform's ruler.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct ChantMark {
+    /// The note's stable id.
+    pub note: u32,
+    /// Audio position in frames (with the audio's padding, like a sync point's).
+    pub frame: i64,
+    /// Where it is, as everywhere: `bar:syllable.note` ([`crate::chant::Place`]).
+    pub place: crate::chant::Place,
+}
+
+impl ChantMark {
+    /// A division, which starts a bar: a major tick.
+    pub fn is_bar(&self) -> bool {
+        self.place.syllable == 0
+    }
+
+    /// The first note of a syllable: a minor tick.
+    pub fn is_syllable(&self) -> bool {
+        self.place.note == 1
+    }
+
+    /// `bar:syllable.note`, as in the status line.
+    pub fn label(&self) -> String {
+        self.place.label()
+    }
+}
 
 /// Maps note-start ticks to audio frames, piecewise linear through the anchors.
 #[derive(Debug, Clone)]
@@ -75,72 +114,136 @@ impl NoteWarp {
 }
 
 impl Score {
-    /// Start tick of every chant note (reading order) in the performance of the cached bars.
-    fn chant_note_ticks(&self, tr: &crate::chant::Transcription) -> Vec<u64> {
+    /// The sync timeline of a chant: the start tick of every cell (a note, an empty group, a
+    /// division) in the performance of the cached bars, with a division taking
+    /// [`DIVISION_TICKS`] more than the performance gives it (it takes time in the singing, not
+    /// in the bars), and each cell's id.
+    fn chant_cell_timing(&self, chant: &Chant, tr: &crate::chant::Transcription) -> CellTiming {
         let mut bar_start = Vec::with_capacity(self.master_bars.len());
         let mut tick = 0u64;
         for b in 0..self.master_bars.len() {
             bar_start.push(tick);
             tick += self.played_ticks(b) as u64;
         }
-        tr.positions
-            .iter()
-            .map(|&(bar, beat)| {
-                let before: u64 = tr
-                    .bars
-                    .get(bar)
-                    .and_then(|b| b.voices.first())
-                    .map_or(0, |v| {
-                        v.beats.iter().take(beat).map(|b| b.ticks() as u64).sum()
-                    });
-                bar_start.get(bar).copied().unwrap_or(tick) + before
-            })
-            .collect()
+        let note_ids = chant.note_ids();
+        let mut shift = 0u64;
+        let mut ticks = Vec::with_capacity(tr.cells.len());
+        let mut perf = Vec::with_capacity(tr.cells.len());
+        let mut ids = Vec::with_capacity(tr.cells.len());
+        for c in &tr.cells {
+            let before: u64 = tr
+                .bars
+                .get(c.bar)
+                .and_then(|b| b.voices.first())
+                .map_or(0, |v| {
+                    v.beats.iter().take(c.beat).map(|b| b.ticks() as u64).sum()
+                });
+            let at = bar_start.get(c.bar).copied().unwrap_or(tick) + before;
+            perf.push(at);
+            ticks.push(at + shift);
+            ids.push(match c.note {
+                Some(n) => note_ids.get(n).copied(),
+                None => chant
+                    .syllables
+                    .get(c.syllable)
+                    .map(|s| s.id)
+                    .filter(|&i| i != 0),
+            });
+            if c.kind == CellKind::Division {
+                shift += DIVISION_TICKS;
+            }
+        }
+        CellTiming { ticks, perf, ids }
     }
 
-    /// Keeps a chant score's audio sync in step with its chant: drops note points whose note is
-    /// gone (returns how many) and derives the bar points from the rest. A no-op without audio
-    /// or a chant. Call after anything that changed the chant or the note points.
+    /// The sync timeline and the warp through the points that anchor it (notes and divisions;
+    /// an empty group takes no time).
+    fn chant_warp(&self) -> Option<(crate::chant::Transcription, CellTiming, NoteWarp)> {
+        let chant = self.tracks.iter().find_map(|t| t.chant.as_deref())?;
+        let audio = self.audio.as_ref()?;
+        let tr = transcribe(chant);
+        let timing = self.chant_cell_timing(chant, &tr);
+        let anchors = tr
+            .cells
+            .iter()
+            .enumerate()
+            .filter(|(_, c)| c.kind != CellKind::Slot)
+            .filter_map(|(i, _)| {
+                let id = timing.ids[i]?;
+                let p = audio.chant_points.iter().find(|p| p.note == id)?;
+                Some((timing.ticks[i], p.frame))
+            })
+            .collect();
+        let warp = NoteWarp::new(anchors, self.tempo as f64);
+        Some((tr, timing, warp))
+    }
+
+    /// Keeps a chant score's audio sync in step with its chant: drops points whose note (or
+    /// division) is gone (returns how many) and derives the bar points from the rest. A no-op
+    /// without audio or a chant. Call after anything that changed the chant or the points.
     pub fn refresh_chant_sync(&mut self) -> usize {
-        let Some(t) = self.tracks.iter().position(|t| t.chant.is_some()) else {
-            return 0;
-        };
-        let tempo = self.tempo as f64;
-        if self.audio.is_none() {
+        if self.audio.is_none() || !self.tracks.iter().any(|t| t.chant.is_some()) {
             return 0;
         }
-        let chant = self.tracks[t].chant.as_deref().unwrap();
-        let ids: HashMap<u32, usize> = chant
-            .note_ids()
-            .into_iter()
-            .enumerate()
-            .map(|(i, id)| (id, i))
-            .collect();
-        let tr = transcribe(chant);
-        let starts = self.chant_note_ticks(&tr);
+        let (tr, timing) = {
+            let chant = self.tracks.iter().find_map(|t| t.chant.as_deref()).unwrap();
+            let tr = transcribe(chant);
+            let timing = self.chant_cell_timing(chant, &tr);
+            (tr, timing)
+        };
         let audio = self.audio.as_mut().unwrap();
         let before = audio.chant_points.len();
-        audio.chant_points.retain(|p| ids.contains_key(&p.note));
+        audio
+            .chant_points
+            .retain(|p| timing.ids.contains(&Some(p.note)));
         let dropped = before - audio.chant_points.len();
-        if audio.chant_points.is_empty() {
+        let Some((_, _, warp)) = self.chant_warp() else {
+            return dropped;
+        };
+        let audio = self.audio.as_mut().unwrap();
+        if warp.is_empty() {
             audio.points.clear();
+            audio.note_anchors.clear();
             return dropped;
         }
-        let warp = NoteWarp::new(
-            audio
-                .chant_points
-                .iter()
-                .map(|p| (starts[ids[&p.note]], p.frame))
-                .collect(),
-            tempo,
-        );
+        // Every note's start: where the sync has it, for the player to time the notes by.
+        let mut anchors: Vec<(u64, i64, f64)> = Vec::new();
+        for (i, c) in tr
+            .cells
+            .iter()
+            .enumerate()
+            .filter(|(_, c)| c.note.is_some())
+        {
+            let frame = warp.frame_at(timing.ticks[i] as f64).round() as i64;
+            let tick = timing.perf[i];
+            if anchors.last().is_some_and(|a| a.0 >= tick || a.1 >= frame) {
+                continue;
+            }
+            anchors.push((tick, frame, 0.0));
+            let _ = c;
+        }
+        for k in 0..anchors.len() {
+            // Frames a tick to the next note (the last: the warp's rate there).
+            let rate = match anchors.get(k + 1) {
+                Some(n) => (n.1 - anchors[k].1) as f64 / (n.0 - anchors[k].0) as f64,
+                None => warp.rate_at(timing.ticks.last().copied().unwrap_or(0) as f64),
+            };
+            anchors[k].2 = SYNC_FRAME_RATE * 60.0 / (rate.max(1e-9) * TICKS_PER_QUARTER as f64);
+        }
+        audio.note_anchors = anchors;
         // A point at the first note of every bar.
         let mut bars: Vec<(usize, f64, f64)> = Vec::new();
-        for (i, &(bar, _)) in tr.positions.iter().enumerate() {
+        for (i, c) in tr
+            .cells
+            .iter()
+            .enumerate()
+            .filter(|(_, c)| c.note.is_some())
+        {
+            let bar = tr.positions[c.note.unwrap()].0;
             if bars.last().is_some_and(|b| b.0 == bar) {
                 continue;
             }
-            let tick = starts[i] as f64;
+            let tick = timing.ticks[i] as f64;
             bars.push((bar, tick, warp.frame_at(tick)));
         }
         let mut out: Vec<SyncPoint> = Vec::new();
@@ -163,8 +266,9 @@ impl Score {
         dropped
     }
 
-    /// Sets the sync point of a chant note (by id) to an audio frame, returning the frame it had.
-    /// The bar points are not refreshed ([`Score::refresh_chant_sync`]).
+    /// Sets the sync point of a chant cell (a note's id, or the id of an empty group or a
+    /// division of its own) to an audio frame, returning the frame it had. The bar points are
+    /// not refreshed ([`Score::refresh_chant_sync`]).
     pub fn set_chant_sync_point(&mut self, note: u32, frame: i64) -> Option<i64> {
         let audio = self.audio.as_mut()?;
         let old = audio.chant_points.iter().position(|p| p.note == note);
@@ -180,27 +284,51 @@ impl Score {
         Some(audio.chant_points.remove(i).frame)
     }
 
-    /// The audio time of every note's start in frames, for a chant score with note points.
+    /// The audio time of every note's start in frames (at the tempo from the start while
+    /// nothing has a point), for a chant score with audio.
     pub fn chant_note_frames(&self) -> Option<Vec<i64>> {
-        let chant = self.tracks.iter().find_map(|t| t.chant.as_deref())?;
-        let audio = self.audio.as_ref()?;
-        if audio.chant_points.is_empty() {
-            return None;
-        }
-        let tr = transcribe(chant);
-        let starts = self.chant_note_ticks(&tr);
-        let warp = NoteWarp::new(
-            audio
-                .chant_points
-                .iter()
-                .filter_map(|p| Some((starts[chant.index_of_id(p.note)?], p.frame)))
-                .collect(),
-            self.tempo as f64,
-        );
+        let (tr, timing, warp) = self.chant_warp()?;
         Some(
-            starts
+            tr.cells
+                .iter()
+                .enumerate()
+                .filter(|(_, c)| c.note.is_some())
+                .map(|(i, _)| warp.frame_at(timing.ticks[i] as f64).round() as i64)
+                .collect(),
+        )
+    }
+
+    /// The audio time of every cell (note, empty group, division) in frames, in the order of
+    /// the transcription's cells.
+    pub fn chant_cell_frames(&self) -> Option<Vec<i64>> {
+        let (_, timing, warp) = self.chant_warp()?;
+        Some(
+            timing
+                .ticks
                 .iter()
                 .map(|&t| warp.frame_at(t as f64).round() as i64)
+                .collect(),
+        )
+    }
+
+    /// Where every note and division of a chant is in the audio and in its bars, for the
+    /// waveform's ruler: `None` without audio.
+    pub fn chant_marks(&self) -> Option<Vec<ChantMark>> {
+        let (tr, timing, warp) = self.chant_warp()?;
+        let chant = self.tracks.iter().find_map(|t| t.chant.as_deref())?;
+        let places = chant.places();
+        Some(
+            tr.cells
+                .iter()
+                .enumerate()
+                .filter(|(_, c)| c.kind != CellKind::Slot)
+                .filter_map(|(i, c)| {
+                    Some(ChantMark {
+                        note: timing.ids[i]?,
+                        frame: warp.frame_at(timing.ticks[i] as f64).round() as i64,
+                        place: places.of_cell(c)?,
+                    })
+                })
                 .collect(),
         )
     }
@@ -276,6 +404,7 @@ mod tests {
             text: text.into(),
             word_start,
             items,
+            ..Default::default()
         }
     }
 
@@ -334,10 +463,10 @@ mod tests {
         let mut s = score();
         assert_eq!(chant_mut(&mut s).note_ids(), [1, 2, 3, 4, 5]);
         assert!(bar_frames(&s).is_empty());
-        // Ten frames a tick: bar 1 starts three eighths in.
+        // Ten frames a tick: bar 1 starts three eighths and a division (an eighth) in.
         point(&mut s, 1, 10_000);
-        point(&mut s, 5, 10_000 + 10 * 4 * 480);
-        assert_eq!(bar_frames(&s), [(0, 10_000), (1, 10_000 + 10 * 3 * 480)]);
+        point(&mut s, 5, 10_000 + 10 * 5 * 480);
+        assert_eq!(bar_frames(&s), [(0, 10_000), (1, 10_000 + 10 * 4 * 480)]);
         let tempo = s.audio.as_ref().unwrap().points[0].tempo;
         assert!((tempo - 44_100.0 * 60.0 / (10.0 * 960.0)).abs() < 1e-6);
     }
@@ -349,8 +478,9 @@ mod tests {
         chant_mut(&mut s).set_mora(0, 1).unwrap();
         retranscribe(&mut s, 0);
         point(&mut s, 1, 10_000);
-        point(&mut s, 5, 10_000 + 10 * (1920 + 480));
-        assert_eq!(bar_frames(&s)[1], (1, 10_000 + 10 * 1920));
+        // The division takes an eighth, and the last note starts an eighth after the bar.
+        point(&mut s, 5, 10_000 + 10 * (1920 + 480 + 480));
+        assert_eq!(bar_frames(&s)[1], (1, 10_000 + 10 * (1920 + 480)));
         // Both notes of the pes share the time by length: the second starts a half in.
         let frames = s.chant_note_frames().unwrap();
         assert_eq!(frames[1] - frames[0], 9600);
@@ -361,7 +491,8 @@ mod tests {
     fn before_the_first_and_after_the_last_point_the_nearest_rate_is_used() {
         let mut s = score();
         point(&mut s, 2, 100_000);
-        point(&mut s, 4, 100_000 + 10 * 960);
+        // (An eighth of division lies between the third note and the fourth.)
+        point(&mut s, 4, 100_000 + 10 * (960 + 480));
         let f = s.chant_note_frames().unwrap();
         // Ten frames a tick in the stretch; the same before and after it.
         assert_eq!(f[0], 100_000 - 4_800);

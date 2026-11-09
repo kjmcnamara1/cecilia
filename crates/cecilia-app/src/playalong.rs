@@ -2,6 +2,7 @@
 //! points. Audio itself is handled by the frontend's [`crate::playback::Playback`]; this module
 //! keeps the settings and edits the score's sync data.
 
+use crate::config::Mode;
 use std::path::{Path, PathBuf};
 
 use cecilia_core::*;
@@ -311,30 +312,33 @@ impl App {
                 self.effects.push(Effect::PlaybackSettings);
             }
             Sync => {
-                if self.buffer().score.is_chant() {
-                    if self.pa.chant_tap.take().is_some() {
-                        self.info("sync tapping stopped");
-                        return true;
-                    }
-                    if self.chant_tap_start() {
-                        self.run(Play);
-                    }
-                    return true;
-                }
-                if self.pa.sync_next.take().is_some() {
-                    self.info("sync tapping stopped");
+                // Sync mode: the waveform shows the sync points, Space plays and pauses,
+                // Enter syncs the cursor's cell (or the bar being played) and moves on, Esc
+                // leaves.
+                if self.syncing {
+                    self.leave_sync_mode();
                     return true;
                 }
                 if self.buffer().score.audio.is_none() {
                     self.error("no audio attached (use :audio FILE)");
                     return true;
                 }
-                let c = self.pane().cursor;
-                let perf = Performance::build(&self.buffer().score, &[]);
-                let index = perf.bars.iter().position(|b| b.bar == c.bar).unwrap_or(0);
-                self.pa.sync_next = Some(index);
-                self.info("tap <leader>t on the first beat of each bar; :sync again to stop");
-                self.run(Play);
+                if self.buffer().score.is_chant() {
+                    if !self.chant_tap_start() {
+                        return true;
+                    }
+                } else {
+                    let c = self.pane().cursor;
+                    let perf = Performance::build(&self.buffer().score, &[]);
+                    self.pa.sync_next =
+                        Some(perf.bars.iter().position(|b| b.bar == c.bar).unwrap_or(0));
+                    self.info("sync: Enter on the first beat of each bar, Space plays, Esc leaves");
+                }
+                if !self.has_tool(crate::app::PaneKind::Audio) {
+                    self.set_tool(crate::app::PaneKind::Audio, Some(true));
+                }
+                self.syncing = true;
+                self.mode = Mode::Sync;
             }
             SyncTap => {
                 if self.buffer().score.is_chant() {
@@ -365,16 +369,28 @@ impl App {
                 }
                 self.info("sync points cleared");
             }
-            SyncDetect if self.buffer().score.is_chant() => self.error(
-                "sync-detect: not for chant yet (tap along with :sync, fix points with \
-                 :sync-here and :sync-nudge)",
-            ),
             SyncDetect => self.effects.push(Effect::SyncDetect),
             SyncUnit(unit) => {
                 self.pa.sync_unit = *unit;
                 self.info(format!("sync unit: {}", unit.name()));
             }
             SyncUndo => self.chant_sync_undo(),
+            SyncRemove => {
+                let c = self.pane().cursor;
+                let (from, to) = match self.selection() {
+                    Some((a, b, bars)) => {
+                        let (a, b) = ((a.bar, a.beat), (b.bar, b.beat));
+                        let (f, t) = if a <= b { (a, b) } else { (b, a) };
+                        if bars {
+                            ((f.0, 0), (t.0, usize::MAX))
+                        } else {
+                            (f, t)
+                        }
+                    }
+                    None => ((c.bar, c.beat), (c.bar, c.beat)),
+                };
+                self.sync_operate(crate::command::Operator::Delete, from, to);
+            }
             SyncHere => {
                 if self.chant_sync_ready() {
                     self.effects.push(Effect::SyncHere);
@@ -524,8 +540,10 @@ impl App {
                 frame_padding,
                 points,
                 chant_points,
+                note_anchors: Vec::new(),
                 embedded: None,
             });
+            s.refresh_chant_sync();
             Ok(())
         });
         self.effects.push(Effect::AudioChanged { buffer: index });

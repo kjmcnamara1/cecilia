@@ -84,12 +84,12 @@ pub enum SettingArg<T> {
 #[derive(Debug, Clone, PartialEq)]
 pub enum Command {
     // Editing
-    /// Insert mode on the cursor beat, adding nothing.
-    Insert,
     /// Insert mode where Insert mode was last left (`gi`).
     InsertLast,
     /// Reselect the last Visual selection (`gv`).
     VisualReselect,
+    /// In Visual mode: the cursor goes to the other end of the selection (`o`).
+    VisualOtherEnd,
     /// A new rest beat at the place, then insert mode.
     InsertBeat(BeatAt),
     /// Visual mode: a beat before / after the selection, then insert mode.
@@ -208,6 +208,27 @@ pub enum Command {
     ChantBreak,
     /// On chant: a new syllable after the cursor syllable.
     ChantSyllable,
+    /// On chant: the selected syllables (the cursor one and the next without a selection)
+    /// become one, with the notes in the first.
+    ChantJoin,
+    /// On chant: the syllable splits after the cursor note (after each selected note).
+    ChantSplit,
+    /// On chant: the separator (`/` or `!`) after the cursor note goes in or out.
+    ChantSeparator(String),
+    /// On chant: the cursor note becomes a custos.
+    ChantCustos,
+    /// On chant: the text of the syllables of the Visual selection (else the cursor syllable)
+    /// is deleted; the notes stay.
+    LyricsDelete,
+    /// On chant: the notes move this many syllables on (back when negative) among the syllables
+    /// of the Visual selection (else from the cursor syllable to the end), the lyrics staying.
+    LyricsShift(isize),
+    /// On chant: `<tag>` markup (i b ul sc c tt e alt) around the cursor syllable's text goes
+    /// in or out.
+    ChantMarkup(String),
+    /// On chant: a forced line break (`z`) or one that does not stretch the line (`Z`) after the
+    /// cursor syllable goes in or out.
+    ChantLineBreak(String),
     /// On chant: gives the cursor note a head by name (`virga`, `quilisma` …); again takes it off.
     ChantShape(String),
     /// On chant: a division after the cursor syllable (`,` `;` `:` `::` `;3` …); again takes it off.
@@ -259,6 +280,8 @@ pub enum Command {
     SyncUnit(crate::chantsync::SyncUnit),
     /// Chant: take back the last tap.
     SyncUndo,
+    /// Take the sync point of the cursor (or of the selection) away.
+    SyncRemove,
     /// Chant: sync the cursor note at the playhead.
     SyncHere,
     /// Chant: move the sync point under the cursor by this many milliseconds.
@@ -307,6 +330,10 @@ pub enum Command {
     /// Jump from the cursor note of a chant score to the same GABC, selected in the lyrics text
     /// area.
     LyricsSelect,
+    /// On chant: Insert mode where the keys type the cursor syllable's text (`<Esc>` leaves).
+    LyricMode,
+    /// On chant: Insert mode where entering notes only changes the notes there.
+    ReplaceMode,
     /// Show or hide the editing palette (no argument: toggle).
     Palette(Option<bool>),
     /// Focus the palette, or give the focus back to the score.
@@ -710,9 +737,9 @@ impl Command {
             "zoom-out" => ZoomOut,
             "zoom-reset" => ZoomReset,
             "nop" => Nop,
-            "insert-here" => Insert,
             "insert-last" => InsertLast,
             "visual-reselect" => VisualReselect,
+            "visual-other-end" => VisualOtherEnd,
             "insert" => InsertBeat(BeatAt::Before),
             "append" => InsertBeat(BeatAt::After),
             "insert-bar-start" => InsertBeat(BeatAt::BarStart),
@@ -891,6 +918,29 @@ impl Command {
             "chant-append" => ChantAppend,
             "chant-break" => ChantBreak,
             "chant-syllable" => ChantSyllable,
+            "chant-sep" => ChantSeparator(
+                arg.filter(|a| ["/", "!"].contains(a))
+                    .ok_or("chant-sep: expected / or !")?
+                    .to_string(),
+            ),
+            "chant-linebreak" => ChantLineBreak(
+                arg.filter(|a| ["z", "Z"].contains(a))
+                    .ok_or("chant-linebreak: expected z or Z")?
+                    .to_string(),
+            ),
+            "chant-custos" => ChantCustos,
+            "lyrics-delete" => LyricsDelete,
+            "lyrics-shift" => LyricsShift(
+                arg.and_then(|a| a.trim().parse().ok())
+                    .ok_or("lyrics-shift: expected a number of syllables (+1, -2 …)")?,
+            ),
+            "chant-markup" => ChantMarkup(
+                arg.filter(|a| ["i", "b", "ul", "sc", "c", "tt", "e", "alt"].contains(a))
+                    .ok_or("chant-markup: expected i, b, ul, sc, c, tt, e or alt")?
+                    .to_string(),
+            ),
+            "chant-join" => ChantJoin,
+            "chant-split" => ChantSplit,
             "chant-shape" => ChantShape(
                 arg.filter(|a| crate::chant::shape_by_name(a).is_some())
                     .ok_or("chant-shape: expected punctum, inclinatum, virga, virga-reversa, bivirga, trivirga, stropha, bistropha, tristropha, quilisma, oriscus, oriscus-stem or quadratum")?
@@ -902,8 +952,8 @@ impl Command {
                     .to_string(),
             ),
             "chant-alter" => ChantAlter(
-                arg.filter(|a| ["flat", "natural"].contains(a))
-                    .ok_or("chant-alter: expected flat or natural")?
+                arg.filter(|a| ["flat", "natural", "sharp"].contains(a))
+                    .ok_or("chant-alter: expected flat, natural or sharp")?
                     .to_string(),
             ),
             "chant-liquescence" => ChantLiquescence(
@@ -915,7 +965,7 @@ impl Command {
             "chant-episema" => ChantEpisema,
             "chant-ictus" => ChantIctus,
             "chant-symbol" => ChantSymbol(
-                arg.ok_or("chant-symbol: expected a symbol (* + † ℣ ℟)")?
+                arg.ok_or("chant-symbol: expected a symbol (* + † ℣ ℟ Ⱥ)")?
                     .to_string(),
             ),
             "chant-clef" => ChantClef(
@@ -981,6 +1031,7 @@ impl Command {
                     .ok_or("sync-unit: expected syllable or note")?,
             ),
             "sync-undo" => SyncUndo,
+            "sync-remove" => SyncRemove,
             "sync-here" => SyncHere,
             "sync-nudge" => SyncNudge(
                 arg.and_then(|a| a.trim().parse().ok())
@@ -1136,6 +1187,8 @@ impl Command {
             }),
             "properties-focus" => PropertiesFocus,
             "lyrics-select" => LyricsSelect,
+            "lyric-mode" => LyricMode,
+            "replace-mode" => ReplaceMode,
             "palette" => Palette(match arg {
                 None => None,
                 Some("on") => Some(true),
@@ -1338,8 +1391,7 @@ impl Command {
         use Command::*;
         matches!(
             self,
-            Insert
-                | InsertLast
+            InsertLast
                 | InsertBeat(_)
                 | InsertEnter
                 | DeleteNote
@@ -1373,6 +1425,14 @@ impl Command {
                 | ChantAppend
                 | ChantBreak
                 | ChantSyllable
+                | ChantJoin
+                | ChantSplit
+                | ChantSeparator(_)
+                | ChantCustos
+                | LyricsDelete
+                | LyricsShift(_)
+                | ChantMarkup(_)
+                | ChantLineBreak(_)
                 | ChantShape(_)
                 | ChantDivision(_)
                 | ChantAlter(_)

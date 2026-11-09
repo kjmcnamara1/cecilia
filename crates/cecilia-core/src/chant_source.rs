@@ -195,11 +195,12 @@ fn shared<T: PartialEq>(a: &[T], b: &[T]) -> (usize, usize) {
 ///
 /// The result is a proposal: the caller reads the new text again and falls back to writing the
 /// whole chant when that does not give `new` (spacing the splice could not get right).
-pub fn plan_splice(old: &Chant, map: &SourceMap, new: &Chant) -> Option<Splice> {
+pub fn plan_splice(old: &Chant, map: &SourceMap, text: &str, new: &Chant) -> Option<Splice> {
     if !map.fits(old) {
         return None;
     }
     let (o, n) = (&old.syllables, &new.syllables);
+    let chars: Vec<char> = text.chars().collect();
     let (lead, trail) = shared(o, n);
     let (ob, nb) = (o.len() - trail, n.len() - trail);
     if lead == o.len() && lead == n.len() {
@@ -212,8 +213,14 @@ pub fn plan_splice(old: &Chant, map: &SourceMap, new: &Chant) -> Option<Splice> 
     if ob - lead == 1 && nb - lead == 1 {
         let (os, ns) = (&o[lead], &n[lead]);
         let src = &map.syllables[lead];
+        if os.text == ns.text && os.on_own_line() != ns.on_own_line() {
+            return Some(own_line_splice(&chars, src, ns));
+        }
         if os.text == ns.text && os.word_start == ns.word_start {
             return Some(item_splice(os, ns, src));
+        }
+        if os.text == ns.text && os.items == ns.items {
+            return Some(gap_splice(text, src.range.start, ns.word_start));
         }
         if os.items == ns.items && os.word_start == ns.word_start {
             return Some(Splice {
@@ -223,7 +230,108 @@ pub fn plan_splice(old: &Chant, map: &SourceMap, new: &Chant) -> Option<Splice> 
             });
         }
     }
-    Some(syllable_splice(map, &n[lead..nb], lead, ob, n.get(nb)))
+    Some(syllable_splice(
+        map,
+        &chars,
+        &o[lead..ob],
+        &n[lead..nb],
+        lead,
+        lead.checked_sub(1).and_then(|k| n.get(k)),
+        n.get(nb),
+    ))
+}
+
+/// The splice that puts a space before the syllable starting at character `start` (it starts a
+/// word) or takes the spaces before it away.
+fn gap_splice(text: &str, start: usize, space: bool) -> Splice {
+    let spaces = text
+        .chars()
+        .take(start)
+        .collect::<Vec<_>>()
+        .iter()
+        .rev()
+        .take_while(|&&c| c == ' ')
+        .count();
+    let (range, new) = match (space, spaces) {
+        (true, 0) => (start..start, " "),
+        (true, _) => (start..start, ""),
+        (false, k) => (start - k..start, ""),
+    };
+    Splice {
+        range,
+        text: new.into(),
+        kind: SpliceKind::Syllables,
+    }
+}
+
+/// After character `at`: where the spaces end, and whether a newline is there (it stays), the
+/// text ends (nothing to add) or something else follows.
+fn line_end(chars: &[char], at: usize) -> (usize, Follow) {
+    let mut e = at;
+    while chars.get(e) == Some(&' ') {
+        e += 1;
+    }
+    let follow = match chars.get(e) {
+        Some('\n') => Follow::Newline,
+        None => Follow::End,
+        Some(_) => Follow::Text,
+    };
+    (e, follow)
+}
+
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum Follow {
+    Newline,
+    End,
+    Text,
+}
+
+/// The splice for a syllable that becomes a clef or a division of its own, or stops being
+/// one: it goes on a line of its own (a division with a space before it), or the space before
+/// it and the line break after it go with it.
+fn own_line_splice(
+    chars: &[char],
+    src: &crate::chant_source::SyllableSource,
+    new: &Syllable,
+) -> Splice {
+    let (mut start, mut end) = (src.range.start, src.range.end);
+    // The spaces before: the syllable's own state decides them.
+    while !new.word_start && start > 0 && chars[start - 1] == ' ' {
+        start -= 1;
+    }
+    let lead = if new.word_start && start > 0 && !chars[start - 1].is_whitespace() {
+        " "
+    } else {
+        ""
+    };
+    let (e, follow) = line_end(chars, end);
+    let trail = if new.on_own_line() {
+        match follow {
+            Follow::Text => {
+                end = e;
+                "\n"
+            }
+            _ => "",
+        }
+    } else {
+        // The line break after it goes; what follows keeps its space.
+        match follow {
+            Follow::Newline => {
+                end = e + 1;
+                if chars.get(end).is_some_and(|c| !c.is_whitespace()) {
+                    " "
+                } else {
+                    ""
+                }
+            }
+            _ => "",
+        }
+    };
+    Splice {
+        range: start..end,
+        text: format!("{lead}{}{trail}", new.gabc()),
+        kind: SpliceKind::Syllables,
+    }
 }
 
 /// The splice for two versions of one syllable with the same text.
@@ -255,35 +363,75 @@ fn item_splice(
     }
 }
 
-/// The splice replacing syllables `from..to` of the old chant with `new` (the syllables that
-/// stand there now); `after` is the syllable that follows them in the new chant.
+/// The splice replacing the syllables `old` (which start at syllable `from` of the old chant)
+/// with `new` (the syllables that stand there now); `after` is the syllable that follows them
+/// in the new chant.
 fn syllable_splice(
     map: &SourceMap,
+    chars: &[char],
+    old: &[Syllable],
     new: &[Syllable],
     from: usize,
-    to: usize,
+    before: Option<&Syllable>,
     after: Option<&Syllable>,
 ) -> Splice {
+    let to = from + old.len();
     let gap = |s: &Syllable| if s.word_start { " " } else { "" };
+    // A clef or a division of its own ends its line.
+    let own = |s: &Syllable| if s.on_own_line() { "\n" } else { "" };
     let syl = &map.syllables;
     let (range, text) = match (to > from, new.is_empty()) {
-        // Syllables go.
+        // Syllables go; a clef or division of its own takes its line break with it.
         (true, true) => {
             let start = if from > 0 {
                 syl[from - 1].range.end
             } else {
                 syl[from].range.start
             };
-            (start..syl[to - 1].range.end, String::new())
+            let mut end = syl[to - 1].range.end;
+            let mut text = String::new();
+            // What stays after a clef or a division of its own keeps its line.
+            if before.is_some_and(Syllable::on_own_line)
+                && after.is_some_and(|s| s.word_start)
+                && !old.last().is_some_and(Syllable::on_own_line)
+            {
+                text.push('\n');
+                end = {
+                    let (e, _) = line_end(chars, end);
+                    e
+                };
+            }
+            if old.last().is_some_and(Syllable::on_own_line) {
+                let (e, follow) = line_end(chars, end);
+                if follow == Follow::Newline {
+                    end = e + 1;
+                    if after.is_some_and(|s| s.word_start) && from > 0 {
+                        text.push(' ');
+                    }
+                }
+            }
+            (start..end, text)
         }
         // Replaced: the first new one takes the old one's place (and the space before it).
         (true, false) => {
-            let mut text = new[0].gabc();
-            for s in &new[1..] {
-                text.push_str(gap(s));
+            let start = syl[from].range.start;
+            // A syllable that starts a word needs the space before it.
+            let lead = if new[0].word_start && start > 0 && !chars[start - 1].is_whitespace() {
+                " "
+            } else {
+                ""
+            };
+            let mut text = format!("{lead}{}", new[0].gabc());
+            for (k, s) in new.iter().enumerate().skip(1) {
+                // What follows a clef or a division of its own starts a line.
+                text.push_str(if new[k - 1].on_own_line() && s.word_start {
+                    "\n"
+                } else {
+                    gap(s)
+                });
                 text.push_str(&s.gabc());
             }
-            (syl[from].range.start..syl[to - 1].range.end, text)
+            (start..syl[to - 1].range.end, text)
         }
         // New ones come in after the syllable before, or before the first.
         (false, _) => {
@@ -294,7 +442,15 @@ fn syllable_splice(
                     text.push_str(&s.gabc());
                 }
                 let at = syl[from - 1].range.end;
-                (at..at, text)
+                let mut end = at;
+                if new.last().is_some_and(Syllable::on_own_line) {
+                    let (e, follow) = line_end(chars, at);
+                    if follow == Follow::Text {
+                        end = e;
+                        text.push_str(own(&new[new.len() - 1]));
+                    }
+                }
+                (at..end, text)
             } else {
                 let mut text = String::new();
                 for (k, s) in new.iter().enumerate() {
@@ -303,10 +459,14 @@ fn syllable_splice(
                     }
                     text.push_str(&s.gabc());
                 }
-                if after.is_some_and(|s| s.word_start) {
+                let at = syl.first().map_or(0, |s| s.range.start);
+                if new.last().is_some_and(Syllable::on_own_line) {
+                    if after.is_some() {
+                        text.push('\n');
+                    }
+                } else if after.is_some_and(|s| s.word_start) {
                     text.push(' ');
                 }
-                let at = syl.first().map_or(0, |s| s.range.start);
                 (at..at, text)
             }
         }

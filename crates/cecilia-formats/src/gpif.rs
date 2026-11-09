@@ -1044,6 +1044,7 @@ fn read_automations(root: Node, score: &mut Score) {
                 .unwrap_or(0),
             points: sync,
             chant_points: Vec::new(),
+            note_anchors: Vec::new(),
             embedded: None,
         });
     }

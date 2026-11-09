@@ -53,7 +53,8 @@ pub fn parse_position(s: &str) -> Option<(usize, f64)> {
         return None;
     }
     let pos: f64 = b.parse().ok()?;
-    (bar > 0 && pos >= 1.0).then(|| (bar - 1, pos))
+    // A beat 0 is only for a chant's divisions (`3:0`).
+    (bar > 0 && (pos >= 1.0 || pos == 0.0)).then(|| (bar - 1, pos))
 }
 
 #[cfg(test)]
@@ -70,6 +71,7 @@ mod tests {
         assert_eq!(parse_position("2:6"), Some((1, 6.0)));
         assert_eq!(parse_position("0:1"), None);
         assert_eq!(parse_position("1:0.5"), None);
+        assert_eq!(parse_position("3:0"), Some((2, 0.0)));
         assert_eq!(parse_position("1:x"), None);
         assert_eq!(parse_position("1:2.3.4"), None);
     }

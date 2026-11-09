@@ -8,12 +8,12 @@ use std::collections::HashMap;
 
 use cecilia_core::chant::{
     Chant, ChantClef, ChantNote, ClefKind, Division, Liquescence, NeumeItem, Shape, Syllable,
-    group_neumes, transcribe,
+    TextRun, group_neumes, text_runs, transcribe,
 };
 use cecilia_core::{Score, Track};
 use kurbo::{BezPath, Point, Rect};
 
-use crate::display::{Align, BeatRef, Color, FontKind, Hit, Item, Page};
+use crate::display::{Align, BeatRef, Color, FontKind, Hit, Item, Page, TextFamily};
 use crate::fonts::fonts;
 use crate::layout::{BeatPos, Layout, Mode, Options, StaffPos};
 use crate::neume::{Kind, N, Typeset};
@@ -90,8 +90,58 @@ pub fn engrave_chant(
 }
 
 /// Text as the bundled font can show it.
-fn displayable(text: &str) -> String {
-    fonts().display(FontKind::Text, text).into_owned()
+fn displayable(family: TextFamily, text: &str) -> String {
+    // A `+` is the dagger, which the text is drawn with in the serif font whatever the family;
+    // the sans family lacks the versicle and response, whose width a V and an R stand in for.
+    let mut text = text.replace(['+', '✠'], "†").replace('✱', "*");
+    if family == TextFamily::Sans {
+        text = text.replace('℣', "V").replace('℟', "R");
+    }
+    fonts()
+        .display(family.kind(false, false), &text)
+        .into_owned()
+}
+
+/// A syllable's text in runs of style to draw (with the initial's letter left out when `drop`),
+/// and its `<alt>` texts. Characters the font lacks are dropped.
+fn styled_text(s: &Syllable, drop: bool, family: TextFamily) -> (Vec<TextRun>, Vec<String>) {
+    let (mut runs, alt) = text_runs(&s.text);
+    let f = fonts();
+    for r in &mut runs {
+        r.text = r
+            .text
+            .chars()
+            .filter(|&c| {
+                c.is_whitespace()
+                    || f.has(family.kind(r.bold, r.italic), c)
+                    || f.has(TextFamily::Serif.kind(false, false), c)
+                    || c == '✱'
+            })
+            // A `+` in the text is the dagger (a cross); `✠` too.
+            .map(|c| if matches!(c, '+' | '✠') { '†' } else { c })
+            .collect();
+    }
+    if drop {
+        let mut left = true;
+        for r in &mut runs {
+            if left {
+                r.text = r.text.trim_start().to_string();
+                if !r.text.is_empty() {
+                    r.text = r.text.chars().skip(1).collect();
+                    left = false;
+                }
+            }
+        }
+    }
+    if let Some(last) = runs
+        .iter_mut()
+        .rev()
+        .find(|r| !r.text.trim_end().is_empty())
+    {
+        last.text = last.text.trim_end().to_string();
+    }
+    runs.retain(|r| !r.text.is_empty());
+    (runs, alt)
 }
 
 fn is_vowel(c: char) -> bool {
@@ -110,11 +160,7 @@ fn vowel_range(text: &str) -> Option<(usize, usize)> {
 
 impl Ctx<'_> {
     fn font(&self, s: &Syllable) -> FontKind {
-        if s.italic() {
-            FontKind::Italic
-        } else {
-            FontKind::Text
-        }
+        self.o.chant_font.kind(false, s.italic())
     }
 
     fn text_width(&self, s: &Syllable, text: &str) -> f64 {
@@ -134,7 +180,12 @@ impl Ctx<'_> {
 
     fn run(&self) -> Layout {
         let sp = self.sp;
-        let margin = self.o.margin;
+        let (margin, margin_r, margin_t, margin_b) = (
+            self.o.margin_left(),
+            self.o.margin_right(),
+            self.o.margin_top(),
+            self.o.margin_bottom(),
+        );
         let syllables = &self.chant.syllables;
         let measures: Vec<Measure> = syllables
             .iter()
@@ -149,30 +200,37 @@ impl Ctx<'_> {
             .and_then(|v| v.trim().parse::<u32>().ok())
             .unwrap_or(1);
         let initial_syllable = syllables.iter().position(|s| {
-            !displayable(&s.plain_text()).trim().is_empty() && s.notes().next().is_some()
+            !displayable(self.o.chant_font, &s.plain_text())
+                .trim()
+                .is_empty()
+                && s.notes().next().is_some()
         });
         let initial: Option<(usize, String)> = initial_syllable
             .filter(|_| initial_style > 0)
             .and_then(|i| {
-                let text = displayable(&syllables[i].plain_text());
+                let text = displayable(self.o.chant_font, &syllables[i].plain_text());
                 let c = text.trim().chars().next()?;
                 Some((i, c.to_uppercase().collect()))
             });
         let initial_size = 5.3 * sp;
         let initial_w = initial.as_ref().map_or(0.0, |(_, c)| {
-            fonts().text_width(FontKind::Text, c, initial_size) + 0.6 * sp
+            fonts().text_width(self.o.chant_font.kind(false, false), c, initial_size) + 0.6 * sp
         });
 
         let width = match self.o.mode {
             Mode::Page { width, .. } | Mode::Vertical { width } => width,
             Mode::Horizontal => {
-                margin * 2.0
+                margin
+                    + margin_r
                     + initial_w
                     + 4.0 * sp
                     + measures.iter().map(|m| m.width + 2.0 * sp).sum::<f64>()
                     + syllables
                         .iter()
-                        .map(|s| self.text_width(s, &displayable(&s.plain_text())) + sp)
+                        .map(|s| {
+                            self.text_width(s, &displayable(self.o.chant_font, &s.plain_text()))
+                                + sp
+                        })
                         .sum::<f64>()
             }
         };
@@ -181,10 +239,14 @@ impl Ctx<'_> {
         // Break into lines.
         let mut lines: Vec<Vec<Placed>> = Vec::new();
         let mut line: Vec<Placed> = Vec::new();
+        // The lines a `Z` ends, which are not stretched to the width.
+        let mut ragged_lines = std::collections::HashSet::new();
         let line_start =
             |n: usize| margin + if n == 0 { initial_w } else { 0.0 } + clef_w + 0.8 * sp;
-        let right = width - margin - 1.2 * sp;
+        let right = width - margin_r - 1.2 * sp;
         let (mut notes_end, mut text_end) = (line_start(0), line_start(0));
+        // Where the `<alt>` text above the staff ends.
+        let mut alt_end = f64::MIN;
         let mut prev_word_end = true;
         let mut i = 0;
         while i < syllables.len() {
@@ -200,7 +262,7 @@ impl Ctx<'_> {
                 i += 1;
                 continue;
             }
-            let mut text = displayable(&s.plain_text());
+            let mut text = displayable(self.o.chant_font, &s.plain_text());
             if initial.as_ref().is_some_and(|(k, _)| *k == i) {
                 text = text.trim_start().chars().skip(1).collect();
             }
@@ -221,7 +283,34 @@ impl Ctx<'_> {
             if line.is_empty() {
                 x = x.max(line_start(lines.len()) + (center - anchor).max(0.0));
             }
-            let extent = (x + m.width).max(x + anchor - center + tw);
+            // `<alt>` text above the staff takes room too: from its centre (over the text, or
+            // the notes of a syllable without text) it reaches half its width each way.
+            let alt_w = text_runs(&s.text)
+                .1
+                .iter()
+                .map(|a| {
+                    fonts().text_width(
+                        self.o.chant_font.kind(false, false),
+                        a,
+                        self.text_size * 0.9,
+                    )
+                })
+                .fold(0.0, f64::max);
+            let alt_off = if text.is_empty() {
+                m.width / 2.0
+            } else {
+                anchor - center + tw / 2.0
+            };
+            if alt_w > 0.0 {
+                x = x.max(alt_end + 0.6 * self.text_size - (alt_off - alt_w / 2.0));
+            }
+            let extent = (x + m.width)
+                .max(x + anchor - center + tw)
+                .max(if alt_w > 0.0 {
+                    x + alt_off + alt_w / 2.0
+                } else {
+                    0.0
+                });
             let only_division = s.notes().next().is_none() && s.division().is_some();
             if !line.is_empty()
                 && extent > right
@@ -231,6 +320,7 @@ impl Ctx<'_> {
                 lines.push(std::mem::take(&mut line));
                 notes_end = line_start(lines.len());
                 text_end = notes_end;
+                alt_end = f64::MIN;
                 continue;
             }
             line.push(Placed {
@@ -243,8 +333,25 @@ impl Ctx<'_> {
             if !text.is_empty() {
                 text_end = x + anchor - center + tw;
             }
+            if alt_w > 0.0 {
+                alt_end = x + alt_off + alt_w / 2.0;
+            }
             prev_word_end = syllables.get(i + 1).is_none_or(|n| n.word_start);
             i += 1;
+            // A forced line break (`z`) ends the line here; `Z` leaves it unstretched.
+            let forced = s.items.iter().find_map(|it| match it {
+                NeumeItem::LineBreak(t) => Some(t.starts_with('Z')),
+                _ => None,
+            });
+            if let (Some(ragged), true) = (forced, self.o.mode != Mode::Horizontal) {
+                if ragged {
+                    ragged_lines.insert(lines.len());
+                }
+                lines.push(std::mem::take(&mut line));
+                notes_end = line_start(lines.len());
+                text_end = notes_end;
+                alt_end = f64::MIN;
+            }
         }
         if !line.is_empty() {
             lines.push(line);
@@ -253,7 +360,11 @@ impl Ctx<'_> {
         // Justify all but the last line.
         let count = lines.len();
         for (li, line) in lines.iter_mut().enumerate() {
-            if li + 1 == count || line.len() < 2 || self.o.mode == Mode::Horizontal {
+            if li + 1 == count
+                || line.len() < 2
+                || self.o.mode == Mode::Horizontal
+                || ragged_lines.contains(&li)
+            {
                 continue;
             }
             let end = line
@@ -285,12 +396,14 @@ impl Ctx<'_> {
             height: page_height,
             ..Page::default()
         };
-        let mut y = margin;
+        let mut y = margin_t;
         if self.o.header {
             y = self.draw_header(&mut page, width, y);
         }
         let top = self.top_position();
         let mut clef = self.chant.initial_clef();
+        // The bar each syllable is in (a bar starts after every division), for the numbers.
+        let places = self.chant.places();
         for (li, line) in lines.iter().enumerate() {
             let high = line
                 .iter()
@@ -304,14 +417,24 @@ impl Ctx<'_> {
                 .min()
                 .unwrap_or(3)
                 .min(3);
-            let above = (high - top) as f64 * sp / 2.0 + 1.2 * sp;
+            // Room for the bar numbers, when the line has any.
+            let numbered = line.iter().enumerate().any(|(k, p)| {
+                let starts = places.syllables.get(p.index).is_some_and(|b| b.1);
+                if self.o.every_bar_number {
+                    starts
+                } else {
+                    k == 0 && li > 0
+                }
+            });
+            let above =
+                (high - top) as f64 * sp / 2.0 + 1.2 * sp + if numbered { 1.4 * sp } else { 0.0 };
             let staff_h = (top - 3) as f64 * sp / 2.0;
             let below = ((3 - low) as f64 * sp / 2.0).max(0.0);
             let annotation = li == 0 && initial.is_some();
             let extra_top = if annotation { 1.8 * sp } else { 0.0 };
             let line_h = extra_top + above + staff_h + below + 2.6 * sp + self.text_size;
             if let Mode::Page { height, .. } = self.o.mode {
-                if y + line_h > height - margin && y > margin + 1.0 {
+                if y + line_h > height - margin_b && y > margin_t + 1.0 {
                     layout.pages.push(std::mem::replace(
                         &mut page,
                         Page {
@@ -320,14 +443,14 @@ impl Ctx<'_> {
                             ..Page::default()
                         },
                     ));
-                    y = margin;
+                    y = margin_t;
                 }
             }
             let bottom_line = y + extra_top + above + staff_h;
             let ymap = move |p: i32| bottom_line - (p - 3) as f64 * sp / 2.0;
             let text_y = (bottom_line + 2.2 * sp).max(ymap(low) + 1.0 * sp + 0.75 * self.text_size);
             let staff_x0 = margin + if li == 0 { initial_w } else { 0.0 };
-            let staff_x1 = width - margin;
+            let staff_x1 = width - margin_r;
             for l in self.lines() {
                 page.items.push(Item::Line {
                     from: Point::new(staff_x0, ymap(l)),
@@ -340,7 +463,7 @@ impl Ctx<'_> {
             if li == 0 {
                 if let Some((_, c)) = &initial {
                     page.items.push(Item::Text {
-                        font: FontKind::Text,
+                        font: self.o.chant_font.kind(false, false),
                         text: c.clone(),
                         at: Point::new(margin, text_y),
                         size: initial_size,
@@ -445,6 +568,29 @@ impl Ctx<'_> {
                 }
                 out
             };
+            // Bar numbers above the staff (`ui.bar_numbers`): the bar running at the start of
+            // each line but the first, and with every bar numbered, where each bar starts.
+            for (k, p) in line.iter().enumerate() {
+                let Some(&(bar, starts)) = places.syllables.get(p.index) else {
+                    continue;
+                };
+                let line_start = k == 0 && li > 0;
+                // With every bar numbered, only bars get a label, not the line starts.
+                if if self.o.every_bar_number {
+                    starts
+                } else {
+                    line_start
+                } {
+                    let x = if line_start { staff_x0 + 0.4 * sp } else { p.x };
+                    page.text(
+                        FontKind::Italic,
+                        format!("{bar}"),
+                        (x, ymap(top) - 1.4 * sp),
+                        1.8 * sp,
+                        Align::Left,
+                    );
+                }
+            }
             for (k, p) in line.iter().enumerate() {
                 let s = &self.chant.syllables[p.index];
                 let mut hits = Vec::new();
@@ -477,30 +623,55 @@ impl Ctx<'_> {
                     layout.beats.insert(beat, pos);
                 }
                 // Text and hyphens.
-                let mut text = displayable(&s.plain_text());
+                let mut text = displayable(self.o.chant_font, &s.plain_text());
                 if initial.as_ref().is_some_and(|(i, _)| *i == p.index) {
                     text = text.trim_start().chars().skip(1).collect();
                 }
                 let text = text.trim_end();
+                let drop = initial.as_ref().is_some_and(|(i, _)| *i == p.index);
+                let (runs, alt) = styled_text(s, drop, self.o.chant_font);
                 if !text.is_empty() {
-                    page.text_red_stars(
-                        self.font(s),
-                        text,
+                    page.rich_text(
+                        &runs,
                         Point::new(p.text_x, text_y),
                         self.text_size,
                         Align::Left,
+                        self.o.chant_font,
+                    );
+                }
+                // `<alt>` text goes above the staff, over the text (or the notes, when the
+                // syllable has no other text).
+                let alt_x = if text.is_empty() {
+                    p.x + measures[p.index].width / 2.0
+                } else {
+                    p.text_x + p.text_w / 2.0
+                };
+                for (k, a) in alt.iter().enumerate() {
+                    page.text(
+                        self.o.chant_font.kind(false, false),
+                        a.clone(),
+                        (alt_x, ymap(top) - (1.6 + 1.1 * k as f64) * sp),
+                        self.text_size * 0.9,
+                        Align::Center,
                     );
                 }
                 let next_same_word = self.chant.syllables.get(p.index + 1).is_some_and(|n| {
-                    !n.word_start && !displayable(&n.plain_text()).trim().is_empty()
+                    !n.word_start
+                        && !displayable(self.o.chant_font, &n.plain_text())
+                            .trim()
+                            .is_empty()
                 });
                 if next_same_word && !text.is_empty() {
                     let end = p.text_x + p.text_w;
-                    let hy = fonts().text_width(FontKind::Text, "-", self.text_size);
+                    let hy = fonts().text_width(
+                        self.o.chant_font.kind(false, false),
+                        "-",
+                        self.text_size,
+                    );
                     match line.get(k + 1) {
                         Some(n) if n.text_x - end > hy * 1.15 => {
                             page.text(
-                                FontKind::Text,
+                                self.o.chant_font.kind(false, false),
                                 "-",
                                 ((end + n.text_x) / 2.0, text_y),
                                 self.text_size,
@@ -509,7 +680,7 @@ impl Ctx<'_> {
                         }
                         None => {
                             page.text(
-                                FontKind::Text,
+                                self.o.chant_font.kind(false, false),
                                 "-",
                                 (end + 0.15 * sp, text_y),
                                 self.text_size,
@@ -537,7 +708,7 @@ impl Ctx<'_> {
         if let Mode::Page { height, .. } = self.o.mode {
             page.height = height;
         } else {
-            page.height = y + margin;
+            page.height = y + margin_b;
         }
         layout.pages.push(page);
         for b in &mut layout.bars {
@@ -570,7 +741,7 @@ impl Ctx<'_> {
                 page.text(
                     FontKind::Italic,
                     office.to_string(),
-                    (self.o.margin, y),
+                    (self.o.margin_left(), y),
                     2.6 * sp,
                     Align::Left,
                 );
@@ -579,7 +750,7 @@ impl Ctx<'_> {
                 page.text(
                     FontKind::Italic,
                     commentary.to_string(),
-                    (width - self.o.margin, y),
+                    (width - self.o.margin_right(), y),
                     2.4 * sp,
                     Align::Right,
                 );
@@ -741,6 +912,19 @@ impl Ctx<'_> {
                     started = true;
                     pending_gap = 0.4 * sp;
                 }
+                // A custos written in the notation (`f+`): the guide at the pitch of that note.
+                NeumeItem::Custos(Some(pitch)) => {
+                    if started {
+                        x += pending_gap.min(0.4 * sp);
+                    }
+                    self.draw_custos(page, x + 0.26 * sp, *pitch as i32, ymap);
+                    m.anchor.get_or_insert(x - x0 + 0.26 * sp);
+                    m.low = m.low.min(*pitch as i32);
+                    m.high = m.high.max(*pitch as i32);
+                    x += 0.55 * sp;
+                    started = true;
+                    pending_gap = 0.25 * sp;
+                }
                 NeumeItem::Bar(b) => {
                     if started {
                         x += 0.9 * sp;
@@ -788,7 +972,8 @@ impl Ctx<'_> {
         match n.shape() {
             _ if n.cavum() => Kind::Hollow,
             Shape::Inclinatum => Kind::Inclinatum,
-            Shape::Virga | Shape::VirgaReversa | Shape::Bivirga(_) => Kind::Virga,
+            Shape::VirgaReversa => Kind::VirgaReversa,
+            Shape::Virga | Shape::Bivirga(_) => Kind::Virga,
             Shape::Quilisma => Kind::Quilisma,
             Shape::Oriscus(_) => Kind::Oriscus(true),
             Shape::Stropha(_) => Kind::Stropha,
@@ -895,11 +1080,14 @@ impl Ctx<'_> {
             let below = n.mods.iter().any(|m| {
                 m.starts_with('_') && m.contains('0') || m.contains('1') && m.starts_with('_')
             });
-            let ey = if below {
-                y + self.h / 2.0 + 0.3 * sp
+            // Over a note in a space the stroke would lie on the staff line right above the
+            // head: it rides above that line.
+            let reach = if p % 2 == 0 {
+                0.78 * sp
             } else {
-                y - self.h / 2.0 - 0.3 * sp
+                self.h / 2.0 + 0.3 * sp
             };
+            let ey = if below { y + reach } else { y - reach };
             page.items.push(Item::Line {
                 from: Point::new(x, ey),
                 to: Point::new(x + w, ey),
@@ -1002,4 +1190,106 @@ impl Ctx<'_> {
 /// True when a glyph is a single diamond (puncta inclinata pack closely).
 fn run_glyph_last(glyph: &[(usize, &ChantNote)]) -> bool {
     glyph.len() == 1 && glyph[0].1.shape() == Shape::Inclinatum
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use cecilia_core::TrackKind;
+    use cecilia_core::chant::retranscribe;
+
+    fn chant_score(syllables: Vec<Syllable>) -> Score {
+        let mut score = Score::default();
+        score.tracks.push(Track {
+            kind: TrackKind::Chant,
+            chant: Some(Box::new(Chant {
+                syllables,
+                ..Chant::default()
+            })),
+            ..Track::default()
+        });
+        retranscribe(&mut score, 0);
+        score
+    }
+
+    fn syllable(text: &str, pitch: u8) -> Syllable {
+        Syllable {
+            text: text.into(),
+            word_start: true,
+            items: vec![NeumeItem::Note(ChantNote::new(pitch))],
+            ..Default::default()
+        }
+    }
+
+    fn texts(score: &Score) -> Vec<(String, f64)> {
+        let layout = crate::layout::engrave(score, 0, &Options::default());
+        layout
+            .pages
+            .iter()
+            .flat_map(|p| &p.items)
+            .filter_map(|i| match i {
+                Item::Text { text, at, .. } => Some((text.clone(), at.x)),
+                _ => None,
+            })
+            .collect()
+    }
+
+    #[test]
+    fn alt_text_is_drawn_above_the_staff_even_without_other_text() {
+        // A syllable that is nothing but `<alt>` text, between two with text: the alt text is
+        // drawn and the notes make room for it.
+        let score = chant_score(vec![
+            syllable("<alt>Above the staff</alt>", 5),
+            syllable("<alt>Next</alt>", 6),
+        ]);
+        let t = texts(&score);
+        let above = t
+            .iter()
+            .find(|(s, _)| s == "Above the staff")
+            .expect("alt text");
+        let next = t
+            .iter()
+            .find(|(s, _)| s == "Next")
+            .expect("second alt text");
+        // Side by side, the second not on top of the first.
+        assert!(next.1 > above.1);
+    }
+
+    #[test]
+    fn the_page_size_and_margins_of_the_score_shape_the_page_layout() {
+        let mut score = chant_score(vec![syllable("Ky", 5), syllable("ri", 6), syllable("e", 7)]);
+        score.page.width = 100;
+        score.page.height = 150;
+        score.page.margin_left = 30;
+        score.page.margin_right = 5;
+        score.page.margin_top = 20;
+        let options = Options::default().for_page(&score.page);
+        let layout = crate::layout::engrave(&score, 0, &options);
+        let page = &layout.pages[0];
+        assert!((page.width - crate::layout::mm_to_pt(100)).abs() < 1e-6);
+        assert!((page.height - crate::layout::mm_to_pt(150)).abs() < 1e-6);
+        // The staff lines run from the left margin to the right one.
+        let lines: Vec<(f64, f64, f64)> = page
+            .items
+            .iter()
+            .filter_map(|i| match i {
+                Item::Line { from, to, .. } if (from.y - to.y).abs() < 1e-9 => {
+                    Some((from.x.min(to.x), from.x.max(to.x), from.y))
+                }
+                _ => None,
+            })
+            .collect();
+        let left = lines.iter().map(|l| l.0).fold(f64::MAX, f64::min);
+        let right = lines.iter().map(|l| l.1).fold(f64::MIN, f64::max);
+        // (the first line starts after the room for the initial letter)
+        assert!(left >= crate::layout::mm_to_pt(30) - 1.0, "{left}");
+        assert!(left < crate::layout::mm_to_pt(30) + 60.0, "{left}");
+        assert!(
+            (right - (page.width - crate::layout::mm_to_pt(5))).abs() < 1.0,
+            "{right}"
+        );
+        // Nothing starts above the top margin.
+        let top = lines.iter().map(|l| l.2).fold(f64::MAX, f64::min);
+        assert!(top >= crate::layout::mm_to_pt(20), "{top}");
+    }
 }

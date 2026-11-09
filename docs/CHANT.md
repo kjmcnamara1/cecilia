@@ -262,12 +262,32 @@ note. It runs in `retranscribe`, after every edit of a chant score and when a `.
 bar points are derived and not saved; an older file that has only bar points gets them turned into
 note points on load (`bar_points_to_notes`, the same as `:modern-to-chant` does).
 
-Tapping: `:sync` (or the first `:sync-tap`) starts at the cursor note; each tap sets the next
-syllable's first note (`:sync-unit syllable`, default) or the next note (`note`) to the playhead,
-snapped to the nearest onset within 70 ms, and the cursor moves to the next one. `:sync-undo`
+Tapping: `:sync` enters Sync mode (`Mode::Sync`, keymap `[keymap.sync]`, which opens the waveform
+pane); `<CR>` sets the cell under the cursor to the playhead, snapped to the strongest onset of the audio
+within `ui.sync_snap` ms (70; 0 turns it off), and the cursor moves to the next syllable's first cell
+(`:sync-unit syllable`, default) or the next cell (`note`). `<Space>` plays and pauses, `<Esc>` leaves. `:sync-undo`
 takes the last tap back (restoring a point it replaced). `:sync-here` sets the cursor note,
-`:sync-nudge MS` moves the point under the cursor (its syllable's first note's if the note has
-none). `:sync-clear` removes all points; `:sync-detect` is not available for chant.
+`:sync-nudge MS` moves the point of the cursor's cell (a cell with none gets one where the sync puts it,
+then nudged).
+`:sync-clear` removes all points. `:sync-detect` tracks the pitch of the recording (YIN, `cecilia_audio::pitch`),
+cuts it into steady notes and aligns the chant's notes (a repeated pitch in a syllable counts once) with them
+by dynamic programming over the 24 half-semitone transpositions modulo the octave, then sets a point at
+each syllable's (or, by note unit, each) first note that found a sung note.
+
+A sync point can be on any note, rest `()` or division of its own. A division takes time in the singing
+(an eighth by default, on the sync timeline only), so its point shapes the timing like a note's and the ruler
+shows a tick for it (a rest `()` takes none and its point is only drawn); a tap snaps to the strongest onset of the audio
+within `ui.sync_snap` ms. `:sync-unit` chooses what a tap steps over: a syllable's first cell, or every cell.
+A place in a chant is written `bar:syllable.note` in the status line, on the waveform's ruler and for `:goto`
+(`:3:4.2`): a bar starts after every division, which is itself `3:0`; the syllables of a bar (not the divisions) are
+counted from 1 and a syllable's notes from `.1`; a missing note reads as `.1`. With `ui.bar_numbers` the bars are numbered
+above the staff, as on a modern score.
+
+In Sync mode only, the waveform pane draws a yellow line at every sync point and two rulers: along the bottom the audio
+time, fixed (a tick every 0.2 s, a tall one each second labelled `minutes:seconds`); along the
+top the score, stretching with the sync points (at the tempo until there are any): a tall tick at each division (the start of a bar)
+labelled `bar:0` and a short one at each syllable labelled `syllable` (`syllable.note` at every note with the note unit). `ui.waveform_time_ticks`, `waveform_beat_ticks`, `waveform_time_labels` and
+`waveform_beat_labels` choose what shows.
 
 ## 5. Drawing (`cecilia-engrave`)
 

@@ -29,6 +29,9 @@ pub struct Options {
     /// Title block above the first system.
     pub header: bool,
     pub margin: f64,
+    /// The margins (left, right, top, bottom) of a page layout when they differ: those of the
+    /// score's page setup; unset: `margin` on every side.
+    pub margins: Option<[f64; 4]>,
     /// Show chant tracks in square notation (otherwise as their modern transcription).
     pub chant: bool,
     /// Which note of a chord a chant staff shows.
@@ -38,6 +41,50 @@ pub struct Options {
     /// Draw the staff lines of bars that don't hold their full count (some voice with music is
     /// too short or too long; see `Score::bar_incomplete`) in this color.
     pub incomplete_bars: Option<Color>,
+    /// The font of a chant score's lyrics.
+    pub chant_font: crate::display::TextFamily,
+}
+
+/// Points in a millimetre count of the page setup.
+pub fn mm_to_pt(mm: u32) -> f64 {
+    mm as f64 * 72.0 / 25.4
+}
+
+impl Options {
+    /// The page layout of a score's page setup: its size and its margins.
+    pub fn for_page(mut self, p: &cecilia_core::PageSetup) -> Self {
+        self.mode = Mode::Page {
+            width: mm_to_pt(p.width),
+            height: mm_to_pt(p.height),
+        };
+        self.margins = Some([
+            mm_to_pt(p.margin_left),
+            mm_to_pt(p.margin_right),
+            mm_to_pt(p.margin_top),
+            mm_to_pt(p.margin_bottom),
+        ]);
+        self
+    }
+
+    fn margin_of(&self, side: usize) -> f64 {
+        self.margins.map_or(self.margin, |m| m[side])
+    }
+
+    pub(crate) fn margin_left(&self) -> f64 {
+        self.margin_of(0)
+    }
+
+    pub(crate) fn margin_right(&self) -> f64 {
+        self.margin_of(1)
+    }
+
+    pub(crate) fn margin_top(&self) -> f64 {
+        self.margin_of(2)
+    }
+
+    pub(crate) fn margin_bottom(&self) -> f64 {
+        self.margin_of(3)
+    }
 }
 
 impl Default for Options {
@@ -52,10 +99,12 @@ impl Default for Options {
             tab: true,
             header: true,
             margin: 40.0,
+            margins: None,
             chant: true,
             chords: Default::default(),
             every_bar_number: false,
             incomplete_bars: None,
+            chant_font: Default::default(),
         }
     }
 }
@@ -949,17 +998,18 @@ fn run_part(ctxs: &[Ctx]) -> Layout {
         .collect();
     let multi = ctxs.len() > 1;
     // Room for the brace of a multi-staff part.
-    let margin = main.o.margin;
+    let (margin_l, margin_r) = (main.o.margin_left(), main.o.margin_right());
+    let (margin_t, margin_b) = (main.o.margin_top(), main.o.margin_bottom());
     let braced = ctxs.iter().any(|c| c.brace_next);
-    let left = margin + if braced { 2.2 * sp } else { 0.0 };
+    let left = margin_l + if braced { 2.2 * sp } else { 0.0 };
     let header_width = ctxs.iter().map(|c| c.header_width()).fold(0.0, f64::max);
     let width = match main.o.mode {
         Mode::Page { width, .. } | Mode::Vertical { width } => width,
         Mode::Horizontal => {
-            left + margin + header_width + plans.iter().map(|p| p.natural).sum::<f64>() + sp
+            left + margin_r + header_width + plans.iter().map(|p| p.natural).sum::<f64>() + sp
         }
     };
-    let avail = (width - left - margin - header_width).max(20.0 * sp);
+    let avail = (width - left - margin_r - header_width).max(20.0 * sp);
 
     // Manual design overrides apply to the page layout only.
     let design = match main.o.mode {
@@ -1028,7 +1078,7 @@ fn run_part(ctxs: &[Ctx]) -> Layout {
         height: page_height,
         ..Page::default()
     };
-    let mut y = margin;
+    let mut y = margin_t;
     if main.o.header {
         y = main.draw_header(&mut page, width, y);
     }
@@ -1043,7 +1093,7 @@ fn run_part(ctxs: &[Ctx]) -> Layout {
         let heights: Vec<f64> = ctxs.iter().map(|c| c.metrics().2).collect();
         let system_height: f64 = heights.iter().sum();
         if let Mode::Page { height, .. } = main.o.mode {
-            if y + system_height > height - margin && y > margin + 1.0 {
+            if y + system_height > height - margin_b && y > margin_t + 1.0 {
                 main.draw_page_number(&mut page, layout.pages.len());
                 layout.pages.push(std::mem::replace(
                     &mut page,
@@ -1053,7 +1103,7 @@ fn run_part(ctxs: &[Ctx]) -> Layout {
                         ..Page::default()
                     },
                 ));
-                y = margin;
+                y = margin_t;
             }
         }
         let page_index = layout.pages.len();
@@ -1115,7 +1165,7 @@ fn run_part(ctxs: &[Ctx]) -> Layout {
         page.height = height;
         main.draw_page_number(&mut page, layout.pages.len());
     } else {
-        page.height = y + margin;
+        page.height = y + margin_b;
     }
     layout.pages.push(page);
     for (k, c) in ctxs.iter().enumerate() {
@@ -1999,7 +2049,7 @@ impl Ctx<'_> {
             page.text(
                 FontKind::Text,
                 credit,
-                (width - self.o.margin, y),
+                (width - self.o.margin_right(), y),
                 2.6 * sp,
                 Align::Right,
             );
@@ -2008,7 +2058,7 @@ impl Ctx<'_> {
             page.text(
                 FontKind::Text,
                 self.track.name.trim().to_string(),
-                (self.o.margin, y),
+                (self.o.margin_left(), y),
                 2.6 * sp,
                 Align::Left,
             );
@@ -2019,7 +2069,7 @@ impl Ctx<'_> {
             page.text(
                 FontKind::Text,
                 tuning,
-                (self.o.margin, y),
+                (self.o.margin_left(), y),
                 2.2 * sp,
                 Align::Left,
             );
@@ -2032,7 +2082,7 @@ impl Ctx<'_> {
             page.text(
                 FontKind::Text,
                 format!("{}", index + 1),
-                (width / 2.0, height - self.o.margin / 2.0),
+                (width / 2.0, height - self.o.margin_bottom() / 2.0),
                 2.4 * self.sp,
                 Align::Center,
             );

@@ -1474,6 +1474,10 @@ impl App {
         };
         if e.field == Field::Lyrics {
             self.props.text_caret = Some((self.pane().cursor.track, e.caret));
+            if !cancel {
+                // Leaving the text area: the score cursor jumps to the note the caret was in.
+                self.sync_chant_text();
+            }
         }
         let edited = self.ed.group == Some(true);
         self.ed.group = None;
@@ -2814,10 +2818,19 @@ mod tests {
         app.props_edit_key(Key::new(KeyCode::Enter));
     }
 
-    /// The tree: the properties pane is the last child of a side-by-side root.
+    /// The tree: the tracks pane is the last child of a stacked root; above it the properties
+    /// pane is the last child of a side-by-side split.
     fn docked_right(app: &App) -> Option<(Node, PaneKindId)> {
         let id = app.tool_pane(PaneKind::Properties)?;
-        match &app.view().root {
+        let top = match &app.view().root {
+            Node::Split {
+                axis: Axis::Stacked,
+                children,
+                ..
+            } => children[0].clone(),
+            other => other.clone(),
+        };
+        match top {
             Node::Split {
                 axis: Axis::SideBySide,
                 children,
@@ -2840,12 +2853,8 @@ mod tests {
                 app.run(Command::Properties(Some(true)));
             }
             let tracks = app.tool_pane(PaneKind::Tracks).unwrap();
-            let (body, _) = docked_right(&app).expect("properties is the right-hand child");
-            // The tracks pane lies under the scores, left of the properties pane.
-            assert!(
-                body.panes().contains(&tracks),
-                "props_first={props_first}: {body:?}"
-            );
+            docked_right(&app).expect("properties is the right-hand child above the tracks");
+            // The tracks pane runs under everything, at the window's full width.
             let rects = app.layout();
             let (props, tr) = (
                 rects
@@ -2863,7 +2872,12 @@ mod tests {
                     .1,
                 Some(props.w)
             );
-            assert!(tr.x + tr.w <= props.x, "tracks sit left of properties");
+            assert_eq!(
+                (tr.x, tr.w),
+                (0, app.viewport.w),
+                "props_first={props_first}"
+            );
+            assert!(props.y + props.h <= tr.y, "properties sit above the tracks");
         }
         let mut app = with_props();
         app.run(Command::Properties(Some(false)));
@@ -3126,9 +3140,9 @@ mod tests {
             !app.property_rows().iter().any(|r| r.label == "GABC"),
             "no GABC switch"
         );
-        assert_eq!(shown(&app), "(c4) Al(fg)le(h) lu(g)ia.(f.) (::)");
+        assert_eq!(shown(&app), "(c4)\nAl(fg)le(h) lu(g)ia.(f.) (::)");
         // Raw edits are read as GABC: the chant (and what plays) follows.
-        keys(&mut app, "<leader>P0llllllllll");
+        keys(&mut app, "<leader>P0jlllll");
         assert_eq!(app.props.edit.as_ref().unwrap().caret, 10);
         keys(&mut app, "i h<Esc>");
         let chant = app.buffer().score.tracks[0].chant.clone().unwrap();
@@ -3163,34 +3177,71 @@ mod tests {
     }
 
     #[test]
-    fn the_cursor_note_is_selected_in_the_text_area() {
+    fn the_caret_goes_to_the_cursor_note_in_the_text_area() {
         let mut app = with_props();
         let chant =
             cecilia_formats::gabc::parse("name: t;\n%%\n(c4) Al(fg)le(h) lu(g)ia.(f.) (::)\n")
                 .unwrap();
         app.buffers[0].score = cecilia_formats::gabc::chant_score(chant);
         app.set_property_tab(PropTab::Lyrics);
-        let selected = |app: &App| {
+        let under = |app: &App| {
             let e = app.props.edit.as_ref().unwrap();
-            let (a, b) = e.selection().unwrap();
-            e.text.chars().skip(a).take(b - a).collect::<String>()
+            assert!(e.visual.is_none() && e.selection().is_none());
+            e.text.chars().nth(e.caret).unwrap()
         };
-        // Going to the pane from the score selects the note under the cursor (Visual mode).
+        // Going to the pane from the score puts the caret on the note under the cursor.
         keys(&mut app, "l<leader>P");
-        assert_eq!(selected(&app), "g");
-        assert!(app.props.edit.as_ref().unwrap().visual.is_some());
+        assert_eq!(under(&app), 'g');
         keys(&mut app, "<Esc><Esc>");
         assert!(app.props.edit.is_none());
         // The setting off: only the caret.
         app.config.file.ui.lyrics_select_cursor = false;
         keys(&mut app, "<leader>P");
-        assert!(app.props.edit.as_ref().unwrap().selection().is_none());
+        // (Only the caret as it was left.)
+        under(&app);
         keys(&mut app, "<Esc><Esc>");
         // `:lyrics-select` does it whatever the setting.
         keys(&mut app, "l");
         app.run(Command::LyricsSelect);
-        assert_eq!(selected(&app), "h");
+        assert_eq!(under(&app), 'h');
         assert_eq!(app.focused_kind(), PaneKind::Properties);
+    }
+
+    #[test]
+    fn leaving_the_text_area_puts_the_score_cursor_where_its_caret_was() {
+        let mut app = with_props();
+        app.config.file.ui.lyrics_select_cursor = false;
+        let chant =
+            cecilia_formats::gabc::parse("name: t;\n%%\n(c4) Al(fg)le(h) lu(g)ia.(f.) (::)\n")
+                .unwrap();
+        app.buffers[0].score = cecilia_formats::gabc::chant_score(chant);
+        app.set_property_tab(PropTab::Lyrics);
+        keys(&mut app, "<leader>P");
+        let before = app.chant_cursor_note();
+        // The caret goes to the "h" of "le(h)" in normal mode; leaving takes the cursor there.
+        let at = app.props.edit.as_ref().unwrap().text.find("(h)").unwrap() + 1;
+        app.props.edit.as_mut().unwrap().caret = at;
+        keys(&mut app, "<Esc><Esc>");
+        assert!(app.props.edit.is_none());
+        assert_ne!(app.chant_cursor_note(), before);
+        assert_eq!(app.chant_cursor_note(), Some(2));
+        // On a word's text: the first note of its syllable ("lu(g)ia.(f.)": "ia" has its own).
+        keys(&mut app, "<leader>P");
+        let at = app.props.edit.as_ref().unwrap().text.find("ia.").unwrap();
+        app.props.edit.as_mut().unwrap().caret = at;
+        keys(&mut app, "<Esc><Esc>");
+        assert_eq!(app.chant_cursor_note(), Some(4));
+        keys(&mut app, "<leader>P");
+        let at = app.props.edit.as_ref().unwrap().text.find("Al(").unwrap() + 1;
+        app.props.edit.as_mut().unwrap().caret = at;
+        keys(&mut app, "<Esc><Esc>");
+        assert_eq!(app.chant_cursor_note(), Some(0));
+        // On the "(" of "lu(g)": its syllable's first note.
+        keys(&mut app, "<leader>P");
+        let at = app.props.edit.as_ref().unwrap().text.find("lu(").unwrap() + 2;
+        app.props.edit.as_mut().unwrap().caret = at;
+        keys(&mut app, "<Esc><Esc>");
+        assert_eq!(app.chant_cursor_note(), Some(3));
     }
 
     #[test]

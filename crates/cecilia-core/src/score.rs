@@ -91,6 +91,12 @@ pub struct AudioSync {
     /// then derived from these for the cached bars after every change and not saved.
     #[serde(default)]
     pub chant_points: Vec<ChantSyncPoint>,
+    /// A chant's timing note by note, derived from `chant_points` (not saved): for the start
+    /// tick of every note in the performance, the audio frame it is at and the tempo (quarter
+    /// notes a minute) after it. The player times the notes by these, so that each sounds
+    /// where the waveform's ruler puts it; `points` stays as the bars' (progress, seeking).
+    #[serde(skip)]
+    pub note_anchors: Vec<(u64, i64, f64)>,
     /// Audio bytes stored inside the score file (GP7/8 backing tracks, `.cc` archives);
     /// `file` then names the entry. Not part of the JSON model.
     #[serde(skip)]

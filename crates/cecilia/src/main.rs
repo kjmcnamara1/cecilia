@@ -103,7 +103,7 @@ fn main() -> Result<()> {
                 .unwrap_or_default()
                 .to_ascii_lowercase();
             if matches!(ext.as_str(), "pdf" | "svg" | "png") {
-                return export_engraving(&score, &output, &ext, track, &layout, scale);
+                return export_engraving(&score, &output, &ext, track, &layout, scale, &config);
             }
             if matches!(ext.as_str(), "wav" | "flac") {
                 return export_audio(&score, &input, &output, &ext, &config);
@@ -227,6 +227,7 @@ fn export_engraving(
     track: usize,
     layout: &str,
     scale: f64,
+    config: &Config,
 ) -> Result<()> {
     let index = track.checked_sub(1).filter(|&t| t < score.tracks.len());
     let Some(index) = index else {
@@ -244,14 +245,17 @@ fn export_engraving(
         "horizontal" => cecilia_engrave::Mode::Horizontal,
         other => bail!("unknown layout '{other}' (page, vertical, horizontal)"),
     };
-    let engraved = cecilia_engrave::engrave(
-        score,
-        index,
-        &cecilia_engrave::Options {
-            mode,
-            ..Default::default()
-        },
-    );
+    let mut options = cecilia_engrave::Options {
+        mode,
+        chant_font: cecilia_engrave::display::TextFamily::parse(&config.file.ui.chant_text_font)
+            .unwrap_or_default(),
+        ..Default::default()
+    };
+    // The page layout is the score's page setup: its size and margins.
+    if layout == "page" {
+        options = options.for_page(&score.page);
+    }
+    let engraved = cecilia_engrave::engrave(score, index, &options);
     let pages = &engraved.pages;
     let path_for = |i: usize| -> PathBuf {
         if pages.len() == 1 {

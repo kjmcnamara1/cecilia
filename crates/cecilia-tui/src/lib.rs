@@ -136,18 +136,19 @@ fn page_layout<'a>(
         rows: vec![],
     });
     if entry.key != key {
-        // As the GUI engraves the page layout: A4 with margins, so lines break the same.
+        // As the GUI engraves the page layout: the score's page size and margins, so lines
+        // break the same.
         let options = cecilia_engrave::Options {
-            mode: cecilia_engrave::Mode::Page {
-                width: 595.0,
-                height: 842.0,
-            },
-            margin: 40.0,
             chant: true,
             chords: app.chord_policy(),
             every_bar_number: app.every_bar_number,
+            chant_font: cecilia_engrave::display::TextFamily::parse(
+                &app.config.file.ui.chant_text_font,
+            )
+            .unwrap_or_default(),
             ..Default::default()
-        };
+        }
+        .for_page(&buffer.score.page);
         entry.layout = cecilia_engrave::engrave(&buffer.score, pane.cursor.track, &options);
         entry.rows = tabview::page_rows(&entry.layout);
         entry.key = key;
@@ -1343,7 +1344,7 @@ fn draw_fretboard(
         let cursor = v.cursor_string == Some(s);
         // The cursor's string in the mode's color (thin, like the others).
         let line = if cursor {
-            base.fg(rc(t.mode_color(app.mode)))
+            base.fg(rc(app.mode_color()))
         } else {
             base.fg(rc(t.chrome_text.mix(t.panel, 0.4)))
         };
@@ -2697,7 +2698,7 @@ fn draw_status(
         ("round", "nerd") => Some(("\u{e0b4}", "\u{e0b6}")),
         _ => None,
     };
-    let mode = t.mode_color(app.display_mode());
+    let mode = app.mode_color();
     let bg_of = |k: SegKind| match k {
         SegKind::Mode => mode,
         SegKind::ModeText => t.status_b,
@@ -2837,7 +2838,8 @@ fn draw_cmdline(f: &mut Frame, app: &App, area: Rect) {
         | Mode::Visual
         | Mode::Tracks
         | Mode::Properties
-        | Mode::Palette => {
+        | Mode::Palette
+        | Mode::Sync => {
             if let Some(m) = &app.message {
                 let style = if m.error {
                     Style::default().fg(Color::Red)
@@ -3227,7 +3229,11 @@ mod render_tests {
         terminal.draw(|f| draw(f, &mut app, None, &mut ui)).unwrap();
         let buf = terminal.backend().buffer().clone();
         let screen = render(&mut app, w, h);
-        assert!(screen.contains("(c4) Ky(f)ri(g)e(h)"), "{screen}");
+        // (the clef has a line of its own)
+        assert!(
+            screen.contains("(c4)") && screen.contains("Ky(f)ri(g)e(h)"),
+            "{screen}"
+        );
         let (x, y) = find("(c4)", &screen);
         assert_eq!(buf[(x, y)].fg, rc(th.lyrics_text_dim), "paren");
         assert_eq!(buf[(x + 1, y)].fg, rc(th.lyrics_clef));

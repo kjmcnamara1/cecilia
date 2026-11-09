@@ -111,6 +111,7 @@ pub fn mode_label(mode: Mode) -> &'static str {
         Mode::Tracks => "TRACKS",
         Mode::Properties => "PROPS",
         Mode::Palette => "PALETTE",
+        Mode::Sync => "SYNC",
     }
 }
 
@@ -177,6 +178,15 @@ impl App {
         Segment::new(text, kind).on_click(crate::command::Command::ScoreKind)
     }
 
+    /// The color of the mode as shown: its theme color, but the theme's red in Replace mode.
+    pub fn mode_color(&self) -> crate::theme::Rgba {
+        if self.ed.replace && self.mode == Mode::Insert {
+            self.config.theme.error
+        } else {
+            self.config.theme.mode_color(self.display_mode())
+        }
+    }
+
     /// The mode as shown: typing into a property of the properties pane is insert mode (the
     /// lyrics text area has normal and visual mode too).
     pub fn display_mode(&self) -> Mode {
@@ -196,7 +206,16 @@ impl App {
         let buffer = self.buffer();
         let score = &buffer.score;
         let mut left = vec![
-            Segment::new(mode_label(self.display_mode()), SegKind::Mode),
+            Segment::new(
+                if self.ed.lyric && self.mode == Mode::Insert {
+                    "LYRIC"
+                } else if self.ed.replace && self.mode == Mode::Insert {
+                    "REPLACE"
+                } else {
+                    mode_label(self.display_mode())
+                },
+                SegKind::Mode,
+            ),
             // The kind of score: click for how to convert it.
             self.score_kind_segment(),
             // Click: the next layout.
@@ -427,7 +446,7 @@ mod tests {
         };
         // In normal mode too.
         assert_eq!(count(&app), Some(("0.0/4.0".into(), SegKind::Warn)));
-        app.run(Command::parse("insert-here").unwrap());
+        app.run(Command::parse("insert-last").unwrap());
         assert_eq!(app.mode, Mode::Insert);
         assert_eq!(count(&app), Some(("0.0/4.0".into(), SegKind::Warn)));
         let b = app.pane().buffer;

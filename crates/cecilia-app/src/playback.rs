@@ -243,28 +243,37 @@ impl Playback {
         player.set_loop(range);
     }
 
+    /// Has the player ready to play a buffer: created, its sequence and audio loaded, the
+    /// settings set. None when there is no player.
+    fn ready_player(&mut self, app: &mut App, buffer: usize) -> Option<Arc<Sequence>> {
+        if !self.ensure_player(app) {
+            return None;
+        }
+        self.ensure_audio(app, buffer);
+        self.poll_audio(app);
+        let seq = self.sequence(app, buffer);
+        if self.loaded != Some(buffer) {
+            self.player.as_ref().unwrap().load(seq.clone());
+            self.loaded = Some(buffer);
+        }
+        if self.audio_on_player != Some(buffer) {
+            self.push_audio(buffer);
+            if self.audio_loading(buffer) {
+                app.info("loading audio…");
+                self.audio_on_player = None;
+            }
+        }
+        self.push_settings(app);
+        Some(seq)
+    }
+
     pub fn apply(&mut self, app: &mut App, effect: Effect) {
         match effect {
             Effect::Play { buffer, bar, tick } | Effect::Stop { buffer, bar, tick } => {
                 let play = matches!(effect, Effect::Play { .. });
-                if !self.ensure_player(app) {
+                let Some(seq) = self.ready_player(app, buffer) else {
                     return;
-                }
-                self.ensure_audio(app, buffer);
-                self.poll_audio(app);
-                let seq = self.sequence(app, buffer);
-                if self.loaded != Some(buffer) {
-                    self.player.as_ref().unwrap().load(seq.clone());
-                    self.loaded = Some(buffer);
-                }
-                if self.audio_on_player != Some(buffer) {
-                    self.push_audio(buffer);
-                    if self.audio_loading(buffer) {
-                        app.info("loading audio…");
-                        self.audio_on_player = None;
-                    }
-                }
-                self.push_settings(app);
+                };
                 let player = self.player.as_ref().unwrap();
                 player.seek(seq.time_of(Location { bar, tick }).unwrap_or(0.0));
                 if play {
@@ -274,6 +283,31 @@ impl Playback {
                     player.pause();
                     app.playing = false;
                 }
+            }
+            Effect::WavePress => {
+                let Some((buffer, ..)) = app.wave_press else {
+                    return;
+                };
+                self.ensure_audio(app, buffer);
+                // The onsets a point snaps to.
+                let onsets: Vec<f32> = match self.audio.get_mut(&buffer) {
+                    Some(AudioState::Ready(a)) => {
+                        a.onsets.get_or_insert_with(|| a.clip.onsets()).clone()
+                    }
+                    _ => Vec::new(),
+                };
+                let Some((buffer, secs)) = app.wave_pressed(&onsets) else {
+                    return;
+                };
+                if self.ready_player(app, buffer).is_none() {
+                    return;
+                }
+                // Sequence times are audio times while the score is synced to its audio.
+                let player = self.player.as_ref().unwrap();
+                player.seek(secs);
+                player.play(false);
+                app.playing = true;
+                app.playing_buffer = Some(buffer);
             }
             Effect::Seek { buffer, bar, tick } => {
                 if self.player.is_some() && self.loaded == Some(buffer) {
@@ -437,6 +471,19 @@ impl Playback {
     fn sync_detect(&mut self, app: &mut App) {
         let buffer = app.pane().buffer;
         self.ensure_audio(app, buffer);
+        if app.buffers[buffer].score.is_chant() {
+            let Some(AudioState::Ready(audio)) = self.audio.get(&buffer) else {
+                return app.error("audio is not loaded yet (try again in a moment)");
+            };
+            let pad = app.buffers[buffer]
+                .score
+                .audio
+                .as_ref()
+                .map_or(0, |a| a.frame_padding) as f64
+                / SYNC_RATE;
+            let sung = cecilia_audio::pitch::segments(&audio.clip);
+            return app.chant_sync_detected(&sung, pad);
+        }
         let seq = self.sequence(app, buffer);
         let Some(AudioState::Ready(audio)) = self.audio.get_mut(&buffer) else {
             return app.error("audio is not loaded yet (try again in a moment)");

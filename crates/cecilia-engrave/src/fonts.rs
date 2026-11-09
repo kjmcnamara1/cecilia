@@ -13,9 +13,11 @@ static MUSIC: &[u8] = include_bytes!("../../../assets/fonts/Bravura.otf");
 static CHANT: &[u8] = include_bytes!("../../../assets/fonts/Caeciliae-Staffless.ttf");
 static TEXT: &[u8] = include_bytes!("../../../assets/fonts/SourceSans3-Regular.otf");
 static BOLD: &[u8] = include_bytes!("../../../assets/fonts/SourceSans3-Bold.otf");
+static SERIF: &[u8] = include_bytes!("../../../assets/fonts/NotoSerif-Regular.ttf");
+static SERIF_BOLD: &[u8] = include_bytes!("../../../assets/fonts/NotoSerif-Bold.ttf");
 
 pub struct Fonts {
-    faces: [Face<'static>; 4],
+    faces: [Face<'static>; 6],
     /// Unit-space outline per (font, glyph).
     cache: Mutex<HashMap<(usize, u16), Option<BezPath>>>,
 }
@@ -29,6 +31,8 @@ pub fn fonts() -> &'static Fonts {
             Face::parse(TEXT, 0).expect("bundled text font"),
             Face::parse(BOLD, 0).expect("bundled bold font"),
             Face::parse(CHANT, 0).expect("bundled chant font"),
+            Face::parse(SERIF, 0).expect("bundled serif font"),
+            Face::parse(SERIF_BOLD, 0).expect("bundled bold serif font"),
         ],
         cache: Mutex::new(HashMap::new()),
     })
@@ -63,8 +67,10 @@ impl Fonts {
         match kind {
             FontKind::Music => 0,
             FontKind::Text | FontKind::Italic => 1,
-            FontKind::Bold => 2,
+            FontKind::Bold | FontKind::BoldItalic => 2,
             FontKind::Chant => 3,
+            FontKind::Serif | FontKind::SerifItalic => 4,
+            FontKind::SerifBold | FontKind::SerifBoldItalic => 5,
         }
     }
 
@@ -167,7 +173,13 @@ impl Fonts {
                 .clone()?
         };
         let s = self.scale(kind, size);
-        let skew = if kind == FontKind::Italic {
+        let skew = if matches!(
+            kind,
+            FontKind::Italic
+                | FontKind::BoldItalic
+                | FontKind::SerifItalic
+                | FontKind::SerifBoldItalic
+        ) {
             Affine::skew(-0.2, 0.0)
         } else {
             Affine::IDENTITY

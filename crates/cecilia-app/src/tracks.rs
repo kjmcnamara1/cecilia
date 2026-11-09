@@ -831,11 +831,13 @@ mod tests {
         let d = app
             .dividers()
             .into_iter()
-            .find(|d| d.axis == Axis::Stacked && d.pos == rect(&app, piano).y)
+            .find(|d| d.axis == Axis::Stacked && d.pos == rect(&app, tracks).y)
             .unwrap();
+        // The tracks pane is the lowest, the piano above it.
+        assert!(rect(&app, piano).y < rect(&app, tracks).y);
         app.drag_divider(&d, d.pos - 2);
-        assert_eq!(rect(&app, tracks).h, th - 2);
-        assert_eq!(rect(&app, piano).h, ph + 2);
+        assert_eq!(rect(&app, piano).h, ph - 2);
+        assert_eq!(rect(&app, tracks).h, th + 2);
         assert_eq!(rect(&app, app.focused()).h, score_h);
     }
 

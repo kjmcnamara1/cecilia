@@ -17,6 +17,8 @@ use crate::{App, Buffer, Cursor, Effect};
 pub enum Clip {
     Beats(Vec<Beat>),
     Bars(BarClip),
+    /// Cells of a chant: groups of notes without lyrics, empty groups and divisions.
+    Chant(Vec<cecilia_core::chant::Syllable>),
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -36,15 +38,15 @@ pub(crate) enum Awaiting {
 pub(crate) struct EditorState {
     /// Note value for new beats.
     pub insert_duration: Option<Duration>,
-    operator: Option<(Operator, Option<usize>)>,
+    pub(crate) operator: Option<(Operator, Option<usize>)>,
     pub visual_anchor: Option<Cursor>,
     pub visual_bars: bool,
     /// Per buffer: the last Visual selection (anchor, cursor, whole bars), for `gv` and `` `< ``.
     last_visual: HashMap<usize, (Cursor, Cursor, bool)>,
     /// Per buffer: where Insert mode was last left, for `gi` and `` `^ ``.
     last_insert: HashMap<usize, Cursor>,
-    registers: HashMap<char, Clip>,
-    register: Option<char>,
+    pub(crate) registers: HashMap<char, Clip>,
+    pub(crate) register: Option<char>,
     pub(crate) awaiting: Option<Awaiting>,
     pub recording: Option<(char, Vec<Key>)>,
     pub(crate) macros: HashMap<char, Vec<Key>>,
@@ -65,6 +67,10 @@ pub(crate) struct EditorState {
     digit: Option<(Cursor, u8)>,
     /// Undo grouping of an insert session: Some(true) once its first change is recorded.
     pub(crate) group: Option<bool>,
+    /// Insert mode on a chant types the cursor syllable's text (`:lyric-mode`).
+    pub(crate) lyric: bool,
+    /// Insert mode on a chant only changes the notes there (`:replace-mode`).
+    pub(crate) replace: bool,
 }
 
 fn is_motion(cmd: &Command) -> bool {
@@ -160,6 +166,17 @@ impl App {
         self.mode = Mode::Visual;
     }
 
+    /// `o` in Visual mode: the cursor moves to the other end of the selection, which becomes
+    /// the cursor's old place.
+    fn visual_other_end(&mut self) {
+        let Some(anchor) = self.ed.visual_anchor else {
+            return;
+        };
+        self.ed.visual_anchor = Some(self.pane().cursor);
+        let anchor = self.clamped_mark(anchor);
+        self.pane_mut().cursor = anchor;
+    }
+
     /// `gi`: Insert mode where it was last left (on the cursor if it never was).
     fn insert_last(&mut self) {
         let buffer = self.pane().buffer;
@@ -195,6 +212,10 @@ impl App {
     }
 
     pub(crate) fn dispatch_key(&mut self, key: Key) {
+        // Syncing: Sync mode is what Normal mode is.
+        if self.syncing && self.mode == Mode::Normal {
+            self.mode = Mode::Sync;
+        }
         // <F1> shows or hides the key help in every mode (not recorded in macros); Esc also
         // hides it. A Normal-mode binding of <F1> to something else wins in the Normal modes.
         let plain = !key.ctrl && !key.alt && !key.sup;
@@ -269,12 +290,15 @@ impl App {
             Mode::Normal | Mode::Tracks | Mode::Properties | Mode::Palette => self.normal_key(key),
             Mode::Insert => self.insert_key(key),
             Mode::Visual => self.visual_key(key),
+            Mode::Sync => self.sync_key(key),
         }
         self.remember_leaves(before.1, visual, in_insert.then_some(before.2));
         self.seek_to_cursor(before);
         self.peek_tracks(before);
         if in_insert && self.mode != Mode::Insert {
             self.ed.group = None;
+            self.ed.lyric = false;
+            self.ed.replace = false;
             if let Some(k) = self.ed.change_keys.take() {
                 self.ed.last_change = k;
                 self.ed.tool_last = false;
@@ -375,6 +399,12 @@ impl App {
                 ("Insert", v)
             }
             Mode::Visual => ("Visual", rows(c.keymap(Mode::Visual), &[])),
+            Mode::Sync => {
+                let sync = c.keymap(Mode::Sync);
+                let mut v = rows(sync, &[]);
+                v.extend(rows(c.keymap(Mode::Normal), &[sync]));
+                ("Sync", v)
+            }
             Mode::Normal | Mode::Tracks | Mode::Properties | Mode::Palette => {
                 let normal = c.keymap(Mode::Normal);
                 let notation = c.normal_keymap(self.insert_kind());
@@ -588,6 +618,9 @@ impl App {
         if self.renaming.is_some() {
             return self.rename_key(key);
         }
+        if self.ed.lyric {
+            return self.lyric_key(key);
+        }
         let kind = self.insert_kind();
         // On a tab, digits type frets; two quick digits make a two-digit fret.
         if let Some(d) = key
@@ -665,6 +698,14 @@ impl App {
             Lookup::Prefix => return,
             Lookup::None => None,
         };
+        // Syncing: the keys of Sync mode (nudging the points of the selection) next.
+        let lookup =
+            lookup.or_else(
+                || match self.config.keymap(Mode::Sync).lookup(&self.pending) {
+                    Lookup::Exact(c) if self.syncing => Some(c.to_vec()),
+                    _ => None,
+                },
+            );
         let cmds = match lookup {
             Some(c) => c,
             None => match self.config.normal_lookup(self.insert_kind(), &self.pending) {
@@ -685,9 +726,60 @@ impl App {
                     self.run(Command::Normal)
                 }
                 Command::Visual { bars } => self.ed.visual_bars = bars,
+                Command::ChantJoin
+                | Command::ChantSplit
+                | Command::LyricsDelete
+                | Command::LyricsShift(_) => self.run(cmd),
                 c if c.is_range() => self.run_tool(c),
                 c if is_motion(&c) || !c.is_change() => self.run_counted(c, count),
                 _ => self.error("not available in visual mode"),
+            }
+        }
+    }
+
+    /// A key in Sync mode: the keys of `[keymap.sync]`, then the motions (and anything that
+    /// changes nothing) of Normal mode.
+    pub(crate) fn sync_key(&mut self, key: Key) {
+        if self.ed.awaiting.is_some() {
+            return self.normal_key(key);
+        }
+        self.pending.push(key);
+        let cmds = match self.config.keymap(Mode::Sync).lookup(&self.pending) {
+            Lookup::Exact(c) => c.to_vec(),
+            Lookup::Prefix => return,
+            Lookup::None => match self.config.normal_lookup(self.insert_kind(), &self.pending) {
+                Lookup::Exact(c) => c.to_vec(),
+                Lookup::Prefix => return,
+                Lookup::None => {
+                    self.pending.clear();
+                    return;
+                }
+            },
+        };
+        self.pending.clear();
+        let count = self.count.take();
+        for cmd in cmds {
+            // `d` and `c` (with a motion, doubled for the bar) act on the sync points.
+            if let Some((op, op_count)) = self.ed.operator.take() {
+                let n = match (op_count, count) {
+                    (None, None) => None,
+                    (a, b) => Some(a.unwrap_or(1) * b.unwrap_or(1)),
+                };
+                if cmd == Command::Operator(op) {
+                    self.operate_bars(op, n.unwrap_or(1));
+                    continue;
+                }
+                if is_motion(&cmd) {
+                    self.operate_motion(op, cmd, n);
+                    continue;
+                }
+            }
+            if let Command::Operator(op) = cmd {
+                self.ed.operator = Some((op, count));
+            } else if is_motion(&cmd) || !cmd.is_change() {
+                self.run_counted(cmd, count);
+            } else {
+                self.error("not available in sync mode (Esc leaves it)");
             }
         }
     }
@@ -779,7 +871,7 @@ impl App {
         self.info(format!("voice {}", v + 1));
     }
 
-    fn store(&mut self, clip: Clip) {
+    pub(crate) fn store(&mut self, clip: Clip) {
         if let Some(r) = self.ed.register.take() {
             self.ed.registers.insert(r, clip.clone());
         }
@@ -788,6 +880,9 @@ impl App {
 
     fn operate_bars(&mut self, op: Operator, n: usize) {
         let c = self.pane().cursor;
+        if self.syncing {
+            return self.sync_operate(op, (c.bar, 0), (c.bar + n.max(1) - 1, usize::MAX));
+        }
         if self.cursor_on_chant() && op != Operator::Yank {
             return self.error("bar delete or change: not in chant");
         }
@@ -855,7 +950,7 @@ impl App {
         };
         if let Some((from, to)) = range {
             self.operate_range(op, from, to);
-        } else if op == Operator::Change {
+        } else if op == Operator::Change && !self.syncing {
             // Nothing to clear, but `c` still ends in insert mode.
             self.ed.group = Some(false);
             self.enter_insert();
@@ -878,15 +973,33 @@ impl App {
     }
 
     fn operate_range(&mut self, op: Operator, from: Pos, to: Pos) {
+        // Syncing: the operators act on the sync points only.
+        if self.syncing {
+            return self.sync_operate(op, from, to);
+        }
         let c = self.pane().cursor;
         // On a chant score only deleting (and yanking) mean something: notes are deleted from
         // the chant, nothing is cleared or pasted into its bars.
         if self.cursor_on_chant() {
-            match op {
-                Operator::Yank => {}
-                Operator::Delete => return self.chant_delete_range(from, to),
-                Operator::Change => return self.error("change: not in chant"),
+            if op == Operator::Change {
+                return self.error("change: not in chant");
             }
+            // What is taken goes in the register for `p` and `P`.
+            let clip = self.chant_clip(from, to);
+            if clip.is_empty() {
+                return self.error("nothing there");
+            }
+            let n = clip.len();
+            self.store(Clip::Chant(clip));
+            return match op {
+                Operator::Yank => {
+                    self.info(format!("{n} group{} yanked", if n == 1 { "" } else { "s" }));
+                    let p = self.panes.get_mut(&self.focused()).unwrap();
+                    p.cursor.bar = from.0;
+                    p.cursor.beat = from.1;
+                }
+                _ => self.chant_delete_range(from, to),
+            };
         }
         let beats = edit::collect(&self.buffer().score, c.track, c.voice, from, to);
         let n = beats.len();
@@ -928,6 +1041,12 @@ impl App {
                     Ok(())
                 });
             }
+            Clip::Chant(groups) => {
+                if !self.cursor_on_chant() {
+                    return self.error("put: the register holds chant cells");
+                }
+                self.chant_paste(groups, before, count.max(1));
+            }
             Clip::Bars(bars) => {
                 let at = self.pane().cursor.bar + usize::from(!before);
                 self.edit(|cx| {
@@ -963,9 +1082,9 @@ impl App {
         }
         let duration = self.insert_duration();
         match cmd {
-            Insert => self.enter_insert(),
             InsertLast => self.insert_last(),
             VisualReselect => self.visual_reselect(),
+            VisualOtherEnd => self.visual_other_end(),
             InsertBeat(at) => {
                 let at = *at;
                 self.ed.group = Some(false);
@@ -1423,6 +1542,7 @@ impl App {
                     Ok(())
                 });
             }
+            Lyrics(text) if self.cursor_on_chant() => self.chant_lyrics(text.replace("\\n", " ")),
             Lyrics(text) => {
                 let words = text.replace("\\n", "\n");
                 let placed = self.edit(|cx| {
@@ -2870,6 +2990,23 @@ mod tests {
     }
 
     #[test]
+    fn o_in_visual_mode_moves_the_cursor_to_the_other_end() {
+        let mut a = app();
+        keys(&mut a, "a1<Space>2<Space>3<Space>4<Esc>gg");
+        keys(&mut a, "vll");
+        let (anchor, cursor, _) = a.selection().unwrap();
+        assert_eq!((anchor.beat, cursor.beat), (0, 2));
+        keys(&mut a, "o");
+        let (anchor, cursor, _) = a.selection().unwrap();
+        assert_eq!((anchor.beat, cursor.beat), (2, 0));
+        assert_eq!(a.mode, Mode::Visual);
+        // Again: back to the start, and the selection is the same.
+        keys(&mut a, "o");
+        let (anchor, cursor, _) = a.selection().unwrap();
+        assert_eq!((anchor.beat, cursor.beat), (0, 2));
+    }
+
+    #[test]
     fn gv_reselects_the_last_selection() {
         let mut a = app();
         keys(&mut a, "a1<Space>2<Space>3<Space>4<Esc>gg");
@@ -2937,17 +3074,6 @@ mod tests {
         assert_eq!(a.pane().cursor, left);
         keys(&mut a, "<Esc>gg`^");
         assert_eq!(a.pane().cursor, left);
-        // The old behaviour is on <CR>, and adds nothing.
-        keys(&mut a, "gg");
-        let beats = a.buffer().score.tracks[0].bars[0].voices[0].beats.len();
-        keys(&mut a, "<CR>");
-        assert_eq!(a.mode, Mode::Insert);
-        assert_eq!(a.pane().cursor.bar, 0);
-        assert_eq!(
-            a.buffer().score.tracks[0].bars[0].voices[0].beats.len(),
-            beats
-        );
-        keys(&mut a, "<Esc>");
         // Edits that shrink the score clamp the position.
         keys(&mut a, "7}i5<Esc>gg7dd");
         keys(&mut a, "gi");
@@ -2962,8 +3088,6 @@ mod tests {
         assert_eq!(a.palette().unwrap().items[0].text, "gv");
         keys(&mut a, "<C-u>insert-last");
         assert_eq!(a.palette().unwrap().items[0].text, "gi");
-        keys(&mut a, "<C-u>insert-here");
-        assert_eq!(a.palette().unwrap().items[0].text, "<CR>");
     }
 
     #[test]

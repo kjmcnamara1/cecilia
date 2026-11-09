@@ -7,7 +7,8 @@
 //! * The chant keeps its GABC body as a layout ([`cecilia_core::chant_source`]); score edits
 //!   splice into it at the changed note, so the rest of the user's text stays as it was.
 //! * The caret of the text area and the score cursor follow each other through the source map:
-//!   the caret in a note's characters puts the cursor on that note, and a cursor on a note
+//!   the caret in a note's characters puts the cursor on that note, the caret elsewhere in a syllable
+//!   on its first note, and a cursor on a note
 //!   puts the caret at the start of its characters.
 
 use std::ops::Range;
@@ -97,7 +98,17 @@ impl App {
         };
         match typing {
             Some((caret, text, None)) if text == src.text => {
-                let Some(n) = src.map.note_at(caret) else {
+                // In a syllable but not on one of its notes (its text, the parentheses, a
+                // separator): its first note.
+                let word = src
+                    .map
+                    .syllables
+                    .iter()
+                    .find(|s| s.range.contains(&caret))
+                    .filter(|_| src.map.note_under(caret).is_none())
+                    .map(|s| s.first_note)
+                    .filter(|&n| n < src.map.notes.len());
+                let Some(n) = word.or_else(|| src.map.note_at(caret)) else {
                     return;
                 };
                 if self.chant_cursor_note() != Some(n) {
@@ -124,8 +135,9 @@ impl App {
         }
     }
 
-    /// With the lyrics text area open on the chant's kept text, selects (Visual mode) the GABC of
-    /// the cell the score cursor is on: the note's characters, a division's, an empty group's.
+    /// With the lyrics text area open on the chant's kept text, puts the caret (Normal mode) on
+    /// the cell the score cursor is on: a note's pitch letter (`a`-`m`, `A`-`M`), else the start
+    /// of a division's or an empty group's characters.
     pub(crate) fn select_cursor_in_text(&mut self) {
         let Some(cell) = self.chant_cursor_cell() else {
             return;
@@ -156,13 +168,20 @@ impl App {
         else {
             return;
         };
-        e.visual = Some((range.start, false));
-        e.caret = (range.end - 1).min(e.len());
+        let pitch = text
+            .chars()
+            .enumerate()
+            .skip(range.start)
+            .take(range.len())
+            .find(|(_, c)| matches!(c.to_ascii_lowercase(), 'a'..='m'))
+            .map(|(i, _)| i);
+        e.visual = None;
+        e.caret = pitch.unwrap_or(range.start).min(e.len());
         e.anchor = None;
     }
 
-    /// `:lyrics-select`: opens the lyrics text area of the chant (its pane, its tab) and selects
-    /// the GABC of the note the cursor is on.
+    /// `:lyrics-select`: opens the lyrics text area of the chant (its pane, its tab) with the
+    /// caret on the note the cursor is on.
     pub(crate) fn lyrics_select(&mut self) {
         if !self.cursor_on_chant() {
             return self.error("lyrics-select: not in a chant score");

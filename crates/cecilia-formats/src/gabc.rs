@@ -310,6 +310,7 @@ fn parse_body(body: &str, nabc_lines: usize) -> Result<(Vec<Syllable>, SourceMap
             text: t,
             word_start,
             items,
+            ..Default::default()
         });
         text.clear();
     }
@@ -647,7 +648,7 @@ pub fn write_with_map(chant: &Chant, title: &str) -> (String, SourceMap) {
     let mut line = 0;
     for (i, s) in chant.syllables.iter().enumerate() {
         if s.word_start && i > 0 {
-            if line > 72 {
+            if line > 72 || chant.syllables[i - 1].is_clef_line() {
                 out.push('\n');
                 line = 0;
             } else {
@@ -757,7 +758,7 @@ pub fn sync_source(old: &Chant, new: &mut Chant) -> SourceSync {
         }
     }
     let before = source_of(old);
-    if let Some(splice) = plan_splice(old, &before.map, new) {
+    if let Some(splice) = plan_splice(old, &before.map, &before.text, new) {
         let text = splice.apply(&before.text);
         if let Ok((read, map)) = reparse_body(new, &text) {
             if read.syllables == new.syllables {
@@ -828,7 +829,7 @@ mod tests {
         let again = parse(&text).unwrap();
         assert_eq!(again, chant);
         let body = text.split("%%\n").nth(1).unwrap();
-        assert!(body.starts_with("(c3) Pó(eh/hi)pu(h)lus(h) Si(hi)on,(hgh.) *(;)"));
+        assert!(body.starts_with("(c3)\nPó(eh/hi)pu(h)lus(h) Si(hi)on,(hgh.) *(;)"));
     }
 
     #[test]
