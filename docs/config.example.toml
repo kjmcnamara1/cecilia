@@ -66,7 +66,7 @@ suffix_width = 10        # …and this many at the end
 
 [theme]
 # A built-in theme: "dark", "light", "nord", "gruvbox", "solarized-dark", "solarized-light", or
-# the logo's navy/gold/cream: "cecilia-dark" (dark UI and page, light engraving), "cecilia-hybrid"
+# the logo's gold/cream on neutral charcoal: "cecilia-dark" (dark UI and page, light engraving), "cecilia-hybrid"
 # (dark UI, light page, black engraving) and "cecilia-light" (light UI and page, black engraving).
 preset = "dark"
 # A theme file with the same keys as this section (absolute, ~/…, or relative to this folder);

@@ -390,31 +390,31 @@ impl Theme {
         }
     }
 
-    /// Dark UI, dark score page and light engraving, in the navy, gold and cream of the logo.
+    /// Dark UI, dark score page and light engraving: neutral charcoal with the logo's gold and cream.
     pub fn cecilia_dark() -> Self {
         let accent = hex("#e8b73c");
         Self {
-            paper: hex("#081a33"),
-            page: hex("#0f2a52"),
+            paper: hex("#161514"),
+            page: hex("#1f1e1c"),
             ink: hex("#f6efdc"),
-            chrome: hex("#0b2244"),
+            chrome: hex("#1a1918"),
             chrome_text: hex("#f6efdc"),
             capo: hex("#f6efdc"),
-            dim: hex("#93a3bf"),
+            dim: hex("#9a948a"),
             accent,
             playhead: hex("#e5606a"),
             selection: hex("#8d7ad6"),
-            tab: hex("#14305c"),
-            tab_hover: hex("#1f4278"),
-            status_b: hex("#173765"),
-            toolbar: hex("#0e2748"),
-            button_hover: hex("#1f4278"),
-            panel: hex("#081a33"),
-            empty_bar: hex("#163057"),
-            popover: hex("#0c2142"),
+            tab: hex("#262422"),
+            tab_hover: hex("#33302c"),
+            status_b: hex("#2c2a27"),
+            toolbar: hex("#1c1b19"),
+            button_hover: hex("#33302c"),
+            panel: hex("#161514"),
+            empty_bar: hex("#2a2826"),
+            popover: hex("#211f1d"),
             error: hex("#ff7a82"),
             lyrics_text: hex("#f6efdc"),
-            lyrics_text_dim: hex("#93a3bf"),
+            lyrics_text_dim: hex("#9a948a"),
             lyrics_gabc: hex("#fffaf0"),
             lyrics_anchor: hex("#ff7a82"),
             lyrics_division: hex("#ff7a82"),
