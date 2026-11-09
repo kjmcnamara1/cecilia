@@ -215,6 +215,9 @@ impl Theme {
 pub const PRESETS: &[&str] = &[
     "dark",
     "light",
+    "cecilia-dark",
+    "cecilia-light",
+    "cecilia-hybrid",
     "nord",
     "gruvbox",
     "solarized-dark",
@@ -384,6 +387,94 @@ impl Theme {
             cursor_border: None,
             track_colors: spectrum(accent, 8, 0.48),
             ..Self::dark()
+        }
+    }
+
+    /// Dark UI, dark score page and light engraving, in the navy, gold and cream of the logo.
+    pub fn cecilia_dark() -> Self {
+        let accent = hex("#e8b73c");
+        Self {
+            paper: hex("#081a33"),
+            page: hex("#0f2a52"),
+            ink: hex("#f6efdc"),
+            chrome: hex("#0b2244"),
+            chrome_text: hex("#f6efdc"),
+            capo: hex("#f6efdc"),
+            dim: hex("#93a3bf"),
+            accent,
+            playhead: hex("#e5606a"),
+            selection: hex("#8d7ad6"),
+            tab: hex("#14305c"),
+            tab_hover: hex("#1f4278"),
+            status_b: hex("#173765"),
+            toolbar: hex("#0e2748"),
+            button_hover: hex("#1f4278"),
+            panel: hex("#081a33"),
+            empty_bar: hex("#163057"),
+            popover: hex("#0c2142"),
+            error: hex("#ff7a82"),
+            lyrics_text: hex("#f6efdc"),
+            lyrics_text_dim: hex("#93a3bf"),
+            lyrics_gabc: hex("#fffaf0"),
+            lyrics_anchor: hex("#ff7a82"),
+            lyrics_division: hex("#ff7a82"),
+            lyrics_shape: accent,
+            lyrics: hex("#aab95a"),
+            lyrics_markup: hex("#aab95a"),
+            sync_point: accent,
+            waveform: hex("#8fb4e8"),
+            mode_command: accent,
+            score_modern: hex("#d98a45"),
+            track_colors: spectrum(accent, 8, 0.62),
+            ..Self::dark()
+        }
+    }
+
+    /// Dark UI around a light cream page with black engraving.
+    pub fn cecilia_hybrid() -> Self {
+        Self {
+            paper: hex("#e4dcc4"),
+            page: hex("#fbf7ea"),
+            ink: hex("#000000"),
+            cursor_border: None,
+            ..Self::cecilia_dark()
+        }
+    }
+
+    /// Light UI, light cream page and black engraving.
+    pub fn cecilia_light() -> Self {
+        let accent = hex("#c8921c");
+        Self {
+            paper: hex("#f4efe0"),
+            page: hex("#fffcf2"),
+            ink: hex("#000000"),
+            chrome: hex("#ece4cc"),
+            chrome_text: hex("#0f2a52"),
+            capo: hex("#0f2a52"),
+            dim: hex("#6b7690"),
+            accent,
+            playhead: hex("#d6404c"),
+            tab: hex("#ddd3b6"),
+            tab_hover: hex("#cfc4a2"),
+            status_b: hex("#d8ceb0"),
+            toolbar: hex("#f3ecd6"),
+            button_hover: hex("#d8ceb0"),
+            panel: hex("#f6f0dd"),
+            empty_bar: hex("#ddd3b6"),
+            popover: hex("#fffcf2"),
+            error: hex("#c4303a"),
+            lyrics_text: hex("#0f2a52"),
+            lyrics_text_dim: hex("#8590a8"),
+            lyrics_gabc: hex("#06142a"),
+            lyrics_anchor: hex("#c4303a"),
+            lyrics_division: hex("#c4303a"),
+            lyrics_shape: hex("#a87400"),
+            sync_point: accent,
+            waveform: hex("#2a5fa8"),
+            mode_command: hex("#d9921a"),
+            score_modern: hex("#b05f25"),
+            track_colors: spectrum(accent, 8, 0.48),
+            ..Self::light()
         }
     }
 
@@ -586,6 +677,9 @@ impl Theme {
         Some(match name {
             "dark" => Self::dark(),
             "light" => Self::light(),
+            "cecilia-dark" => Self::cecilia_dark(),
+            "cecilia-light" => Self::cecilia_light(),
+            "cecilia-hybrid" => Self::cecilia_hybrid(),
             "nord" => Self::nord(),
             "gruvbox" => Self::gruvbox(),
             "solarized-dark" => Self::solarized_dark(),
@@ -919,6 +1013,26 @@ mod tests {
             );
         }
         assert!(Theme::preset("nope").is_none());
+    }
+
+    #[test]
+    fn cecilia_themes_resolve_and_split_ui_from_score() {
+        let luma = |c: Rgba| 0.299 * c.r as f32 + 0.587 * c.g as f32 + 0.114 * c.b as f32;
+        let by_name = |n: &str| {
+            let c: ThemeConfig = toml::from_str(&format!("preset = \"{n}\"")).unwrap();
+            let (t, errs) = Theme::from_config(&c);
+            assert!(errs.is_empty(), "{n}: {errs:?}");
+            t
+        };
+        let dark = by_name("cecilia-dark");
+        assert!(luma(dark.page) < 80.0 && luma(dark.chrome) < 80.0 && luma(dark.ink) > 200.0);
+        let hybrid = by_name("cecilia-hybrid");
+        assert!(luma(hybrid.chrome) < 80.0 && luma(hybrid.panel) < 80.0);
+        assert!(luma(hybrid.page) > 220.0 && luma(hybrid.paper) > 180.0);
+        assert_eq!(hybrid.ink, Rgba::rgb(0, 0, 0));
+        let light = by_name("cecilia-light");
+        assert!(luma(light.chrome) > 200.0 && luma(light.page) > 220.0);
+        assert_eq!(light.ink, Rgba::rgb(0, 0, 0));
     }
 
     #[test]

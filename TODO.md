@@ -144,14 +144,6 @@ what about mapping durations? bistropha vs mora and half or dotted half...
   - can still start "cecilia --workspace NAME" to open a window in
     a new/different workspace
 
-#### Theming
-
-- [ ] Create default "cecilia-light", "cecilia-dark", and "cecilia-hybrid" themes based on colors
-      from assets/cecilia.png
-  - dark theme should have dark score background and light engraving
-  - hybrid theme should have dark ui elements, but light score background
-    with black engraving
-
 ### Voices
 
 - [ ] Dim the voices not being edited in the GUI engraving (the terminal tab view does)

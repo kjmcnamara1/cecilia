@@ -338,7 +338,8 @@ remember it), and `[toolbar] items` in config.toml chooses the buttons: any comm
 ## Themes
 
 `[theme]` in config.toml picks a built-in theme (`preset`: dark, light, nord, gruvbox,
-solarized-dark, solarized-light), an optional theme file of your own (`file`), and any color by
+solarized-dark, solarized-light, and the logo-colored cecilia-dark, cecilia-hybrid — dark UI, light
+page — and cecilia-light), an optional theme file of your own (`file`), and any color by
 name: the window chrome, toolbar, tabs, panels, palette, cursor, playhead, waveforms, mode
 labels, file icons, the track palette, and the score's page and ink — set a dark `page` and a
 light `ink` for light notation on dark paper. `docs/config.example.toml` lists every name.
