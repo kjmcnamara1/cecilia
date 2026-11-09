@@ -215,10 +215,17 @@ impl Theme {
 pub const PRESETS: &[&str] = &[
     "dark",
     "light",
+    "cecilia-dark",
+    "cecilia-light",
+    "cecilia-hybrid",
     "nord",
     "gruvbox",
     "solarized-dark",
     "solarized-light",
+    "catppuccin-latte",
+    "catppuccin-frappe",
+    "catppuccin-macchiato",
+    "catppuccin-mocha",
 ];
 
 /// The colors a theme sets, by their names in config.toml.
@@ -384,6 +391,94 @@ impl Theme {
             cursor_border: None,
             track_colors: spectrum(accent, 8, 0.48),
             ..Self::dark()
+        }
+    }
+
+    /// Dark UI, dark score page and light engraving: neutral charcoal with the logo's gold and cream.
+    pub fn cecilia_dark() -> Self {
+        let accent = hex("#e8b73c");
+        Self {
+            paper: hex("#161514"),
+            page: hex("#1f1e1c"),
+            ink: hex("#f6efdc"),
+            chrome: hex("#1a1918"),
+            chrome_text: hex("#f6efdc"),
+            capo: hex("#f6efdc"),
+            dim: hex("#9a948a"),
+            accent,
+            playhead: hex("#e5606a"),
+            selection: hex("#8d7ad6"),
+            tab: hex("#262422"),
+            tab_hover: hex("#33302c"),
+            status_b: hex("#2c2a27"),
+            toolbar: hex("#1c1b19"),
+            button_hover: hex("#33302c"),
+            panel: hex("#161514"),
+            empty_bar: hex("#2a2826"),
+            popover: hex("#211f1d"),
+            error: hex("#ff7a82"),
+            lyrics_text: hex("#f6efdc"),
+            lyrics_text_dim: hex("#9a948a"),
+            lyrics_gabc: hex("#fffaf0"),
+            lyrics_anchor: hex("#ff7a82"),
+            lyrics_division: hex("#ff7a82"),
+            lyrics_shape: accent,
+            lyrics: hex("#aab95a"),
+            lyrics_markup: hex("#aab95a"),
+            sync_point: accent,
+            waveform: hex("#8fb4e8"),
+            mode_command: accent,
+            score_modern: hex("#d98a45"),
+            track_colors: spectrum(accent, 8, 0.62),
+            ..Self::dark()
+        }
+    }
+
+    /// Dark UI around a light cream page with black engraving.
+    pub fn cecilia_hybrid() -> Self {
+        Self {
+            paper: hex("#e4dcc4"),
+            page: hex("#fbf7ea"),
+            ink: hex("#000000"),
+            cursor_border: None,
+            ..Self::cecilia_dark()
+        }
+    }
+
+    /// Light UI, light cream page and black engraving.
+    pub fn cecilia_light() -> Self {
+        let accent = hex("#c8921c");
+        Self {
+            paper: hex("#f4efe0"),
+            page: hex("#fffcf2"),
+            ink: hex("#000000"),
+            chrome: hex("#ece4cc"),
+            chrome_text: hex("#0f2a52"),
+            capo: hex("#0f2a52"),
+            dim: hex("#6b7690"),
+            accent,
+            playhead: hex("#d6404c"),
+            tab: hex("#ddd3b6"),
+            tab_hover: hex("#cfc4a2"),
+            status_b: hex("#d8ceb0"),
+            toolbar: hex("#f3ecd6"),
+            button_hover: hex("#d8ceb0"),
+            panel: hex("#f6f0dd"),
+            empty_bar: hex("#ddd3b6"),
+            popover: hex("#fffcf2"),
+            error: hex("#c4303a"),
+            lyrics_text: hex("#0f2a52"),
+            lyrics_text_dim: hex("#8590a8"),
+            lyrics_gabc: hex("#06142a"),
+            lyrics_anchor: hex("#c4303a"),
+            lyrics_division: hex("#c4303a"),
+            lyrics_shape: hex("#a87400"),
+            sync_point: accent,
+            waveform: hex("#2a5fa8"),
+            mode_command: hex("#d9921a"),
+            score_modern: hex("#b05f25"),
+            track_colors: spectrum(accent, 8, 0.48),
+            ..Self::light()
         }
     }
 
@@ -582,14 +677,85 @@ impl Theme {
     }
 
     /// A built-in theme by name.
+    /// A Catppuccin flavor (<https://catppuccin.com/palette>): the page in the flavor's base with
+    /// its text as ink, so the dark flavors engrave light on dark.
+    fn catppuccin(c: &Catppuccin) -> Self {
+        let h = hex;
+        Self {
+            paper: h(c.crust),
+            page: h(c.base),
+            ink: h(c.text),
+            chrome: h(c.mantle),
+            chrome_text: h(c.text),
+            capo: h(c.text),
+            dim: h(c.overlay1),
+            accent: h(c.mauve),
+            playhead: h(c.red),
+            selection: h(c.lavender),
+            tab: h(c.surface0),
+            tab_hover: h(c.surface1),
+            status_b: h(c.surface0),
+            toolbar: h(c.mantle),
+            button_hover: h(c.surface1),
+            panel: h(c.crust),
+            empty_bar: h(c.surface0),
+            incomplete_bar: h(c.red),
+            popover: h(c.surface0),
+            error: h(c.red),
+            lyrics: h(c.green),
+            lyrics_text: h(c.text),
+            lyrics_text_dim: h(c.overlay0),
+            lyrics_gabc: h(c.subtext1),
+            lyrics_label: h(c.blue),
+            lyrics_anchor: h(c.red),
+            lyrics_clef: h(c.mauve),
+            lyrics_division: h(c.maroon),
+            lyrics_note: h(c.sapphire),
+            lyrics_shape: h(c.yellow),
+            lyrics_attach: h(c.teal),
+            lyrics_space: h(c.overlay0),
+            lyrics_markup: h(c.green),
+            marker: h(c.teal),
+            waveform: h(c.blue),
+            loop_region: h(c.green).with_alpha(50),
+            sync_point: h(c.yellow),
+            mode_normal: h(c.blue),
+            mode_insert: h(c.green),
+            mode_visual: h(c.mauve),
+            mode_command: h(c.peach),
+            mode_picker: h(c.teal),
+            mode_tracks: h(c.flamingo),
+            icon_guitar_pro: h(c.peach),
+            icon_musicxml: h(c.blue),
+            icon_midi: h(c.green),
+            icon_chant: h(c.mauve),
+            icon_cecilia: h(c.teal),
+            score_modern: h(c.peach),
+            cursor_border: None,
+            track_colors: [
+                c.mauve, c.blue, c.green, c.peach, c.pink, c.teal, c.yellow, c.red,
+            ]
+            .into_iter()
+            .map(h)
+            .collect(),
+        }
+    }
+
     pub fn preset(name: &str) -> Option<Self> {
         Some(match name {
             "dark" => Self::dark(),
             "light" => Self::light(),
+            "cecilia-dark" => Self::cecilia_dark(),
+            "cecilia-light" => Self::cecilia_light(),
+            "cecilia-hybrid" => Self::cecilia_hybrid(),
             "nord" => Self::nord(),
             "gruvbox" => Self::gruvbox(),
             "solarized-dark" => Self::solarized_dark(),
             "solarized-light" => Self::solarized_light(),
+            "catppuccin-latte" => Self::catppuccin(&LATTE),
+            "catppuccin-frappe" => Self::catppuccin(&FRAPPE),
+            "catppuccin-macchiato" => Self::catppuccin(&MACCHIATO),
+            "catppuccin-mocha" => Self::catppuccin(&MOCHA),
             _ => return None,
         })
     }
@@ -810,6 +976,127 @@ pub fn theme_path(path: &std::path::Path) -> std::path::PathBuf {
         .unwrap_or_else(|| path.to_path_buf())
 }
 
+/// The Catppuccin colors the presets use, for one flavor.
+struct Catppuccin {
+    flamingo: &'static str,
+    pink: &'static str,
+    mauve: &'static str,
+    red: &'static str,
+    maroon: &'static str,
+    peach: &'static str,
+    yellow: &'static str,
+    green: &'static str,
+    teal: &'static str,
+    sapphire: &'static str,
+    blue: &'static str,
+    lavender: &'static str,
+    text: &'static str,
+    subtext1: &'static str,
+    overlay0: &'static str,
+    overlay1: &'static str,
+    surface0: &'static str,
+    surface1: &'static str,
+    base: &'static str,
+    mantle: &'static str,
+    crust: &'static str,
+}
+
+const LATTE: Catppuccin = Catppuccin {
+    flamingo: "#dd7878",
+    pink: "#ea76cb",
+    mauve: "#8839ef",
+    red: "#d20f39",
+    maroon: "#e64553",
+    peach: "#fe640b",
+    yellow: "#df8e1d",
+    green: "#40a02b",
+    teal: "#179299",
+    sapphire: "#209fb5",
+    blue: "#1e66f5",
+    lavender: "#7287fd",
+    text: "#4c4f69",
+    subtext1: "#5c5f77",
+    overlay0: "#9ca0b0",
+    overlay1: "#8c8fa1",
+    surface0: "#ccd0da",
+    surface1: "#bcc0cc",
+    base: "#eff1f5",
+    mantle: "#e6e9ef",
+    crust: "#dce0e8",
+};
+
+const FRAPPE: Catppuccin = Catppuccin {
+    flamingo: "#eebebe",
+    pink: "#f4b8e4",
+    mauve: "#ca9ee6",
+    red: "#e78284",
+    maroon: "#ea999c",
+    peach: "#ef9f76",
+    yellow: "#e5c890",
+    green: "#a6d189",
+    teal: "#81c8be",
+    sapphire: "#85c1dc",
+    blue: "#8caaee",
+    lavender: "#babbf1",
+    text: "#c6d0f5",
+    subtext1: "#b5bfe2",
+    overlay0: "#737994",
+    overlay1: "#838ba7",
+    surface0: "#414559",
+    surface1: "#51576d",
+    base: "#303446",
+    mantle: "#292c3c",
+    crust: "#232634",
+};
+
+const MACCHIATO: Catppuccin = Catppuccin {
+    flamingo: "#f0c6c6",
+    pink: "#f5bde6",
+    mauve: "#c6a0f6",
+    red: "#ed8796",
+    maroon: "#ee99a0",
+    peach: "#f5a97f",
+    yellow: "#eed49f",
+    green: "#a6da95",
+    teal: "#8bd5ca",
+    sapphire: "#7dc4e4",
+    blue: "#8aadf4",
+    lavender: "#b7bdf8",
+    text: "#cad3f5",
+    subtext1: "#b8c0e0",
+    overlay0: "#6e738d",
+    overlay1: "#8087a2",
+    surface0: "#363a4f",
+    surface1: "#494d64",
+    base: "#24273a",
+    mantle: "#1e2030",
+    crust: "#181926",
+};
+
+const MOCHA: Catppuccin = Catppuccin {
+    flamingo: "#f2cdcd",
+    pink: "#f5c2e7",
+    mauve: "#cba6f7",
+    red: "#f38ba8",
+    maroon: "#eba0ac",
+    peach: "#fab387",
+    yellow: "#f9e2af",
+    green: "#a6e3a1",
+    teal: "#94e2d5",
+    sapphire: "#74c7ec",
+    blue: "#89b4fa",
+    lavender: "#b4befe",
+    text: "#cdd6f4",
+    subtext1: "#bac2de",
+    overlay0: "#6c7086",
+    overlay1: "#7f849c",
+    surface0: "#313244",
+    surface1: "#45475a",
+    base: "#1e1e2e",
+    mantle: "#181825",
+    crust: "#11111b",
+};
+
 /// `n` colors around the color wheel starting at `from`'s hue, at lightness `l`.
 pub fn spectrum(from: Rgba, n: usize, l: f32) -> Vec<Rgba> {
     let (h, s, _) = from.to_hsl();
@@ -919,6 +1206,26 @@ mod tests {
             );
         }
         assert!(Theme::preset("nope").is_none());
+    }
+
+    #[test]
+    fn cecilia_themes_resolve_and_split_ui_from_score() {
+        let luma = |c: Rgba| 0.299 * c.r as f32 + 0.587 * c.g as f32 + 0.114 * c.b as f32;
+        let by_name = |n: &str| {
+            let c: ThemeConfig = toml::from_str(&format!("preset = \"{n}\"")).unwrap();
+            let (t, errs) = Theme::from_config(&c);
+            assert!(errs.is_empty(), "{n}: {errs:?}");
+            t
+        };
+        let dark = by_name("cecilia-dark");
+        assert!(luma(dark.page) < 80.0 && luma(dark.chrome) < 80.0 && luma(dark.ink) > 200.0);
+        let hybrid = by_name("cecilia-hybrid");
+        assert!(luma(hybrid.chrome) < 80.0 && luma(hybrid.panel) < 80.0);
+        assert!(luma(hybrid.page) > 220.0 && luma(hybrid.paper) > 180.0);
+        assert_eq!(hybrid.ink, Rgba::rgb(0, 0, 0));
+        let light = by_name("cecilia-light");
+        assert!(luma(light.chrome) > 200.0 && luma(light.page) > 220.0);
+        assert_eq!(light.ink, Rgba::rgb(0, 0, 0));
     }
 
     #[test]
