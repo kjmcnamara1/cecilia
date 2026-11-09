@@ -88,7 +88,7 @@ Planned work. Finished items move to `CHANGELOG.md` under `[Unreleased]`.
 ### File Save/Export
 
 - [ ] Converting/exporting to chant (.gabc) files
-- [ ] Nothing should be lost when writing to .cc files
+- [ ] Nothing should be lost when writing to .ccc / .ccm files
 - [ ] Some data may be lost when writing to .gp, .musexml, .gabc, or .txt
 
 ### File/Track Import

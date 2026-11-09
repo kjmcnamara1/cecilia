@@ -98,7 +98,7 @@ Writing `.gp5` keeps two voices per bar (the status line warns when more with no
 
 `:design on` (`<leader>d`) lets you fix the page layout by hand, for clashes the automatic layout
 cannot see. It works in the page layout only and shows `design` in the status line. Every change
-is an undo step (a mouse drag is one step) and is stored in the score: `.cc` files keep it,
+is an undo step (a mouse drag is one step) and is stored in the score: `.ccc` / `.ccm` files keep it,
 other formats ignore it, and bars with no adjustment stay automatic.
 
 Keys while design mode is on (`[keymap.design]`, looked up before the normal keys; every other
@@ -712,7 +712,7 @@ e.g. `"<C-g>" = "completion-ignore-case"`, `"<C-f>" = "completion-fuzzy"`.
 | -------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | `:open {file}` / `:w [file]` / `:q` (quit) / `:wq` (write all, quit) / `:q!`                  | _(M2)_ `:w file.ext` exports by extension                                                                                                                                                   |
 | `:focus-ring-width [N\|default]` / `:focus-ring-color [#hex\|default]` / `:tabline-wrap [on\|off]` | set (no argument: show; `:tabline-wrap` toggles) `ui.focus_ring_width`, `ui.focus_ring_color` and `tabline.wrap` for the session; the width clamps to the config range (ring 0 to 8) |
-| `:save-as [file]` (`:saveas`) | write to a new file and make it the buffer's file (later `:w` writes there; `:w file` stays an export). No file: the system save dialog (starting beside the current file, suggesting its name or `untitled.cc`; cancelling does nothing; no file extension means `.cc`). A plain `:w` on a buffer with no file runs it too. Builds without the `dialog` feature say "use :write FILE" |
+| `:save-as [file]` (`:saveas`) | write to a new file and make it the buffer's file (later `:w` writes there; `:w file` stays an export). No file: the system save dialog (starting beside the current file, suggesting its name or `untitled.ccm` (`.ccc` for a chant); cancelling does nothing; no file extension means `.ccc` for a chant score, `.ccm` otherwise). A plain `:w` on a buffer with no file runs it too. Builds without the `dialog` feature say "use :write FILE" |
 | `:wa` (`:wall`) / `:pane-close` | write every changed file / close the focused pane (its view with the last pane); the last pane of the last view cannot be closed (a message says so; close its buffers to reach the [dashboard](#dashboard)); the remaining panes of its split share the space equally again (`ui.equalize_on_close`; off: the neighbour takes it; `:equalize-on-close [on\|off]` sets or toggles it for the session) |
 | `:split` / `:vsplit`                                                 | _(M1)_                                                                                                                                                                                      |
 | `:track {n}`                                                         | _(M1)_                                                                                                                                                                                      |

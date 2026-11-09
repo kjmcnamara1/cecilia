@@ -3,6 +3,8 @@
 <mime-info xmlns="http://www.freedesktop.org/standards/shared-mime-info">
   <mime-type type="application/x-cecilia">
     <comment>cecilia score</comment>
+    <glob pattern="*.ccc"/>
+    <glob pattern="*.ccm"/>
     <glob pattern="*.cc"/>
   </mime-type>
   <mime-type type="application/x-guitar-pro">

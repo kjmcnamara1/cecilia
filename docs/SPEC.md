@@ -212,7 +212,7 @@ tab, commands, settings, limits) is [LYRICS.md](LYRICS.md).
 | Standard MIDI File | ✔ | ✔ | done (M2); export expands repeats; import quantises to 32nd/triplet grid |
 | GABC (Gregorio) | ✔ | ✔ | done (M6); checked note-for-note against Gregorio 6.2 on its 480-file test suite and on GregoBase chants; written files re-read identically. NABC (adiastematic) sections are kept verbatim |
 | ASCII tab | — | ✔ | shared with TUI rendering |
-| `.cc` (native) | ✔ | ✔ | done (M2); see 5.1 |
+| `.ccc` / `.ccm` (native) | ✔ | ✔ | done (M2); see 5.1 |
 
 Format detection by magic bytes first, extension second.
 Encoding for GP3–5 strings: Windows-1252, or UTF-8 when the bytes are valid UTF-8.
@@ -235,7 +235,12 @@ they were edited. All lyrics read then become the tracks' lyrics text (4.3, [LYR
 - MusicXML export validates against the MusicXML 4.0 XSD and MuseScore 4 opens 157 of 163
   files (the rest contain incomplete tuplet groups, which MuseScore rejects).
 
-### 5.1 Native `.cc` format
+### 5.1 Native `.ccc` / `.ccm` format
+
+One serialization, two extensions: `.ccc` (cecilia chant) is what a chant score saves as by default,
+`.ccm` (cecilia modern) any other score. Both read and write the same way, and the extension typed
+is honored. Legacy `.cc` files (the earlier single extension) are still read, never written by
+default.
 
 Zip archive:
 - `manifest.toml`: format version, app version, created/modified.
@@ -244,7 +249,7 @@ Zip archive:
 - `undo.bin`: persisted undo tree (optional).
 - `audio/<file>`: embedded audio (optional; otherwise a relative/absolute path in `sync.toml`).
 
-`:w file.ext` exports to any writable format (by extension); `:w file.cc` saves everything.
+`:w file.ext` exports to any writable format (by extension); `:w file.ccc` / `:w file.ccm` saves everything.
 A plain `:w` writes back to the buffer's own file only when the buffer has been modified, so an
 untouched original (which may contain data cecilia does not model) is never rewritten.
 

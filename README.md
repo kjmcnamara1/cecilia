@@ -10,8 +10,8 @@ full specification and roadmap, and [docs/keymap.md](docs/keymap.md) for key bin
 ## What works now
 
 - Reading Guitar Pro 3–8 (`.gp3`, `.gp4`, `.gp5`, `.gpx`, `.gp`), MusicXML (`.musicxml`, `.mxl`),
-  MIDI, GABC (Gregorio chant) and cecilia's own `.cc`; writing `.gp5`, `.gpx`, `.gp`, `.musicxml`,
-  `.mxl`, `.mid`, `.gabc`, `.cc`
+  MIDI, GABC (Gregorio chant) and cecilia's own `.ccc` (chant) and `.ccm` (modern; legacy `.cc` still opens); writing `.gp5`, `.gpx`, `.gp`, `.musicxml`,
+  `.mxl`, `.mid`, `.gabc`, `.ccc`, `.ccm`
 - Drums in standard drum notation (hands stems up, feet stems down, x heads for cymbals) and as
   drum tab in the terminal (CY/HH/T1/SN/FT/BD lanes), entered with letter keys in Insert mode
 - Piano and other multi-staff parts as braced grand staves, kept as one instrument in GP7/GPX/
@@ -76,7 +76,7 @@ sudo packaging/linux/install.sh /usr/local
 ```
 
 This installs the binary, `cecilia.desktop` (which opens cecilia in a window with `--gui`), an icon,
-and file types for `.cc`, Guitar Pro (`.gp`, `.gpx`, `.gp3`–`.gp5`) and `.gabc` files, so file
+and file types for `.ccc`, `.ccm` (and legacy `.cc`), Guitar Pro (`.gp`, `.gpx`, `.gp3`–`.gp5`) and `.gabc` files, so file
 managers offer cecilia for them. `packaging/linux/uninstall.sh [PREFIX]` removes them again.
 
 ## Configuration

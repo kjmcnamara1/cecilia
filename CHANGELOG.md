@@ -7,6 +7,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.34.0] - 2026-11-09
+
+### Changed
+
+- **Breaking:** the native format is split into two extensions with the same contents: `.ccc` (cecilia chant) and `.ccm` (cecilia modern). `:w` / `:save-as`, the save dialog (separate filters), default names and an extension-less name pick the one for the score's kind; a typed extension is honored. Legacy `.cc` files are still read (and `:w x.cc` still works), but nothing is saved as `.cc` by default. Linux packaging registers the new extensions.
+
 ## [0.33.0] - 2026-11-09
 
 ### Added

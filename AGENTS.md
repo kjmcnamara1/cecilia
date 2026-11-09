@@ -62,7 +62,7 @@ Crates (dependencies flow downward):
 
 - `cecilia-core` — the `Score` model (Track → Bar → Voice → Beat → Note; `MasterBar`, markers,
   lyrics, chant marks, `Track.staves: Vec<Staff>` = notation *views* of one track's notes).
-- `cecilia-formats` — readers/writers (GP3–8, GPX/GP, MusicXML, MIDI, GABC, native `.cc`).
+- `cecilia-formats` — readers/writers (GP3–8, GPX/GP, MusicXML, MIDI, GABC, native `.ccc` / `.ccm`, legacy `.cc` read-only by default).
   Readers merge multi-staff parts into one grand-staff track; writers split internally, so
   round-trip tests compare `split_grand()` forms.
 - `cecilia-convert` — modern ⇄ chant conversion. `cecilia-audio` — synth, player, beat detection, tuner.

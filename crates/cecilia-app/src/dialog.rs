@@ -7,7 +7,8 @@ use crate::app::{App, Effect};
 
 /// File types cecilia opens, for the picker's filter.
 pub const EXTENSIONS: &[&str] = &[
-    "cc", "gp", "gpx", "gp5", "gp4", "gp3", "musicxml", "xml", "mxl", "mid", "midi", "gabc",
+    "ccc", "ccm", "cc", "gp", "gpx", "gp5", "gp4", "gp3", "musicxml", "xml", "mxl", "mid", "midi",
+    "gabc",
 ];
 
 /// Carries out a dialog effect, or hands any other effect back.
@@ -49,7 +50,8 @@ fn pick_files(_dir: Option<PathBuf>) -> Vec<PathBuf> {
 
 /// File types cecilia writes, for the save dialog: the native format first.
 pub const WRITE_FILTERS: &[(&str, &[&str])] = &[
-    ("cecilia", &["cc"]),
+    ("cecilia chant", &["ccc"]),
+    ("cecilia modern", &["ccm"]),
     ("Guitar Pro", &["gp", "gpx", "gp5"]),
     ("MusicXML", &["musicxml", "xml", "mxl"]),
     ("MIDI", &["mid", "midi"]),
@@ -112,7 +114,7 @@ mod tests {
         std::fs::create_dir_all(&dir).unwrap();
         let mut app = App::new(Config::default(), None);
         app.run(Command::New);
-        let (a, b) = (dir.join("a.cc"), dir.join("b.cc"));
+        let (a, b) = (dir.join("a.ccm"), dir.join("b.ccm"));
         app.run(Command::Write(Some(a.clone())));
         app.run(Command::Write(Some(b.clone())));
         assert_eq!(Command::parse("open"), Ok(Command::OpenDialog));
@@ -129,7 +131,7 @@ mod tests {
         // The files chosen open as tabs; the first is shown.
         let mut app = App::new(Config::default(), None);
         app.open_files(vec![a, b]);
-        assert_eq!(app.buffer().name, "a.cc");
+        assert_eq!(app.buffer().name, "a.ccm");
         assert_eq!(app.bufferline().len(), 2);
         std::fs::remove_dir_all(dir).ok();
     }
@@ -160,7 +162,7 @@ mod tests {
                 app.take_effects(),
                 vec![Effect::SaveDialog {
                     dir: None,
-                    name: "untitled.cc".into()
+                    name: "untitled.ccm".into()
                 }],
                 "{cmd}"
             );
@@ -170,7 +172,7 @@ mod tests {
     #[test]
     fn save_as_starts_beside_the_file_and_suggests_its_name() {
         let dir = temp_dir("start");
-        let a = dir.join("a.cc");
+        let a = dir.join("a.ccm");
         let mut app = App::new(Config::default(), None);
         app.run(Command::New);
         app.run(Command::Write(Some(a.clone())));
@@ -180,7 +182,7 @@ mod tests {
             app.take_effects(),
             vec![Effect::SaveDialog {
                 dir: Some(dir.canonicalize().unwrap()),
-                name: "a.cc".into()
+                name: "a.ccm".into()
             }]
         );
         std::fs::remove_dir_all(dir).ok();
@@ -189,7 +191,7 @@ mod tests {
     #[test]
     fn plain_write_of_a_named_buffer_still_writes() {
         let dir = temp_dir("named");
-        let a = dir.join("a.cc");
+        let a = dir.join("a.ccm");
         let mut app = App::new(Config::default(), None);
         app.run(Command::New);
         app.run(Command::Write(Some(a.clone())));
@@ -205,7 +207,7 @@ mod tests {
     #[test]
     fn a_chosen_path_names_the_buffer_and_later_writes_go_there() {
         let dir = temp_dir("pick");
-        let out = dir.join("song.cc");
+        let out = dir.join("song.ccm");
         let mut app = App::new(Config::default(), None);
         app.run(Command::New);
         app.take_effects();
@@ -215,7 +217,7 @@ mod tests {
         assert!(matches!(effect, Effect::SaveDialog { .. }));
         app.save_as(out.clone());
         assert!(out.exists());
-        assert_eq!(app.buffer().name, "song.cc");
+        assert_eq!(app.buffer().name, "song.ccm");
         assert_eq!(app.buffer().path, Some(out.canonicalize().unwrap()));
         assert!(!app.buffer().modified);
         // A plain :w now writes there, with no dialog.
@@ -237,12 +239,61 @@ mod tests {
         let dir = temp_dir("write-new");
         let mut app = App::new(Config::default(), None);
         app.run(Command::New);
-        app.run(Command::Write(Some(dir.join("first.cc"))));
-        assert_eq!(app.buffer().name, "first.cc");
+        app.run(Command::Write(Some(dir.join("first.ccm"))));
+        assert_eq!(app.buffer().name, "first.ccm");
         assert!(!app.buffer().modified);
         // `:w other` is `:save-as other`: the buffer is renamed again.
-        app.run(Command::Write(Some(dir.join("second.cc"))));
-        assert_eq!(app.buffer().name, "second.cc");
+        app.run(Command::Write(Some(dir.join("second.ccm"))));
+        assert_eq!(app.buffer().name, "second.ccm");
+        std::fs::remove_dir_all(dir).ok();
+    }
+
+    fn chant_app() -> App {
+        let mut app = App::new(Config::default(), None);
+        let chant =
+            cecilia_formats::gabc::parse("name: t;\n%%\n(c4) Al(fg)le(h) lu(g)ia.(f.) (::)\n")
+                .unwrap();
+        app.buffers[0].score = cecilia_formats::gabc::chant_score(chant);
+        app
+    }
+
+    #[test]
+    fn the_native_extension_follows_the_score_kind() {
+        let dir = temp_dir("kind");
+        let mut modern = App::new(Config::default(), None);
+        let mut chant = chant_app();
+        for (app, ext) in [(&mut modern, "ccm"), (&mut chant, "ccc")] {
+            app.take_effects();
+            app.run(Command::SaveAs(None));
+            let Some(Effect::SaveDialog { name, .. }) = app.take_effects().pop() else {
+                panic!("no dialog")
+            };
+            assert_eq!(
+                name,
+                if ext == "ccc" {
+                    "t.ccc".into()
+                } else {
+                    format!("untitled.{ext}")
+                }
+            );
+            // No extension typed: the kind's own.
+            app.save_as(dir.join(format!("noext-{ext}")));
+            assert_eq!(app.buffer().name, format!("noext-{ext}.{ext}"));
+            assert!(dir.join(format!("noext-{ext}.{ext}")).exists());
+            // An extension typed is honored, and the file reads back.
+            let other = if ext == "ccc" { "ccm" } else { "ccc" };
+            app.save_as(dir.join(format!("typed.{other}")));
+            assert_eq!(app.buffer().name, format!("typed.{other}"));
+            let mut reader = App::new(Config::default(), None);
+            reader.open_files(vec![dir.join(format!("typed.{other}"))]);
+            assert_eq!(reader.buffer().score.is_chant(), ext == "ccc");
+        }
+        // Legacy `.cc` files still open.
+        std::fs::copy(dir.join("noext-ccm.ccm"), dir.join("old.cc")).unwrap();
+        let mut reader = App::new(Config::default(), None);
+        reader.open_files(vec![dir.join("old.cc")]);
+        assert_eq!(reader.buffer().name, "old.cc");
+        assert!(!reader.buffer().score.is_chant());
         std::fs::remove_dir_all(dir).ok();
     }
 
@@ -257,25 +308,25 @@ mod tests {
         let Some(Effect::SaveDialog { name, .. }) = app.take_effects().pop() else {
             panic!("no dialog")
         };
-        assert_eq!(name, "ave-maria-2nd-setting.cc");
+        assert_eq!(name, "ave-maria-2nd-setting.ccm");
     }
 
     #[test]
     fn save_as_with_a_path_writes_and_renames() {
         let dir = temp_dir("path");
-        let (a, b) = (dir.join("a.cc"), dir.join("b"));
+        let (a, b) = (dir.join("a.ccm"), dir.join("b"));
         let mut app = App::new(Config::default(), None);
         app.run(Command::New);
         app.run(Command::SaveAs(Some(a.clone())));
         assert!(app.take_effects().is_empty());
-        assert_eq!(app.buffer().name, "a.cc");
+        assert_eq!(app.buffer().name, "a.ccm");
         // No extension: a native file.
         app.run(Command::SaveAs(Some(b)));
-        assert_eq!(app.buffer().name, "b.cc");
-        assert!(dir.join("b.cc").exists());
+        assert_eq!(app.buffer().name, "b.ccm");
+        assert!(dir.join("b.ccm").exists());
         // A format that can't be written changes nothing.
         app.run(Command::SaveAs(Some(dir.join("c.xyz"))));
-        assert_eq!(app.buffer().name, "b.cc");
+        assert_eq!(app.buffer().name, "b.ccm");
         std::fs::remove_dir_all(dir).ok();
     }
 

@@ -1246,7 +1246,7 @@ mod tests {
             "{}",
             message(&a)
         );
-        run(&mut a, &format!("w {}", dir.join("s.cc").display()));
+        run(&mut a, &format!("w {}", dir.join("s.ccc").display()));
         assert!(!message(&a).contains("not saved"), "{}", message(&a));
         let _ = std::fs::remove_dir_all(dir);
     }

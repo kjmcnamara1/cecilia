@@ -404,6 +404,11 @@ pub struct BufferTab {
     pub paused: bool,
 }
 
+/// Extension of cecilia's native format for a score: `ccc` for chant, `ccm` for modern.
+pub fn native_extension(score: &Score) -> &'static str {
+    if score.is_chant() { "ccc" } else { "ccm" }
+}
+
 /// File type of a buffer, for its bufferline icon.
 pub fn file_kind(path: Option<&Path>) -> &'static str {
     let ext = path
@@ -416,7 +421,7 @@ pub fn file_kind(path: Option<&Path>) -> &'static str {
         "musicxml" | "xml" | "mxl" => "musicxml",
         "mid" | "midi" => "midi",
         "gabc" => "chant",
-        "cc" => "cecilia",
+        "cc" | "ccc" | "ccm" => "cecilia",
         "" => "new",
         _ => "other",
     }
@@ -2920,12 +2925,13 @@ impl App {
             .map(Path::to_path_buf);
         // The file's name, else the title in kebab-case (a new file), else a placeholder.
         let slug = kebab_case(&buffer.score.meta.title);
+        let ext = native_extension(&buffer.score);
         let name = if buffer.path.is_some() {
             buffer.name.clone()
         } else if !slug.is_empty() {
-            format!("{slug}.cc")
+            format!("{slug}.{ext}")
         } else {
-            "untitled.cc".to_string()
+            format!("untitled.{ext}")
         };
         self.effects.push(Effect::SaveDialog { dir, name });
     }
@@ -2936,7 +2942,7 @@ impl App {
     pub fn save_as(&mut self, mut path: PathBuf) {
         // A name without an extension is a native file.
         if path.extension().is_none() {
-            path.set_extension("cc");
+            path.set_extension(native_extension(&self.buffer().score));
         }
         let index = self.pane().buffer;
         let canonical = path.canonicalize().ok();
@@ -3068,6 +3074,7 @@ impl App {
         let lost = cecilia_formats::voices_lost(score, &ext);
         let rows_lost = cecilia_formats::lyric_rows_lost(score, &ext);
         let audio_lost = cecilia_formats::audio_lost(score, &ext);
+        let native = native_extension(score);
         match cecilia_formats::write_file(score, &target) {
             Ok(()) => {
                 let size = std::fs::metadata(&target).map(|m| m.len()).unwrap_or(0);
@@ -3093,8 +3100,8 @@ impl App {
                 }
                 if audio_lost {
                     note.push_str(&format!(
-                        " (warning: the audio and its sync are not saved in .{ext}; save as .cc \
-                         to keep them)"
+                        " (warning: the audio and its sync are not saved in .{ext}; save as \
+                         .{native} to keep them)"
                     ));
                 }
                 self.info(format!(
@@ -4212,7 +4219,7 @@ pub(crate) mod tests {
     #[test]
     fn buffers_belong_to_views_and_close_back_to_recent() {
         let dir = std::env::temp_dir().join(format!("cecilia-views-{}", std::process::id()));
-        let f = files(&dir, &["a.cc", "b.cc", "c.cc"]);
+        let f = files(&dir, &["a.ccm", "b.ccm", "c.ccm"]);
         let mut app = App::new(Config::default(), None);
         app.set_tool(PaneKind::Properties, Some(false));
         for p in &f {
@@ -4222,29 +4229,29 @@ pub(crate) mod tests {
         let names = |app: &App| -> Vec<String> {
             app.bufferline().iter().map(|t| t.name.clone()).collect()
         };
-        assert_eq!(names(&app), ["a.cc", "b.cc", "c.cc"]);
+        assert_eq!(names(&app), ["a.ccm", "b.ccm", "c.ccm"]);
         assert!(app.bufferline()[2].active);
         // Cursors are remembered per buffer in the pane.
         app.run(Command::BufferGoto(1));
         app.panes.get_mut(&app.focused()).unwrap().cursor.string = 3;
         app.run(Command::BufferNext);
-        assert_eq!(app.buffer().name, "b.cc");
+        assert_eq!(app.buffer().name, "b.ccm");
         app.run(Command::BufferPrev);
         assert_eq!(app.pane().cursor.string, 3);
         // A new view copies the bufferline (tabline.new_view = "copy"), sharing the buffers.
         app.run(Command::ViewNew(None));
-        assert_eq!(names(&app), ["a.cc", "b.cc", "c.cc"]);
+        assert_eq!(names(&app), ["a.ccm", "b.ccm", "c.ccm"]);
         assert_eq!(app.view_labels(), ["1", "2"]);
         // Closing a tab here leaves it loaded for view 1.
         app.run(Command::BufferClose(Some(3), false));
-        assert_eq!(names(&app), ["a.cc", "b.cc"]);
+        assert_eq!(names(&app), ["a.ccm", "b.ccm"]);
         app.run(Command::ViewPrev);
-        assert_eq!(names(&app), ["a.cc", "b.cc", "c.cc"]);
+        assert_eq!(names(&app), ["a.ccm", "b.ccm", "c.ccm"]);
         // Closing the shown buffer: the pane goes back to the one it showed before.
         app.run(Command::BufferGoto(2));
         app.run(Command::BufferGoto(3));
         app.run(Command::BufferClose(None, false));
-        assert_eq!(app.buffer().name, "b.cc");
+        assert_eq!(app.buffer().name, "b.ccm");
         // Unsaved changes stop a close that would unload the buffer.
         let b = app.pane().buffer;
         app.buffers[b].modified = true;
@@ -4256,21 +4263,21 @@ pub(crate) mod tests {
         assert_eq!(app.confirm_close.as_ref().map(|c| c.asking), Some(b));
         keys(&mut app, "x");
         assert!(app.confirm_close.is_none());
-        assert_eq!(app.buffer().name, "b.cc");
+        assert_eq!(app.buffer().name, "b.ccm");
         // `n` discards the changes.
         app.run(Command::BufferClose(None, false));
         keys(&mut app, "n");
-        assert_eq!(app.buffer().name, "a.cc");
+        assert_eq!(app.buffer().name, "a.ccm");
         app.buffers[b].modified = false;
         app.run(Command::BufferGoto(2));
         app.run(Command::BufferClose(None, true));
-        assert_eq!(app.buffer().name, "a.cc");
+        assert_eq!(app.buffer().name, "a.ccm");
         // A split pane goes back to what it showed before…
         app.run(Command::VSplit);
         app.run(Command::Edit(f[2].clone()));
         app.run(Command::BufferClose(None, false));
         assert_eq!(app.view().root.panes().len(), 2);
-        assert_eq!(app.buffer().name, "a.cc");
+        assert_eq!(app.buffer().name, "a.ccm");
         // …and closes when it has nothing to go back to.
         app.run(Command::Edit(f[2].clone()));
         let id = app.focused();
@@ -4416,7 +4423,7 @@ pub(crate) mod tests {
     fn undoing_back_to_the_saved_state_is_unchanged() {
         let dir = std::env::temp_dir().join(format!("cecilia-undo-saved-{}", std::process::id()));
         std::fs::create_dir_all(&dir).unwrap();
-        let file = dir.join("a.cc");
+        let file = dir.join("a.ccm");
         let mut app = App::new(Config::default(), None);
         app.run(Command::New);
         app.run(Command::Write(Some(file.clone())));
@@ -4454,7 +4461,7 @@ pub(crate) mod tests {
     fn closing_a_changed_buffer_offers_to_save() {
         let dir = std::env::temp_dir().join(format!("cecilia-close-save-{}", std::process::id()));
         std::fs::create_dir_all(&dir).unwrap();
-        let file = dir.join("a.cc");
+        let file = dir.join("a.ccm");
         let mut app = App::new(Config::default(), None);
         app.run(Command::New);
         app.run(Command::Write(Some(file.clone())));
@@ -4484,7 +4491,7 @@ pub(crate) mod tests {
     fn quitting_is_refused_with_unsaved_changes() {
         let dir = std::env::temp_dir().join(format!("cecilia-quit-{}", std::process::id()));
         std::fs::create_dir_all(&dir).unwrap();
-        let file = dir.join("a.cc");
+        let file = dir.join("a.ccm");
         let mut app = App::new(Config::default(), None);
         app.run(Command::New);
         app.run(Command::Write(Some(file.clone())));
@@ -4698,19 +4705,19 @@ pub(crate) mod tests {
         for wrap in [true, false] {
             let dir =
                 std::env::temp_dir().join(format!("cecilia-wrap-{wrap}-{}", std::process::id()));
-            let f = files(&dir, &["a.cc", "b.cc"]);
+            let f = files(&dir, &["a.ccm", "b.ccm"]);
             let (config, _) = Config::parse(&format!("[tabline]\nwrap = {wrap}\n")).unwrap();
             let mut app = App::new(config, None);
             app.set_tool(PaneKind::Properties, Some(false));
             for p in &f {
                 app.run(Command::Edit(p.clone()));
             }
-            assert_eq!(app.buffer().name, "b.cc");
+            assert_eq!(app.buffer().name, "b.ccm");
             app.run(Command::BufferNext);
-            assert_eq!(app.buffer().name, if wrap { "a.cc" } else { "b.cc" });
+            assert_eq!(app.buffer().name, if wrap { "a.ccm" } else { "b.ccm" });
             app.run(Command::BufferGoto(1));
             app.run(Command::BufferPrev);
-            assert_eq!(app.buffer().name, if wrap { "b.cc" } else { "a.cc" });
+            assert_eq!(app.buffer().name, if wrap { "b.ccm" } else { "a.ccm" });
         }
     }
 
