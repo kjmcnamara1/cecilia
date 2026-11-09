@@ -222,6 +222,10 @@ pub const PRESETS: &[&str] = &[
     "gruvbox",
     "solarized-dark",
     "solarized-light",
+    "catppuccin-latte",
+    "catppuccin-frappe",
+    "catppuccin-macchiato",
+    "catppuccin-mocha",
 ];
 
 /// The colors a theme sets, by their names in config.toml.
@@ -673,6 +677,70 @@ impl Theme {
     }
 
     /// A built-in theme by name.
+    /// A Catppuccin flavor (<https://catppuccin.com/palette>): the page in the flavor's base with
+    /// its text as ink, so the dark flavors engrave light on dark.
+    fn catppuccin(c: &Catppuccin) -> Self {
+        let h = hex;
+        Self {
+            paper: h(c.crust),
+            page: h(c.base),
+            ink: h(c.text),
+            chrome: h(c.mantle),
+            chrome_text: h(c.text),
+            capo: h(c.text),
+            dim: h(c.overlay1),
+            accent: h(c.mauve),
+            playhead: h(c.red),
+            selection: h(c.lavender),
+            tab: h(c.surface0),
+            tab_hover: h(c.surface1),
+            status_b: h(c.surface0),
+            toolbar: h(c.mantle),
+            button_hover: h(c.surface1),
+            panel: h(c.crust),
+            empty_bar: h(c.surface0),
+            incomplete_bar: h(c.red),
+            popover: h(c.surface0),
+            error: h(c.red),
+            lyrics: h(c.green),
+            lyrics_text: h(c.text),
+            lyrics_text_dim: h(c.overlay0),
+            lyrics_gabc: h(c.subtext1),
+            lyrics_label: h(c.blue),
+            lyrics_anchor: h(c.red),
+            lyrics_clef: h(c.mauve),
+            lyrics_division: h(c.maroon),
+            lyrics_note: h(c.sapphire),
+            lyrics_shape: h(c.yellow),
+            lyrics_attach: h(c.teal),
+            lyrics_space: h(c.overlay0),
+            lyrics_markup: h(c.green),
+            marker: h(c.teal),
+            waveform: h(c.blue),
+            loop_region: h(c.green).with_alpha(50),
+            sync_point: h(c.yellow),
+            mode_normal: h(c.blue),
+            mode_insert: h(c.green),
+            mode_visual: h(c.mauve),
+            mode_command: h(c.peach),
+            mode_picker: h(c.teal),
+            mode_tracks: h(c.flamingo),
+            icon_guitar_pro: h(c.peach),
+            icon_musicxml: h(c.blue),
+            icon_midi: h(c.green),
+            icon_chant: h(c.mauve),
+            icon_cecilia: h(c.teal),
+            score_modern: h(c.peach),
+            cursor_border: None,
+            track_colors: [
+                c.mauve, c.blue, c.green, c.peach, c.pink, c.teal, c.yellow, c.red,
+            ]
+            .into_iter()
+            .map(h)
+            .collect(),
+        }
+    }
+
     pub fn preset(name: &str) -> Option<Self> {
         Some(match name {
             "dark" => Self::dark(),
@@ -684,6 +752,10 @@ impl Theme {
             "gruvbox" => Self::gruvbox(),
             "solarized-dark" => Self::solarized_dark(),
             "solarized-light" => Self::solarized_light(),
+            "catppuccin-latte" => Self::catppuccin(&LATTE),
+            "catppuccin-frappe" => Self::catppuccin(&FRAPPE),
+            "catppuccin-macchiato" => Self::catppuccin(&MACCHIATO),
+            "catppuccin-mocha" => Self::catppuccin(&MOCHA),
             _ => return None,
         })
     }
@@ -903,6 +975,127 @@ pub fn theme_path(path: &std::path::Path) -> std::path::PathBuf {
         .map(|d| d.config_dir().join(path))
         .unwrap_or_else(|| path.to_path_buf())
 }
+
+/// The Catppuccin colors the presets use, for one flavor.
+struct Catppuccin {
+    flamingo: &'static str,
+    pink: &'static str,
+    mauve: &'static str,
+    red: &'static str,
+    maroon: &'static str,
+    peach: &'static str,
+    yellow: &'static str,
+    green: &'static str,
+    teal: &'static str,
+    sapphire: &'static str,
+    blue: &'static str,
+    lavender: &'static str,
+    text: &'static str,
+    subtext1: &'static str,
+    overlay0: &'static str,
+    overlay1: &'static str,
+    surface0: &'static str,
+    surface1: &'static str,
+    base: &'static str,
+    mantle: &'static str,
+    crust: &'static str,
+}
+
+const LATTE: Catppuccin = Catppuccin {
+    flamingo: "#dd7878",
+    pink: "#ea76cb",
+    mauve: "#8839ef",
+    red: "#d20f39",
+    maroon: "#e64553",
+    peach: "#fe640b",
+    yellow: "#df8e1d",
+    green: "#40a02b",
+    teal: "#179299",
+    sapphire: "#209fb5",
+    blue: "#1e66f5",
+    lavender: "#7287fd",
+    text: "#4c4f69",
+    subtext1: "#5c5f77",
+    overlay0: "#9ca0b0",
+    overlay1: "#8c8fa1",
+    surface0: "#ccd0da",
+    surface1: "#bcc0cc",
+    base: "#eff1f5",
+    mantle: "#e6e9ef",
+    crust: "#dce0e8",
+};
+
+const FRAPPE: Catppuccin = Catppuccin {
+    flamingo: "#eebebe",
+    pink: "#f4b8e4",
+    mauve: "#ca9ee6",
+    red: "#e78284",
+    maroon: "#ea999c",
+    peach: "#ef9f76",
+    yellow: "#e5c890",
+    green: "#a6d189",
+    teal: "#81c8be",
+    sapphire: "#85c1dc",
+    blue: "#8caaee",
+    lavender: "#babbf1",
+    text: "#c6d0f5",
+    subtext1: "#b5bfe2",
+    overlay0: "#737994",
+    overlay1: "#838ba7",
+    surface0: "#414559",
+    surface1: "#51576d",
+    base: "#303446",
+    mantle: "#292c3c",
+    crust: "#232634",
+};
+
+const MACCHIATO: Catppuccin = Catppuccin {
+    flamingo: "#f0c6c6",
+    pink: "#f5bde6",
+    mauve: "#c6a0f6",
+    red: "#ed8796",
+    maroon: "#ee99a0",
+    peach: "#f5a97f",
+    yellow: "#eed49f",
+    green: "#a6da95",
+    teal: "#8bd5ca",
+    sapphire: "#7dc4e4",
+    blue: "#8aadf4",
+    lavender: "#b7bdf8",
+    text: "#cad3f5",
+    subtext1: "#b8c0e0",
+    overlay0: "#6e738d",
+    overlay1: "#8087a2",
+    surface0: "#363a4f",
+    surface1: "#494d64",
+    base: "#24273a",
+    mantle: "#1e2030",
+    crust: "#181926",
+};
+
+const MOCHA: Catppuccin = Catppuccin {
+    flamingo: "#f2cdcd",
+    pink: "#f5c2e7",
+    mauve: "#cba6f7",
+    red: "#f38ba8",
+    maroon: "#eba0ac",
+    peach: "#fab387",
+    yellow: "#f9e2af",
+    green: "#a6e3a1",
+    teal: "#94e2d5",
+    sapphire: "#74c7ec",
+    blue: "#89b4fa",
+    lavender: "#b4befe",
+    text: "#cdd6f4",
+    subtext1: "#bac2de",
+    overlay0: "#6c7086",
+    overlay1: "#7f849c",
+    surface0: "#313244",
+    surface1: "#45475a",
+    base: "#1e1e2e",
+    mantle: "#181825",
+    crust: "#11111b",
+};
 
 /// `n` colors around the color wheel starting at `from`'s hue, at lightness `l`.
 pub fn spectrum(from: Rgba, n: usize, l: f32) -> Vec<Rgba> {

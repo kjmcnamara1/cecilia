@@ -65,7 +65,8 @@ prefix_width = 14        # …keeping this many characters at the start
 suffix_width = 10        # …and this many at the end
 
 [theme]
-# A built-in theme: "dark", "light", "nord", "gruvbox", "solarized-dark", "solarized-light", or
+# A built-in theme: "dark", "light", "nord", "gruvbox", "solarized-dark", "solarized-light",
+# "catppuccin-latte", "catppuccin-frappe", "catppuccin-macchiato", "catppuccin-mocha", or
 # the logo's gold/cream on neutral charcoal: "cecilia-dark" (dark UI and page, light engraving), "cecilia-hybrid"
 # (dark UI, light page, black engraving) and "cecilia-light" (light UI and page, black engraving).
 preset = "dark"
