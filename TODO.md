@@ -14,6 +14,11 @@ Planned work. Finished items move to `CHANGELOG.md` under `[Unreleased]`.
 
 ### Refactor
 
+- "Replace" mode in addition to insert mode?
+  - insert mode keeps adding new beats after every note added
+  - replace mode adds/replaces the note and then moves to the next note
+  - then won't need ":insert-here" command
+
 #### Options
 
 - All settings are "options"
@@ -54,7 +59,25 @@ Planned work. Finished items move to `CHANGELOG.md` under `[Unreleased]`.
 
 ### Tool Panes
 
-- [ ] TODO: Deep dive on waveform ux and audio track syncing (auto, manual, & tapping)
+- [x] TODO: Deep dive on waveform ux and audio track syncing (auto, manual, & tapping)
+- [ ] Change waveform tool: waveform should stay stationary and red playhead
+      moves across it until it reaches the end. the playhead loops around to the
+      beginning of the frame again and the waveform quickly animates forward to catch
+      up with the new playhead position
+- [ ] Add ability to create multitracks that are a combination of other tracks
+- [ ] Voice selection indicator in tool palette should be color coded by selected voice #
+- [ ] Toolbar
+  - Window close button?
+  - Reorder/regroup icons
+  - Change icons
+
+### Performance
+
+- [ ] Compare CPU & mem usage to GP8 and MuseScoreStudio and Go Playalong
+
+1. Redraw only the playhead and cursor area, or cache the engraved scene and just move the playhead overlay each frame. This is the main CPU fix.
+2. Redraw only when the playhead has moved by at least a pixel or so, and lower the rate to 30 fps.
+3. Measure memory first (e.g. with heaptrack, or by running with and without soundfont set) before changing anything.
 
 ### Chant
 
@@ -72,6 +95,25 @@ Planned work. Finished items move to `CHANGELOG.md` under `[Unreleased]`.
       are kept and shown, not yet used): `some(g)---one(e)` two descending punctums under
       "some - one"; `some(gh) -- one(e)` a pes on "some", a punctum on "one"; `some(gh) --- one(e)`
       needs another note after `gh`, filled in as `(ghh)`
+
+- [ ] NEED TO WORK THIS OUT!
+
+i should be able to live edit the gabc in the lyrics pane and see the real time update in the score.
+it should essentially function like a live gabc preview/editor.
+the standard notes should always stay in sync with chant and the gabc lyrics.
+
+There should be a fixed semitone offset between standard C4 and the do clef.
+this should be displayed as an editable textbox to the right of the gabc toggle in the lyrics pane, but only when gabc is toggled on.
+the initial value of this offset should be determined by the app using the existing logic, but can be changed manually by the user.
+there should be a command to update this offset calculation again if the user wants.
+
+changing gabc should only change standard notes if the two would simply not agree.
+deleting a note should remove the gabc, but leave the lyrics
+
+what does adding a divisio in chant staff do to standard staff?
+what does adding a rest in standard staff do to chant staff?
+likewise for deleting notes/rests/beats/bars to the lyrics?
+what about mapping durations? bistropha vs mora and half or dotted half...
 
 ### File Save/Export
 
@@ -105,6 +147,14 @@ Planned work. Finished items move to `CHANGELOG.md` under `[Unreleased]`.
     workspace by default
   - can still start "cecilia --workspace NAME" to open a window in
     a new/different workspace
+
+#### Theming
+
+- [ ] Create default "cecilia-light", "cecilia-dark", and "cecilia-hybrid" themes based on colors
+      from assets/cecilia.png
+  - dark theme should have dark score background and light engraving
+  - hybrid theme should have dark ui elements, but light score background
+    with black engraving
 
 ### Voices
 

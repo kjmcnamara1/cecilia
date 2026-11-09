@@ -39,6 +39,23 @@ older history uses plain sentences.
 - Keep `CHANGELOG.md` up to date: finished work goes under `[Unreleased]`. Planned work lives in
   `TODO.md`, not the changelog.
 
+## Plans
+
+Write implementation plans as markdown files in `.agents/plans/` (create the directory if needed),
+named `YYYY-MM-DD-short-topic.md`, so another agent can pick one up with no other context. Each plan
+should contain:
+
+- **Goal**: what is being built and why, plus anything explicitly out of scope.
+- **Context**: the relevant crates, modules and files (with paths), existing patterns to follow, and
+  decisions already made (don't leave the next agent to re-derive them).
+- **Steps**: small, ordered, concrete tasks, each naming the files to touch and how to verify it
+  (tests to add, commands to run).
+- **Status**: a checklist of steps, ticked as they are done, with notes on what is in progress,
+  what changed from the plan, and open questions or blockers.
+
+Update the plan as work proceeds so it always reflects the current state. Plans are handoff
+documents: when finished, say so at the top; planned-but-unscheduled work still goes in `TODO.md`.
+
 ## Architecture
 
 Crates (dependencies flow downward):
