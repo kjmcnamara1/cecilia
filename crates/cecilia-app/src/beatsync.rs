@@ -71,39 +71,25 @@ impl App {
             .or_else(|| self.beat_cursor_audio_time())
     }
 
-    /// The ticks of the waveform's score ruler: a major one at the first beat of every bar, a
-    /// minor one at every other beat. None on a chant or without audio.
+    /// The ticks of the waveform's score ruler: the beats of the time signature, a major one
+    /// at each bar's first (`bar:1`), minor ones at the others (4/4: 2 3 4). None on a chant or
+    /// without audio.
     pub fn beat_ruler(&self, buffer: usize) -> Option<Vec<RulerMark>> {
         let score = &self.buffers.get(buffer)?.score;
         if score.is_chant() {
             return None;
         }
-        let c = self.pane().cursor;
-        let (track, voice) = if self.pane().buffer == buffer {
-            (c.track, c.voice)
-        } else {
-            (0, 0)
-        };
-        let t = score.tracks.get(track)?;
-        let marks = score.beat_marks(track, voice)?;
-        let mut first = None;
         Some(
-            marks
+            score
+                .meter_marks()?
                 .iter()
                 .map(|m| {
-                    let pos =
-                        cecilia_core::position::beat_position(score, t, m.bar, voice, m.index);
-                    let label = cecilia_core::position::format_position(m.bar, pos, true);
-                    let beat = label
-                        .split_once(':')
-                        .map_or(label.clone(), |l| l.1.to_string());
-                    let major = first != Some(m.bar);
-                    first = Some(m.bar);
+                    let major = m.beat == 1;
                     RulerMark {
                         frame: m.frame,
                         major,
                         left: major.then(|| (m.bar + 1).to_string()),
-                        right: beat,
+                        right: m.beat.to_string(),
                     }
                 })
                 .collect(),
@@ -450,6 +436,11 @@ mod tests {
         assert_eq!(marks[1].frame, secs(1.7));
         assert!(!a.buffer().score.audio.as_ref().unwrap().points.is_empty());
         let ruler = a.beat_ruler(buf(&a)).unwrap();
+        // 4/4: a major tick on 1, minor ones on 2, 3 and 4 only (not on every note).
+        assert_eq!(
+            ruler.iter().filter(|m| !m.major).count(),
+            3 * ruler.iter().filter(|m| m.major).count()
+        );
         assert!(ruler[0].major && ruler[0].left.as_deref() == Some("1") && ruler[0].right == "1");
         assert!(!ruler[1].major && ruler[1].right == "2");
         // Undo takes the taps back one by one, the cursor on the beat to tap again.

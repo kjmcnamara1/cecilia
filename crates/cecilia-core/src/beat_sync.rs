@@ -23,7 +23,40 @@ pub struct BeatMark {
     pub frame: i64,
 }
 
+/// A beat of the time signature (not of the notes) on the waveform's ruler.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct MeterMark {
+    pub bar: usize,
+    /// From 1: the beat of the bar, as many as the numerator.
+    pub beat: usize,
+    /// Audio position in frames (with the audio's padding).
+    pub frame: i64,
+}
+
 impl Score {
+    /// Where the beats of the time signature are in the audio: each bar's numerator beats, the
+    /// first at the bar's start (4/4: 1 2 3 4; 6/8: 1 2 3 4 5 6). `None` without audio.
+    pub fn meter_marks(&self) -> Option<Vec<MeterMark>> {
+        self.audio.as_ref()?;
+        let starts = self.first_bar_starts();
+        let warp = self.beat_warp(&starts)?;
+        let mut out = Vec::new();
+        for (bar, start) in starts.iter().enumerate() {
+            let Some(start) = start else { continue };
+            let n = self.master_bars[bar].time_signature.numerator.max(1) as u64;
+            let len = self.played_ticks(bar) as u64;
+            for k in 0..n {
+                out.push(MeterMark {
+                    bar,
+                    beat: k as usize + 1,
+                    frame: warp.frame_at((start + k * len / n) as f64).round() as i64,
+                });
+            }
+        }
+        out.sort_by_key(|m| m.frame);
+        Some(out)
+    }
+
     /// Gives every beat an id that no other has, keeping those that are unique (a pasted beat
     /// is a copy of the original, the later one gets a new id). Returns whether any changed.
     pub fn assign_beat_ids(&mut self) -> bool {
@@ -415,5 +448,34 @@ mod tests {
             .map(|m| m.frame)
             .collect();
         assert_eq!(before[..5], after[..5]);
+    }
+
+    #[test]
+    fn the_meter_marks_follow_the_numerator() {
+        let mut s = score();
+        let per_bar = |s: &Score, bar: usize| -> Vec<usize> {
+            s.meter_marks()
+                .unwrap()
+                .iter()
+                .filter(|m| m.bar == bar)
+                .map(|m| m.beat)
+                .collect()
+        };
+        assert_eq!(per_bar(&s, 0), [1, 2, 3, 4]);
+        s.master_bars[1].time_signature = TimeSignature {
+            numerator: 6,
+            denominator: 8,
+        };
+        assert_eq!(per_bar(&s, 1), [1, 2, 3, 4, 5, 6]);
+        // At the score's tempo (120 a minute): a quarter is half a second, an eighth a quarter.
+        let m = s.meter_marks().unwrap();
+        let f = |bar, beat| {
+            m.iter()
+                .find(|x| x.bar == bar && x.beat == beat)
+                .unwrap()
+                .frame
+        };
+        assert_eq!(f(0, 2) - f(0, 1), 22_050);
+        assert_eq!(f(1, 2) - f(1, 1), 11_025);
     }
 }
