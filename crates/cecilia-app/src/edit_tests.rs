@@ -599,58 +599,52 @@ fn insert_mode_hjkl_move_and_capitals_toggle_techniques() {
 }
 
 #[test]
-fn enter_in_a_tab_completes_the_fret_and_goes_on() {
+fn enter_in_a_tab_completes_the_fret_and_adds_an_empty_beat_after_it() {
     let mut a = app();
     a.pane_mut().cursor.string = 1;
     keys(&mut a, "i12<CR>");
+    // The cursor stays on the beat; an empty beat follows it.
     assert_eq!(frets(&a, 0), vec![vec![12], vec![]]);
-    assert_eq!(at(&a), (0, 1));
-    // The next digit starts a new fret on the new beat.
-    keys(&mut a, "3<CR>");
-    assert_eq!(frets(&a, 0)[1], vec![3]);
-    assert_eq!(at(&a), (0, 2));
-    // With nothing typed, Enter leaves a rest and moves on.
+    assert_eq!(at(&a), (0, 0));
+    // Enter again adds no second empty beat.
     keys(&mut a, "<CR>");
-    assert!(bar_beats(&a, 0)[2].is_rest());
-    assert_eq!(at(&a), (0, 3));
+    assert_eq!(frets(&a, 0), vec![vec![12], vec![]]);
+    // `l` moves on, and the next digit starts a new fret there.
+    keys(&mut a, "l3<CR>");
+    assert_eq!(frets(&a, 0)[1], vec![3]);
+    assert_eq!(at(&a), (0, 1));
+    assert_eq!(bar_beats(&a, 0).len(), 3);
+    // Leaving takes away the empty beat nothing was entered in.
     keys(&mut a, "<Esc>");
+    assert_eq!(bar_beats(&a, 0).len(), 2);
     assert_eq!(undo_steps(&a), 1);
 }
 
 #[test]
-fn enter_jumps_to_the_next_bar_after_the_last_complete_beat() {
+fn space_does_what_enter_does_and_the_bar_end_adds_no_beat() {
     let mut a = app();
-    // A 4/4 bar of quarter beats: the fourth Enter lands on bar 2.
-    keys(&mut a, "i1<CR>2<CR>3<CR>4<CR>");
+    keys(&mut a, "i1<Space>");
+    assert_eq!(at(&a), (0, 0));
+    assert_eq!(frets(&a, 0), vec![vec![1], vec![]]);
+    // A 4/4 bar of quarter beats: with the bar full there is no room for an empty one.
+    keys(&mut a, "l2<Space>l3<Space>l4<Space>");
     assert_eq!(frets(&a, 0), vec![vec![1], vec![2], vec![3], vec![4]]);
-    assert_eq!(at(&a), (1, 0));
-    keys(&mut a, "5<CR>");
-    assert_eq!(frets(&a, 1), vec![vec![5], vec![]]);
-    assert_eq!(at(&a), (1, 1));
-    // At the end of the score a bar is added.
-    set_bar(&mut a, 7, &[&[(0, 1, false)][..]; 3]);
-    a.pane_mut().cursor.bar = 7;
-    a.pane_mut().cursor.beat = 2;
-    keys(&mut a, "<Esc>gi");
-    a.run(Command::GotoBar(8));
-    a.pane_mut().cursor.beat = 2;
-    keys(&mut a, "<CR>");
-    assert_eq!(at(&a), (7, 3), "room for a fourth beat");
-    keys(&mut a, "<CR>");
-    assert_eq!(a.buffer().score.master_bars.len(), 9);
-    assert_eq!(at(&a), (8, 0));
+    assert_eq!(at(&a), (0, 3));
 }
 
 #[test]
-fn enter_uses_the_duration_tool() {
+fn replace_mode_on_a_modern_score_adds_no_empty_beats() {
     let mut a = app();
-    a.ed.insert_duration = Some(Duration::new(DurationValue::Eighth));
-    keys(&mut a, "i2<CR>3<CR>");
-    assert_eq!(bar_beats(&a, 0)[0].duration.value, DurationValue::Eighth);
-    assert_eq!(bar_beats(&a, 0)[1].duration.value, DurationValue::Eighth);
-    // Eight eighths fill the bar: the eighth Enter jumps to the next bar.
-    keys(&mut a, "1<CR>1<CR>1<CR>1<CR>1<CR>1<CR>");
-    assert_eq!(at(&a), (1, 0));
+    keys(&mut a, "i1<CR>l2<CR><Esc>");
+    assert_eq!(frets(&a, 0), vec![vec![1], vec![2]]);
+    keys(&mut a, "0R");
+    assert_eq!(a.mode, Mode::Insert);
+    assert_eq!(a.focus_ring_color(), a.config.theme.error);
+    keys(&mut a, "9<CR>");
+    assert_eq!(frets(&a, 0), vec![vec![9], vec![2]]);
+    assert_eq!(at(&a), (0, 0));
+    keys(&mut a, "<Esc>");
+    assert_eq!(frets(&a, 0), vec![vec![9], vec![2]]);
 }
 
 #[test]
@@ -665,14 +659,14 @@ fn enter_on_a_standard_staff_creates_a_note_at_the_cursor() {
     let t = track(&a);
     let written = t.pitch_of(&bar_beats(&a, 0)[0].notes[0]) as i32 + t.staff_clef().transpose();
     assert_eq!(staff::diatonic(written, 0), 32);
-    assert_eq!(at(&a), (0, 1));
-    // A line up, then Enter again: a second note on the new beat.
-    keys(&mut a, "k<CR>");
+    assert_eq!(at(&a), (0, 0));
+    // Next beat, a line up, then Enter again: a second note on the new beat.
+    keys(&mut a, "lk<CR>");
     let t = track(&a);
     let written = t.pitch_of(&bar_beats(&a, 0)[1].notes[0]) as i32 + t.staff_clef().transpose();
     assert_eq!(staff::diatonic(written, 0), 33);
     // A note typed by letter is not doubled by Enter.
-    keys(&mut a, "c<CR>");
+    keys(&mut a, "lc<CR>");
     assert_eq!(bar_beats(&a, 0)[2].notes.len(), 1);
     keys(&mut a, "<Esc>");
     assert_eq!(undo_steps(&a), 1);
@@ -683,10 +677,10 @@ fn enter_on_a_slash_staff_puts_a_slash() {
     let mut a = app();
     a.run(Command::StaffAdd(Some("slash".into())));
     assert_eq!(a.insert_kind(), InsertKind::Slash);
-    keys(&mut a, "i<CR><CR>");
+    keys(&mut a, "i<CR>l<CR>");
     assert!(!bar_beats(&a, 0)[0].notes.is_empty());
     assert!(!bar_beats(&a, 0)[1].notes.is_empty());
-    assert_eq!(at(&a), (0, 2));
+    assert_eq!(at(&a), (0, 1));
 }
 
 /// An app showing a chant track (a score read from GABC).

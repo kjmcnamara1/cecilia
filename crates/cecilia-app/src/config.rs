@@ -528,6 +528,7 @@ const DEFAULT_NORMAL: &[(&str, &str)] = &[
     ("I", "insert-bar-start"),
     ("A", "append-bar-end"),
     ("gi", "insert-last"),
+    ("R", "replace-mode"),
     ("gv", "visual-reselect"),
     ("x", "delete-note"),
     ("d", "delete"),
@@ -607,7 +608,6 @@ const DEFAULT_NORMAL_SLASH: &[(&str, &str)] = &[("ta", "toggle accent"), ("tt", 
 /// note (heads, rhythmic signs, alterations), `tc` / `tF` set the clef and `td` adds a division.
 /// They are looked up before `[keymap.normal]` and only on chant scores, so no modern key is lost.
 const DEFAULT_NORMAL_CHANT: &[(&str, &str)] = &[
-    ("R", "replace-mode"),
     ("<A-i>", "lyric-mode"),
     ("<A-J>", "chant-join"),
     ("<A-S>", "chant-split"),

@@ -162,7 +162,7 @@ mod tests {
         let mut app = test_app();
         app.run(Command::New);
         // Beats in bar 1: a few notes.
-        keys(&mut app, "i1<Space>2<Space>3<Space>4<Space>5<Esc>");
+        keys(&mut app, "i1<Space>l2<Space>l3<Space>l4<Space>l5<Esc>");
         app
     }
 

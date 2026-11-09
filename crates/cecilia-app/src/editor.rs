@@ -69,8 +69,11 @@ pub(crate) struct EditorState {
     pub(crate) group: Option<bool>,
     /// Insert mode on a chant types the cursor syllable's text (`:lyric-mode`).
     pub(crate) lyric: bool,
-    /// Insert mode on a chant only changes the notes there (`:replace-mode`).
+    /// Insert mode only changes the notes there and adds no empty beats (`:replace-mode`).
     pub(crate) replace: bool,
+    /// The empty beat Insert mode added after the cursor's, which leaving it takes away if
+    /// nothing was entered there.
+    pub(crate) slot: Option<(usize, usize)>,
 }
 
 fn is_motion(cmd: &Command) -> bool {
@@ -175,6 +178,25 @@ impl App {
         self.ed.visual_anchor = Some(self.pane().cursor);
         let anchor = self.clamped_mark(anchor);
         self.pane_mut().cursor = anchor;
+    }
+
+    /// Leaving Insert mode takes away the empty beat it added after the cursor's when nothing
+    /// was entered in it.
+    fn drop_slot(&mut self) {
+        let Some((bar, beat)) = self.ed.slot.take() else {
+            return;
+        };
+        let c = self.pane().cursor;
+        if (c.bar, c.beat + 1) != (bar, beat) {
+            return;
+        }
+        self.edit(|cx| {
+            let beats = cx.voice();
+            if beats.len() > 1 && beats.get(beat).is_some_and(Beat::is_rest) {
+                beats.remove(beat);
+            }
+            Ok(())
+        });
     }
 
     /// `gi`: Insert mode where it was last left (on the cursor if it never was).
@@ -296,6 +318,7 @@ impl App {
         self.seek_to_cursor(before);
         self.peek_tracks(before);
         if in_insert && self.mode != Mode::Insert {
+            self.drop_slot();
             self.ed.group = None;
             self.ed.lyric = false;
             self.ed.replace = false;
@@ -1100,21 +1123,30 @@ impl App {
                 self.enter_insert();
             }
             VisualInsert { after } => self.visual_insert(*after),
-            InsertEnter => {
+            // Insert mode where entering only changes what is there: no empty beats (groups
+            // on a chant) are added.
+            ReplaceMode => {
+                self.enter_insert();
+                self.ed.replace = true;
+            }
+            // As on a chant: Enter and Space finish the beat the cursor is on, where it stays
+            // (`hjkl` move on); Insert mode adds an empty beat after it, Replace mode none.
+            InsertEnter | InsertNext => {
                 self.ed.digit = None;
                 let kind = self.insert_kind();
-                self.edit(|cx| {
+                let replace = self.ed.replace;
+                let slot = self.edit(|cx| {
+                    if replace && kind == crate::config::InsertKind::Standard {
+                        edit::clear_other_notes(cx);
+                    }
                     edit::enter(cx, kind, duration)?;
-                    edit::advance(cx, duration);
-                    Ok(())
+                    Ok((!replace)
+                        .then(|| edit::add_slot_after(cx, duration))
+                        .flatten())
                 });
-            }
-            // (On a chant track the next note is a new note of the neume: see `run_chant`.)
-            InsertNext => {
-                self.edit(|cx| {
-                    edit::advance(cx, duration);
-                    Ok(())
-                });
+                if let Some(Some((bar, beat))) = slot {
+                    self.ed.slot = Some((bar, beat));
+                }
             }
             BeatNew => {
                 self.edit(|cx| {
@@ -2512,7 +2544,7 @@ mod tests {
     fn drum_letters_enter_instruments() {
         let mut a = app();
         a.run(Command::TrackAdd("drums".into()));
-        keys(&mut a, "ikh<Space>h<Space>sh<Space>hh<Esc>");
+        keys(&mut a, "ikh<Space>lh<Space>lsh<Space>lhh<Esc>");
         let keys_at = |a: &App, i: usize| -> Vec<u8> {
             let mut k: Vec<u8> = a.buffer().score.tracks[1].bars[0].voices[0].beats[i]
                 .notes
@@ -2532,7 +2564,7 @@ mod tests {
     #[test]
     fn lyrics_commands_and_grand_staff() {
         let mut a = app();
-        keys(&mut a, "i3<Space>12<Space>5<Space>7<Esc>0");
+        keys(&mut a, "i3<Space>l12<Space>l5<Space>l7<Esc>0");
         a.run(Command::Lyrics("Hel-lo _ world".into()));
         let lyr = |a: &App| -> Vec<String> {
             a.buffer().score.tracks[0].bars[0].voices[0]
@@ -2581,7 +2613,7 @@ mod tests {
     #[test]
     fn lyrics_go_where_they_belong_in_the_text() {
         let mut a = app();
-        keys(&mut a, "i3<Space>12<Space>5<Space>7<Esc>0");
+        keys(&mut a, "i3<Space>l12<Space>l5<Space>l7<Esc>0");
         let text = |a: &App| a.buffer().score.tracks[0].lyrics_text.clone();
         // Words later in the music go before the text after them, which keeps its place.
         keys(&mut a, "lll");
@@ -2612,7 +2644,7 @@ mod tests {
         use cecilia_core::position::beat_position;
         let mut a = app();
         // Two eighths then a quarter: beats 1, 1.5 and 2.
-        keys(&mut a, "i3<Space>12<Space>5<Esc>0");
+        keys(&mut a, "i3<Space>l12<Space>l5<Esc>0");
         let at = |a: &App| crate::app::position_text(&a.buffer().score, &a.pane().cursor);
         let c = a.pane().cursor;
         let t = &a.buffer().score.tracks[c.track];
@@ -2739,7 +2771,7 @@ mod tests {
     #[test]
     fn staves_of_a_track() {
         let mut a = app();
-        keys(&mut a, "i3<Space>5<Esc>");
+        keys(&mut a, "i3<Space>l5<Esc>");
         let bars = a.buffer().score.tracks[0].bars.clone();
         let staves = |a: &App| a.buffer().score.tracks[0].staves();
         use cecilia_core::Clef::{Grand, Treble};
@@ -2936,7 +2968,7 @@ mod tests {
         // Off the note, a letter adds to the chord.
         keys(&mut a, "<Up><Up>e");
         assert_eq!(pitches(&a, 0), vec![64, 61]);
-        keys(&mut a, "<Space>g<Esc>");
+        keys(&mut a, "<Space>lg<Esc>");
         assert_eq!(pitches(&a, 1), vec![67]);
         keys(&mut a, "u");
         assert_eq!(
@@ -2963,7 +2995,7 @@ mod tests {
     #[test]
     fn insert_typing_and_one_undo_step() {
         let mut a = app();
-        keys(&mut a, "i3<Space>12<Space>5<Esc>");
+        keys(&mut a, "i3<Space>l12<Space>l5<Esc>");
         assert_eq!(frets(&a, 0), vec![Some(3), Some(12), Some(5)]);
         assert_eq!(a.mode, Mode::Normal);
         keys(&mut a, "u");
@@ -2975,7 +3007,7 @@ mod tests {
     #[test]
     fn operators_motions_and_put() {
         let mut a = app();
-        keys(&mut a, "i1<Space>2<Space>3<Space>4<Esc>0");
+        keys(&mut a, "i1<Space>l2<Space>l3<Space>l4<Esc>0");
         keys(&mut a, "dl");
         assert_eq!(frets(&a, 0), vec![Some(2), Some(3), Some(4)]);
         keys(&mut a, "y$");
@@ -3011,7 +3043,7 @@ mod tests {
     #[test]
     fn o_in_visual_mode_moves_the_cursor_to_the_other_end() {
         let mut a = app();
-        keys(&mut a, "a1<Space>2<Space>3<Space>4<Esc>gg");
+        keys(&mut a, "a1<Space>l2<Space>l3<Space>l4<Esc>gg");
         keys(&mut a, "vll");
         let (anchor, cursor, _) = a.selection().unwrap();
         assert_eq!((anchor.beat, cursor.beat), (0, 2));
@@ -3028,7 +3060,7 @@ mod tests {
     #[test]
     fn gv_reselects_the_last_selection() {
         let mut a = app();
-        keys(&mut a, "a1<Space>2<Space>3<Space>4<Esc>gg");
+        keys(&mut a, "a1<Space>l2<Space>l3<Space>l4<Esc>gg");
         // Nothing selected yet: a no-op with a message.
         keys(&mut a, "gv");
         assert_eq!(a.mode, Mode::Normal);
@@ -3084,7 +3116,7 @@ mod tests {
         assert_eq!(a.mode, Mode::Insert);
         assert_eq!(a.pane().cursor.bar, 1);
         keys(&mut a, "<Esc>");
-        keys(&mut a, "a3<Space>4<Esc>");
+        keys(&mut a, "a3<Space>l4<Esc>");
         let left = a.pane().cursor;
         keys(&mut a, "gg}}");
         assert_ne!(a.pane().cursor, left);

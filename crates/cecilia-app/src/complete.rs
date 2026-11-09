@@ -338,7 +338,7 @@ pub const COMMAND_SCOPES: &[(&str, Scope)] = &[
     ("chant-alter", C),
     ("lyrics-select", C),
     ("lyric-mode", C),
-    ("replace-mode", C),
+    ("replace-mode", B),
     ("chant-liquescence", C),
     ("chant-symbol", C),
     ("score-kind", B),
@@ -1349,7 +1349,7 @@ pub fn describe(command: &str) -> Option<&'static str> {
             "Toggle a forced line break (z) or one that does not stretch the line (Z) after the cursor syllable"
         }
         "replace-mode" => {
-            "Chant: Insert mode that only changes the notes there, adding no empty groups (Esc leaves)"
+            "Insert mode that only changes the notes there, adding no empty beats (Esc leaves)"
         }
         "lyric-mode" => "Chant: type the cursor syllable's text, shown as you type (Esc leaves)",
         "lyrics-select" => "Put the lyrics text area's caret on the cursor note's GABC",

@@ -182,6 +182,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- Insert and Replace mode work on modern scores as on chants: `<CR>` and `<Space>` finish the beat the cursor is on and stay on it (`hjkl` move on) instead of moving to the next beat; Insert mode adds an empty beat after it (taken away again by `<Esc>` if nothing was entered), Replace mode (`R`, now on every score) adds none.
 - The tracks pane is the only global tool pane along the whole width of the window; the others sit between the
   palette and the properties pane.
 - One kind per score: a score is a modern score (staff tracks) or a chant score (exactly one chant

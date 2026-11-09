@@ -4344,7 +4344,7 @@ pub(crate) mod tests {
     fn playing_keeps_the_editing_modes() {
         let mut app = App::new(Config::default(), None);
         app.run(Command::New);
-        keys(&mut app, "i3<Space>5<Esc>0");
+        keys(&mut app, "i3<Space>l5<Esc>0");
         keys(&mut app, "<Space><Space>");
         app.set_playing(true);
         assert_eq!(app.mode, Mode::Normal);

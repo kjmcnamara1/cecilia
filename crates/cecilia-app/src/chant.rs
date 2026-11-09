@@ -474,16 +474,6 @@ impl App {
         });
     }
 
-    /// `:replace-mode` (`R`): Insert mode where entering notes only changes the notes there,
-    /// adding no empty groups.
-    fn replace_mode(&mut self) {
-        if !self.require_chant() {
-            return;
-        }
-        self.enter_insert();
-        self.ed.replace = true;
-    }
-
     /// Leaving Insert mode takes away the empty group the cursor is left on, or the one right
     /// after the cursor's note (nothing was entered there).
     fn chant_drop_slot(&mut self) {
@@ -1014,7 +1004,6 @@ impl App {
             }
             LyricsSelect => self.lyrics_select(),
             LyricMode => self.lyric_mode(),
-            ReplaceMode => self.replace_mode(),
             ScoreKind => {
                 let msg = if self.cursor_on_chant() {
                     "chant score; :chant-to-modern opens it as a modern score in a new buffer"
