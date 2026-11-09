@@ -91,6 +91,10 @@ pub struct AudioSync {
     /// then derived from these for the cached bars after every change and not saved.
     #[serde(default)]
     pub chant_points: Vec<ChantSyncPoint>,
+    /// A modern score's sync: points on beats (by [`Beat::id`]). `points` is then derived from
+    /// these (and `note_anchors`), as for a chant.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub beat_points: Vec<BeatSyncPoint>,
     /// A chant's timing note by note, derived from `chant_points` (not saved): for the start
     /// tick of every note in the performance, the audio frame it is at and the tempo (quarter
     /// notes a minute) after it. The player times the notes by these, so that each sounds
@@ -109,6 +113,15 @@ pub struct ChantSyncPoint {
     /// The note's stable id.
     pub note: u32,
     /// Audio position in 44.1 kHz frames (including the audio's padding, as [`SyncPoint`]).
+    pub frame: i64,
+}
+
+/// Aligns the start of a beat of a modern score with a position in the audio.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+pub struct BeatSyncPoint {
+    /// The beat's stable id ([`Beat::id`]).
+    pub beat: u32,
+    /// Audio position in 44.1 kHz frames (with the audio's padding, as [`SyncPoint`]).
     pub frame: i64,
 }
 
@@ -864,6 +877,10 @@ impl Voice {
 
 #[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
 pub struct Beat {
+    /// Stable id for audio sync (`AudioSync::beat_points`), unique in the score once
+    /// [`Score::assign_beat_ids`] has run; 0: none yet. It stays with the beat as it moves.
+    #[serde(default, skip_serializing_if = "is_default")]
+    pub id: u32,
     pub duration: Duration,
     /// An empty beat occupies no time (placeholder in an unused voice).
     pub empty: bool,

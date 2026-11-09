@@ -95,7 +95,7 @@ fn cell_by_id(chant: &Chant, id: u32) -> Option<(usize, Cell)> {
 impl App {
     /// A time (seconds) moved to the strongest onset of the audio within `ui.sync_snap`
     /// milliseconds of it; as it is when that is 0 (off).
-    fn snapped(&self, secs: f64, onsets: &[f32]) -> f64 {
+    pub(crate) fn snapped(&self, secs: f64, onsets: &[f32]) -> f64 {
         let window = self.config.file.ui.sync_snap / 1000.0;
         if window > 0.0 {
             cecilia_audio::beats::snap(onsets, secs, window)
@@ -344,6 +344,16 @@ impl App {
             return self.info("yank: sync points are not yanked");
         }
         let chant = self.buffer().score.is_chant();
+        if !chant
+            && self
+                .buffer()
+                .score
+                .audio
+                .as_ref()
+                .is_some_and(|a| !a.beat_points.is_empty())
+        {
+            return self.beat_sync_operate(from, to);
+        }
         let ids = self.sync_points_in(from, to);
         let n = self.edit(|cx| {
             let Some(audio) = cx.whole().audio.as_mut() else {

@@ -2222,7 +2222,7 @@ impl App {
         self.pending.clear();
         self.ed.operator = None;
         self.pa.chant_tap = None;
-        self.pa.sync_next = None;
+        self.pa.beat_trail.clear();
         self.info("sync mode off");
     }
 

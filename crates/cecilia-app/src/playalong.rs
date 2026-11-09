@@ -24,7 +24,8 @@ pub struct PlayAlong {
     /// Speed trainer: step and target speed (fractions).
     pub trainer: Option<(f64, f64)>,
     /// Played-bar index the next sync tap assigns, while tapping.
-    pub sync_next: Option<usize>,
+    /// Taps made on a modern score, for undo: the beat (id) and the frame its point had before.
+    pub beat_trail: Vec<(u32, Option<i64>)>,
     /// A chant score's tapping session (see [`crate::chantsync`]).
     pub chant_tap: Option<crate::chantsync::ChantTap>,
     /// What one tap syncs in a chant score.
@@ -51,7 +52,7 @@ impl Default for PlayAlong {
             transpose: 0.0,
             loop_bars: None,
             trainer: None,
-            sync_next: None,
+            beat_trail: Vec::new(),
             chant_tap: None,
             sync_unit: Default::default(),
             audio_mute: false,
@@ -95,9 +96,6 @@ impl PlayAlong {
                 Some(_) => s.push_str(&format!("  SYNC TAP → {}", t.label)),
                 None => s.push_str("  SYNC TAP end"),
             }
-        }
-        if let Some(n) = self.sync_next {
-            s.push_str(&format!("  SYNC TAP #{}", n + 1));
         }
         s
     }
@@ -328,11 +326,10 @@ impl App {
                         return true;
                     }
                 } else {
-                    let c = self.pane().cursor;
-                    let perf = Performance::build(&self.buffer().score, &[]);
-                    self.pa.sync_next =
-                        Some(perf.bars.iter().position(|b| b.bar == c.bar).unwrap_or(0));
-                    self.info("sync: Enter on the first beat of each bar, Space plays, Esc leaves");
+                    self.pa.beat_trail.clear();
+                    self.info(
+                        "sync: Enter syncs the cursor beat and moves on, Space plays, Esc leaves",
+                    );
                 }
                 if !self.has_tool(crate::app::PaneKind::Audio) {
                     self.set_tool(crate::app::PaneKind::Audio, Some(true));
@@ -348,19 +345,17 @@ impl App {
                     self.effects.push(Effect::SyncTap);
                     return true;
                 }
-                if self.pa.sync_next.is_none() {
-                    // Start tapping at the bar being played.
-                    let perf = Performance::build(&self.buffer().score, &[]);
-                    let bar = self.pane().cursor.bar;
-                    self.pa.sync_next = perf.bars.iter().position(|b| b.bar == bar);
+                if self.beat_sync_ready() {
+                    self.effects.push(Effect::SyncTap);
                 }
-                self.effects.push(Effect::SyncTap);
             }
             SyncClear => {
                 self.edit(|cx| {
                     if let Some(a) = cx.whole().audio.as_mut() {
                         a.points.clear();
                         a.chant_points.clear();
+                        a.beat_points.clear();
+                        a.note_anchors.clear();
                     }
                     Ok(())
                 });
@@ -374,7 +369,8 @@ impl App {
                 self.pa.sync_unit = *unit;
                 self.info(format!("sync unit: {}", unit.name()));
             }
-            SyncUndo => self.chant_sync_undo(),
+            SyncUndo if self.buffer().score.is_chant() => self.chant_sync_undo(),
+            SyncUndo => self.beat_sync_undo(),
             SyncRemove => {
                 let c = self.pane().cursor;
                 let (from, to) = match self.selection() {
@@ -392,11 +388,17 @@ impl App {
                 self.sync_operate(crate::command::Operator::Delete, from, to);
             }
             SyncHere => {
-                if self.chant_sync_ready() {
+                let ready = if self.buffer().score.is_chant() {
+                    self.chant_sync_ready()
+                } else {
+                    self.beat_sync_ready()
+                };
+                if ready {
                     self.effects.push(Effect::SyncHere);
                 }
             }
-            SyncNudge(ms) => self.chant_sync_nudge(*ms),
+            SyncNudge(ms) if self.buffer().score.is_chant() => self.chant_sync_nudge(*ms),
+            SyncNudge(ms) => self.beat_sync_nudge(*ms),
             Waveform => {
                 let pane = self.pane_mut();
                 pane.waveform = !pane.waveform;
@@ -533,17 +535,26 @@ impl App {
                 .audio
                 .as_ref()
                 .filter(|a| a.file.as_deref() == Some(file.as_str()) && a.embedded.is_none())
-                .map(|a| (a.points.clone(), a.chant_points.clone(), a.frame_padding));
-            let (points, chant_points, frame_padding) = keep.unwrap_or_default();
+                .map(|a| {
+                    (
+                        a.points.clone(),
+                        a.chant_points.clone(),
+                        a.beat_points.clone(),
+                        a.frame_padding,
+                    )
+                });
+            let (points, chant_points, beat_points, frame_padding) = keep.unwrap_or_default();
             s.audio = Some(AudioSync {
                 file: Some(file.clone()),
                 frame_padding,
                 points,
                 chant_points,
+                beat_points,
                 note_anchors: Vec::new(),
                 embedded: None,
             });
             s.refresh_chant_sync();
+            s.refresh_beat_sync();
             Ok(())
         });
         self.effects.push(Effect::AudioChanged { buffer: index });

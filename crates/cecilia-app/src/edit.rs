@@ -1392,6 +1392,9 @@ pub fn put_beats(cx: &mut EditCx, beats: &[Beat], after: bool) {
         return;
     }
     let i = cx.cursor.beat;
+    // Pasted beats are new ones for the sync: they get ids of their own.
+    let beats: Vec<Beat> = beats.iter().cloned().map(|b| Beat { id: 0, ..b }).collect();
+    let beats = &beats[..];
     let voice = cx.voice();
     let placeholder = voice.len() == 1 && voice[0].empty;
     let at = if placeholder {
@@ -1493,6 +1496,14 @@ pub fn put_bars(cx: &mut EditCx, clip: &BarClip, at: usize) {
                 .get(ti)
                 .and_then(|b| b.get(k))
                 .cloned()
+                .map(|mut bar| {
+                    // Pasted beats are new ones for the sync: they get ids of their own.
+                    bar.voices
+                        .iter_mut()
+                        .flat_map(|v| &mut v.beats)
+                        .for_each(|b| b.id = 0);
+                    bar
+                })
                 .unwrap_or_else(|| Bar {
                     voices: vec![Voice {
                         beats: vec![Beat {

@@ -8,9 +8,9 @@ use cecilia_audio::SYNC_RATE;
 use crate::app::{App, Effect};
 
 impl App {
-    /// Whether the waveform edits sync points with the mouse: Sync mode on a chant with audio.
+    /// Whether the waveform edits sync points with the mouse: Sync mode with audio.
     pub fn wave_sync_editing(&self) -> bool {
-        self.syncing && self.buffer().score.is_chant() && self.buffer().score.audio.is_some()
+        self.syncing && self.buffer().score.audio.is_some()
     }
 
     /// The button went down at `secs` of the audio; `tol` is how close (seconds) a point is
@@ -27,16 +27,32 @@ impl App {
         let (buffer, secs, tol) = self.wave_press.take()?;
         let audio = self.buffers.get(buffer)?.score.audio.as_ref()?;
         let pad = audio.frame_padding as f64 / SYNC_RATE;
-        let near = audio
-            .chant_points
+        // The points: a chant's by note, a modern score's by beat.
+        let points: Vec<(u32, i64)> = if self.buffers[buffer].score.is_chant() {
+            audio
+                .chant_points
+                .iter()
+                .map(|p| (p.note, p.frame))
+                .collect()
+        } else {
+            audio
+                .beat_points
+                .iter()
+                .map(|p| (p.beat, p.frame))
+                .collect()
+        };
+        let near = points
             .iter()
-            .map(|p| (p.note, (p.frame as f64 / SYNC_RATE - pad - secs).abs()))
+            .map(|&(id, frame)| (id, (frame as f64 / SYNC_RATE - pad - secs).abs()))
             .filter(|&(_, d)| d <= tol)
             .min_by(|a, b| a.1.total_cmp(&b.1));
         self.wave_grab = match near {
             Some((id, _)) => Some(id),
-            // Else a new one, on the syllable (or note) nearest to where the mouse is.
-            None => self.chant_sync_closest(secs + pad, onsets),
+            // Else a new one, on the syllable (or note, or beat) nearest to where the mouse is.
+            None if self.buffers[buffer].score.is_chant() => {
+                self.chant_sync_closest(secs + pad, onsets)
+            }
+            None => self.beat_sync_closest(secs + pad, onsets),
         };
         Some((buffer, secs))
     }
@@ -55,8 +71,13 @@ impl App {
         let frame = ((secs + pad) * SYNC_RATE).round().max(0.0) as i64;
         self.edit(|cx| {
             let score = cx.whole();
-            score.set_chant_sync_point(id, frame);
-            score.refresh_chant_sync();
+            if score.is_chant() {
+                score.set_chant_sync_point(id, frame);
+                score.refresh_chant_sync();
+            } else {
+                score.set_beat_sync_point(id, frame);
+                score.refresh_beat_sync();
+            }
             Ok(())
         });
     }

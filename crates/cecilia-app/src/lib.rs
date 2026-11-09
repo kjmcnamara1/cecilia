@@ -3,6 +3,7 @@
 //! out the [`Effect`]s it requests.
 
 mod app;
+pub mod beatsync;
 mod chant;
 mod chant_text;
 pub mod chantsync;

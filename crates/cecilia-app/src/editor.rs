@@ -842,6 +842,9 @@ impl App {
             cx.score.refresh_chant_sync();
             cx.sync_chant_source(before);
             sync_dropped = lost_sync_points(before, cx.score);
+        } else if chant_before.is_none() && result.is_ok() {
+            // A modern score's beat points follow their beats.
+            sync_dropped = cx.score.refresh_beat_sync();
         }
         if result.is_ok() {
             cx.relayout_lyrics();

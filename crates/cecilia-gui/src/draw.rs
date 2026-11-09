@@ -2736,7 +2736,7 @@ fn draw_waveform(
         // At rest, a chant's cursor stands where its cell is on the ruler (a division at its
         // own tick, not at the note after it).
         None => app
-            .chant_cursor_audio_time()
+            .sync_cursor_audio_time()
             .filter(|_| app.pane().buffer == buffer)
             .or_else(|| playback.time_of(app, buffer, cursor.bar, tick))
             .unwrap_or(0.0),
@@ -2843,6 +2843,8 @@ fn draw_waveform(
     if let Some(sync) = score.audio.as_ref().filter(|_| syncing) {
         let frames: Vec<i64> = if score.is_chant() {
             sync.chant_points.iter().map(|p| p.frame).collect()
+        } else if !sync.beat_points.is_empty() {
+            sync.beat_points.iter().map(|p| p.frame).collect()
         } else {
             sync.points.iter().map(|p| p.frame).collect()
         };
@@ -2893,6 +2895,29 @@ fn draw_waveform(
                 }
             });
         }
+        ticks.retain(|t| t.x >= r.x0 && t.x <= r.x1);
+        draw_ruler(
+            scene,
+            r,
+            ticks,
+            true,
+            ui.waveform_beat_ticks,
+            ui.waveform_beat_labels,
+        );
+    }
+    // A modern score's ruler: a tall tick at the first beat of every bar, a short one at the
+    // others, labelled `bar:beat`.
+    if let Some(marks) = app.beat_ruler(buffer).filter(|_| syncing) {
+        let mut ticks: Vec<Tick> = marks
+            .iter()
+            .map(|m| Tick {
+                x: x_of(m.frame as f64 / cecilia_audio::SYNC_RATE - pad),
+                major: m.major,
+                priority: u8::from(m.major),
+                left: m.left.clone(),
+                right: m.right.clone(),
+            })
+            .collect();
         ticks.retain(|t| t.x >= r.x0 && t.x <= r.x1);
         draw_ruler(
             scene,

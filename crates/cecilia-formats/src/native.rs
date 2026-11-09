@@ -126,6 +126,9 @@ pub fn read_cecilia(bytes: &[u8]) -> Result<Score> {
         } else {
             score.refresh_chant_sync();
         }
+    } else {
+        // A modern score's bar points and note timing come from its beat points.
+        score.refresh_beat_sync();
     }
     Ok(score)
 }
@@ -398,6 +401,53 @@ mod tests {
         let c = edited.tracks[0].chant.as_deref().unwrap();
         assert_eq!(c.index_of_id(4), Some(4));
         assert_eq!(edited.audio.as_ref().unwrap().chant_points.len(), 2);
+    }
+
+    #[test]
+    fn a_modern_score_keeps_its_beat_ids_and_points() {
+        use cecilia_core::*;
+        let beat = || Beat {
+            duration: Duration::new(DurationValue::Quarter),
+            notes: vec![Note::new(0, 0)],
+            ..Beat::default()
+        };
+        let mut score = Score {
+            tempo: 120,
+            master_bars: vec![MasterBar::default(); 1],
+            tracks: vec![Track {
+                strings: vec![64, 59, 55, 50, 45, 40],
+                bars: vec![Bar {
+                    voices: vec![Voice {
+                        beats: (0..4).map(|_| beat()).collect(),
+                    }],
+                    ..Default::default()
+                }],
+                ..Track::default()
+            }],
+            ..Score::default()
+        };
+        score.audio = Some(AudioSync::default());
+        score.assign_beat_ids();
+        let ids: Vec<u32> = score.tracks[0].bars[0].voices[0]
+            .beats
+            .iter()
+            .map(|b| b.id)
+            .collect();
+        score.set_beat_sync_point(ids[1], 44_100);
+        score.set_beat_sync_point(ids[3], 3 * 44_100);
+        score.refresh_beat_sync();
+        let back = read_cecilia(&write_cecilia(&score).unwrap()).unwrap();
+        let back_ids: Vec<u32> = back.tracks[0].bars[0].voices[0]
+            .beats
+            .iter()
+            .map(|b| b.id)
+            .collect();
+        assert_eq!(back_ids, ids);
+        let a = back.audio.as_ref().unwrap();
+        assert_eq!(a.beat_points, score.audio.as_ref().unwrap().beat_points);
+        // The timing of the notes is derived again on loading.
+        assert_eq!(a.note_anchors, score.audio.as_ref().unwrap().note_anchors);
+        assert!(!a.note_anchors.is_empty());
     }
 
     #[test]

@@ -851,6 +851,15 @@ and returns to Sync mode. The sync of a chant is kept on notes, so editing the c
 along them in order (allowing for a transposition and for notes left out), placing a point at each
 syllable (each note with `:sync-unit note`); fix the rest by hand.
 
+**Syncing a modern score** works the same way, by beat: every beat (rests included) of the cursor's voice
+takes a sync point of its own, kept on the beat's stable id so that editing the score does not move it
+(it is saved in `.cc` files; Guitar Pro files keep the derived bar points). `<CR>` syncs the beat under
+the cursor at the playhead and moves to the next beat; `x`, `u`, `[` `]` `{` `}`, `d` / `c` over a range, Visual mode and the
+mouse on the waveform do what they do on a chant. The waveform's top ruler has a tall tick at the first
+beat of every bar (`bar:1`) and a short one at the others (the beat). There is no sync unit (a beat is
+the unit) and `:sync-detect` is still beat detection. A bar-synced score (a Guitar Pro file) keeps its
+points when the first beat is synced. Repeated bars are synced on their first play.
+
 In Sync mode `d{motion}`, `dd` and `c{motion}` take away the sync points of the range (nothing else is
 changed, and `c` does not start Insert mode); in Visual mode (`v` from Sync mode) `d` / `c` do so for the
 selection and `[` `]` `{` `}` move every sync point in it. On the waveform of a chant, a mouse press adds a sync
@@ -888,11 +897,11 @@ chant keys, and which modern-track keys answer "not in chant").
 | ------------------------------------------ | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | `:audio [file]` / `:audio off`             | attach a recording (mp3, m4a/aac, flac, ogg, wav; relative to the score). Without a file, the best name match next to the score or in its `mp3/`/`audio/` folder                                         |
 | `:sync`                                    | enter (or leave) Sync mode: the waveform shows the sync points and rulers, `<Space>` plays, `<CR>` syncs the cursor's cell (a modern score: the bar) and moves on, `<Esc>` leaves                                                                                                                |
-| `:sync-tap` / `:sync-clear`                | add a sync point at the playing bar / remove all sync points                                                                                                                                             |
+| `:sync-tap` / `:sync-clear`                | sync the cursor beat (chant: note) at the playhead and move on / remove all sync points                                                                                                                                             |
 | `:sync-unit syllable\|note`                | chant: what one sync tap sets (default a syllable; also a row in the chant Score tab)                    |
 | `:sync-remove`                             | chant: remove the sync point of the cursor (or selection)                                               |
 | `:sync-undo`                               | chant: take back the last sync tap (while tapping)                                                      |
-| `:sync-here` / `:sync-nudge MS`            | chant: sync the cursor note at the playhead / move the sync point under the cursor by MS milliseconds   |
+| `:sync-here` / `:sync-nudge MS`            | sync the cursor beat (chant: cell) at the playhead / move the sync point under the cursor by MS milliseconds |
 | `:sync-detect`                             | modern: beat-detection assist: fill in sync points from the last existing one (tap the first downbeat first for best results); chant: place the notes along the pitches sung                                                                                    |
 | `:mix [both\|audio\|midi]`                 | what plays when a recording is attached (no argument cycles)                                                                                                                                             |
 | `:volume midi\|audio\|metronome\|master {percent}` | source levels (`master` scales the whole output)                                                                                                                                                                                            |

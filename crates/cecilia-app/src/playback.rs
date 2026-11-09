@@ -425,47 +425,22 @@ impl Playback {
 
     fn sync_here(&mut self, app: &mut App) {
         if let Some((secs, onsets)) = self.playhead_and_onsets(app) {
-            app.chant_sync_here(secs, &onsets);
+            if app.buffer().score.is_chant() {
+                app.chant_sync_here(secs, &onsets);
+            } else {
+                app.beat_sync_here(secs, &onsets);
+            }
         }
     }
 
     fn sync_tap(&mut self, app: &mut App) {
-        if app.pa.chant_tap.is_some() {
-            if let Some((secs, onsets)) = self.playhead_and_onsets(app) {
+        if let Some((secs, onsets)) = self.playhead_and_onsets(app) {
+            if app.buffer().score.is_chant() {
                 app.chant_tap(secs, &onsets);
+            } else {
+                app.beat_tap(secs, &onsets);
             }
-            return;
         }
-        let (Some(buffer), Some(player)) = (app.playing_buffer, self.player.as_ref()) else {
-            return app.error("start playback with the audio first (:sync)");
-        };
-        let Some(index) = app.pa.sync_next else {
-            return;
-        };
-        let t = player.position();
-        let seq = self.sequence(app, buffer);
-        let Some(pb) = seq.bars().get(index).copied() else {
-            app.pa.sync_next = None;
-            return app.info("sync: end of score");
-        };
-        let occurrence = seq.bars()[..index]
-            .iter()
-            .filter(|b| b.bar == pb.bar)
-            .count() as u32;
-        let pad = app.buffers[buffer]
-            .score
-            .audio
-            .as_ref()
-            .map_or(0, |a| a.frame_padding);
-        let frame = (t * SYNC_RATE).round() as i64 + pad;
-        app.add_sync_point(SyncPoint {
-            bar: pb.bar,
-            occurrence,
-            frame,
-            tempo: 0.0,
-        });
-        app.pa.sync_next = Some(index + 1);
-        app.info(format!("sync: bar {} at {:.2} s", pb.bar + 1, t));
     }
 
     fn sync_detect(&mut self, app: &mut App) {
