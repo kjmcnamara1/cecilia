@@ -7,7 +7,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
-## [0.39.0] - 2026-11-10
+## [0.40.0] - 2026-11-10
 
 ### Added
 
@@ -17,13 +17,22 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - The history picker stacks repeats like the cards do (`×N`), shows the subject in bold with the notification's colored icon at the start of the row, the message on the left and the time on the right, and Enter shows that notification again.
 - `[popups]` options for the look of pickers, the palette and notification cards in the GUI: `popups.opacity` and `popups.shadow_opacity` (percent, 0 to 100), `popups.shadow_blur` and `popups.shadow_offset` (pixels); live with `:set`.
 - The which-key popup also shows a pending count, an operator (`d`, `y`, `c`, with the motions that can follow) and the register / macro prompts (`"`, `q`, `@`).
+
+### Changed
+
+- Changing the score shown in a pane no longer raises a notification (title, track and bar counts, "matching audio found").
+- **Breaking:** the bottom bar under the status line is gone: messages are notifications, and the pending keys and count are in the which-key popup. Questions (save, reload, delete workspace) are cards that stay until answered. The terminal's toolbar tooltip shows under the hovered button.
+
+## [0.39.0] - 2026-11-10
+
+### Added
+
 - Your own themes: any `<name>.toml` in `~/.config/cecilia/themes/` can be a `theme.preset`. It
   has the keys of `[theme]` and starts from the theme its own `preset` names (default `dark`).
 - Themes `nord-dark` (dark UI and page, light engraving) and `nord-light`.
 
 ### Changed
 
-- **Breaking:** the bottom bar under the status line is gone: messages are notifications, and the pending keys and count are in the which-key popup. Questions (save, reload, delete workspace) are cards that stay until answered. The terminal's toolbar tooltip shows under the hovered button.
 - The built-in themes are TOML files in the repo (`crates/cecilia-app/themes/`), embedded in the
   binary, instead of Rust code. Same colors.
 - Standard-notation staff lines are as thin and grey as tab staff lines.
