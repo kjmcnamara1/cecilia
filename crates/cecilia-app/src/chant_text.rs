@@ -240,13 +240,8 @@ impl App {
                     e.error = None;
                     e.set_full(full.clone());
                 }
-                if self
-                    .message
-                    .as_ref()
-                    .is_some_and(|m| m.error && m.text.starts_with("lyrics: "))
-                {
-                    self.message = None;
-                }
+                self.notifications
+                    .dismiss_where(|c| c.error && c.text.starts_with("lyrics: "));
                 if new != old {
                     self.edit(|cx| {
                         let score = cx.whole();

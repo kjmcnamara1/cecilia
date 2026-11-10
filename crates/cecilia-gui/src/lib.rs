@@ -34,6 +34,7 @@ struct Gpu {
 struct Gui {
     /// The peeking tracks were drawn last frame (one more redraw hides them).
     tracks_peek_drawn: bool,
+    notifications_drawn: bool,
     cx: RenderContext,
     gpu: Option<Gpu>,
     app: App,
@@ -65,6 +66,7 @@ pub fn run(app: App) -> Result<()> {
     let event_loop = EventLoop::new().context("cannot open a window (no display?)")?;
     let mut gui = Gui {
         tracks_peek_drawn: false,
+        notifications_drawn: false,
         cx: RenderContext::new(),
         gpu: None,
         app,
@@ -397,6 +399,15 @@ impl ApplicationHandler for Gui {
             }
             event_loop.set_control_flow(ControlFlow::WaitUntil(
                 Instant::now() + Duration::from_millis(100),
+            ));
+        } else if self.app.notifications_active() || self.notifications_drawn {
+            // Notification cards: redraw (their bars drain) until the last one is gone.
+            self.notifications_drawn = self.app.notifications_active();
+            if let Some(gpu) = &self.gpu {
+                gpu.window.request_redraw();
+            }
+            event_loop.set_control_flow(ControlFlow::WaitUntil(
+                Instant::now() + Duration::from_millis(33),
             ));
         } else if self.views.tooltip_pending() {
             // A toolbar tooltip waits to show.

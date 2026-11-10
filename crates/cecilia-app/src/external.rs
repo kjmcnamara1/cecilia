@@ -55,7 +55,7 @@ impl App {
                 continue;
             }
             self.confirm_reload = Some(index);
-            self.info(format!(
+            self.ask(format!(
                 "\"{name}\" changed on disk: load the changes? (y/n; n keeps your version)"
             ));
             return;
@@ -65,7 +65,7 @@ impl App {
     /// The answer to the reload prompt: `y` loads the file, anything else keeps the buffer
     /// (still flagged modified, so it is not lost silently).
     pub(crate) fn answer_reload(&mut self, index: usize, key: Key) {
-        self.message = None;
+        self.answered();
         if matches!(key.code, KeyCode::Char('y' | 'Y')) {
             self.reload_buffer(index);
         } else {
@@ -164,7 +164,7 @@ mod tests {
         app.check_external();
         assert!(app.buffers[i].modified);
         assert!(app.confirm_reload.is_none());
-        assert!(app.message.as_ref().is_some_and(|m| m.error));
+        assert!(app.last_notification().is_some_and(|m| m.error));
         // :w recreates it, and the buffer is clean and quiet again.
         app.run(Command::Write(None));
         assert!(file.exists() && !app.buffers[i].modified);

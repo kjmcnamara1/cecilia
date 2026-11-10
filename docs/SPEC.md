@@ -324,6 +324,16 @@ untouched original (which may contain data cecilia does not model) is never rewr
 Vim grammar: `[count] operator motion`, `.` repeat, registers, macros (`q`/`@`), marks, branching
 undo tree (`u`, `U`, `g-`/`g+`, `:undotree`), leader key with a which-key popup that lists
 available continuations. The default keymap is in [`keymap.md`](keymap.md).
+The which-key popup also shows what is pending: a count, an operator and the motions that can
+follow it, or a register / macro prompt.
+
+Messages and errors are notifications: cards with an icon (colored by severity), a bold subject and the message below, stacked against a corner or side of the score panes
+(or the window; `notifications.anchor`, `notifications.area`), newest nearest the edge. Repeats
+and look-alikes (equal but for numbers) merge into one card with a `×N` badge; each card goes
+after `notifications.info_timeout` / `error_timeout` seconds (0: stays), a thin bar along its
+bottom showing the time left; a click dismisses it. Questions (save, reload) are cards that stay
+until answered. Every notification is kept in a history (`notifications.history_size`, stored in
+the state directory) browsed with `:notifications` (repeats stacked as on screen, message left, when it appeared right as "5m ago" or a date and time: `notifications.history_time`; Enter shows the notification again). `:notify` raises one.
 
 ### 8.3 Mouse
 

@@ -135,6 +135,10 @@ pub struct PaletteItem {
     pub swatch: Option<crate::theme::Rgba>,
     /// An icon shown beside the text.
     pub icon: Option<crate::icons::Icon>,
+    /// A notification's icon and whether it is an error: shown beside the text, colored.
+    pub notice: Option<(crate::notify::NoticeIcon, bool)>,
+    /// How many characters at the start of the text are bold.
+    pub bold: usize,
     /// Character positions that matched the typed text (highlighted).
     pub matched: Vec<usize>,
 }
@@ -446,12 +450,6 @@ pub fn truncate_middle(name: &str, max: usize, prefix: usize, suffix: usize) -> 
     out
 }
 
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct Message {
-    pub text: String,
-    pub error: bool,
-}
-
 /// What a save prompt is for.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Closing {
@@ -574,7 +572,7 @@ pub struct App {
     /// The command line as typed before Tab/Down filled in a candidate (what `<Up>` goes back to).
     pub(crate) cmd_typed: String,
     pub(crate) completion: Option<(crate::complete::Completions, Option<usize>)>,
-    pub message: Option<Message>,
+    pub notifications: crate::notify::Notifications,
     pub(crate) swap: crate::swap::SwapState,
     pub show_help: bool,
     /// Set by the frontend to reflect the player state.
@@ -721,7 +719,7 @@ impl App {
             completion: None,
             picker: None,
             marks: Default::default(),
-            message: None,
+            notifications: Default::default(),
             confirm_close: None,
             swap: Default::default(),
             show_help: false,
@@ -1346,7 +1344,7 @@ impl App {
     }
 
     /// Where every pane of the view is, maximized or not (for moving between them).
-    fn pane_rects(&self) -> Vec<(PaneId, Rect)> {
+    pub(crate) fn pane_rects(&self) -> Vec<(PaneId, Rect)> {
         let mut out = Vec::new();
         let fixed = |id, axis| self.fixed_size(id, axis);
         self.view()
@@ -1547,17 +1545,31 @@ impl App {
     }
 
     pub fn info(&mut self, text: impl Into<String>) {
-        self.message = Some(Message {
-            text: text.into(),
-            error: false,
-        });
+        self.notify(text.into(), false);
     }
 
     pub fn error(&mut self, text: impl Into<String>) {
-        self.message = Some(Message {
-            text: text.into(),
-            error: true,
-        });
+        self.notify(text.into(), true);
+    }
+
+    fn notify(&mut self, text: String, error: bool) {
+        self.raise(crate::notify::Notice::new(text, error));
+    }
+
+    pub(crate) fn raise(&mut self, notice: crate::notify::Notice) {
+        let cfg = &self.config.file.notifications;
+        self.notifications
+            .raise(notice, std::time::Instant::now(), cfg);
+    }
+
+    /// Asks a question the next key answers: a card that stays until [`Self::answered`].
+    pub(crate) fn ask(&mut self, text: String) {
+        self.notifications.prompt(text, std::time::Instant::now());
+    }
+
+    /// The question was answered: its card goes.
+    pub(crate) fn answered(&mut self) {
+        self.notifications.dismiss_prompts();
     }
 
     // ---- files ----
@@ -1939,6 +1951,7 @@ impl App {
     /// Reloads the config file if it changed on disk.
     pub fn poll_config(&mut self) {
         self.swap_tick(std::time::Instant::now());
+        self.notifications.expire(std::time::Instant::now());
         self.poll_files();
         let Some(path) = self.config_path.clone() else {
             return;
@@ -2074,13 +2087,13 @@ impl App {
             asking,
             skip,
         });
-        self.info(text);
+        self.ask(text);
     }
 
     /// The answer to a save prompt: `y` writes the buffer, `n` leaves it unsaved, any other
     /// key cancels; then the close or quit carries on (asking about the next changed buffer).
     fn answer_close(&mut self, mut c: Confirm, key: Key) {
-        self.message = None;
+        self.answered();
         let Some(b) = self.buffers.get(c.asking).filter(|b| b.modified) else {
             return;
         };
@@ -2364,6 +2377,8 @@ impl App {
                 text,
                 swatch: None,
                 icon: None,
+                notice: None,
+                bold: 0,
                 matched,
             })
             .collect();
@@ -2748,6 +2763,17 @@ impl App {
             ViewClose(force) => self.close_view(force),
             Recover(path, force) => self.recover(path, force),
             SwapDiscard => self.swap_discard(),
+            NotifyDismiss => self.notify_dismiss(),
+            Notify(a) => self.raise(crate::notify::Notice {
+                text: a.message,
+                error: a.error.unwrap_or(false),
+                subject: a.subject,
+                icon: a.icon,
+                timeout: a.timeout,
+                body_at: None,
+                record: true,
+            }),
+            NotifyReplay(key) => self.notify_replay(key),
             Edit(path) => match self.open(&path) {
                 Ok(b) => {
                     self.show_buffer(b);
@@ -4101,7 +4127,7 @@ pub(crate) mod tests {
         keys(&mut app, ":view-new<CR>gt");
         assert_eq!(app.active_view, 0);
         keys(&mut app, ":bogus<CR>");
-        assert!(app.message.as_ref().is_some_and(|m| m.error));
+        assert!(app.last_notification().is_some_and(|m| m.error));
         keys(&mut app, ":qa<CR>");
         assert!(app.quit);
     }
@@ -4113,12 +4139,12 @@ pub(crate) mod tests {
         let mut app = test_app();
         let out = dir.join("out.gp5");
         app.run(Command::Write(Some(out.clone())));
-        assert!(out.exists(), "{:?}", app.message);
+        assert!(out.exists(), "{:?}", app.last_notification());
         app.buffers[0].path = Some(out.clone());
         app.run(Command::Write(None));
-        assert_eq!(app.message.as_ref().unwrap().text, "no changes to write");
+        assert_eq!(app.last_notification().unwrap().text, "no changes to write");
         app.run(Command::Write(Some(dir.join("out.unknown"))));
-        assert!(app.message.as_ref().unwrap().error);
+        assert!(app.last_notification().unwrap().error);
         std::fs::remove_dir_all(&dir).unwrap();
     }
 
@@ -4396,7 +4422,7 @@ pub(crate) mod tests {
         // A changed one with no file name can't be saved from the prompt.
         app.run(Command::BufferClose(None, false));
         keys(&mut app, "y");
-        assert!(app.message.as_ref().unwrap().error);
+        assert!(app.last_notification().unwrap().error);
         assert!(app.buffer().modified);
         // A named one is written, then closed.
         app.run(Command::Edit(file.clone()));
@@ -4623,7 +4649,7 @@ pub(crate) mod tests {
     }
 
     fn msg(app: &App) -> (String, bool) {
-        let m = app.message.as_ref().expect("a message");
+        let m = app.last_notification().expect("a message");
         (m.text.clone(), m.error)
     }
 
@@ -4658,11 +4684,11 @@ pub(crate) mod tests {
         app.run(Command::parse("set general.leader <Nope>").unwrap());
         assert_eq!(app.config.leader, leader);
         assert!(app.config.overrides.is_empty());
-        assert!(app.message.as_ref().is_some_and(|m| m.error));
-        app.message = None;
+        assert!(app.last_notification().is_some_and(|m| m.error));
+        app.clear_notifications();
         app.run(Command::parse("set toolbar.items +nonsense").unwrap());
         assert!(app.config.overrides.is_empty());
-        assert!(app.message.as_ref().is_some_and(|m| m.error));
+        assert!(app.last_notification().is_some_and(|m| m.error));
     }
 
     #[test]

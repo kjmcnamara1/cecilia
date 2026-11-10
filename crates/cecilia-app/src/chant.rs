@@ -1519,7 +1519,7 @@ mod tests {
         let mut a = App::new(Config::default(), None);
         a.run(Command::New);
         a.run(Command::ModernToChant);
-        assert!(a.buffer().score.is_chant(), "{:?}", a.message);
+        assert!(a.buffer().score.is_chant(), "{:?}", a.last_notification());
         assert_eq!(chant_of(&a).note_count(), 0);
         keys(&mut a, "i<CR><Esc>");
         assert_eq!(chant_of(&a).note_count(), 1);
@@ -1540,14 +1540,14 @@ mod tests {
         let mut a = app();
         let before = a.buffer().score.tracks[0].clone();
         a.run(Command::Notation("treble".into()));
-        assert!(a.message.as_ref().unwrap().error);
+        assert!(a.last_notification().unwrap().error);
         a.run(Command::StaffAdd(Some("tab".into())));
-        assert!(a.message.as_ref().unwrap().error);
+        assert!(a.last_notification().unwrap().error);
         assert_eq!(a.buffer().score.tracks[0], before);
         // `chant` is not a notation of an ordinary track either.
         a.run(Command::ChantToModern);
         a.run(Command::Notation("chant".into()));
-        assert!(a.message.as_ref().unwrap().error);
+        assert!(a.last_notification().unwrap().error);
         assert!(
             a.buffer().score.tracks[0]
                 .staves()
@@ -1562,7 +1562,7 @@ mod tests {
         a.run(Command::Clef("f3".into()));
         assert!(gabc(&a).starts_with("(f3)"));
         a.run(Command::Clef("treble".into()));
-        assert!(a.message.as_ref().unwrap().error);
+        assert!(a.last_notification().unwrap().error);
         assert!(gabc(&a).starts_with("(f3)"));
         assert_cache(&a);
         // The same notes under another clef sound at other pitches.
@@ -1597,11 +1597,11 @@ mod tests {
         run(&mut a, "octave-up");
         assert_eq!(gabc(&a), "(c4) Al(fn) le(h) lu(g) ia.(f.) (::)");
         run(&mut a, "octave-up");
-        assert!(a.message.as_ref().unwrap().error);
+        assert!(a.last_notification().unwrap().error);
         assert_eq!(gabc(&a), "(c4) Al(fn) le(h) lu(g) ia.(f.) (::)");
         run(&mut a, "octave-down");
         run(&mut a, "octave-down");
-        assert!(a.message.as_ref().unwrap().error);
+        assert!(a.last_notification().unwrap().error);
         assert_eq!(gabc(&a), "(c4) Al(fg) le(h) lu(g) ia.(f.) (::)");
     }
 
@@ -1619,7 +1619,7 @@ mod tests {
         assert_eq!(gabc(&a), "(c4) Al(fg) le(hyh) lu(g) ia.(f.) (::)");
         run(&mut a, "accidental natural");
         run(&mut a, "accidental double-sharp");
-        assert!(a.message.as_ref().unwrap().text.contains("not in chant"));
+        assert!(a.last_notification().unwrap().text.contains("not in chant"));
         // The flat is on B: raise the note onto it and it sounds flat.
         run(&mut a, "pitch-up");
         run(&mut a, "accidental flat");
@@ -1939,7 +1939,7 @@ mod tests {
         assert_eq!(gabc(&a), "(c4) Al(fg) (h) lu(g) ia.(f.) (::)");
         // Nothing to delete says so.
         run(&mut a, "lyrics-delete");
-        assert!(a.message.as_ref().is_some_and(|m| m.error));
+        assert!(a.last_notification().is_some_and(|m| m.error));
     }
 
     #[test]
@@ -2161,7 +2161,7 @@ mod tests {
         assert_eq!(gabc(&a), "(c4) Al(fg) le(h) lu(g) ia.(f.) (::)");
         // Changing or pasting over bars is not something chant does.
         keys(&mut a, "vlc");
-        assert!(a.message.as_ref().unwrap().error);
+        assert!(a.last_notification().unwrap().error);
         assert_eq!(gabc(&a), "(c4) Al(fg) le(h) lu(g) ia.(f.) (::)");
     }
 
@@ -2184,14 +2184,14 @@ mod tests {
             "put",
             "reflow",
         ] {
-            a.message = None;
+            a.clear_notifications();
             let Ok(c) = Command::parse(cmd) else {
                 panic!("{cmd} does not parse");
             };
             a.run(c);
             let m = a
-                .message
-                .clone()
+                .last_notification()
+                .cloned()
                 .unwrap_or_else(|| panic!("{cmd}: no message"));
             assert!(
                 m.error && m.text.contains("not in chant"),
@@ -2217,7 +2217,7 @@ mod tests {
             Ok(())
         });
         assert!(r.is_none());
-        let m = a.message.clone().unwrap();
+        let m = a.last_notification().cloned().unwrap();
         assert!(m.error && m.text.contains("not in chant"), "{}", m.text);
         assert!(same(&a, &before));
         assert_eq!(undo_steps(&a), 0);
@@ -2290,7 +2290,7 @@ mod tests {
     fn gabc_and_interpretation_commands() {
         let mut app = app();
         app.run(Command::Gabc(None));
-        assert_eq!(app.message.as_ref().unwrap().text, "Al(fg)");
+        assert_eq!(app.last_notification().unwrap().text, "Al(fg)");
         app.run(Command::Gabc(Some("ghg".into())));
         assert_eq!(gabc(&app), "(c4) Al(ghg) le(h) lu(g) ia.(f.) (::)");
         app.run(Command::Gabc(Some("Glo(f)ri(gh)".into())));
@@ -2378,8 +2378,8 @@ mod tests {
         a.run(Command::TrackAdd("piano".into()));
         a.run(Command::Track(1));
         a.run(Command::ModernToChant);
-        assert!(a.buffer().score.is_chant(), "{:?}", a.message);
-        let msg = a.message.as_ref().unwrap().text.clone();
+        assert!(a.buffer().score.is_chant(), "{:?}", a.last_notification());
+        let msg = a.last_notification().unwrap().text.clone();
         assert!(
             msg.contains("only the cursor track") && msg.contains("1 other track"),
             "{msg}"
@@ -2392,10 +2392,9 @@ mod tests {
         let mut a = app();
         let before = a.buffer().score.clone();
         a.run(Command::TrackAdd("piano".into()));
-        assert!(a.message.as_ref().unwrap().error);
+        assert!(a.last_notification().unwrap().error);
         assert!(
-            a.message
-                .as_ref()
+            a.last_notification()
                 .unwrap()
                 .text
                 .contains(":chant-to-modern")
@@ -2403,17 +2402,16 @@ mod tests {
         assert_eq!(a.buffer().score, before);
         // Its only track stays too.
         a.run(Command::TrackDelete);
-        assert!(a.message.as_ref().unwrap().error);
+        assert!(a.last_notification().unwrap().error);
         assert_eq!(a.buffer().score, before);
         // A modern score takes no chant track.
         let mut m = App::new(Config::default(), None);
         m.run(Command::New);
         let before = m.buffer().score.clone();
         m.run(Command::TrackAdd("chant".into()));
-        assert!(m.message.as_ref().unwrap().error);
+        assert!(m.last_notification().unwrap().error);
         assert!(
-            m.message
-                .as_ref()
+            m.last_notification()
                 .unwrap()
                 .text
                 .contains(":modern-to-chant")

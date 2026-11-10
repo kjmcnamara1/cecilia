@@ -156,6 +156,8 @@ cancels. `:bdelete!` closes without asking. A new score counts as unchanged unti
 | `<leader>b`         | buffer picker                             |        |
 | `<leader>V`         | view picker                               |        |
 | `<leader>W`         | workspace picker                          |        |
+| `<leader>nh`        | notification history picker               |        |
+| `<leader>nd`        | dismiss the notification cards            |        |
 | `L` / `H`           | next / previous buffer tab                |        |
 | `<leader>x`         | close the buffer's tab                    |        |
 | `gt` / `gT`         | next / previous view                      |        |
@@ -351,7 +353,7 @@ horizontal layout).
 At the top of the window, above the tabline, a toolbar has buttons for common commands: new, open, save, undo, redo,
 play/pause, stop, follow, loop, metronome, count-in, tracks panel, splits, the command line and
 the keymaps picker. Toggles light up while on; buttons with nothing to do are dimmed. Resting
-the mouse on a button shows what it does and its key (in the terminal, on the command line).
+the mouse on a button shows what it does and its key (in the terminal, in a popover under the button).
 `<leader>B` or `:toolbar [on|off]` shows or hides it (`ui.toolbar` sets the default; workspaces
 remember it), and `[toolbar] items` in config.toml chooses the buttons: any command line, with
 `"|"` between groups. The terminal draws its icons in the `tabline.icons` style (`none`: words).
@@ -862,6 +864,9 @@ autosaving that file until you choose:
 | `:recover`               | restore the file from its swap file, left unsaved (`:recover!` if another cecilia owns it) |
 | `:recover swapfile`      | open a swap file as a new unnamed buffer (for scores that were never saved)      |
 | `:swap-discard`          | delete the file's swap file                                                      |
+| `:notifications`         | pick from the notification history (`:pick notification`); Enter shows that one again |
+| `:notify-dismiss`        | dismiss the notification cards on screen                                         |
+| `:notify [-s SUBJECT] [-t SECONDS] [-u info\|error] [-i ICON] MESSAGE` | show a notification (only the message is needed; quote a subject with spaces; `-t 0` stays until dismissed; icons: info, error, success, command, workspace, file, option, audio) |
 
 ### Chant _(M6)_
 

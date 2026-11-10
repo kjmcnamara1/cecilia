@@ -9,7 +9,7 @@ use std::time::{Duration, Instant};
 
 use anyhow::Result;
 use cecilia_app::playback::Playback;
-use cecilia_app::{App, Key, KeyCode, Mode, PaneKind, Strip};
+use cecilia_app::{App, Key, KeyCode, PaneKind, Strip};
 use cecilia_audio::Location;
 use ratatui::crossterm::event::{
     self, DisableMouseCapture, EnableMouseCapture, Event, KeyEvent, KeyEventKind, KeyModifiers,
@@ -72,6 +72,8 @@ struct Ui {
     /// tooltip.
     toolbar: Vec<(Rect, usize)>,
     tooltip: Option<String>,
+    /// The notification cards drawn last frame (area, id): a click dismisses one.
+    notifications: Vec<(Rect, u64)>,
     /// Clickable areas of the tracks panel, and its first row and bar shown.
     tracks: Vec<(Rect, TracksHit)>,
     tracks_scroll: (usize, usize),
@@ -247,6 +249,8 @@ fn event_loop(terminal: &mut DefaultTerminal, app: &mut App) -> Result<()> {
 
         let timeout = if app.playing || app.has_tool(PaneKind::Tuner) {
             Duration::from_millis(16)
+        } else if app.notifications_active() {
+            Duration::from_millis(100)
         } else {
             Duration::from_millis(250)
         };
@@ -347,6 +351,20 @@ fn event_loop(terminal: &mut DefaultTerminal, app: &mut App) -> Result<()> {
                     {
                         if let Some(Drag::Scrollbar(pane, grab)) = ui.drag {
                             scrollbar_to(app, &mut ui, pane, grab, m.row);
+                        }
+                    }
+                    MouseEventKind::Down(MouseButton::Left)
+                        if ui
+                            .notifications
+                            .iter()
+                            .any(|(r, _)| contains(*r, m.column, m.row)) =>
+                    {
+                        if let Some(&(_, id)) = ui
+                            .notifications
+                            .iter()
+                            .find(|(r, _)| contains(*r, m.column, m.row))
+                        {
+                            app.dismiss_notification(id);
                         }
                     }
                     MouseEventKind::Down(MouseButton::Left)
@@ -731,12 +749,11 @@ fn draw(f: &mut Frame, app: &mut App, play: Option<(usize, Location, f64, f64)>,
     } else {
         0
     };
-    let [toolbar, tabline, main, peek, status, cmdline] = Layout::vertical([
+    let [toolbar, tabline, main, peek, status] = Layout::vertical([
         Constraint::Length(u16::from(app.toolbar)),
         Constraint::Length(u16::from(app.tabline_visible())),
         Constraint::Min(3),
         Constraint::Length(peek_h),
-        Constraint::Length(1),
         Constraint::Length(1),
     ])
     .areas(f.area());
@@ -763,6 +780,7 @@ fn draw(f: &mut Frame, app: &mut App, play: Option<(usize, Location, f64, f64)>,
         draw_tabline(f, app, tabline, ui);
     }
     ui.toolbar.clear();
+    ui.notifications.clear();
     ui.tooltip = None;
     if app.toolbar {
         draw_toolbar(f, app, toolbar, ui);
@@ -975,17 +993,25 @@ fn draw(f: &mut Frame, app: &mut App, play: Option<(usize, Location, f64, f64)>,
     }
 
     draw_status(f, app, play, status, ui);
-    draw_cmdline(f, app, cmdline);
-    // The hovered toolbar button's tooltip, on the command line.
-    if let Some(tip) = ui.tooltip.clone() {
+    draw_notifications(f, app, ui);
+    // The hovered toolbar button's tooltip, under the toolbar.
+    if let (Some(tip), Some((x, _))) = (ui.tooltip.clone(), ui.hover) {
         let t = &app.config.theme;
+        let w = (tip.chars().count() as u16 + 2).min(f.area().width);
+        let at = Rect::new(
+            x.min(f.area().width - w),
+            (toolbar.y + 1).min(f.area().height.saturating_sub(1)),
+            w,
+            1,
+        );
+        f.render_widget(Clear, at);
         f.render_widget(
             Paragraph::new(format!(" {tip}")).style(
                 Style::default()
                     .fg(rc(t.text_on(t.popover)))
                     .bg(rc(t.popover)),
             ),
-            cmdline,
+            at,
         );
     }
     // Keys that can follow the ones typed, or the marks while ' ` m wait for one.
@@ -1158,7 +1184,7 @@ fn draw_palette(f: &mut Frame, app: &App, p: &cecilia_app::Palette, screen: Rect
     let swatches = p
         .items
         .iter()
-        .any(|i| i.swatch.is_some() || i.icon.is_some());
+        .any(|i| i.swatch.is_some() || i.icon.is_some() || i.notice.is_some());
     for (k, item) in p.items.iter().enumerate().skip(first).take(rows) {
         let row = Rect {
             y: if p.up {
@@ -1200,6 +1226,22 @@ fn draw_palette(f: &mut Frame, app: &App, p: &cecilia_app::Palette, screen: Rect
         if let Some(icon) = item.icon {
             f.buffer_mut()
                 .set_string(row.x + 1, row.y, icon.glyph(), Style::default());
+        }
+        if let Some((icon, error)) = item.notice {
+            let c = rc(if error {
+                app.config.theme.error
+            } else {
+                app.config.theme.accent
+            });
+            f.buffer_mut()
+                .set_string(row.x + 1, row.y, icon.glyph(), Style::default().fg(c));
+        }
+        // A notification's subject is bold.
+        if item.bold > 0 && !selected {
+            let x = row.x + 1 + ind as u16;
+            let w = (item.bold as u16).min(row.x + row.width - x);
+            f.buffer_mut()
+                .set_style(Rect { x, width: w, ..row }, Modifier::BOLD);
         }
         // Highlight the characters that matched what was typed.
         let hl = if selected {
@@ -2864,31 +2906,110 @@ fn draw_status(
     }
 }
 
-fn draw_cmdline(f: &mut Frame, app: &App, area: Rect) {
-    match app.mode {
-        // Typed in the command palette.
-        Mode::Command | Mode::Picker => {}
-        Mode::Normal
-        | Mode::Insert
-        | Mode::Visual
-        | Mode::Tracks
-        | Mode::Properties
-        | Mode::Palette
-        | Mode::Sync => {
-            if let Some(m) = &app.message {
-                let style = if m.error {
-                    Style::default().fg(Color::Red)
+/// The notification cards, stacked against the configured anchor of the score panes' area (or
+/// the window): bordered, error ones in the error color, `×N` for merged repeats, and the
+/// bottom border draining as the card's timeout runs out.
+fn draw_notifications(f: &mut Frame, app: &App, ui: &mut Ui) {
+    use cecilia_app::notify::{Placed, place_stack, wrap};
+    let (cards, more) = app.notifications_shown();
+    if cards.is_empty() {
+        return;
+    }
+    let (area, anchor) = app.notification_place();
+    let max_w = (area.w / 2).clamp(24, 60).min(area.w);
+    if max_w < 8 || area.h < 3 {
+        return;
+    }
+    let lines: Vec<Vec<String>> = cards
+        .iter()
+        .map(|c| wrap(c.body(), usize::from(max_w - 4), 3))
+        .collect();
+    let mut sizes: Vec<(f64, f64)> = cards
+        .iter()
+        .zip(&lines)
+        .map(|(c, l)| {
+            let body = l.iter().map(|s| s.chars().count()).max().unwrap_or(0);
+            let head = c.subject.chars().count() + 2;
+            let badge = if c.count > 1 {
+                format!(" ×{} ", c.count).chars().count()
+            } else {
+                0
+            };
+            (
+                (body.max(head).max(badge) as u16 + 4).min(max_w) as f64,
+                (l.len() as u16 + 3) as f64,
+            )
+        })
+        .collect();
+    let more_text = format!(" +{more} more ");
+    if more > 0 {
+        sizes.push((more_text.chars().count() as f64, 1.0));
+    }
+    let placed = place_stack(
+        Placed {
+            x: f64::from(area.x),
+            y: f64::from(area.y),
+            w: f64::from(area.w),
+            h: f64::from(area.h),
+        },
+        anchor,
+        &sizes,
+        0.0,
+    );
+    let t = &app.config.theme;
+    let now = std::time::Instant::now();
+    let rect = |p: &Placed| Rect::new(p.x as u16, p.y as u16, p.w as u16, p.h as u16);
+    for (i, p) in placed.iter().enumerate() {
+        let r = rect(p);
+        let Some(card) = cards.get(i) else {
+            f.render_widget(Clear, r);
+            f.render_widget(
+                Paragraph::new(more_text.clone())
+                    .style(Style::default().fg(rc(t.dim)).bg(rc(t.popover))),
+                r,
+            );
+            continue;
+        };
+        let color = rc(if card.error { t.error } else { t.accent });
+        let mut block = Block::bordered()
+            .border_style(Style::default().fg(color))
+            .style(
+                Style::default()
+                    .fg(rc(t.text_on(t.popover)))
+                    .bg(rc(t.popover)),
+            );
+        if card.count > 1 {
+            block = block.title(Line::from(format!(" ×{} ", card.count)).right_aligned());
+        }
+        f.render_widget(Clear, r);
+        let mut text = vec![Line::from(vec![
+            Span::styled(card.icon.glyph(), Style::default().fg(color)),
+            Span::styled(
+                format!(" {}", card.subject),
+                Style::default().add_modifier(ratatui::style::Modifier::BOLD),
+            ),
+        ])];
+        text.extend(lines[i].iter().cloned().map(Line::from));
+        f.render_widget(
+            Paragraph::new(text).block(block.padding(ratatui::widgets::Padding::horizontal(1))),
+            r,
+        );
+        if let Some(left) = card.remaining_fraction(now) {
+            let inner = r.width.saturating_sub(2);
+            let filled = (left * f32::from(inner)).ceil() as u16;
+            let buf = f.buffer_mut();
+            for k in 0..inner {
+                let (sym, c) = if k < filled {
+                    ("━", color)
                 } else {
-                    Style::default()
+                    ("─", rc(t.dim))
                 };
-                f.render_widget(Paragraph::new(m.text.clone()).style(style), area);
-            }
-            let mut pending = app.count.map(|c| c.to_string()).unwrap_or_default();
-            pending.push_str(&cecilia_app::keys::format_keys(&app.pending));
-            if !pending.is_empty() {
-                f.render_widget(Paragraph::new(pending).right_aligned(), area);
+                buf[(r.x + 1 + k, r.y + r.height - 1)]
+                    .set_symbol(sym)
+                    .set_fg(c);
             }
         }
+        ui.notifications.push((r, card.id));
     }
 }
 
@@ -2962,6 +3083,7 @@ mod render_tests {
         for _ in 0..5 {
             app.run(cecilia_app::Command::BufferClose(None, true));
         }
+        app.notifications.dismiss_all();
         assert!(app.dashboard_visible());
         let t = app.config.theme.clone();
         for (w, h) in [(100, 40), (60, 30), (30, 10)] {
@@ -3286,7 +3408,7 @@ mod render_tests {
         let mut ui = Ui::default();
         terminal.draw(|f| draw(f, &mut app, None, &mut ui)).unwrap();
         let buf = terminal.backend().buffer().clone();
-        let y = 10;
+        let y = 11;
         let row: String = (0..100).map(|x| buf[(x, y)].symbol().to_string()).collect();
         // The mode keeps its color (it used to be painted over).
         let mode = rc(app.config.theme.mode_color(cecilia_app::Mode::Normal));
@@ -3317,6 +3439,8 @@ mod render_tests {
     }
 
     fn render(app: &mut App, w: u16, h: u16) -> String {
+        // Notification cards would cover the score: these tests look at what is under them.
+        app.notifications.dismiss_all();
         let mut terminal = Terminal::new(TestBackend::new(w, h)).unwrap();
         let mut ui = Ui::default();
         terminal.draw(|f| draw(f, app, None, &mut ui)).unwrap();
@@ -4110,5 +4234,53 @@ mod page_tests {
         app.run(cecilia_app::Command::parse("design off").unwrap());
         draw_once(&mut app, &mut term, &mut ui);
         assert!(ui.design.is_empty());
+    }
+
+    #[test]
+    fn notifications_are_cards_in_the_configured_corner() {
+        let mut app = App::new(cecilia_app::Config::default(), None);
+        app.run(cecilia_app::Command::New);
+        app.notifications.dismiss_all();
+        app.info("saved");
+        app.info("saved");
+        app.error("boom: no such thing");
+        let mut terminal = Terminal::new(TestBackend::new(100, 30)).unwrap();
+        let mut ui = Ui::default();
+        terminal.draw(|f| draw(f, &mut app, None, &mut ui)).unwrap();
+        // Two cards (the repeats merged), the newest in the top right of the score panes.
+        assert_eq!(ui.notifications.len(), 2);
+        let area = app.viewport;
+        let (first, _) = ui.notifications[0];
+        assert_eq!(first.y, area.y);
+        assert_eq!(first.x + first.width, area.x + area.w);
+        let buf = terminal.backend().buffer().clone();
+        let text = (0..30)
+            .map(|y| {
+                (0..100)
+                    .map(|x| buf[(x, y)].symbol().to_string())
+                    .collect::<String>()
+            })
+            .collect::<Vec<_>>()
+            .join("\n");
+        assert!(
+            text.contains("Boom") && text.contains("no such thing") && text.contains("×2"),
+            "{text}"
+        );
+        // The bottom row is the status line now: no command line under it.
+        let last = text.lines().last().unwrap();
+        assert!(!last.contains("saved"), "{last}");
+        // A click dismisses a card.
+        let id = ui.notifications[0].1;
+        app.dismiss_notification(id);
+        terminal.draw(|f| draw(f, &mut app, None, &mut ui)).unwrap();
+        assert_eq!(ui.notifications.len(), 1);
+        // The anchor option moves them.
+        app.run(cecilia_app::Command::parse("set notifications.anchor bottom_left").unwrap());
+        app.run(cecilia_app::Command::parse("set notifications.area window").unwrap());
+        terminal.draw(|f| draw(f, &mut app, None, &mut ui)).unwrap();
+        let (r, _) = ui.notifications[0];
+        assert_eq!(r.x, 0);
+        assert!(r.y + r.height <= 30);
+        assert_eq!(r.y + r.height, app.viewport.y + app.viewport.h, "{r:?}");
     }
 }

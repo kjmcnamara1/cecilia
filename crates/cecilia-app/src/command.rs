@@ -59,6 +59,101 @@ pub enum BeatAt {
     BarEnd,
 }
 
+/// What `:notify` gives: the message, and optionally a subject, a timeout in seconds (0: stays),
+/// whether it is an error, and an icon.
+#[derive(Debug, Clone, PartialEq)]
+pub struct NotifyArgs {
+    pub message: String,
+    pub subject: Option<String>,
+    pub timeout: Option<f64>,
+    pub error: Option<bool>,
+    pub icon: Option<crate::notify::NoticeIcon>,
+}
+
+/// Splits `:notify`'s arguments into words; quotes (`"` or `'`) group words with spaces.
+fn split_words(s: &str) -> Result<Vec<String>, String> {
+    let mut words = Vec::new();
+    let mut cur = String::new();
+    let mut quote: Option<char> = None;
+    let mut any = false;
+    for c in s.chars() {
+        match (quote, c) {
+            (Some(q), c) if c == q => quote = None,
+            (Some(_), c) => cur.push(c),
+            (None, '"' | '\'') => {
+                quote = Some(c);
+                any = true;
+            }
+            (None, c) if c.is_whitespace() => {
+                if any || !cur.is_empty() {
+                    words.push(std::mem::take(&mut cur));
+                    any = false;
+                }
+            }
+            (None, c) => cur.push(c),
+        }
+    }
+    if quote.is_some() {
+        return Err("notify: unclosed quote".into());
+    }
+    if any || !cur.is_empty() {
+        words.push(cur);
+    }
+    Ok(words)
+}
+
+/// `notify [-s SUBJECT] [-t SECONDS] [-u info|error] [-i ICON] MESSAGE...`
+fn parse_notify(arg: Option<&str>) -> Result<Command, String> {
+    let usage = "notify: expected [-s SUBJECT] [-t SECONDS] [-u info|error] [-i ICON] MESSAGE";
+    let words = split_words(arg.ok_or(usage)?)?;
+    let mut a = NotifyArgs {
+        message: String::new(),
+        subject: None,
+        timeout: None,
+        error: None,
+        icon: None,
+    };
+    let mut i = 0;
+    while i < words.len() {
+        let flag = words[i].as_str();
+        if !matches!(
+            flag,
+            "-s" | "--subject" | "-t" | "--timeout" | "-u" | "--urgency" | "-i" | "--icon"
+        ) {
+            break;
+        }
+        let v = words
+            .get(i + 1)
+            .ok_or(format!("notify: {flag} needs a value"))?;
+        if matches!(flag, "-s" | "--subject") {
+            a.subject = Some(v.clone());
+        } else if matches!(flag, "-t" | "--timeout") {
+            a.timeout = Some(
+                v.parse::<f64>()
+                    .ok()
+                    .filter(|t| t.is_finite() && *t >= 0.0)
+                    .ok_or(format!("notify: '{v}' is not a number of seconds"))?,
+            );
+        } else if matches!(flag, "-u" | "--urgency") {
+            if !matches!(v.as_str(), "info" | "normal" | "low" | "error" | "critical") {
+                return Err(format!("notify: urgency is info or error, not '{v}'"));
+            }
+            a.error = Some(matches!(v.as_str(), "error" | "critical"));
+        } else {
+            a.icon = Some(crate::notify::NoticeIcon::parse(v).ok_or(format!(
+                "notify: icon is one of {}",
+                crate::notify::NoticeIcon::NAMES.join(", ")
+            ))?);
+        }
+        i += 2;
+    }
+    a.message = words[i..].join(" ");
+    if a.message.is_empty() {
+        return Err(usage.into());
+    }
+    Ok(Command::Notify(a))
+}
+
 #[derive(Debug, Clone, PartialEq)]
 pub enum Command {
     // Editing
@@ -512,6 +607,12 @@ pub enum Command {
     Recover(Option<PathBuf>, bool),
     /// Delete the buffer's swap file.
     SwapDiscard,
+    /// Dismisses the notification cards on screen.
+    NotifyDismiss,
+    /// `:notify`: raises a notification.
+    Notify(NotifyArgs),
+    /// Shows a notification of the history again (by its key).
+    NotifyReplay(u64),
     Source,
     CommandMode,
     Normal,
@@ -675,6 +776,9 @@ impl Command {
             "recover" => Recover(arg.map(expand_tilde), false),
             "recover!" => Recover(arg.map(expand_tilde), true),
             "swap-discard" => SwapDiscard,
+            "notify-dismiss" => NotifyDismiss,
+            "notify" => return parse_notify(arg),
+            "notifications" => Pick(crate::picker::PickerKind::Notification),
             "source" | "so" => Source,
             "command-mode" => CommandMode,
             "normal" => Normal,

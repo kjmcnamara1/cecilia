@@ -729,7 +729,7 @@ fn the_normal_keys_follow_the_notation() {
     // Standard: no bend key; `t#` is the sharp.
     to_standard(&mut a);
     keys(&mut a, "tb");
-    assert!(a.message.is_none() || bar_beats(&a, 0)[0].notes[0].effects.bend.is_some());
+    assert!(a.last_notification().is_none() || bar_beats(&a, 0)[0].notes[0].effects.bend.is_some());
     let pitch = |a: &App| track(a).pitch_of(&bar_beats(a, 0)[0].notes[0]);
     let before = pitch(&a);
     keys(&mut a, "t#");
@@ -1369,7 +1369,7 @@ fn a_command_of_the_other_kind_errors_naming_the_kind() {
     );
     // Typed on the command line, the refusal shows as the error.
     keys(&mut a, ":capo 2<CR>");
-    let m = a.message.as_ref().unwrap();
+    let m = a.last_notification().unwrap();
     assert!(
         m.error && m.text == "capo: not in a chant score",
         "{}",

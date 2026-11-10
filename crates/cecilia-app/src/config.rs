@@ -38,11 +38,74 @@ pub struct ConfigFile {
     pub tabline: TablineConfig,
     pub audio: AudioConfig,
     pub swap: SwapConfig,
+    pub notifications: NotificationsConfig,
+    pub popups: PopupsConfig,
     pub theme: crate::theme::ThemeConfig,
     pub toolbar: ToolbarConfig,
     pub statusline: StatuslineConfig,
     pub score: ScoreConfig,
     pub keymap: KeymapConfig,
+}
+
+/// Notifications (`[notifications]`): where the toast cards go and how long they stay.
+#[derive(Debug, Clone, Deserialize, Serialize)]
+#[serde(default, deny_unknown_fields)]
+pub struct NotificationsConfig {
+    /// The corner or side the cards stack against: "top_left", "top", "top_right", "right",
+    /// "bottom_right", "bottom", "bottom_left" or "left".
+    pub anchor: String,
+    /// What the cards sit in: "scores" (the area of the score panes) or "window".
+    pub area: String,
+    /// Seconds an information card stays (0: until dismissed).
+    pub info_timeout: f64,
+    /// Seconds an error card stays (0: until dismissed).
+    pub error_timeout: f64,
+    /// Most cards shown at once; the rest are counted in a "+N more" line.
+    pub max_visible: usize,
+    /// Notifications kept in the history (0: no history).
+    pub history_size: usize,
+    /// How the history picker shows when a notification appeared: "relative" (5m ago) or
+    /// "absolute" (the date and time).
+    pub history_time: String,
+}
+
+impl Default for NotificationsConfig {
+    fn default() -> Self {
+        Self {
+            anchor: "top_right".into(),
+            area: "scores".into(),
+            info_timeout: 4.0,
+            error_timeout: 8.0,
+            max_visible: 5,
+            history_size: 500,
+            history_time: "relative".into(),
+        }
+    }
+}
+
+/// How popups (pickers, the command palette, notification cards) look (`[popups]`).
+#[derive(Debug, Clone, Deserialize, Serialize)]
+#[serde(default, deny_unknown_fields)]
+pub struct PopupsConfig {
+    /// How opaque their fill is, in percent: 0 (invisible) to 100.
+    pub opacity: f64,
+    /// How dark the shadow under them is, in percent: 0 (none) to 100.
+    pub shadow_opacity: f64,
+    /// How far the shadow is blurred (pixels).
+    pub shadow_blur: f64,
+    /// How far the shadow is pushed down (pixels).
+    pub shadow_offset: f64,
+}
+
+impl Default for PopupsConfig {
+    fn default() -> Self {
+        Self {
+            opacity: 98.0,
+            shadow_opacity: 45.0,
+            shadow_blur: 15.0,
+            shadow_offset: 7.0,
+        }
+    }
 }
 
 /// Score defaults (`[score]`).
@@ -503,6 +566,8 @@ const DEFAULT_NORMAL: &[(&str, &str)] = &[
     ("<leader>>", "buffer-move-next"),
     ("<leader><lt>", "buffer-move-prev"),
     ("<leader>?", "pick-keymap"),
+    ("<leader>nh", "notifications"),
+    ("<leader>nd", "notify-dismiss"),
     ("<C-w>v", "vsplit"),
     ("<C-w>h", "focus-left"),
     ("<C-w>j", "focus-down"),

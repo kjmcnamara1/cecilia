@@ -513,8 +513,16 @@ impl Theme {
     fn apply(&mut self, layer: &ThemeConfig, errors: &mut Vec<String>) {
         let accent_before = self.accent;
         for (name, value, slot) in [
-            ("selection_opacity", layer.selection_opacity, &mut self.selection_opacity),
-            ("cursor_opacity", layer.cursor_opacity, &mut self.cursor_opacity),
+            (
+                "selection_opacity",
+                layer.selection_opacity,
+                &mut self.selection_opacity,
+            ),
+            (
+                "cursor_opacity",
+                layer.cursor_opacity,
+                &mut self.cursor_opacity,
+            ),
         ] {
             match value {
                 Some(o) if (0.0..=100.0).contains(&o) => *slot = o,

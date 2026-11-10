@@ -1778,8 +1778,7 @@ mod tests {
             .name();
         assert!(name.ends_with("(unavailable)"));
         assert!(
-            app.message
-                .as_ref()
+            app.last_notification()
                 .is_some_and(|m| m.text.contains("palm-mute") || m.text.contains("Palm mute"))
         );
         // A click does nothing either.

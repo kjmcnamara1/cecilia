@@ -17,6 +17,8 @@ pub enum PickerKind {
     Recent,
     Mark,
     Macro,
+    /// Past notifications, newest first.
+    Notification,
     /// Every key binding of every mode, found by keys, command or description.
     Keymap,
     /// Workspaces to switch to without saving the current one (`:workspace-open!`).
@@ -46,6 +48,7 @@ impl PickerKind {
             "recent" => PickerKind::Recent,
             "mark" | "marks" => PickerKind::Mark,
             "macro" | "macros" => PickerKind::Macro,
+            "notification" | "notifications" => PickerKind::Notification,
             "keymap" | "keymaps" | "keys" => PickerKind::Keymap,
             "section" | "sections" => PickerKind::Section,
             "history" => PickerKind::History,
@@ -62,6 +65,7 @@ impl PickerKind {
             PickerKind::Recent => "Recent files",
             PickerKind::Mark => "Marks",
             PickerKind::Macro => "Macros",
+            PickerKind::Notification => "Notifications",
             PickerKind::Keymap => "Keymaps",
             PickerKind::Section => "Sections",
             PickerKind::Instrument(_) => "Instruments",
@@ -97,6 +101,10 @@ struct Entry {
     icon: Option<Icon>,
     /// The choice now in force (the properties pane steps from it).
     current: bool,
+    /// A notification's icon (and whether it is an error), shown instead of a swatch.
+    notice: Option<(crate::notify::NoticeIcon, bool)>,
+    /// How many characters of the label are bold.
+    bold: usize,
 }
 
 /// Common colors: name and hex code.
@@ -484,6 +492,8 @@ impl App {
                         swatch: None,
                         icon: None,
                         current: false,
+                        notice: None,
+                        bold: 0,
                     })
                     .collect()
             }
@@ -513,6 +523,8 @@ impl App {
                         swatch: None,
                         icon: None,
                         current: false,
+                        notice: None,
+                        bold: 0,
                     }
                 })
                 .collect(),
@@ -546,6 +558,8 @@ impl App {
                         swatch: None,
                         icon: None,
                         current: false,
+                        notice: None,
+                        bold: 0,
                     }
                 })
                 .collect(),
@@ -565,8 +579,53 @@ impl App {
                     swatch: None,
                     icon: None,
                     current: false,
+                    notice: None,
+                    bold: 0,
                 })
                 .collect(),
+            PickerKind::Notification => {
+                let now = std::time::SystemTime::now()
+                    .duration_since(std::time::UNIX_EPOCH)
+                    .map_or(0, |d| d.as_secs());
+                let absolute = self.config.file.notifications.history_time == "absolute";
+                self.notifications
+                    .history()
+                    .iter()
+                    .rev()
+                    .map(|n| Entry {
+                        label: {
+                            // One line: the rows are no wider than the picker.
+                            let line = format!("{}: {}", n.subject, n.body())
+                                .split_whitespace()
+                                .collect::<Vec<_>>()
+                                .join(" ");
+                            let badge = if n.count > 1 {
+                                format!("  ×{}", n.count)
+                            } else {
+                                String::new()
+                            };
+                            let room = 64usize.saturating_sub(badge.chars().count());
+                            let cut: String = if line.chars().count() > room {
+                                line.chars()
+                                    .take(room.saturating_sub(1))
+                                    .collect::<String>()
+                                    + "…"
+                            } else {
+                                line
+                            };
+                            cut + &badge
+                        },
+                        description: crate::notify::format_time(n.ts, now, absolute),
+                        action: Command::NotifyReplay(n.key),
+                        search_description: false,
+                        swatch: None,
+                        icon: None,
+                        current: false,
+                        notice: Some((n.icon, n.error)),
+                        bold: n.subject.chars().count() + 1,
+                    })
+                    .collect()
+            }
             PickerKind::Macro => {
                 let mut regs: Vec<(&char, &Vec<crate::keys::Key>)> =
                     self.ed.macros.iter().collect();
@@ -580,6 +639,8 @@ impl App {
                         swatch: None,
                         icon: None,
                         current: false,
+                        notice: None,
+                        bold: 0,
                     })
                     .collect()
             }
@@ -604,6 +665,8 @@ impl App {
                         search_description: false,
                         swatch: None,
                         current: current == Some(p),
+                        notice: None,
+                        bold: 0,
                     })
                     .chain(std::iter::once(Entry {
                         label: "    Drum Kit".into(),
@@ -613,6 +676,8 @@ impl App {
                         search_description: false,
                         swatch: None,
                         current: current == Some(usize::MAX),
+                        notice: None,
+                        bold: 0,
                     }))
                     .collect()
             }
@@ -637,6 +702,8 @@ impl App {
                     swatch: Some(self.track_color(self.pane().buffer, t)),
                     icon: None,
                     current: now.is_none(),
+                    notice: None,
+                    bold: 0,
                 };
                 std::iter::once(auto)
                     .chain(COLORS.iter().filter_map(|&(name, hex)| {
@@ -653,6 +720,8 @@ impl App {
                             swatch: Some(c),
                             icon: None,
                             current: now == Some(c),
+                            notice: None,
+                            bold: 0,
                         })
                     }))
                     .collect()
@@ -683,6 +752,8 @@ impl App {
                             swatch: None,
                             icon: None,
                             current: here,
+                            notice: None,
+                            bold: 0,
                         }
                     })
                     .collect()
@@ -733,6 +804,8 @@ impl App {
                             swatch: None,
                             icon: staff.map(Icon::of_notation),
                             current: same,
+                            notice: None,
+                            bold: 0,
                         }
                     })
                     .collect();
@@ -745,6 +818,8 @@ impl App {
                         swatch: None,
                         icon: None,
                         current: false,
+                        notice: None,
+                        bold: 0,
                     });
                 }
                 out
@@ -782,6 +857,8 @@ impl App {
                                 swatch: None,
                                 icon: Some(Icon::of_chant_clef(kind)),
                                 current: same,
+                                notice: None,
+                                bold: 0,
                             }
                         })
                         .collect();
@@ -829,6 +906,8 @@ impl App {
                             swatch: None,
                             icon: Icon::of_clef(staff),
                             current: same,
+                            notice: None,
+                            bold: 0,
                         }
                     })
                     .collect()
@@ -872,6 +951,8 @@ impl App {
                             swatch: None,
                             icon: None,
                             current: false,
+                            notice: None,
+                            bold: 0,
                         })
                     })
                     .collect()
@@ -951,6 +1032,8 @@ impl App {
                             swatch: None,
                             icon: None,
                             current: false,
+                            notice: None,
+                            bold: 0,
                         });
                     }
                 }
@@ -970,6 +1053,8 @@ impl App {
                     swatch: None,
                     icon: None,
                     current: false,
+                    notice: None,
+                    bold: 0,
                 })
                 .collect(),
             PickerKind::Workspace | PickerKind::WorkspaceDiscard => {
@@ -1004,6 +1089,8 @@ impl App {
                             swatch: None,
                             icon: None,
                             current: false,
+                            notice: None,
+                            bold: 0,
                         }
                     })
                     .collect()
@@ -1092,6 +1179,8 @@ impl App {
                     swatch: Some(c),
                     icon: None,
                     current: false,
+                    notice: None,
+                    bold: 0,
                 })
             }
             PickerKind::Tuning(t) => {
@@ -1112,6 +1201,8 @@ impl App {
                     swatch: None,
                     icon: None,
                     current: false,
+                    notice: None,
+                    bold: 0,
                 })
             }
             _ => None,
@@ -1143,6 +1234,8 @@ impl App {
                     description: Some(e.description),
                     swatch: e.swatch,
                     icon: e.icon,
+                    notice: e.notice,
+                    bold: e.bold,
                     matched,
                 })
                 .collect(),
@@ -1285,7 +1378,7 @@ mod tests {
         assert_eq!(app.active_view, 1);
         // No match: nothing happens but a message.
         keys(&mut app, "<Space>bzzz<CR>");
-        assert!(app.message.as_ref().unwrap().error);
+        assert!(app.last_notification().unwrap().error);
         std::fs::remove_dir_all(dir).ok();
     }
 

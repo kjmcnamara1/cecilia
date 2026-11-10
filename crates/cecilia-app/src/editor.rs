@@ -61,7 +61,7 @@ pub(crate) struct EditorState {
     /// Keys of a change still being typed (an insert session).
     change_keys: Option<Vec<Key>>,
     /// Keys of the normal-mode command being typed.
-    cmd_keys: Vec<Key>,
+    pub(crate) cmd_keys: Vec<Key>,
     replaying: u32,
     /// First digit of a possibly two-digit fret typed in insert mode.
     digit: Option<(Cursor, u8)>,
@@ -76,7 +76,7 @@ pub(crate) struct EditorState {
     pub(crate) slot: Option<(usize, usize)>,
 }
 
-fn is_motion(cmd: &Command) -> bool {
+pub(crate) fn is_motion(cmd: &Command) -> bool {
     use Command::*;
     matches!(
         cmd,
@@ -514,7 +514,6 @@ impl App {
         };
         self.pending.clear();
         let count = self.count.take();
-        self.message = None;
         let keys = std::mem::take(&mut self.ed.cmd_keys);
         let mut changed = false;
         for cmd in cmds {
@@ -2950,7 +2949,7 @@ mod tests {
         // A bad word adds none of them.
         a.run(Command::parse("staff-add tab bogus").unwrap());
         assert_eq!(a.buffer().score.tracks[0].staves().len(), before);
-        assert!(a.message.as_ref().unwrap().error);
+        assert!(a.last_notification().unwrap().error);
     }
 
     #[test]
@@ -3067,7 +3066,7 @@ mod tests {
         // Nothing selected yet: a no-op with a message.
         keys(&mut a, "gv");
         assert_eq!(a.mode, Mode::Normal);
-        assert!(a.message.as_ref().unwrap().error);
+        assert!(a.last_notification().unwrap().error);
         keys(&mut a, "vll<Esc>gg");
         assert_eq!(a.mode, Mode::Normal);
         assert!(a.selection().is_none());
