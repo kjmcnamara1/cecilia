@@ -3571,6 +3571,22 @@ fn popover_shadow(scene: &mut Scene, r: Rect, radius: f64) {
     );
 }
 
+/// `s` split into lines at most `max` wide (by characters; always at least one line, and a
+/// character that fills a line exactly starts the next).
+fn wrap_text(s: &str, max: f64, size: f64) -> Vec<String> {
+    let fonts = cecilia_engrave::fonts::fonts();
+    let mut lines = vec![String::new()];
+    for c in s.chars() {
+        let cur = lines.last_mut().expect("never empty");
+        cur.push(c);
+        if cur.chars().count() > 1 && fonts.text_width(FontKind::Text, cur, size) > max {
+            cur.pop();
+            lines.push(c.to_string());
+        }
+    }
+    lines
+}
+
 /// The command palette: a rounded box with the typed command `ui.picker_position` percent down
 /// the window and its list (at most `ui.picker_max_items`) below it, or above it (the first
 /// item nearest the input) when `p.up`; descriptions right-aligned for commands.
@@ -3584,7 +3600,18 @@ fn draw_palette(
     let fonts = cecilia_engrave::fonts::fonts();
     let w = (width - 40.0).clamp(200.0, 680.0);
     let x0 = (width - w) / 2.0;
-    let input_h = 38.0;
+    let line = if p.prompt == ":" {
+        format!(":{}", p.input)
+    } else {
+        format!("{} {}", p.prompt, p.input)
+    };
+    // The typed text wraps onto more rows (the last few when it is very long); the box grows
+    // by a row each time.
+    let mut wrapped = wrap_text(&line, w - 28.0 - 4.0, 16.0);
+    let skip = wrapped.len().saturating_sub(6);
+    wrapped.drain(..skip);
+    const INPUT_ROW: f64 = 22.0;
+    let input_h = 38.0 + (wrapped.len() - 1) as f64 * INPUT_ROW;
     let row_h = 26.0;
     // The input's top edge; the list takes the room above or below it.
     let yi = (height * f64::from(ui.picker_position.min(100)) / 100.0)
@@ -3612,23 +3639,21 @@ fn draw_palette(
     backdrop(scene, &frame);
     scene.fill(Fill::NonZero, Affine::IDENTITY, glass(), None, &frame);
     scene.stroke(&Stroke::new(1.0), Affine::IDENTITY, accent(), None, &frame);
-    let line = if p.prompt == ":" {
-        format!(":{}", p.input)
-    } else {
-        format!("{} {}", p.prompt, p.input)
-    };
-    let ty = yi + 25.0;
-    text(
-        scene,
-        &line,
-        x0 + 14.0,
-        ty,
-        16.0,
-        Align::Left,
-        text_on(popover()),
-        false,
-    );
-    let cx = x0 + 14.0 + fonts.text_width(FontKind::Text, &line, 16.0) + 1.0;
+    for (k, row) in wrapped.iter().enumerate() {
+        text(
+            scene,
+            row,
+            x0 + 14.0,
+            yi + 25.0 + k as f64 * INPUT_ROW,
+            16.0,
+            Align::Left,
+            text_on(popover()),
+            false,
+        );
+    }
+    let ty = yi + 25.0 + (wrapped.len() - 1) as f64 * INPUT_ROW;
+    let last = wrapped.last().map_or("", String::as_str);
+    let cx = x0 + 14.0 + fonts.text_width(FontKind::Text, last, 16.0) + 1.0;
     fill(
         scene,
         Rect::new(cx, ty - 15.0, cx + 2.0, ty + 4.0),

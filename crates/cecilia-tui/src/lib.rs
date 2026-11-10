@@ -1106,6 +1106,25 @@ fn draw_dashboard(f: &mut Frame, app: &App, area: Rect, ui: &mut Ui) {
 /// (descriptions right-aligned for commands).
 fn draw_palette(f: &mut Frame, app: &App, p: &cecilia_app::Palette, screen: Rect) {
     let w = screen.width.saturating_sub(4).clamp(20, 76);
+    // The typed text wraps onto more rows (the last few when it is very long).
+    let input = if p.prompt == ":" {
+        format!(":{}", p.input)
+    } else {
+        format!("{} {}", p.prompt, p.input)
+    };
+    let chars: Vec<char> = input.chars().collect();
+    let width = usize::from(w - 2);
+    // A cursor at the end of a full row wraps to a new one.
+    let all = (chars.len() / width + 1).max(1);
+    let n = all.min(usize::from(screen.height / 3).max(1));
+    let shown: Vec<String> = (all - n..all)
+        .map(|r| {
+            chars[(r * width).min(chars.len())..((r + 1) * width).min(chars.len())]
+                .iter()
+                .collect()
+        })
+        .collect();
+    let n = n as u16;
     // The input line's row; the list takes the rows above or below it.
     let line = (u32::from(screen.height) * u32::from(app.config.file.ui.picker_position.min(100))
         / 100) as u16;
@@ -1114,14 +1133,15 @@ fn draw_palette(f: &mut Frame, app: &App, p: &cecilia_app::Palette, screen: Rect
         line.saturating_sub(2)
     } else {
         screen.height.saturating_sub(line + 3)
-    } as usize;
+    }
+    .saturating_sub(n - 1) as usize;
     let rows = p
         .items
         .len()
         .min(usize::from(app.config.file.ui.picker_max_items))
         .min(room);
     // Top border, the list and its separator, the input, bottom border.
-    let h = 3 + rows as u16 + u16::from(rows > 0);
+    let h = 2 + n + rows as u16 + u16::from(rows > 0);
     let area = Rect {
         x: screen.x + (screen.width.saturating_sub(w)) / 2,
         y: screen.y
@@ -1146,25 +1166,21 @@ fn draw_palette(f: &mut Frame, app: &App, p: &cecilia_app::Palette, screen: Rect
         .title_bottom(Line::from(more).right_aligned());
     let inner = block.inner(area);
     f.render_widget(block, area);
-    let input = if p.prompt == ":" {
-        format!(":{}", p.input)
-    } else {
-        format!("{} {}", p.prompt, p.input)
-    };
     let input_y = if p.up {
-        inner.y + inner.height.saturating_sub(1)
+        inner.y + inner.height.saturating_sub(n)
     } else {
         inner.y
     };
     f.render_widget(
-        Paragraph::new(input.clone()),
+        Paragraph::new(shown.join("\n")),
         Rect {
             y: input_y,
-            height: 1,
+            height: n,
             ..inner
         },
     );
-    f.set_cursor_position((inner.x + input.chars().count() as u16, input_y));
+    let last = shown.last().map_or(0, |l| l.chars().count());
+    f.set_cursor_position((inner.x + last as u16, input_y + n - 1));
     if rows == 0 {
         return;
     }
@@ -1172,7 +1188,7 @@ fn draw_palette(f: &mut Frame, app: &App, p: &cecilia_app::Palette, screen: Rect
     f.render_widget(
         Paragraph::new(sep).style(Style::default().fg(Color::DarkGray)),
         Rect {
-            y: if p.up { input_y - 1 } else { input_y + 1 },
+            y: if p.up { input_y - 1 } else { input_y + n },
             height: 1,
             ..inner
         },
@@ -1190,7 +1206,7 @@ fn draw_palette(f: &mut Frame, app: &App, p: &cecilia_app::Palette, screen: Rect
             y: if p.up {
                 input_y - 2 - (k - first) as u16
             } else {
-                input_y + 2 + (k - first) as u16
+                input_y + n + 1 + (k - first) as u16
             },
             height: 1,
             ..inner
@@ -3117,6 +3133,34 @@ mod render_tests {
                 }
             }
         }
+    }
+
+    #[test]
+    fn a_long_command_wraps_onto_more_rows_of_the_palette() {
+        let mut app = App::new(cecilia_app::Config::default(), None);
+        app.notifications.dismiss_all();
+        let palette = |input: &str| cecilia_app::Palette {
+            title: "Command".into(),
+            prompt: ":".into(),
+            input: input.into(),
+            items: Vec::new(),
+            selected: None,
+            up: false,
+        };
+        let mut terminal = Terminal::new(TestBackend::new(40, 20)).unwrap();
+        let rows_of = |terminal: &mut Terminal<TestBackend>, p: &cecilia_app::Palette| {
+            terminal
+                .draw(|f| draw_palette(f, &app, p, f.area()))
+                .unwrap();
+            let buf = terminal.backend().buffer().clone();
+            (0..20)
+                .filter(|&y| (0..40).any(|x| buf[(x, y)].symbol() != " "))
+                .count()
+        };
+        let short = rows_of(&mut terminal, &palette("w"));
+        terminal.clear().unwrap();
+        let long = rows_of(&mut terminal, &palette(&"x".repeat(100)));
+        assert_eq!(long, short + 2, "100 chars take three 34-wide rows");
     }
 
     #[test]

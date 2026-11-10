@@ -9,6 +9,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- Long text in the command line or a picker's input wraps onto more rows instead of running past the box, which grows a row at a time (GUI and terminal).
 - The GUI blurs the page behind popups (pickers, the palette, notification cards, which-key, help, tooltips) on the GPU: `popups.blur` (pixels, default 20; 0 turns it off). `popups.opacity` now defaults to 85 so the blurred page shows through.
 
 ## [0.40.0] - 2026-11-10
