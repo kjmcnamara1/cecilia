@@ -741,6 +741,12 @@ fn option_values(name: &str) -> Vec<String> {
     let Ok(spec) = crate::options::spec(name) else {
         return Vec::new();
     };
+    if name == "theme.preset" {
+        return crate::theme::preset_names()
+            .into_iter()
+            .chain(["default".into()])
+            .collect();
+    }
     let words: Vec<&str> = match spec.kind {
         Kind::Bool => vec!["true", "false", "toggle", "default"],
         Kind::Choice(c) => c.iter().copied().chain(["default"]).collect(),

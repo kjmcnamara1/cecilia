@@ -71,10 +71,13 @@ prefix_width = 14        # …keeping this many characters at the start
 suffix_width = 10        # …and this many at the end
 
 [theme]
-# A built-in theme: "dark", "light", "nord", "gruvbox", "solarized-dark", "solarized-light",
+# A built-in theme: "dark", "light", "nord", "nord-dark", "nord-light", "gruvbox", "solarized-dark", "solarized-light",
 # "catppuccin-latte", "catppuccin-frappe", "catppuccin-macchiato", "catppuccin-mocha", or
-# the logo's gold/cream on neutral charcoal: "cecilia-dark" (dark UI and page, light engraving), "cecilia-hybrid"
+# the logo's gold/cream on neutral charcoal: "cecilia-dark" (dark UI and page, light engraving), "cecilia"
 # (dark UI, light page, black engraving) and "cecilia-light" (light UI and page, black engraving).
+# Or the name of a file in the themes folder next to this file ("mine" for themes/mine.toml): it
+# has the keys of this section and starts from the theme its own `preset` names (default "dark").
+# The built-in ones are in crates/cecilia-app/themes/ in the source: copy one to start.
 preset = "dark"
 # A theme file with the same keys as this section (absolute, ~/…, or relative to this folder);
 # keys here override it. Edits to it apply while cecilia runs.

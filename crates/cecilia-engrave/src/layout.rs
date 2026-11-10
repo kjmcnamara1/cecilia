@@ -2124,7 +2124,12 @@ impl Ctx<'_> {
                     continue;
                 }
                 let y = std_bottom - l as f64 * sp;
-                page.line((x0, y), (x1, y), 0.13 * sp);
+                page.items.push(Item::Line {
+                    from: Point::new(x0, y),
+                    to: Point::new(x1, y),
+                    width: 0.1 * sp,
+                    color: Color::GREY,
+                });
             }
         }
         if self.tab {
@@ -2236,7 +2241,7 @@ impl Ctx<'_> {
                 page.items.push(Item::Line {
                     from: Point::new(x0, y),
                     to: Point::new(x1, y),
-                    width: 0.16 * sp,
+                    width: 0.14 * sp,
                     color,
                 });
             }
