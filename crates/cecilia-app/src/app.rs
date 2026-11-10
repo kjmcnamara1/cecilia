@@ -1978,6 +1978,10 @@ impl App {
         if old.file.audio.soundfont != self.config.file.audio.soundfont {
             self.effects.push(Effect::ConfigReloaded);
         }
+        // A paused or running player keeps the speed it was last given.
+        if old.file.audio.speed != self.config.file.audio.speed {
+            self.effects.push(Effect::PlaybackSettings);
+        }
     }
 
     /// `:set`: applies one option to a copy of the config file and rebuilds the config from it.

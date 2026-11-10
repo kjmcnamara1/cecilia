@@ -1066,6 +1066,23 @@ mod key_tests {
     }
 
     #[test]
+    fn set_audio_speed_queues_playback_settings() {
+        let mut app = App::new(Config::default(), None);
+        app.take_effects();
+        app.run(crate::Command::parse("set audio.speed 1.5").unwrap());
+        assert!(
+            app.take_effects()
+                .contains(&crate::Effect::PlaybackSettings)
+        );
+        // An unrelated option does not.
+        app.run(crate::Command::parse("set tabline.wrap true").unwrap());
+        assert!(
+            !app.take_effects()
+                .contains(&crate::Effect::PlaybackSettings)
+        );
+    }
+
+    #[test]
     fn case_setting_from_config_and_a_command_mode_binding() {
         let (config, errors) = Config::parse(
             "[ui]\ncompletion_ignore_case = false\n[keymap.command]\n\"<C-g>\" = \"set ui.completion_ignore_case toggle\"\n",
