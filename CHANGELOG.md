@@ -17,6 +17,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - The command history is saved between sessions (`commands.jsonl` next to the notification history).
 - Pickers list their entries downward from the input line (`<Down>`/`<Tab>` go further); only the command history still lists upward.
 - The command history shows when each line was run on the right, like the notification history: `ui.command_history_time` (`relative` / `absolute`), and `ui.command_history_size` caps how many lines are kept (0: none).
+
+## [0.41.0] - 2026-11-10
+
+### Added
+
 - Long text in the command line or a picker's input wraps onto more rows instead of running past the box, which grows a row at a time (GUI and terminal).
 - The GUI blurs the page behind popups (pickers, the palette, notification cards, which-key, help, tooltips) on the GPU: `popups.blur` (pixels, default 20; 0 turns it off). `popups.opacity` now defaults to 85 so the blurred page shows through.
 
