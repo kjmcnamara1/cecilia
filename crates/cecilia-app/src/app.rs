@@ -2024,6 +2024,33 @@ impl App {
         }
     }
 
+    /// Makes `config` current and re-copies the settings mirrored in `App` fields.
+    fn install_config(&mut self, config: Config) {
+        self.config = config;
+        self.follow = self.config.file.ui.follow_playback;
+        self.completion_ignore_case = self.config.file.ui.completion_ignore_case;
+        self.completion_fuzzy = self.config.file.ui.completion_fuzzy;
+        self.every_bar_number = self.config.file.ui.bar_numbers == "every";
+        self.highlight_incomplete_bars = self.config.file.ui.highlight_incomplete_bars;
+        self.effects.push(Effect::ConfigReloaded);
+    }
+
+    /// `:set`: applies one option to a copy of the config file and rebuilds the config from it.
+    fn set_option(&mut self, name: &str, value: Option<&str>) {
+        let mut file = self.config.file.clone();
+        match crate::options::set(&mut file, name, value) {
+            Ok(v) => {
+                let mut overrides = std::mem::take(&mut self.config.overrides);
+                overrides.insert(name.to_string(), v.clone());
+                let mut config = Config::from_file(file).0;
+                config.overrides = overrides;
+                self.install_config(config);
+                self.info(format!("{name} = {v}"));
+            }
+            Err(e) => self.error(e),
+        }
+    }
+
     pub fn reload_config(&mut self) {
         let Some(path) = self.config_path.clone() else {
             self.error("no config file");
@@ -2037,13 +2064,7 @@ impl App {
             .collect();
         match Config::load(&path, &overrides) {
             Ok((config, errors)) => {
-                self.config = config;
-                self.follow = self.config.file.ui.follow_playback;
-                self.completion_ignore_case = self.config.file.ui.completion_ignore_case;
-                self.completion_fuzzy = self.config.file.ui.completion_fuzzy;
-                self.every_bar_number = self.config.file.ui.bar_numbers == "every";
-                self.highlight_incomplete_bars = self.config.file.ui.highlight_incomplete_bars;
-                self.effects.push(Effect::ConfigReloaded);
+                self.install_config(config);
                 if errors.is_empty() {
                     self.info(format!("config reloaded: {}", path.display()));
                 } else {
@@ -2633,6 +2654,11 @@ impl App {
             }
             ResizeEqual => self.views[self.active_view].root.equalize(),
             Toolbar(on) => self.toolbar = on.unwrap_or(!self.toolbar),
+            Set(name, value) => self.set_option(&name, value.as_deref()),
+            Get(name) => match crate::options::get(&self.config.file, &name) {
+                Ok(v) => self.info(format!("{name} = {v}")),
+                Err(e) => self.error(e),
+            },
             EqualizeOnClose(on) => {
                 let ui = &mut self.config.file.ui;
                 ui.equalize_on_close = on.unwrap_or(!ui.equalize_on_close);
@@ -4697,6 +4723,77 @@ pub(crate) mod tests {
         assert!(app.config.file.ui.equalize_on_close);
         app.run(Command::parse("equalize-on-close off").unwrap());
         assert!(!app.config.file.ui.equalize_on_close);
+    }
+
+    fn msg(app: &App) -> (String, bool) {
+        let m = app.message.as_ref().expect("a message");
+        (m.text.clone(), m.error)
+    }
+
+    #[test]
+    fn set_toggles_and_shows_value() {
+        let mut app = App::new(Config::default(), None);
+        assert!(app.config.file.tabline.wrap);
+        app.run(Command::parse("set tabline.wrap toggle").unwrap());
+        assert!(!app.config.file.tabline.wrap);
+        assert_eq!(msg(&app), ("tabline.wrap = false".into(), false));
+        app.run(Command::parse("get tabline.wrap").unwrap());
+        assert_eq!(msg(&app), ("tabline.wrap = false".into(), false));
+    }
+
+    #[test]
+    fn set_error_keeps_value_and_reports() {
+        let mut app = App::new(Config::default(), None);
+        let before = app.config.file.ui.bar_numbers.clone();
+        app.run(Command::parse("set ui.bar_numbers bogus").unwrap());
+        assert_eq!(app.config.file.ui.bar_numbers, before);
+        let (text, error) = msg(&app);
+        assert!(error);
+        assert!(text.contains("every"), "{text}");
+        assert!(Command::parse("set").is_err());
+        assert!(Command::parse("get").is_err());
+    }
+
+    #[test]
+    fn set_rebuilds_keymaps() {
+        use crate::config::Lookup;
+        let mut app = App::new(Config::default(), None);
+        app.run(Command::parse("set general.leader ,").unwrap());
+        let k = |s| crate::keys::parse_keys(s, &[]).unwrap();
+        match app.config.keymap(Mode::Normal).lookup(&k(",p")) {
+            Lookup::Exact(c) => assert_eq!(c, [Command::parse("properties").unwrap()]),
+            _ => panic!(",p should be bound"),
+        }
+    }
+
+    #[test]
+    fn set_survives_reload() {
+        let dir = std::env::temp_dir().join(format!("cecilia-set-reload-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let path = dir.join("config.toml");
+        std::fs::write(&path, "[tabline]\nwrap = true\n").unwrap();
+        let (config, _) = Config::load(&path, &[]).unwrap();
+        let mut app = App::new(config, Some(path.clone()));
+        app.run(Command::parse("set tabline.wrap false").unwrap());
+        std::fs::write(
+            &path,
+            "[tabline]\nwrap = true\n[ui]\nbar_numbers = \"every\"\n",
+        )
+        .unwrap();
+        app.reload_config();
+        assert!(!app.config.file.tabline.wrap);
+        assert_eq!(app.config.file.ui.bar_numbers, "every");
+        assert!(app.every_bar_number);
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn set_default_resets() {
+        let mut app = App::new(Config::default(), None);
+        app.run(Command::parse("set tabline.wrap false").unwrap());
+        app.run(Command::parse("set tabline.wrap default").unwrap());
+        assert!(app.config.file.tabline.wrap);
+        assert_eq!(msg(&app), ("tabline.wrap = true".into(), false));
     }
 
     #[test]

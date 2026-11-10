@@ -315,6 +315,11 @@ pub enum Command {
     Tuner(Option<bool>),
     /// Show or hide the toolbar (no argument: toggle).
     Toolbar(Option<bool>),
+    /// `:set NAME [VALUE]`: change an option for this session (no value: toggle booleans;
+    /// `default` resets).
+    Set(String, Option<String>),
+    /// `:get NAME`: show an option's value.
+    Get(String),
     /// Turn `ui.equalize_on_close` on or off for this session (no argument: toggle).
     EqualizeOnClose(Option<bool>),
     /// Set `ui.focus_ring_width` for this session (no argument: show it).
@@ -1282,6 +1287,14 @@ impl Command {
                 Some("off") => Some(false),
                 Some(a) => return Err(format!("toolbar: '{a}' is not on or off")),
             }),
+            "set" => {
+                let rest = arg.ok_or("set: expected OPTION [VALUE]")?;
+                match rest.split_once(char::is_whitespace) {
+                    Some((n, v)) => Set(n.into(), Some(v.trim().into())),
+                    None => Set(rest.into(), None),
+                }
+            }
+            "get" => Get(arg.ok_or("get: expected OPTION")?.into()),
             "equalize-on-close" => EqualizeOnClose(match arg {
                 None => None,
                 Some("on") => Some(true),
