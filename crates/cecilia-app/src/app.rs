@@ -2029,7 +2029,13 @@ impl App {
             self.error("no config file");
             return;
         };
-        match Config::load(&path) {
+        let overrides: Vec<(String, String)> = self
+            .config
+            .overrides
+            .iter()
+            .map(|(k, v)| (k.clone(), v.clone()))
+            .collect();
+        match Config::load(&path, &overrides) {
             Ok((config, errors)) => {
                 self.config = config;
                 self.follow = self.config.file.ui.follow_playback;
@@ -3944,7 +3950,7 @@ pub(crate) mod tests {
     fn ctrl_and_ctrl_shift_bind_separately_and_macros_keep_shift() {
         use crate::config::Lookup;
         let toml = "[keymap.normal]\n\"<C-S-q>\" = \"quit!\"\n";
-        let (config, errors) = Config::parse(toml).unwrap();
+        let (config, errors) = Config::parse(toml, &[]).unwrap();
         assert!(errors.is_empty(), "{errors:?}");
         let map = config.keymap(Mode::Normal);
         let k = |s| crate::keys::parse_keys(s, &[]).unwrap();
@@ -4326,7 +4332,7 @@ pub(crate) mod tests {
         app.run(Command::AudioPane(Some(false)));
         assert!(!app.has_tool(PaneKind::Audio));
         // The old setting still loads, with a warning.
-        let (_, errors) = Config::parse("[ui]\nglobal_waveform = true\n").unwrap();
+        let (_, errors) = Config::parse("[ui]\nglobal_waveform = true\n", &[]).unwrap();
         assert!(errors[0].contains("ui.global_waveform"), "{errors:?}");
         // The scrollbar is on by default and toggles.
         assert!(app.scrollbar);
@@ -4699,7 +4705,7 @@ pub(crate) mod tests {
             let dir =
                 std::env::temp_dir().join(format!("cecilia-wrap-{wrap}-{}", std::process::id()));
             let f = files(&dir, &["a.ccm", "b.ccm"]);
-            let (config, _) = Config::parse(&format!("[tabline]\nwrap = {wrap}\n")).unwrap();
+            let (config, _) = Config::parse(&format!("[tabline]\nwrap = {wrap}\n"), &[]).unwrap();
             let mut app = App::new(config, None);
             app.set_tool(PaneKind::Properties, Some(false));
             for p in &f {
@@ -4716,7 +4722,7 @@ pub(crate) mod tests {
 
     #[test]
     fn appearance_settings_default_to_the_built_in_look_and_clamp() {
-        let (c, errors) = Config::parse("").unwrap();
+        let (c, errors) = Config::parse("", &[]).unwrap();
         assert!(errors.is_empty());
         assert!(c.file.tabline.wrap);
         assert_eq!(c.file.ui.focus_ring_width, 4.0);
@@ -4724,15 +4730,18 @@ pub(crate) mod tests {
             c.focus_ring_color(c.theme.mode_color(Mode::Normal)),
             c.theme.mode_color(Mode::Normal)
         );
-        let (c, errors) =
-            Config::parse("[ui]\nfocus_ring_width = 20\nfocus_ring_color = \"#102030\"\n").unwrap();
+        let (c, errors) = Config::parse(
+            "[ui]\nfocus_ring_width = 20\nfocus_ring_color = \"#102030\"\n",
+            &[],
+        )
+        .unwrap();
         assert_eq!(errors.len(), 1, "{errors:?}");
         assert_eq!(c.file.ui.focus_ring_width, 8.0);
         assert_eq!(
             c.focus_ring_color(c.theme.mode_color(Mode::Insert)),
             crate::theme::Rgba::rgb(0x10, 0x20, 0x30)
         );
-        let (c, errors) = Config::parse("[ui]\nfocus_ring_color = \"red\"\n").unwrap();
+        let (c, errors) = Config::parse("[ui]\nfocus_ring_color = \"red\"\n", &[]).unwrap();
         assert_eq!(errors.len(), 1);
         assert_eq!(
             c.focus_ring_color(c.theme.mode_color(Mode::Normal)),
@@ -4778,7 +4787,7 @@ pub(crate) mod tests {
 
     #[test]
     fn closing_a_pane_hands_its_space_over_without_equalize_on_close() {
-        let (config, _) = Config::parse("[ui]\nequalize_on_close = false\n").unwrap();
+        let (config, _) = Config::parse("[ui]\nequalize_on_close = false\n", &[]).unwrap();
         let mut app = App::new(config, None);
         let ([a, b, c], right) = three_left_one_right(&mut app);
         let right_before = rect_of(&app, right);
@@ -4804,7 +4813,8 @@ pub(crate) mod tests {
         keys(&mut app, "<Space>f");
         assert!(!app.cursor_hidden(0));
         // The setting turns it off.
-        let (config, _) = Config::parse("[ui]\nhide_cursor_while_following = false\n").unwrap();
+        let (config, _) =
+            Config::parse("[ui]\nhide_cursor_while_following = false\n", &[]).unwrap();
         app.config = config;
         keys(&mut app, "<Space>f");
         assert!(app.follow && !app.cursor_hidden(0));
@@ -5083,10 +5093,11 @@ pub(crate) mod tests {
         app.run(Command::parse("incomplete-bars off").unwrap());
         assert!(!app.highlight_incomplete_bars);
         assert!(Command::parse("incomplete-bars maybe").is_err());
-        let (config, errors) = Config::parse("[ui]\nhighlight_incomplete_bars = true\n").unwrap();
+        let (config, errors) =
+            Config::parse("[ui]\nhighlight_incomplete_bars = true\n", &[]).unwrap();
         assert!(errors.is_empty());
         assert!(App::new(config, None).highlight_incomplete_bars);
-        let (config, _) = Config::parse("[theme]\nincomplete_bar = \"#112233\"\n").unwrap();
+        let (config, _) = Config::parse("[theme]\nincomplete_bar = \"#112233\"\n", &[]).unwrap();
         assert_eq!(
             config.theme.incomplete_bar,
             crate::theme::Rgba::rgb(0x11, 0x22, 0x33)
@@ -5106,10 +5117,10 @@ pub(crate) mod tests {
         app.run(Command::parse("bar-numbers system").unwrap());
         assert!(!app.every_bar_number);
         assert!(Command::parse("bar-numbers sometimes").is_err());
-        let (config, errors) = Config::parse("[ui]\nbar_numbers = \"every\"\n").unwrap();
+        let (config, errors) = Config::parse("[ui]\nbar_numbers = \"every\"\n", &[]).unwrap();
         assert!(errors.is_empty());
         assert!(App::new(config, None).every_bar_number);
-        let (_, errors) = Config::parse("[ui]\nbar_numbers = \"odd\"\n").unwrap();
+        let (_, errors) = Config::parse("[ui]\nbar_numbers = \"odd\"\n", &[]).unwrap();
         assert!(errors[0].contains("ui.bar_numbers"), "{errors:?}");
     }
 }

@@ -1,6 +1,6 @@
 //! TOML configuration and keymaps.
 
-use std::collections::HashMap;
+use std::collections::{BTreeMap, HashMap};
 use std::path::{Path, PathBuf};
 
 use serde::{Deserialize, Serialize};
@@ -232,7 +232,7 @@ pub struct UiConfig {
     pub highlight_incomplete_bars: bool,
     /// Thickness in pixels of the ring around the focused pane in the GUI (0: none; 0 to 8).
     pub focus_ring_width: f64,
-
+    /// Color of that ring (#rgb, #rrggbb or #rrggbbaa); empty: the current mode's color.
     pub focus_ring_color: String,
     /// GUI: the font family of the lyrics text area in the properties pane: the app's text font
     /// (Source Sans 3) by default, or any installed font family.
@@ -997,6 +997,9 @@ pub struct Config {
     pub leader: Vec<Key>,
     /// Interface colors (`[theme]`).
     pub theme: crate::theme::Theme,
+    /// Option values given on the command line (or `:set` sessions): resolved name -> value.
+    /// They win over the file and survive a config reload.
+    pub overrides: BTreeMap<String, String>,
 }
 
 impl Default for Config {
@@ -1192,45 +1195,6 @@ impl Config {
             "keymap.command",
             &mut errors,
         );
-        if !matches!(file.ui.bar_numbers.as_str(), "system" | "every") {
-            errors.push(format!(
-                "ui.bar_numbers: '{}' is not system or every (using system)",
-                file.ui.bar_numbers
-            ));
-        }
-        if !matches!(
-            file.ui.chant_text_font.as_str(),
-            "noto-serif" | "source-sans"
-        ) {
-            errors.push(format!(
-                "ui.chant_text_font: '{}' is not noto-serif or source-sans (using noto-serif)",
-                file.ui.chant_text_font
-            ));
-        }
-        file.ui.sync_snap = file.ui.sync_snap.clamp(0.0, 200.0);
-        if cecilia_core::melody::ChordPolicy::parse(&file.ui.chant_chords).is_none() {
-            errors.push(format!(
-                "ui.chant_chords: '{}' is not top, bottom or error (using top)",
-                file.ui.chant_chords
-            ));
-        }
-        let ui = &mut file.ui;
-        if !(0.0..=FOCUS_RING_WIDTH_MAX).contains(&ui.focus_ring_width) {
-            errors.push(format!(
-                "ui.focus_ring_width: {} is outside 0 to 8 (clamped)",
-                ui.focus_ring_width
-            ));
-        }
-        ui.focus_ring_width = clamp_setting(ui.focus_ring_width, 0.0, FOCUS_RING_WIDTH_MAX, 4.0);
-        if !ui.focus_ring_color.is_empty()
-            && crate::theme::Rgba::parse(&ui.focus_ring_color).is_none()
-        {
-            errors.push(format!(
-                "ui.focus_ring_color: '{}' is not a #rrggbb color (using the mode's color)",
-                ui.focus_ring_color
-            ));
-            ui.focus_ring_color = String::new();
-        }
         if file.ui.global_waveform.is_some() {
             errors.push(
                 "ui.global_waveform: no longer used; list \"waveform\" in ui.global_tools and open it with :waveform".into(),
@@ -1241,22 +1205,12 @@ impl Config {
                 "keymap.play: there is no Play mode any more; bind these in [keymap.normal]".into(),
             );
         }
+        // After the deprecated-setting checks: validation rebuilds the file from the registry.
+        errors.extend(crate::options::validate(&mut file));
         keymaps.insert(Mode::Normal, normal);
         keymaps.insert(Mode::Command, command);
         let (theme, theme_errors) = crate::theme::Theme::from_config(&file.theme);
         errors.extend(theme_errors);
-        if !["treble", "bass", "grand"].contains(&file.score.clef.as_str()) {
-            errors.push(format!(
-                "score.clef: '{}' is not treble, bass or grand",
-                file.score.clef
-            ));
-        }
-        if !["arrow", "round", "none"].contains(&file.statusline.separators.as_str()) {
-            errors.push(format!(
-                "statusline.separators: '{}' is not arrow, round or none",
-                file.statusline.separators
-            ));
-        }
         for item in &file.toolbar.items {
             if item.trim() != "|" {
                 if let Err(e) = Command::parse(item) {
@@ -1273,6 +1227,7 @@ impl Config {
                 design_keymap,
                 leader,
                 theme,
+                overrides: BTreeMap::new(),
             },
             errors,
         )
@@ -1280,15 +1235,32 @@ impl Config {
 
     /// Parses TOML text. Hard errors (invalid TOML/unknown fields) return `Err`; invalid
     /// keymap entries are skipped and reported in the returned list.
-    pub fn parse(text: &str) -> Result<(Self, Vec<String>), String> {
-        let file: ConfigFile = toml::from_str(text).map_err(|e| e.to_string())?;
-        Ok(Self::from_file(file))
+    pub fn parse(
+        text: &str,
+        overrides: &[(String, String)],
+    ) -> Result<(Self, Vec<String>), String> {
+        let mut file: ConfigFile = toml::from_str(text).map_err(|e| e.to_string())?;
+        let mut resolved = BTreeMap::new();
+        for (name, value) in overrides {
+            let v = crate::options::set(&mut file, name, Some(value))?;
+            resolved.insert(name.clone(), v);
+        }
+        let (mut config, errors) = Self::from_file(file);
+        config.overrides = resolved;
+        Ok((config, errors))
     }
 
-    pub fn load(path: &Path) -> Result<(Self, Vec<String>), String> {
+    /// Loads the config file at `path` (defaults when it doesn't exist), then applies the
+    /// `overrides` (raw name/value pairs) on top.
+    pub fn load(
+        path: &Path,
+        overrides: &[(String, String)],
+    ) -> Result<(Self, Vec<String>), String> {
         match std::fs::read_to_string(path) {
-            Ok(text) => Self::parse(&text).map_err(|e| format!("{}: {e}", path.display())),
-            Err(e) if e.kind() == std::io::ErrorKind::NotFound => Ok((Self::default(), vec![])),
+            Ok(text) => {
+                Self::parse(&text, overrides).map_err(|e| format!("{}: {e}", path.display()))
+            }
+            Err(e) if e.kind() == std::io::ErrorKind::NotFound => Self::parse("", overrides),
             Err(e) => Err(format!("{}: {e}", path.display())),
         }
     }
@@ -1427,6 +1399,7 @@ mod tests {
             "h" = "nop"
             "q" = "not-a-command"
             "#,
+            &[],
         )
         .unwrap();
         assert_eq!(errors.len(), 1);
@@ -1448,6 +1421,7 @@ mod tests {
             [keymap.insert-standard]
             "a" = "accidental sharp"
             "#,
+            &[],
         )
         .unwrap();
         assert!(errors.is_empty(), "{errors:?}");
@@ -1471,8 +1445,8 @@ mod tests {
 
     #[test]
     fn invalid_toml_is_an_error() {
-        assert!(Config::parse("[general]\nleader = ").is_err());
-        assert!(Config::parse("[nope]\n").is_err());
+        assert!(Config::parse("[general]\nleader = ", &[]).is_err());
+        assert!(Config::parse("[nope]\n", &[]).is_err());
     }
 
     #[test]
@@ -1481,6 +1455,7 @@ mod tests {
         assert!(c.file.ui.waveform_time_ticks.shows(false));
         let (c, errors) = Config::parse(
             "[ui]\nwaveform_time_ticks = \"major\"\nwaveform_beat_ticks = \"off\"\nwaveform_time_labels = false\n",
+            &[],
         )
         .unwrap();
         assert!(errors.is_empty());
@@ -1492,24 +1467,71 @@ mod tests {
 
     #[test]
     fn the_chant_text_font_is_noto_serif_or_source_sans() {
-        let (c, errors) = Config::parse("").unwrap();
+        let (c, errors) = Config::parse("", &[]).unwrap();
         assert!(errors.is_empty());
         assert_eq!(c.file.ui.chant_text_font, "noto-serif");
-        let (_, errors) = Config::parse("[ui]\nchant_text_font = \"source-sans\"\n").unwrap();
+        let (_, errors) = Config::parse("[ui]\nchant_text_font = \"source-sans\"\n", &[]).unwrap();
         assert!(errors.is_empty(), "{errors:?}");
-        let (_, errors) = Config::parse("[ui]\nchant_text_font = \"comic\"\n").unwrap();
+        let (_, errors) = Config::parse("[ui]\nchant_text_font = \"comic\"\n", &[]).unwrap();
         assert_eq!(errors.len(), 1, "{errors:?}");
     }
 
     #[test]
     fn the_example_config_loads_cleanly() {
-        let (_, errors) = Config::parse(include_str!("../../../docs/config.example.toml")).unwrap();
+        let (_, errors) =
+            Config::parse(include_str!("../../../docs/config.example.toml"), &[]).unwrap();
         assert!(errors.is_empty(), "{errors:?}");
     }
 
     #[test]
     fn an_old_play_keymap_still_loads_with_a_warning() {
-        let (_, errors) = Config::parse("[keymap.play]\n\"p\" = \"play-toggle\"\n").unwrap();
+        let (_, errors) = Config::parse("[keymap.play]\n\"p\" = \"play-toggle\"\n", &[]).unwrap();
         assert!(errors[0].contains("keymap.play"), "{errors:?}");
+    }
+
+    fn pairs(v: &[(&str, &str)]) -> Vec<(String, String)> {
+        v.iter()
+            .map(|(a, b)| (a.to_string(), b.to_string()))
+            .collect()
+    }
+
+    #[test]
+    fn invalid_option_in_file_warns_and_defaults() {
+        let (c, errors) =
+            Config::parse("[ui]\nbar_numbers = \"x\"\ntab_width = 99\n", &[]).unwrap();
+        assert_eq!(c.file.ui.bar_numbers, "system");
+        assert_eq!(c.file.ui.tab_width, 8);
+        assert!(
+            errors.iter().any(|e| e.starts_with("ui.bar_numbers:")),
+            "{errors:?}"
+        );
+        assert!(
+            errors.iter().any(|e| e.starts_with("ui.tab_width:")),
+            "{errors:?}"
+        );
+    }
+
+    #[test]
+    fn overrides_beat_the_file() {
+        let (c, errors) = Config::parse(
+            "[tabline]\nwrap = true\n",
+            &pairs(&[("tabline.wrap", "false")]),
+        )
+        .unwrap();
+        assert!(errors.is_empty(), "{errors:?}");
+        assert!(!c.file.tabline.wrap);
+        assert_eq!(
+            c.overrides.get("tabline.wrap").map(String::as_str),
+            Some("false")
+        );
+    }
+
+    #[test]
+    fn bad_override_is_an_error() {
+        let e = Config::parse("", &pairs(&[("tabline.wrap", "maybe")]))
+            .err()
+            .unwrap();
+        assert!(e.contains("tabline.wrap"), "{e}");
+        assert!(Config::parse("", &pairs(&[("nope.nothing", "1")])).is_err());
     }
 }

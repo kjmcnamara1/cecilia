@@ -2996,7 +2996,7 @@ mod render_tests {
 
     #[test]
     fn the_toolbar_shows_its_buttons_and_runs_them() {
-        let (config, _) = cecilia_app::Config::parse("[tabline]\nicons = \"none\"\n").unwrap();
+        let (config, _) = cecilia_app::Config::parse("[tabline]\nicons = \"none\"\n", &[]).unwrap();
         let mut app = App::new(config, None);
         app.run(cecilia_app::Command::New);
         let mut terminal = Terminal::new(TestBackend::new(120, 20)).unwrap();

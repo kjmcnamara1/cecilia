@@ -1008,6 +1008,7 @@ mod key_tests {
     fn case_setting_from_config_and_a_command_mode_binding() {
         let (config, errors) = Config::parse(
             "[ui]\ncompletion_ignore_case = false\n[keymap.command]\n\"<C-g>\" = \"completion-ignore-case\"\n",
+            &[],
         )
         .unwrap();
         assert!(errors.is_empty(), "{errors:?}");

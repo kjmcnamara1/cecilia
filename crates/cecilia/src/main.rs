@@ -83,7 +83,7 @@ fn main() -> Result<()> {
         .clone()
         .or_else(cecilia_app::config::default_config_path);
     let (config, warnings) = match &config_path {
-        Some(p) => Config::load(p).map_err(anyhow::Error::msg)?,
+        Some(p) => Config::load(p, &[]).map_err(anyhow::Error::msg)?,
         None => (Config::default(), vec![]),
     };
     match cli.command {

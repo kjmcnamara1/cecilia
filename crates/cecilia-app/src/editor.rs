@@ -2510,8 +2510,11 @@ mod tests {
 
     #[test]
     fn help_lists_user_bindings_and_not_removed_ones() {
-        let (config, _) =
-            Config::parse("[keymap.normal]\n\"gz\" = \"bar-next\"\n\"o\" = \"nop\"\n").unwrap();
+        let (config, _) = Config::parse(
+            "[keymap.normal]\n\"gz\" = \"bar-next\"\n\"o\" = \"nop\"\n",
+            &[],
+        )
+        .unwrap();
         let mut app = App::new(config, None);
         app.run(Command::New);
         let rows = app.help_view().1;
@@ -2524,7 +2527,7 @@ mod tests {
         let mut app = app();
         keys(&mut app, "qa<F1><F1>q");
         assert_eq!(app.recording_macro(), None);
-        let (config, _) = Config::parse("[keymap.normal]\n\"<F1>\" = \"bar-next\"\n").unwrap();
+        let (config, _) = Config::parse("[keymap.normal]\n\"<F1>\" = \"bar-next\"\n", &[]).unwrap();
         let mut app = App::new(config, None);
         app.run(Command::New);
         keys(&mut app, "<F1>");
@@ -2829,7 +2832,7 @@ mod tests {
 
     #[test]
     fn default_clef_from_config() {
-        let (cfg, errors) = Config::parse("[score]\nclef = \"bass\"\n").unwrap();
+        let (cfg, errors) = Config::parse("[score]\nclef = \"bass\"\n", &[]).unwrap();
         assert!(errors.is_empty());
         let mut a = App::new(cfg, None);
         a.run(Command::New);

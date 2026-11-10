@@ -1923,6 +1923,7 @@ mod tests {
         // A user override changes the text.
         let (config, errors) = Config::parse(
             "[keymap.insert-tab]\n\"p\" = \"toggle palm-mute\"\n\"M\" = \"toggle palm-mute\"\n",
+            &[],
         )
         .unwrap();
         assert!(errors.is_empty(), "{errors:?}");
@@ -1934,7 +1935,7 @@ mod tests {
     }
 
     fn no_wrap_app() -> App {
-        let (config, _) = Config::parse("[ui]\npalette_wrap = false\n").unwrap();
+        let (config, _) = Config::parse("[ui]\npalette_wrap = false\n", &[]).unwrap();
         let mut app = App::new(config, None);
         app.run(Command::New);
         app.run(Command::PaletteFocus);

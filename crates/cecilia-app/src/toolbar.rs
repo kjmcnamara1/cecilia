@@ -193,7 +193,7 @@ mod tests {
         app.run(Command::Toolbar(None));
         assert!(!app.toolbar);
         let (config, errors) =
-            Config::parse("[toolbar]\nitems = [\"write\", \"|\", \"nonsense\"]\n").unwrap();
+            Config::parse("[toolbar]\nitems = [\"write\", \"|\", \"nonsense\"]\n", &[]).unwrap();
         assert_eq!(errors.len(), 1, "{errors:?}");
         let app = App::new(config, None);
         assert_eq!(app.toolbar_items().len(), 2);
