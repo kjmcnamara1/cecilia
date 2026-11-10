@@ -681,12 +681,9 @@ impl App {
         let scrollbar = config.file.ui.scrollbar;
         let (score_layout, zoom) = (config.file.ui.layout.clone(), config.file.ui.zoom);
         let config_mtime = config_path.as_deref().and_then(mtime);
-        let theme_mtime = config
-            .file
-            .theme
-            .file
-            .as_deref()
-            .map(crate::theme::theme_path)
+        let theme_file = config.file.theme.file.as_str();
+        let theme_mtime = (!theme_file.is_empty())
+            .then(|| crate::theme::theme_path(std::path::Path::new(theme_file)))
             .and_then(|p| mtime(&p));
         let mut panes = HashMap::new();
         panes.insert(
@@ -2016,13 +2013,9 @@ impl App {
             return;
         };
         let m = mtime(&path);
-        let theme = self
-            .config
-            .file
-            .theme
-            .file
-            .as_deref()
-            .map(crate::theme::theme_path)
+        let theme_file = self.config.file.theme.file.as_str();
+        let theme = (!theme_file.is_empty())
+            .then(|| crate::theme::theme_path(std::path::Path::new(theme_file)))
             .and_then(|p| mtime(&p));
         if m != self.config_mtime || theme != self.theme_mtime {
             self.config_mtime = m;
@@ -2653,12 +2646,12 @@ impl App {
             FocusRingColor(a) => {
                 let ui = &mut self.config.file.ui;
                 match a {
-                    SettingArg::Set(c) => ui.focus_ring_color = Some(c),
-                    SettingArg::Default => ui.focus_ring_color = None,
+                    SettingArg::Set(c) => ui.focus_ring_color = c,
+                    SettingArg::Default => ui.focus_ring_color = String::new(),
                     SettingArg::Show => {}
                 }
                 let c = self.focus_ring_color().hex();
-                let from = if self.config.file.ui.focus_ring_color.is_some() {
+                let from = if !self.config.file.ui.focus_ring_color.is_empty() {
                     ""
                 } else {
                     " (the mode's color)"
@@ -4771,7 +4764,7 @@ pub(crate) mod tests {
         );
         run(&mut app, "focus-ring-color");
         run(&mut app, "focus-ring-color default");
-        assert!(app.config.file.ui.focus_ring_color.is_none());
+        assert!(app.config.file.ui.focus_ring_color.is_empty());
         assert!(Command::parse("focus-ring-color red").is_err());
 
         run(&mut app, "tabline-wrap");

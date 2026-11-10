@@ -3,7 +3,7 @@
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 
-use serde::Deserialize;
+use serde::{Deserialize, Serialize};
 
 use crate::command::Command;
 use crate::keys::{Key, parse_keys};
@@ -30,7 +30,7 @@ pub enum Mode {
     Sync,
 }
 
-#[derive(Debug, Clone, Default, Deserialize)]
+#[derive(Debug, Clone, Default, Deserialize, Serialize)]
 #[serde(default, deny_unknown_fields)]
 pub struct ConfigFile {
     pub general: GeneralConfig,
@@ -46,7 +46,7 @@ pub struct ConfigFile {
 }
 
 /// Score defaults (`[score]`).
-#[derive(Debug, Clone, Deserialize)]
+#[derive(Debug, Clone, Deserialize, Serialize)]
 #[serde(default, deny_unknown_fields)]
 pub struct ScoreConfig {
     /// Clef of a standard staff added without one: "treble", "bass" or "grand".
@@ -63,7 +63,7 @@ impl Default for ScoreConfig {
 
 /// The status line: how the terminal separates its sections: "arrow" (default), "round" or
 /// "none" (the GUI draws rounded chips).
-#[derive(Debug, Clone, Deserialize)]
+#[derive(Debug, Clone, Deserialize, Serialize)]
 #[serde(default, deny_unknown_fields)]
 pub struct StatuslineConfig {
     pub separators: String,
@@ -78,7 +78,7 @@ impl Default for StatuslineConfig {
 }
 
 /// The toolbar's buttons: command lines in order, `"|"` between groups.
-#[derive(Debug, Clone, Deserialize)]
+#[derive(Debug, Clone, Deserialize, Serialize)]
 #[serde(default, deny_unknown_fields)]
 pub struct ToolbarConfig {
     pub items: Vec<String>,
@@ -96,7 +96,7 @@ impl Default for ToolbarConfig {
 }
 
 /// The tabline: the active view's buffers as tabs on the left, the views on the right.
-#[derive(Debug, Clone, Deserialize)]
+#[derive(Debug, Clone, Deserialize, Serialize)]
 #[serde(default, deny_unknown_fields)]
 pub struct TablineConfig {
     /// What a new view starts with: "copy" (the current view's buffers), "current" (the
@@ -126,7 +126,7 @@ impl Default for TablineConfig {
 
 /// Long file names in tabs keep their first `prefix_width` and last `suffix_width`
 /// characters around an ellipsis, to at most `max_width` characters.
-#[derive(Debug, Clone, Deserialize)]
+#[derive(Debug, Clone, Deserialize, Serialize)]
 #[serde(default, deny_unknown_fields)]
 pub struct TruncationConfig {
     pub max_width: usize,
@@ -144,7 +144,7 @@ impl Default for TruncationConfig {
     }
 }
 
-#[derive(Debug, Clone, Deserialize)]
+#[derive(Debug, Clone, Deserialize, Serialize)]
 #[serde(default, deny_unknown_fields)]
 pub struct GeneralConfig {
     pub leader: String,
@@ -158,7 +158,7 @@ impl Default for GeneralConfig {
     }
 }
 
-#[derive(Debug, Clone, Deserialize)]
+#[derive(Debug, Clone, Deserialize, Serialize)]
 #[serde(default, deny_unknown_fields)]
 pub struct UiConfig {
     /// TUI: characters per sixteenth note in the tab view.
@@ -232,8 +232,8 @@ pub struct UiConfig {
     pub highlight_incomplete_bars: bool,
     /// Thickness in pixels of the ring around the focused pane in the GUI (0: none; 0 to 8).
     pub focus_ring_width: f64,
-    /// Color of that ring (`#rgb`, `#rrggbb` or `#rrggbbaa`); unset: the current mode's color.
-    pub focus_ring_color: Option<String>,
+
+    pub focus_ring_color: String,
     /// GUI: the font family of the lyrics text area in the properties pane: the app's text font
     /// (Source Sans 3) by default, or any installed font family.
     pub lyrics_font: String,
@@ -258,7 +258,7 @@ pub struct UiConfig {
 }
 
 /// Which ticks of a waveform ruler are drawn.
-#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Deserialize)]
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Deserialize, Serialize)]
 #[serde(rename_all = "lowercase")]
 pub enum Ticks {
     #[default]
@@ -312,7 +312,7 @@ impl Default for UiConfig {
             bar_numbers: "system".into(),
             highlight_incomplete_bars: false,
             focus_ring_width: 4.0,
-            focus_ring_color: None,
+            focus_ring_color: String::new(),
             zoom: 1.0,
             lyrics_font: "Source Sans 3".into(),
             lyrics_font_size: 12.0,
@@ -327,7 +327,7 @@ impl Default for UiConfig {
 }
 
 /// Swap files (`[swap]`): recovery copies of buffers with unsaved changes.
-#[derive(Debug, Clone, Deserialize)]
+#[derive(Debug, Clone, Deserialize, Serialize)]
 #[serde(default, deny_unknown_fields)]
 pub struct SwapConfig {
     /// Write swap files.
@@ -353,7 +353,7 @@ impl Default for SwapConfig {
     }
 }
 
-#[derive(Debug, Clone, Deserialize)]
+#[derive(Debug, Clone, Deserialize, Serialize)]
 #[serde(default, deny_unknown_fields)]
 pub struct AudioConfig {
     /// SoundFont (.sf2) for MIDI playback; the built-in synth is used when unset.
@@ -375,14 +375,14 @@ impl Default for AudioConfig {
 }
 
 /// A keymap value: one command or a list of commands run in order.
-#[derive(Debug, Clone, Deserialize)]
+#[derive(Debug, Clone, Deserialize, Serialize)]
 #[serde(untagged)]
 pub enum Binding {
     One(String),
     Many(Vec<String>),
 }
 
-#[derive(Debug, Clone, Default, Deserialize)]
+#[derive(Debug, Clone, Default, Deserialize, Serialize)]
 #[serde(default, deny_unknown_fields)]
 pub struct KeymapConfig {
     pub normal: HashMap<String, Binding>,
@@ -1222,13 +1222,14 @@ impl Config {
             ));
         }
         ui.focus_ring_width = clamp_setting(ui.focus_ring_width, 0.0, FOCUS_RING_WIDTH_MAX, 4.0);
-        if let Some(c) = &ui.focus_ring_color {
-            if crate::theme::Rgba::parse(c).is_none() {
-                errors.push(format!(
-                    "ui.focus_ring_color: '{c}' is not a #rrggbb color (using the mode's color)"
-                ));
-                ui.focus_ring_color = None;
-            }
+        if !ui.focus_ring_color.is_empty()
+            && crate::theme::Rgba::parse(&ui.focus_ring_color).is_none()
+        {
+            errors.push(format!(
+                "ui.focus_ring_color: '{}' is not a #rrggbb color (using the mode's color)",
+                ui.focus_ring_color
+            ));
+            ui.focus_ring_color = String::new();
         }
         if file.ui.global_waveform.is_some() {
             errors.push(
@@ -1296,12 +1297,7 @@ impl Config {
     /// The focus ring's color: `ui.focus_ring_color` when set, else `fallback` (the mode's color,
     /// see [`crate::App::focus_ring_color`]).
     pub fn focus_ring_color(&self, fallback: crate::theme::Rgba) -> crate::theme::Rgba {
-        self.file
-            .ui
-            .focus_ring_color
-            .as_deref()
-            .and_then(crate::theme::Rgba::parse)
-            .unwrap_or(fallback)
+        crate::theme::Rgba::parse(&self.file.ui.focus_ring_color).unwrap_or(fallback)
     }
 
     pub fn keymap(&self, mode: Mode) -> &Keymap {
