@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.41.0] - 2026-11-10
+
 ### Added
 
 - Long text in the command line or a picker's input wraps onto more rows instead of running past the box, which grows a row at a time (GUI and terminal).
