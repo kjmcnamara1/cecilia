@@ -186,11 +186,19 @@ pub struct Theme {
     pub score_modern: Rgba,
     /// The outline of the edit cursor; `None` contrasts with the page (see [`Theme::cursor_border`]).
     pub cursor_border: Option<Rgba>,
+    /// How opaque the Visual-mode selection's `selection` color is over the score, in percent (0 to 100).
+    pub selection_opacity: f32,
+    /// How opaque the edit cursor's mode-colored shade is in the focused pane, in percent (0 to
+    /// 100); an unfocused pane's is dimmer in proportion.
+    pub cursor_opacity: f32,
     /// Colors given to tracks in order (a track can have its own with `:track-color`).
     pub track_colors: Vec<Rgba>,
     /// Colors of the voices in order: the selected voice in the editing palette's voice buttons.
     pub voice_colors: Vec<Rgba>,
 }
+
+/// The default opacity of the Visual-mode selection, in percent (alpha 55 of 255).
+pub const DEFAULT_SELECTION_OPACITY: f32 = 55.0 / 255.0 * 100.0;
 
 impl Theme {
     /// The color of a piece of the lyrics text area's text, and whether it is bold.
@@ -420,6 +428,23 @@ impl Theme {
         })
     }
 
+    /// The alpha (0 to 255) of the Visual-mode selection's color.
+    pub fn selection_alpha(&self) -> u8 {
+        (self.selection_opacity.clamp(0.0, 100.0) * 2.55).round() as u8
+    }
+
+    /// The alpha (0 to 255) of the edit cursor's shade, dimmer when its pane is not focused.
+    pub fn cursor_alpha(&self, focused: bool) -> u8 {
+        let a = self.cursor_opacity.clamp(0.0, 100.0) * 2.55;
+        (if focused { a } else { a * 45.0 / 110.0 }).round() as u8
+    }
+
+    /// How much of the selection color terminal cells take (half at the default opacity, which
+    /// reads stronger on a flat cell than a translucent fill does on a page).
+    pub fn selection_mix(&self) -> f32 {
+        (self.selection_opacity.clamp(0.0, 100.0) / DEFAULT_SELECTION_OPACITY * 0.5).min(1.0)
+    }
+
     /// The outline drawn around the edit cursor: the theme's `cursor_border`, else near-black
     /// on a light page and near-white on a dark one.
     pub fn cursor_border(&self) -> Rgba {
@@ -487,6 +512,16 @@ impl Theme {
     /// Lays one theme layer over the colors so far, reporting what couldn't be used.
     fn apply(&mut self, layer: &ThemeConfig, errors: &mut Vec<String>) {
         let accent_before = self.accent;
+        for (name, value, slot) in [
+            ("selection_opacity", layer.selection_opacity, &mut self.selection_opacity),
+            ("cursor_opacity", layer.cursor_opacity, &mut self.cursor_opacity),
+        ] {
+            match value {
+                Some(o) if (0.0..=100.0).contains(&o) => *slot = o,
+                Some(o) => errors.push(format!("theme.{name}: {o} is not between 0 and 100")),
+                None => {}
+            }
+        }
         for (name, value) in layer.colors.iter().filter(|(_, v)| !v.is_empty()) {
             let color = Rgba::parse(value);
             if color.is_none() {
@@ -622,6 +657,10 @@ pub struct ThemeConfig {
     pub track_colors: Vec<String>,
     /// The colors of voices 1, 2, … (the voice buttons of the editing palette; empty: built-in).
     pub voice_colors: Vec<String>,
+    /// How opaque the Visual-mode selection is, in percent, 0 to 100 (unset: the theme's).
+    pub selection_opacity: Option<f32>,
+    /// How opaque the edit cursor's shade is, 0 to 100 (unset: the theme's).
+    pub cursor_opacity: Option<f32>,
     #[serde(flatten)]
     pub colors: std::collections::BTreeMap<String, String>,
 }
@@ -633,6 +672,8 @@ impl Default for ThemeConfig {
             file: String::new(),
             track_colors: Vec::new(),
             voice_colors: Vec::new(),
+            selection_opacity: None,
+            cursor_opacity: None,
             colors: Default::default(),
         }
     }
@@ -681,6 +722,30 @@ mod tests {
         assert_eq!(t.voice_color(1), Rgba::rgb(0, 255, 0));
         // Unknown names are reported.
         let c: ThemeConfig = toml::from_str("chrom = \"#000000\"").unwrap();
+        assert_eq!(Theme::from_config(&c).1.len(), 1);
+    }
+
+    #[test]
+    fn selection_opacity_is_set_and_checked() {
+        let (t, e) = Theme::from_config(&toml::from_str("").unwrap());
+        assert!(e.is_empty());
+        assert_eq!(t.selection_alpha(), 55);
+        let c: ThemeConfig = toml::from_str("selection_opacity = 50").unwrap();
+        let (t, e) = Theme::from_config(&c);
+        assert!(e.is_empty());
+        assert_eq!(t.selection_alpha(), 128);
+        let c: ThemeConfig = toml::from_str("selection_opacity = 200").unwrap();
+        let (t, e) = Theme::from_config(&c);
+        assert_eq!(e.len(), 1);
+        assert_eq!(t.selection_alpha(), 55);
+        assert_eq!(preset("nord").selection_alpha(), 102);
+        let c: ThemeConfig = toml::from_str("cursor_opacity = 100").unwrap();
+        let (t, e) = Theme::from_config(&c);
+        assert!(e.is_empty());
+        assert_eq!((t.cursor_alpha(true), t.cursor_alpha(false)), (255, 104));
+        let (t, _) = Theme::from_config(&toml::from_str("").unwrap());
+        assert_eq!((t.cursor_alpha(true), t.cursor_alpha(false)), (110, 45));
+        let c: ThemeConfig = toml::from_str("cursor_opacity = -1").unwrap();
         assert_eq!(Theme::from_config(&c).1.len(), 1);
     }
 

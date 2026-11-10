@@ -100,6 +100,16 @@ pub static OPTIONS: LazyLock<Vec<OptionSpec>> = LazyLock::new(|| {
             "Command-line completion matches the typed letters in order anywhere.",
         ),
         o(
+            "ui.picker_position",
+            int(0, 100),
+            "How far down the window (percent) the command palette and pickers sit.",
+        ),
+        o(
+            "ui.picker_max_items",
+            int(1, 50),
+            "The most candidates the command palette and pickers list at once.",
+        ),
+        o(
             "ui.progress_bar",
             Bool,
             "A progress bar along the bottom of every score pane.",
@@ -332,6 +342,16 @@ pub static OPTIONS: LazyLock<Vec<OptionSpec>> = LazyLock::new(|| {
             "theme.voice_colors",
             List(&ItemKind::Color),
             "The colors of voices 1, 2, ...; empty: the built-in palette.",
+        ),
+        o(
+            "theme.selection_opacity",
+            float(0.0, 100.0),
+            "How opaque the Visual-mode selection is, in percent; default: the preset's.",
+        ),
+        o(
+            "theme.cursor_opacity",
+            float(0.0, 100.0),
+            "How opaque the edit cursor's shade is, in percent; default: the preset's.",
         ),
     ];
     v.extend(COLOR_NAMES.iter().map(|n| {

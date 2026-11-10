@@ -49,5 +49,7 @@ icon_midi = "#5ABE6E"
 icon_chant = "#B46ED2"
 icon_cecilia = "#3CBEBE"
 score_modern = "#B05F25"
+selection_opacity = 21.568627
+cursor_opacity = 43.137255
 track_colors = ["#D79D1E", "#86D71E", "#1ED740", "#1ED7CB", "#1E58D7", "#6F1ED7", "#D71EB4", "#D71E2A"]
 voice_colors = ["#468CE6", "#EB8C32", "#3CAA64", "#AA64D2"]
