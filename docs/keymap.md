@@ -82,7 +82,7 @@ Writing `.gp5` keeps two voices per bar (the status line warns when more with no
 | --------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------ |
 | `<leader><leader>`          | play / pause from cursor                                                                                                                                                                                                | _(M1)_ |
 | `<leader>s`                 | stop                                                                                                                                                                                                                    | _(M1)_ |
-| `<leader>f`                 | toggle following playback. A red bar always marks the playhead; while following, the editing cursor and the view move with it. Turned off (even mid-playback), the cursor stays where it is and is moved only by `hjkl` | _(M1)_ |
+| `<leader>f`                 | toggle following playback (`:set ui.follow_playback toggle`). A red bar always marks the playhead; while following, the editing cursor and the view move with it. Turned off (even mid-playback), the cursor stays where it is and is moved only by `hjkl` | _(M1)_ |
 | `<leader>l`                 | loop the selected bars (or the cursor bar) / loop off                                                                                                                                                                   | _(M5)_ |
 | `<leader>c`                 | toggle count-in                                                                                                                                                                                                         | _(M5)_ |
 | `<leader>m`                 | toggle metronome                                                                                                                                                                                                        | _(M5)_ |
@@ -176,7 +176,7 @@ cancels. `:bdelete!` closes without asking. A new score counts as unchanged unti
 Besides scores, a pane can show a **tool**: the tracks (`:tracks`), the audio waveform
 (`:waveform`), the piano (`:piano`), the fretboard (`:fretboard`) or the tuner
 (`:tuner`). Each command shows its tool, or hides it. A tool listed in `ui.global_tools` (all
-of them by default; `:global-tool TOOL` switches one between global and local, moving it if it
+of them by default; `:set ui.global_tools +tuner` / `-tuner` switches one between global and local, moving it if it
 is open) docks along the bottom of the whole view, above the status line, as wide as
 the window, and shows the score pane worked on last. Any other tool opens at the bottom of the
 score pane worked on last, as wide as it, and always shows that pane's score (focusing it
@@ -605,7 +605,7 @@ for, in quarter-note beats (`3.0/4.0` needs one more quarter; 6/8 is `3.0`, 7/8 
 decimal, two when that is not exact (a triplet remainder reads `3.67/4.0`). A complete bar
 reads in the normal color, a short or over-full one (`4.5/4.0`) in the error color. Free-time
 bars (chant) and a pickup first bar have no required count and show nothing. With
-`ui.highlight_incomplete_bars` (`:incomplete-bars`) such bars also get red staff lines.
+`ui.highlight_incomplete_bars` (`:set ui.highlight_incomplete_bars toggle`) such bars also get red staff lines.
 
 Shared keys:
 
@@ -703,21 +703,41 @@ Matching is **fuzzy** by default: the typed letters may appear anywhere in a can
 (`:sd` finds `sync-detect`, `speed-down`), with prefix matches first, then matches at word
 starts and in runs; matched letters are highlighted. One candidate starting with what you typed
 still completes outright on `<Tab>`. Matching also ignores letter case. Turn either off with
-`ui.completion_fuzzy = false` / `ui.completion_ignore_case = false` in `config.toml`, or change
-them on the fly with `:completion-fuzzy [on|off]` and `:completion-ignore-case [on|off]`
-(without an argument they toggle); bind them under `[keymap.command]` to flip them while typing,
-e.g. `"<C-g>" = "completion-ignore-case"`, `"<C-f>" = "completion-fuzzy"`.
+`ui.completion_fuzzy = false` / `ui.completion_ignore_case = false` in `config.toml`, or on the fly
+with `:set ui.completion_fuzzy toggle` and `:set ui.completion_ignore_case toggle`; bind them
+under `[keymap.command]` to flip them while typing, e.g.
+`"<C-g>" = "set ui.completion_ignore_case toggle"`, `"<C-f>" = "set ui.completion_fuzzy toggle"`.
+
+### Options: `:set` and `:get`
+
+Every setting of `config.toml` (except the keymaps) is an *option*, named by its dotted TOML path
+in lower_snake_case (`ui.tab_width`, `tabline.wrap`, `theme.preset`) and always has a default.
+Options are set in `config.toml`, on the command line with `-o NAME=VALUE ...` (put `-o` after
+the subcommand, or end the options with `--` before the files), and in the app with
+`:set NAME [VALUE]`; `:get NAME` shows the current value. `<Tab>` completes names and values.
+
+- No value, or `default`: reset to the default. A `:set` or `-o` value lasts for the session and
+  survives a reload of `config.toml`; `:set X default` pins the default over the file.
+- **boolean**: `true` / `false`, or `toggle`.
+- **number** (integer or float): `N` sets, `+N` / `-N` add to the current value. Out of range
+  values are refused, naming the range.
+- **string** (including colors and choices): the rest of the line, verbatim
+  (`:set ui.focus_ring_color #fabe28`; an empty color means the mode's color).
+- **array**: a comma-separated list with no spaces (`:set ui.global_tools tracks,tuner`);
+  `+item` adds, `-item` removes (`:set ui.global_tools +tuner`). A leading `+` / `-` applies to
+  the whole value (`+a,b` adds both).
+
+An invalid value changes nothing and the error lists what is allowed.
 
 | command                                                              |                                                                                                                                                                                             |
 | -------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | `:open {file}` / `:w [file]` / `:q` (quit) / `:wq` (write all, quit) / `:q!`                  | _(M2)_ `:w file.ext` exports by extension                                                                                                                                                   |
-| `:focus-ring-width [N\|default]` / `:focus-ring-color [#hex\|default]` / `:tabline-wrap [on\|off]` | set (no argument: show; `:tabline-wrap` toggles) `ui.focus_ring_width`, `ui.focus_ring_color` and `tabline.wrap` for the session; the width clamps to the config range (ring 0 to 8) |
 | `:save-as [file]` (`:saveas`) | write to a new file and make it the buffer's file (later `:w` writes there; `:w file` stays an export). No file: the system save dialog (starting beside the current file, suggesting its name or `untitled.ccm` (`.ccc` for a chant); cancelling does nothing; no file extension means `.ccc` for a chant score, `.ccm` otherwise). A plain `:w` on a buffer with no file runs it too. Builds without the `dialog` feature say "use :write FILE" |
-| `:wa` (`:wall`) / `:pane-close` | write every changed file / close the focused pane (its view with the last pane); the last pane of the last view cannot be closed (a message says so; close its buffers to reach the [dashboard](#dashboard)); the remaining panes of its split share the space equally again (`ui.equalize_on_close`; off: the neighbour takes it; `:equalize-on-close [on\|off]` sets or toggles it for the session) |
+| `:wa` (`:wall`) / `:pane-close` | write every changed file / close the focused pane (its view with the last pane); the last pane of the last view cannot be closed (a message says so; close its buffers to reach the [dashboard](#dashboard)); the remaining panes of its split share the space equally again (`ui.equalize_on_close`; off: the neighbour takes it) |
 | `:split` / `:vsplit`                                                 | _(M1)_                                                                                                                                                                                      |
 | `:track {n}`                                                         | _(M1)_                                                                                                                                                                                      |
 | `:bar {n}` / `:{n}`                                                  | _(M1)_                                                                                                                                                                                      |
-| `:set {option}[=value]`                                              |                                                                                                                                                                                             |
+| `:set NAME [VALUE]` / `:get NAME` | change / show an [option](#options-set-and-get) for the session |
 | `:source`                                                            | reload config _(M1)_                                                                                                                                                                        |
 | `:time 3/4` / `:key -2` / `:key Bb` / `:key F#m` / `:tempo 96`       | time / key signature from the cursor bar (the key by sharps or flats, or a name; `Am`, `C minor` are minor), tempo at the cursor bar                                                         |
 | `:repeat-start` / `:repeat-end [n]` / `:section NAME` / `:text TEXT` | bar marks and beat text                                                                                                                                                                     |
@@ -734,8 +754,6 @@ e.g. `"<C-g>" = "completion-ignore-case"`, `"<C-f>" = "completion-fuzzy"`.
 | `:refinger` / `:transpose 2`                                         | re-finger the track to minimise hand movement / transpose                                                                                                                                   |
 | `:track-add bass` / `:track-delete` / `:new [modern\|chant]`                         | tracks and new scores (`:track-add piano` gets a grand staff; refused on a chant score, which holds one chant track: `:chant-to-modern` first)                                                                                                                                 |
 | `:staff-add [staff…]`                                               | add one or more staves at the bottom of the cursor's track, in the order given (`:staff-add treble tab slash`); staves only show the track's notes, so each track can have as many as you like |
-| `:incomplete-bars [on\|off\|toggle]` | draw the staff lines of bars that don't hold their full count in red (`theme.incomplete_bar`; `ui.highlight_incomplete_bars = true` sets it at start-up). A bar is flagged when any of its voices that holds notes or rests is shorter or longer than the time signature (tuplets and dots counted exactly, a few ticks of rounding allowed); bars with nothing in them, free-time bars and a pickup first bar are never flagged. All staff kinds are marked in the GUI engraving; the TUI tab view colors the bar's dashed staff lines |
-| `:bar-numbers [every\|system\|toggle]` | number every bar, or only the first bar of each line (the default; `ui.bar_numbers = "every"` in `config.toml` sets it at start-up). The GUI engraving shows the numbers; the TUI tab view always numbers every bar |
 | `:notation {notation}` | show the cursor's staff in another notation: `standard` (keeps the staff's clef), `tab`, `tab+` (tab with a rhythm row of note glyphs), `slash`; a clef name (`treble`, `bass`, `grand [split]`, `neutral`) is accepted too and sets it. A chant track has one square-notation staff, which this refuses to change; convert it with `:chant-to-modern` first. A tab on a track without strings puts its notes on strings (refused if one would not fit). `:staff` is the old name |
 | `:clef {clef}` | the clef of the cursor's staff, by its notation. Standard: `treble`, `bass`, `grand [split]` (a grand staff splits at C3 unless a note such as `G3` is given) or `neutral` (percussion clef: drum tracks only, and the only clef they take). Tab and slash staves have no clef. A chant track takes `c1`–`c4` / `f1`–`f4` (the staff line, 1 is the bottom one) and `cb3` (flat clef); its notes keep their staff positions |
 | `:lyrics-attach {above\|below} [track]` / `:lyrics-attach none` | attach lyrics to the cursor's staff, above or below it (not both), taken from the given track (number; the staff's own track by default) and aligned with the staff's beats by their position in the bar. A track whose staves have none attached shows its own lyrics below its top staff; once any staff has some, only those staves show lyrics |
@@ -912,9 +930,6 @@ chant keys, and which modern-track keys answer "not in chant").
 | `:pitch {semitones}`                       | shift the recording's pitch (−12…12, keeps tempo)                                                                                                                                                        |
 | `:metronome` / `:count-in` / `:waveform-strip` | toggles (`:waveform-strip`: the focused pane's strip) |
 | `:waveform [on\|off]`                      | the waveform tool pane: the score pane's audio waveform, marking the play position (or the cursor when stopped); no argument toggles |
-| `:global-tool TOOL`                        | switch a tool (tracks, waveform, fretboard, piano, tuner) between global (along the window bottom) and local (under its score pane) |
-| `:scrollbar [on\|off]`                    | the scrollbars on every score pane: down the right side and along the bottom, each shown when the score scrolls that way (a bar wider than the pane, a zoomed page, a tall horizontal layout), in their own gutter (the score never draws under it). Click or drag it to scroll (the view then stays put until the cursor moves). `ui.scrollbar` sets the default (on) |
-| `:progress-bar [on\|off]`                  | the progress bar along the bottom of every score pane: the sections (letter and title), a translucent red mark at the play position (or the cursor), and the time; clicking it moves the cursor to that bar. `ui.progress_bar` sets the default (on) |
 | `:export {file}`                           | export by extension                                                                                                                                                                                      |
 | `:design [on\|off\|toggle]`               | design mode (page layout only): the layout can be adjusted by hand, with handles in the GUI and the keys of `[keymap.design]`; the status line shows `design`. The adjustments are saved in `.cc` files |
 | `:bar-width N\|+N\|-N\|auto`              | width of the cursor bar in the page layout, in percent of its automatic share of the line (the other bars of the line give up or take the difference so the line still fills the page; a bar is never narrower than 35% of its natural width) |
