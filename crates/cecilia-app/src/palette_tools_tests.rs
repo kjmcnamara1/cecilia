@@ -43,8 +43,7 @@ fn fill(a: &mut App, bar: usize, n: u8) {
 }
 
 fn status(a: &App) -> String {
-    a.message
-        .as_ref()
+    a.last_notification()
         .map(|m| m.text.clone())
         .unwrap_or_default()
 }

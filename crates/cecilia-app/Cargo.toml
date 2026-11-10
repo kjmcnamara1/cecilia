@@ -15,6 +15,7 @@ serde.workspace = true
 serde_json.workspace = true
 toml.workspace = true
 directories.workspace = true
+libc = "0.2"
 thiserror.workspace = true
 rfd = { version = "0.17", optional = true }
 

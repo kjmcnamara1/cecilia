@@ -231,7 +231,7 @@ mod tests {
         assert!(!app.dashboard_visible());
         assert!(!app.quit);
         assert_eq!(app.view().root.panes().len(), 1);
-        assert!(app.message.as_ref().is_some_and(|m| m.error));
+        assert!(app.last_notification().is_some_and(|m| m.error));
     }
 
     #[test]

@@ -220,7 +220,39 @@ impl App {
                 );
                 Some(("m".to_string(), rows))
             }
-            _ if !self.pending.is_empty() => {
+            Some(Awaiting::Register) => Some((
+                "\"".to_string(),
+                vec![(
+                    "a-z".into(),
+                    "register for the next yank, delete or paste".into(),
+                )],
+            )),
+            Some(Awaiting::RecordMacro) => Some((
+                "q".to_string(),
+                vec![("a-z".into(), "record a macro into this register".into())],
+            )),
+            Some(Awaiting::PlayMacro) => Some((
+                "@".to_string(),
+                vec![("a-z".into(), "play the macro in this register".into())],
+            )),
+            None if self.pending.is_empty() => {
+                // A count or an operator typed, waiting for what it applies to.
+                let typed = crate::keys::format_keys(&self.ed.cmd_keys);
+                if typed.is_empty() {
+                    return None;
+                }
+                let rows = match self.ed.operator {
+                    Some((op, _)) => self.operator_rows(op),
+                    None => vec![("".into(), "a motion or command".into())],
+                };
+                Some((typed, rows))
+            }
+            None => {
+                let typed = if self.ed.cmd_keys.is_empty() {
+                    crate::keys::format_keys(&self.pending)
+                } else {
+                    crate::keys::format_keys(&self.ed.cmd_keys)
+                };
                 let map = self.config.keymap(match self.mode {
                     crate::config::Mode::Tracks => crate::config::Mode::Tracks,
                     crate::config::Mode::Properties => crate::config::Mode::Properties,
@@ -262,10 +294,39 @@ impl App {
                     }
                 }
                 rows.sort();
-                (!rows.is_empty()).then(|| (crate::keys::format_keys(&self.pending), rows))
+                (!rows.is_empty()).then_some((typed, rows))
             }
-            _ => None,
         }
+    }
+
+    /// What can follow an operator: the motions of the Normal keymap, and the operator's own
+    /// key again (the whole bar).
+    fn operator_rows(&self, op: crate::command::Operator) -> Vec<(String, String)> {
+        let chant = self.buffer().score.is_chant();
+        let layer = self.config.normal_keymap(self.insert_kind());
+        let mut rows: Vec<(String, String)> = Vec::new();
+        for m in [layer, self.config.keymap(crate::config::Mode::Normal)] {
+            for (keys, cmds) in &m.bindings {
+                let [cmd] = cmds.as_slice() else { continue };
+                if !(crate::editor::is_motion(cmd) || *cmd == crate::Command::Operator(op)) {
+                    continue;
+                }
+                let names: Vec<String> = m
+                    .names
+                    .get(keys)
+                    .cloned()
+                    .unwrap_or_default()
+                    .into_iter()
+                    .filter(|l| crate::editor::command_line_in_scope(l, chant))
+                    .collect();
+                let row = (crate::keys::format_keys(keys), names.join(", "));
+                if !rows.iter().any(|r| r.0 == row.0) {
+                    rows.push(row);
+                }
+            }
+        }
+        rows.sort();
+        rows
     }
 
     /// Forgets the marks of an unloaded buffer.
@@ -283,6 +344,38 @@ mod tests {
         for k in parse_keys(s, &[Key::char(' ')]).unwrap() {
             app.handle_key(k);
         }
+    }
+
+    #[test]
+    fn which_key_shows_counts_operators_and_register_prompts() {
+        let mut app = App::new(Config::default(), None);
+        app.run(Command::New);
+        assert!(app.which_key().is_none());
+        keys(&mut app, "3");
+        assert_eq!(app.which_key().unwrap().0, "3");
+        keys(&mut app, "d");
+        let (title, rows) = app.which_key().unwrap();
+        assert_eq!(title, "3d");
+        assert!(rows.iter().any(|r| r.0 == "d"), "{rows:?}");
+        assert!(rows.iter().any(|r| r.1.contains("bar-next")), "{rows:?}");
+        keys(&mut app, "<Esc>");
+        assert!(app.which_key().is_none());
+        keys(&mut app, "c");
+        assert_eq!(app.which_key().unwrap().0, "c");
+        keys(&mut app, "<Esc>q");
+        assert_eq!(app.which_key().unwrap().0, "q");
+        keys(&mut app, "a");
+        assert!(app.which_key().is_none());
+        keys(&mut app, "q\"");
+        assert_eq!(app.which_key().unwrap().0, "\"");
+        keys(&mut app, "a");
+        // The register chosen waits for what to do with it, until Esc.
+        assert_eq!(app.which_key().unwrap().0, "\"a");
+        keys(&mut app, "<Esc>");
+        assert!(app.which_key().is_none());
+        // The finished operator leaves nothing behind.
+        keys(&mut app, "dd");
+        assert!(app.which_key().is_none());
     }
 
     #[test]
@@ -308,7 +401,7 @@ mod tests {
         // Local marks belong to their file; global marks bring their file back.
         app.run(Command::Edit(b.clone()));
         keys(&mut app, "'a");
-        assert!(app.message.as_ref().unwrap().error);
+        assert!(app.last_notification().unwrap().error);
         keys(&mut app, "`B");
         assert_eq!(app.buffer().name, "a.ccm");
         assert_eq!(app.pane().cursor.bar, 6);

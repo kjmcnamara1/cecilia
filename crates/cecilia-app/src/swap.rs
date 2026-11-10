@@ -530,7 +530,7 @@ mod tests {
         app.config.file.swap.auto_recover = false;
         app.run(Command::Edit(file.clone()));
         app.swap_show_notices();
-        let msg = app.message.as_ref().unwrap();
+        let msg = app.last_notification().unwrap();
         assert!(msg.error && msg.text.contains(":recover"), "{}", msg.text);
         // Held: no autosave over it while unresolved.
         crate::app::tests::keys(&mut app, "i3<Esc>");
@@ -569,7 +569,7 @@ mod tests {
             bytes.splice(0..header.len(), format!("{MAGIC}\n1\n").bytes());
             std::fs::write(&swap, bytes).unwrap();
             app.run(Command::Recover(None, false));
-            assert!(app.message.as_ref().unwrap().error);
+            assert!(app.last_notification().unwrap().error);
             assert!(!app.buffer().modified);
             app.run(Command::Recover(None, true));
             assert!(app.buffer().modified);
@@ -606,7 +606,7 @@ mod tests {
         assert!(app.config.file.swap.auto_recover);
         app.run(Command::Edit(file.clone()));
         assert!(app.buffer().modified && app.buffer().score == changed);
-        let msg = app.message.as_ref().unwrap();
+        let msg = app.last_notification().unwrap();
         assert!(!msg.error && msg.text.contains("recovered"), "{}", msg.text);
         // The undo tree came back too: undo returns to the saved file, redo to the recovery.
         crate::app::tests::keys(&mut app, "u");
@@ -633,7 +633,7 @@ mod tests {
         app.config.file.swap.auto_recover = false;
         app.run(Command::Edit(file));
         assert!(!app.buffer().modified && app.buffer().score != changed);
-        let msg = app.message.as_ref().unwrap();
+        let msg = app.last_notification().unwrap();
         assert!(msg.error && msg.text.contains(":recover"), "{}", msg.text);
         std::fs::remove_dir_all(dir).ok();
     }
@@ -650,8 +650,7 @@ mod tests {
         app.run(Command::Edit(file));
         assert!(!app.buffer().modified && app.buffer().score != changed);
         assert!(
-            app.message
-                .as_ref()
+            app.last_notification()
                 .unwrap()
                 .text
                 .contains("running cecilia")

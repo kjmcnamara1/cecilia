@@ -170,6 +170,9 @@ fn main() -> Result<()> {
         None => {
             let restore_last = config.file.ui.workspace_restore_last;
             let mut app = App::new(config, config_path);
+            if cli.screenshot.is_none() {
+                app.keep_notification_history();
+            }
             if !warnings.is_empty() {
                 app.error(warnings.join("; "));
             }

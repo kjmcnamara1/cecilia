@@ -26,6 +26,7 @@ pub mod keys;
 pub mod layout;
 pub mod marks;
 pub mod mouse;
+pub mod notify;
 pub mod options;
 pub mod palette;
 #[cfg(test)]
@@ -45,8 +46,8 @@ mod wavesync;
 pub mod workspace;
 
 pub use app::{
-    App, Buffer, BufferTab, Cursor, Effect, LinkedNote, Message, Palette, PaletteItem, Pane,
-    PaneKind, ScrollTo, View, ViewInfo, beat_at_tick, beats, cursor_tick, file_kind, staff_index,
+    App, Buffer, BufferTab, Cursor, Effect, LinkedNote, Palette, PaletteItem, Pane, PaneKind,
+    ScrollTo, View, ViewInfo, beat_at_tick, beats, cursor_tick, file_kind, staff_index,
     truncate_middle,
 };
 pub use chant_text::TextMarks;

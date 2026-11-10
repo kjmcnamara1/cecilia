@@ -45,6 +45,16 @@ pub struct OptionSpec {
 
 const LAYOUTS: &[&str] = &["page", "vertical", "horizontal"];
 const TICKS: &[&str] = &["all", "major", "off"];
+const ANCHORS: &[&str] = &[
+    "top_left",
+    "top",
+    "top_right",
+    "right",
+    "bottom_right",
+    "bottom",
+    "bottom_left",
+    "left",
+];
 const TOOLS: &[&str] = &["tracks", "waveform", "fretboard", "piano", "tuner"];
 
 const fn o(name: &'static str, kind: Kind, doc: &'static str) -> OptionSpec {
@@ -312,6 +322,61 @@ pub static OPTIONS: LazyLock<Vec<OptionSpec>> = LazyLock::new(|| {
             "swap.dir",
             Str,
             "Where swap files go; empty: the XDG state directory.",
+        ),
+        o(
+            "notifications.anchor",
+            Choice(ANCHORS),
+            "The corner or side notification cards stack against.",
+        ),
+        o(
+            "notifications.area",
+            Choice(&["scores", "window"]),
+            "What the cards sit in: the area of the score panes, or the whole window.",
+        ),
+        o(
+            "notifications.info_timeout",
+            float(0.0, 3600.0),
+            "Seconds an information card stays (0: until dismissed).",
+        ),
+        o(
+            "notifications.error_timeout",
+            float(0.0, 3600.0),
+            "Seconds an error card stays (0: until dismissed).",
+        ),
+        o(
+            "notifications.max_visible",
+            int(1, 20),
+            "Most cards shown at once; the rest are counted in a \"+N more\" line.",
+        ),
+        o(
+            "notifications.history_size",
+            int(0, 10000),
+            "Notifications kept in the history picker (0: no history).",
+        ),
+        o(
+            "notifications.history_time",
+            Choice(&["relative", "absolute"]),
+            "The history picker shows when a notification appeared as how long ago, or as a date and time.",
+        ),
+        o(
+            "popups.opacity",
+            float(0.0, 100.0),
+            "GUI: how opaque (percent) pickers, the palette and notification cards are (100: solid).",
+        ),
+        o(
+            "popups.shadow_opacity",
+            float(0.0, 100.0),
+            "GUI: how dark (percent) the shadow under popups is (0: none).",
+        ),
+        o(
+            "popups.shadow_blur",
+            float(0.0, 80.0),
+            "GUI: how far the shadow under popups is blurred, in pixels.",
+        ),
+        o(
+            "popups.shadow_offset",
+            float(0.0, 40.0),
+            "GUI: how far the shadow under popups is pushed down, in pixels.",
         ),
         o("theme.preset", Choice(PRESETS), "The color preset."),
         o(

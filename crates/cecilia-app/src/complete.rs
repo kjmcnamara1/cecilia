@@ -217,6 +217,9 @@ pub const COMMAND_SCOPES: &[(&str, Scope)] = &[
     ("recover", B),
     ("recover!", B),
     ("swap-discard", B),
+    ("notify-dismiss", B),
+    ("notify", B),
+    ("notifications", B),
     ("put-before", B),
     ("q", B),
     ("q!", B),
@@ -1331,6 +1334,11 @@ pub fn describe(command: &str) -> Option<&'static str> {
         "recover" => "Restore the file from its swap file",
         "recover!" => "Restore from a swap file even if another cecilia owns it",
         "swap-discard" => "Delete the file's swap file",
+        "notify" => {
+            "Show a notification: [-s subject] [-t seconds] [-u info|error] [-i icon] message"
+        }
+        "notify-dismiss" => "Dismiss the notification cards on screen",
+        "notifications" => "Pick from the notification history",
         "record-macro" => "Record a macro into a register",
         "redo" => "Redo",
         "refinger" => "Re-finger the track to minimise hand movement",

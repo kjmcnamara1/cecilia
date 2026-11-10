@@ -340,8 +340,7 @@ mod tests {
             assert!(apply(&mut app, e).is_none());
         }
         assert!(
-            app.message
-                .as_ref()
+            app.last_notification()
                 .is_some_and(|m| m.error && m.text.contains("no file dialog in this build"))
         );
     }

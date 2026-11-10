@@ -475,6 +475,7 @@ dependencies = [
  "cecilia-core",
  "cecilia-formats",
  "directories",
+ "libc",
  "rfd",
  "serde",
  "serde_json",

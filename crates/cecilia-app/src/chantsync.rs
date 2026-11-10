@@ -618,8 +618,7 @@ mod tests {
     }
 
     fn message(a: &App) -> String {
-        a.message
-            .as_ref()
+        a.last_notification()
             .map(|m| m.text.clone())
             .unwrap_or_default()
     }
@@ -1103,7 +1102,7 @@ mod tests {
         let mut a = app();
         assert!(a.pa.chant_tap.is_none());
         run(&mut a, "sync-undo");
-        assert!(a.message.as_ref().unwrap().error);
+        assert!(a.last_notification().unwrap().error);
         run(&mut a, "sync");
         a.chant_tap(1.0, &[]);
         a.chant_tap(2.0, &[]);

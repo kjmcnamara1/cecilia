@@ -6,7 +6,7 @@ use std::collections::HashMap;
 use cecilia_app::layout::PaneId;
 use cecilia_app::playback::Playback;
 use cecilia_app::theme::Rgba;
-use cecilia_app::{App, Mode, PaneKind, Strip};
+use cecilia_app::{App, PaneKind, Strip};
 use cecilia_audio::Location;
 use cecilia_engrave::display::{Align, BeatRef, FontKind};
 use cecilia_engrave::output::{Paint, outlines};
@@ -18,6 +18,21 @@ use vello::peniko::{Color, Fill, Mix};
 thread_local! {
     /// The theme of the frame being built (set by [`build`]).
     static THEME: std::cell::RefCell<cecilia_app::theme::Theme> = Default::default();
+}
+
+thread_local! {
+    /// The popup look of the frame being built (set by [`build`]).
+    static POPUPS: std::cell::RefCell<cecilia_app::config::PopupsConfig> = Default::default();
+}
+
+/// A popup option: opacity, shadow opacity, shadow blur, shadow offset.
+fn popup<R>(f: impl FnOnce(&cecilia_app::config::PopupsConfig) -> R) -> R {
+    POPUPS.with(|p| f(&p.borrow()))
+}
+
+/// The alpha of a popup's fill (`popups.opacity`).
+fn popup_alpha() -> u8 {
+    popup(|p| (p.opacity.clamp(0.0, 100.0) * 2.55).round() as u8)
 }
 
 /// A color of the current theme.
@@ -57,6 +72,12 @@ fn popover() -> Color {
     tc(|t| t.popover)
 }
 
+/// A popup's fill: the popover color a little see-through, so the page shows faintly behind it
+/// like frosted glass.
+fn glass() -> Color {
+    tc(|t| t.popover.with_alpha(popup_alpha()))
+}
+
 fn dim() -> Color {
     tc(|t| t.dim)
 }
@@ -66,7 +87,6 @@ const TOOLBAR: f64 = 34.0;
 /// How long the mouse rests on a toolbar button before its tooltip shows.
 const TOOLTIP_DELAY: std::time::Duration = std::time::Duration::from_millis(500);
 const STATUS: f64 = 26.0;
-const CMDLINE: f64 = 26.0;
 const TITLE: f64 = 24.0;
 const UI_FONT: f64 = 14.0;
 /// Pixels per point at zoom 1.
@@ -162,6 +182,8 @@ pub struct Views {
     palette_hover: Option<(usize, std::time::Instant)>,
     /// The tooltip to draw this frame (the button's area and text).
     tooltip: Option<(Rect, String)>,
+    /// The notification cards drawn last frame (area, id): a click dismisses one.
+    notifications: Vec<(Rect, u64)>,
     /// Where the tabline and toolbar end.
     chrome_bottom: f64,
     /// Clickable areas of the tracks panel drawn last frame.
@@ -1025,9 +1047,10 @@ pub fn build(
     height: f64,
 ) {
     THEME.with(|t| *t.borrow_mut() = app.config.theme.clone());
+    POPUPS.with(|p| *p.borrow_mut() = app.config.file.popups.clone());
     // Panes fill the window between the tab bar and the status line; tool panes are among
     // them.
-    let bottom = height - STATUS - CMDLINE;
+    let bottom = height - STATUS;
     let tabline = app.tabline_visible();
     let top = if tabline { TAB_BAR } else { 0.0 } + if app.toolbar { TOOLBAR } else { 0.0 };
     views.chrome_bottom = top;
@@ -1198,6 +1221,7 @@ pub fn build(
         app.take_scroll_request(id);
     }
     draw_status(scene, app, views, play, width, height);
+    draw_notifications(scene, app, views, main);
     // Keys that can follow the ones typed, or the marks while ' ` m wait for one.
     if let Some((title, rows)) = app.which_key() {
         draw_which_key(scene, &title, &rows, main);
@@ -1584,7 +1608,7 @@ fn draw_tooltip(scene: &mut Scene, r: Rect, tip: &str, width: f64) {
     scene.fill(
         Fill::NonZero,
         Affine::IDENTITY,
-        popover(),
+        glass(),
         None,
         &tr.to_rounded_rect(5.0),
     );
@@ -3500,15 +3524,25 @@ fn beat_fallback<'a>(layout: &'a Layout, r: &BeatRef) -> Option<&'a cecilia_engr
         })
 }
 
-/// A soft gaussian drop shadow under a floating box (palette, pickers): offset 8 px down,
-/// blurred over ~24 px, so the box looks like it hovers a little above the page.
+/// A very soft gaussian drop shadow under a floating box (palette, pickers, cards): offset 6 px
+/// down, blurred over ~36 px and faint, so the box hovers a little above the page.
 fn popover_shadow(scene: &mut Scene, r: Rect, radius: f64) {
+    let (alpha, blur, offset) = popup(|p| {
+        (
+            (p.shadow_opacity.clamp(0.0, 100.0) * 2.55).round() as u8,
+            p.shadow_blur.max(0.0),
+            p.shadow_offset,
+        )
+    });
+    if alpha == 0 {
+        return;
+    }
     scene.draw_blurred_rounded_rect(
         Affine::IDENTITY,
-        Rect::new(r.x0, r.y0 + 8.0, r.x1, r.y1 + 8.0),
-        Color::from_rgba8(0, 0, 0, 150),
+        Rect::new(r.x0, r.y0 + offset, r.x1, r.y1 + offset),
+        Color::from_rgba8(0, 0, 0, alpha),
         radius,
-        12.0,
+        blur,
     );
 }
 
@@ -3535,7 +3569,7 @@ fn draw_palette(scene: &mut Scene, p: &cecilia_app::Palette, width: f64, height:
     // Shadow, frame, input.
     popover_shadow(scene, Rect::new(x0, y0, x0 + w, y0 + h), 10.0);
     let frame = RoundedRect::new(x0, y0, x0 + w, y0 + h, 10.0);
-    scene.fill(Fill::NonZero, Affine::IDENTITY, popover(), None, &frame);
+    scene.fill(Fill::NonZero, Affine::IDENTITY, glass(), None, &frame);
     scene.stroke(&Stroke::new(1.0), Affine::IDENTITY, accent(), None, &frame);
     let line = if p.prompt == ":" {
         format!(":{}", p.input)
@@ -3575,7 +3609,7 @@ fn draw_palette(scene: &mut Scene, p: &cecilia_app::Palette, width: f64, height:
     let swatches = p
         .items
         .iter()
-        .any(|i| i.swatch.is_some() || i.icon.is_some());
+        .any(|i| i.swatch.is_some() || i.icon.is_some() || i.notice.is_some());
     for (k, item) in p.items.iter().enumerate().skip(first).take(rows) {
         let ry = y0 + input_h + 5.0 + (k - first) as f64 * row_h;
         let selected = p.selected == Some(k);
@@ -3606,16 +3640,39 @@ fn draw_palette(scene: &mut Scene, p: &cecilia_app::Palette, width: f64, height:
                 color,
             );
         }
-        text(
-            scene,
-            &item.text,
-            tx0,
-            base,
-            14.0,
-            Align::Left,
-            color,
-            selected,
-        );
+        if let Some((icon, error)) = item.notice {
+            let c = if error { tc(|t| t.error) } else { accent() };
+            draw_notice_icon(scene, icon, (x0 + 18.0, ry + (row_h - 16.0) / 2.0 - 1.0), c);
+        }
+        // A notification's subject is bold, the message after it plain.
+        let bold = if selected { 0 } else { item.bold };
+        if bold > 0 {
+            let head: String = item.text.chars().take(bold).collect();
+            let tail: String = item.text.chars().skip(bold).collect();
+            text(scene, &head, tx0, base, 14.0, Align::Left, color, true);
+            let hw = fonts.text_width(FontKind::Bold, &head, 14.0);
+            text(
+                scene,
+                &tail,
+                tx0 + hw,
+                base,
+                14.0,
+                Align::Left,
+                color,
+                false,
+            );
+        } else {
+            text(
+                scene,
+                &item.text,
+                tx0,
+                base,
+                14.0,
+                Align::Left,
+                color,
+                selected,
+            );
+        }
         // The characters that matched what was typed, over the text in a stronger color.
         let font = if selected {
             FontKind::Bold
@@ -3630,8 +3687,12 @@ fn draw_palette(scene: &mut Scene, p: &cecilia_app::Palette, width: f64, height:
         let chars: Vec<char> = item.text.chars().collect();
         for &i in &item.matched {
             let Some(c) = chars.get(i) else { continue };
-            let before: String = chars[..i].iter().collect();
-            let cx = tx0 + fonts.text_width(font, &before, 14.0);
+            let split = bold.min(i);
+            let head: String = chars[..split].iter().collect();
+            let rest: String = chars[split..i].iter().collect();
+            let cx = tx0
+                + fonts.text_width(FontKind::Bold, &head, 14.0)
+                + fonts.text_width(font, &rest, 14.0);
             text(
                 scene,
                 &c.to_string(),
@@ -3674,44 +3735,6 @@ fn draw_palette(scene: &mut Scene, p: &cecilia_app::Palette, width: f64, height:
     }
 }
 
-/// The command line while typing a command, otherwise the last message.
-fn draw_command_line(scene: &mut Scene, app: &App, width: f64, height: f64) {
-    // Command line / message.
-    let cy = height - 8.0;
-    match app.mode {
-        // Typed in the command palette.
-        Mode::Command | Mode::Picker => {}
-        Mode::Normal
-        | Mode::Insert
-        | Mode::Visual
-        | Mode::Tracks
-        | Mode::Properties
-        | Mode::Palette
-        | Mode::Sync => {
-            if let Some(m) = &app.message {
-                let c = if m.error {
-                    tc(|t| t.error)
-                } else {
-                    chrome_text()
-                };
-                text(scene, &m.text, 10.0, cy, 14.0, Align::Left, c, false);
-            }
-            let mut pending = app.count.map(|c| c.to_string()).unwrap_or_default();
-            pending.push_str(&cecilia_app::keys::format_keys(&app.pending));
-            text(
-                scene,
-                &pending,
-                width - 12.0,
-                cy,
-                14.0,
-                Align::Right,
-                accent(),
-                false,
-            );
-        }
-    }
-}
-
 /// The status line, as lualine.nvim: mode, layout, workspace and file on the left; the rest of
 /// the state, progress and `bar:beat` on the right. Colored sections are rounded chips.
 fn draw_status(
@@ -3723,7 +3746,7 @@ fn draw_status(
     height: f64,
 ) {
     use cecilia_app::statusline::{SegKind, Segment, StatusIcon};
-    let y0 = height - STATUS - CMDLINE;
+    let y0 = height - STATUS;
     fill(scene, Rect::new(0.0, y0, width, height), chrome());
     let line = app.statusline(play.map(|(_, _, now, total)| (now, total)), true);
     let th = app.config.theme.clone();
@@ -3862,8 +3885,6 @@ fn draw_status(
         hit(x, w, seg);
         x += w + GAP;
     }
-
-    draw_command_line(scene, app, width, height);
 }
 
 /// A quarter note (the tempo): a slanted head and a stem, as the 󰎋 glyph.
@@ -4320,7 +4341,7 @@ fn draw_edit_palette(scene: &mut Scene, app: &App, views: &mut Views, r: Rect) {
         scene.fill(
             Fill::NonZero,
             Affine::IDENTITY,
-            popover(),
+            glass(),
             None,
             &b.to_rounded_rect(5.0),
         );
@@ -5888,7 +5909,7 @@ fn panel(scene: &mut Scene, r: Rect, title: &str) {
     scene.fill(
         Fill::NonZero,
         Affine::IDENTITY,
-        tc(|t| t.panel.with_alpha(240)),
+        tc(|t| t.panel.with_alpha(popup_alpha())),
         None,
         &RoundedRect::from_rect(r, 8.0),
     );
@@ -5902,6 +5923,353 @@ fn panel(scene: &mut Scene, r: Rect, title: &str) {
         accent(),
         true,
     );
+}
+
+/// Wraps `text` to lines at most `width` px wide (at `size`), at most `max` of them, the last
+/// one ending in an ellipsis when text is cut.
+fn wrap_px(text: &str, width: f64, size: f64, max: usize) -> Vec<String> {
+    let fonts = cecilia_engrave::fonts::fonts();
+    let w = |s: &str| fonts.text_width(FontKind::Text, s, size);
+    let mut lines: Vec<String> = Vec::new();
+    let mut line = String::new();
+    for word in text.split_whitespace() {
+        let joined = if line.is_empty() {
+            word.to_string()
+        } else {
+            format!("{line} {word}")
+        };
+        if w(&joined) <= width || line.is_empty() {
+            line = joined;
+        } else {
+            lines.push(std::mem::take(&mut line));
+            line = word.to_string();
+        }
+    }
+    lines.push(line);
+    if lines.len() > max {
+        lines.truncate(max);
+        if let Some(last) = lines.last_mut() {
+            while !last.is_empty() && w(&format!("{last}…")) > width {
+                last.pop();
+            }
+            last.push('…');
+        }
+    }
+    lines
+}
+
+/// The notification cards, stacked against the configured anchor of the score panes' area (or
+/// the window): rounded cards with an accent (or error) strip, `×N` and peeking cards behind for
+/// merged repeats, and a thin bar along the bottom draining as the timeout runs out.
+fn draw_notifications(scene: &mut Scene, app: &App, views: &mut Views, window: Rect) {
+    use cecilia_app::notify::{Placed, place_stack};
+    views.notifications.clear();
+    let (cards, more) = app.notifications_shown();
+    if cards.is_empty() {
+        return;
+    }
+    const LINE: f64 = 18.0;
+    const PEEK: f64 = 5.0;
+    let fonts = cecilia_engrave::fonts::fonts();
+    let (area, anchor) = app.notification_place();
+    let area = Rect::new(
+        f64::from(area.x),
+        f64::from(area.y),
+        f64::from(area.x) + f64::from(area.w),
+        f64::from(area.y) + f64::from(area.h),
+    )
+    .inset(-10.0)
+    .intersect(window);
+    let max_w = (area.width() / 2.0).clamp(180.0, 380.0).min(area.width());
+    if max_w < 100.0 {
+        return;
+    }
+    let wrapped: Vec<Vec<String>> = cards
+        .iter()
+        .map(|c| wrap_px(c.body(), max_w - 60.0, 13.0, 4))
+        .collect();
+    let peek = |c: &cecilia_app::notify::Notification| f64::from((c.count - 1).min(2)) * PEEK;
+    let mut sizes: Vec<(f64, f64)> = cards
+        .iter()
+        .zip(&wrapped)
+        .map(|(c, lines)| {
+            let body = lines
+                .iter()
+                .map(|l| fonts.text_width(FontKind::Text, l, 13.0))
+                .fold(0.0, f64::max);
+            let badge = if c.count > 1 {
+                fonts.text_width(FontKind::Bold, &format!("×{}", c.count), 12.0) + 14.0
+            } else {
+                0.0
+            };
+            let head = fonts.text_width(FontKind::Bold, &c.subject, 15.0) + badge;
+            (
+                (body.max(head) + 60.0).clamp(200.0, max_w),
+                lines.len() as f64 * LINE + 48.0 + peek(c),
+            )
+        })
+        .collect();
+    let more_text = format!("+{more} more");
+    let more_w = fonts.text_width(FontKind::Text, &more_text, 12.0) + 20.0;
+    if more > 0 {
+        sizes.push((more_w, 22.0));
+    }
+    let placed = place_stack(
+        Placed {
+            x: area.x0,
+            y: area.y0,
+            w: area.width(),
+            h: area.height(),
+        },
+        anchor,
+        &sizes,
+        8.0,
+    );
+    let now = std::time::Instant::now();
+    for (i, p) in placed.iter().enumerate() {
+        let Some(card) = cards.get(i) else {
+            let r = Rect::new(p.x, p.y, p.x + p.w, p.y + p.h);
+            scene.fill(
+                Fill::NonZero,
+                Affine::IDENTITY,
+                tc(|t| t.panel.with_alpha(popup_alpha())),
+                None,
+                &r.to_rounded_rect(11.0),
+            );
+            text(
+                scene,
+                &more_text,
+                r.x0 + 10.0,
+                r.y1 - 6.0,
+                12.0,
+                Align::Left,
+                dim(),
+                false,
+            );
+            continue;
+        };
+        let under = peek(card);
+        let r = Rect::new(p.x, p.y, p.x + p.w, p.y + p.h - under);
+        let color = if card.error {
+            tc(|t| t.error)
+        } else {
+            accent()
+        };
+        // The cards of merged repeats peek out from behind.
+        for k in (1..=(card.count - 1).min(2)).rev() {
+            let k = f64::from(k);
+            let b = Rect::new(
+                r.x0 + 6.0 * k,
+                r.y0 + PEEK * k,
+                r.x1 - 6.0 * k,
+                r.y1 + PEEK * k,
+            );
+            scene.fill(
+                Fill::NonZero,
+                Affine::IDENTITY,
+                glass(),
+                None,
+                &b.to_rounded_rect(8.0),
+            );
+            scene.stroke(
+                &Stroke::new(1.0),
+                Affine::IDENTITY,
+                dim(),
+                None,
+                &b.to_rounded_rect(8.0),
+            );
+        }
+        popover_shadow(scene, r, 8.0);
+        scene.fill(
+            Fill::NonZero,
+            Affine::IDENTITY,
+            glass(),
+            None,
+            &r.to_rounded_rect(8.0),
+        );
+        scene.stroke(
+            &Stroke::new(1.0),
+            Affine::IDENTITY,
+            dim(),
+            None,
+            &r.to_rounded_rect(8.0),
+        );
+        draw_notice_icon(scene, card.icon, (r.x0 + 14.0, r.y0 + 11.0), color);
+        text(
+            scene,
+            &card.subject,
+            r.x0 + 42.0,
+            r.y0 + 24.0,
+            15.0,
+            Align::Left,
+            text_on(popover()),
+            true,
+        );
+        for (n, line) in wrapped[i].iter().enumerate() {
+            text(
+                scene,
+                line,
+                r.x0 + 42.0,
+                r.y0 + 44.0 + n as f64 * LINE,
+                13.0,
+                Align::Left,
+                text_on(popover()),
+                false,
+            );
+        }
+        if card.count > 1 {
+            text(
+                scene,
+                &format!("×{}", card.count),
+                r.x1 - 12.0,
+                r.y0 + 23.0,
+                12.0,
+                Align::Right,
+                color,
+                true,
+            );
+        }
+        // The time left, as a thin bar along the bottom.
+        if let Some(left) = card.remaining_fraction(now) {
+            let full = r.width() - 24.0;
+            scene.fill(
+                Fill::NonZero,
+                Affine::IDENTITY,
+                color,
+                None,
+                &Rect::new(
+                    r.x0 + 12.0,
+                    r.y1 - 7.0,
+                    r.x0 + 12.0 + full * f64::from(left),
+                    r.y1 - 5.0,
+                )
+                .to_rounded_rect(1.0),
+            );
+        }
+        views.notifications.push((r, card.id));
+    }
+}
+
+/// A notification's icon in a 16 px box whose top left is `at`, in the severity's color.
+fn draw_notice_icon(
+    scene: &mut Scene,
+    icon: cecilia_app::notify::NoticeIcon,
+    at: (f64, f64),
+    color: Color,
+) {
+    use cecilia_app::notify::NoticeIcon as I;
+    let (x, y) = (at.0 + 1.0, at.1 + 1.0);
+    let stroke = Stroke::new(1.7)
+        .with_caps(vello::kurbo::Cap::Round)
+        .with_join(vello::kurbo::Join::Round);
+    let line = |scene: &mut Scene, pts: &[(f64, f64)], close: bool| {
+        let mut p = BezPath::new();
+        for (k, &(px, py)) in pts.iter().enumerate() {
+            if k == 0 {
+                p.move_to((x + px, y + py));
+            } else {
+                p.line_to((x + px, y + py));
+            }
+        }
+        if close {
+            p.close_path();
+        }
+        scene.stroke(&stroke, Affine::IDENTITY, color, None, &p);
+    };
+    let ring = |scene: &mut Scene| {
+        scene.stroke(
+            &stroke,
+            Affine::IDENTITY,
+            color,
+            None,
+            &Circle::new((x + 7.0, y + 7.0), 6.8),
+        );
+    };
+    match icon {
+        I::Info => {
+            ring(scene);
+            line(scene, &[(7.0, 6.2), (7.0, 10.4)], false);
+            scene.fill(
+                Fill::NonZero,
+                Affine::IDENTITY,
+                color,
+                None,
+                &Circle::new((x + 7.0, y + 3.9), 1.0),
+            );
+        }
+        I::Error => {
+            ring(scene);
+            line(scene, &[(4.6, 4.6), (9.4, 9.4)], false);
+            line(scene, &[(9.4, 4.6), (4.6, 9.4)], false);
+        }
+        I::Success => {
+            ring(scene);
+            line(scene, &[(4.2, 7.2), (6.3, 9.2), (9.9, 4.9)], false);
+        }
+        I::Command => {
+            line(scene, &[(1.5, 3.5), (6.0, 7.0), (1.5, 10.5)], false);
+            line(scene, &[(7.5, 11.0), (12.5, 11.0)], false);
+        }
+        I::Workspace => {
+            line(
+                scene,
+                &[(1.0, 4.5), (13.0, 4.5), (13.0, 12.5), (1.0, 12.5)],
+                true,
+            );
+            line(
+                scene,
+                &[(4.5, 4.5), (4.5, 2.0), (9.5, 2.0), (9.5, 4.5)],
+                false,
+            );
+            line(scene, &[(1.0, 8.0), (13.0, 8.0)], false);
+        }
+        I::File => {
+            line(
+                scene,
+                &[
+                    (2.5, 0.8),
+                    (8.0, 0.8),
+                    (11.5, 4.3),
+                    (11.5, 13.2),
+                    (2.5, 13.2),
+                ],
+                true,
+            );
+            line(scene, &[(8.0, 0.8), (8.0, 4.3), (11.5, 4.3)], false);
+            line(scene, &[(4.8, 8.0), (9.2, 8.0)], false);
+            line(scene, &[(4.8, 10.5), (9.2, 10.5)], false);
+        }
+        I::Option => {
+            line(scene, &[(1.0, 4.0), (13.0, 4.0)], false);
+            line(scene, &[(1.0, 10.0), (13.0, 10.0)], false);
+            for (cx, cy) in [(9.0, 4.0), (5.0, 10.0)] {
+                scene.fill(
+                    Fill::NonZero,
+                    Affine::IDENTITY,
+                    popover(),
+                    None,
+                    &Circle::new((x + cx, y + cy), 2.4),
+                );
+                scene.stroke(
+                    &stroke,
+                    Affine::IDENTITY,
+                    color,
+                    None,
+                    &Circle::new((x + cx, y + cy), 2.2),
+                );
+            }
+        }
+        I::Audio => {
+            scene.fill(
+                Fill::NonZero,
+                Affine::IDENTITY,
+                color,
+                None,
+                &Circle::new((x + 4.0, y + 11.0), 2.6),
+            );
+            line(scene, &[(6.4, 10.5), (6.4, 1.8), (11.5, 3.8)], false);
+        }
+    }
 }
 
 fn draw_which_key(scene: &mut Scene, title: &str, rows: &[(String, String)], main: Rect) {
@@ -6416,6 +6784,10 @@ impl Views {
     }
 
     pub fn click(&mut self, app: &mut App, x: f64, y: f64) {
+        if let Some(&(_, id)) = self.notifications.iter().find(|(r, _)| r.contains((x, y))) {
+            app.dismiss_notification(id);
+            return;
+        }
         if let Some(&(_, i)) = self.dashboard.iter().find(|(r, _)| r.contains((x, y))) {
             app.dashboard_activate(i);
             return;

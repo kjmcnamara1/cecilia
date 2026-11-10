@@ -7,6 +7,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- Notifications: messages and errors are cards stacked over the score panes (or the window), merged when repeated (`×N`), timed out by severity with a thin bar draining along the bottom of each card, and kept in a persistent history (`:notifications`, `<leader>nh`; `:notify-dismiss`, `<leader>nd`; click a card to dismiss it). Options `notifications.anchor` (eight corners and sides), `.area` (`scores` / `window`), `.info_timeout`, `.error_timeout`, `.max_visible`, `.history_size`, `.history_time` (`relative` / `absolute`).
+- Notification cards have an icon for what they are about (command, workspace, file, option, audio, …) colored by severity, and a bold subject line over the message; the subject comes from a `topic: ` prefix or a general one ("Error", "Notice").
+- `:notify [-s SUBJECT] [-t SECONDS] [-u info|error] [-i ICON] MESSAGE` raises a notification; only the message is required.
+- The history picker stacks repeats like the cards do (`×N`), shows the subject in bold with the notification's colored icon at the start of the row, the message on the left and the time on the right, and Enter shows that notification again.
+- `[popups]` options for the look of pickers, the palette and notification cards in the GUI: `popups.opacity` and `popups.shadow_opacity` (percent, 0 to 100), `popups.shadow_blur` and `popups.shadow_offset` (pixels); live with `:set`.
+- The which-key popup also shows a pending count, an operator (`d`, `y`, `c`, with the motions that can follow) and the register / macro prompts (`"`, `q`, `@`).
+
+### Changed
+
+- **Breaking:** the bottom bar under the status line is gone: messages are notifications, and the pending keys and count are in the which-key popup. Questions (save, reload, delete workspace) are cards that stay until answered. The terminal's toolbar tooltip shows under the hovered button.
+
 ## [0.36.0] - 2026-11-10
 
 ### Added

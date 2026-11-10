@@ -497,8 +497,9 @@ impl App {
             None
         };
         if !discard && self.workspace_file.is_some() {
+            let errors = self.notifications.errors();
             self.save_workspace(None, false);
-            if self.message.as_ref().is_some_and(|m| m.error) {
+            if self.notifications.errors() != errors {
                 return;
             }
         }
@@ -545,7 +546,7 @@ impl App {
         if force {
             return self.remove_workspace(&path);
         }
-        self.info(format!(
+        self.ask(format!(
             "delete workspace {}? (y/n)",
             workspace_label(&path)
         ));
@@ -554,7 +555,7 @@ impl App {
 
     /// The answer to the delete prompt: `y` deletes, any other key cancels.
     pub(crate) fn answer_delete_workspace(&mut self, path: PathBuf, key: crate::keys::Key) {
-        self.message = None;
+        self.answered();
         if matches!(key.code, crate::keys::KeyCode::Char('y' | 'Y')) {
             self.remove_workspace(&path);
         } else {
@@ -893,7 +894,7 @@ mod tests {
         // Unsaved changes stop an open unless forced.
         other.buffers[0].modified = true;
         other.run(Command::WorkspaceOpen(ws_file.display().to_string(), false));
-        assert!(other.message.as_ref().unwrap().error);
+        assert!(other.last_notification().unwrap().error);
         std::fs::remove_dir_all(dir).ok();
     }
 
@@ -1033,7 +1034,7 @@ mod tests {
         assert_eq!(app.views[0].root.panes().len(), 2);
         // A bad name is refused, and nothing changes.
         app.run(Command::WorkspaceOpen(".x".into(), false));
-        assert!(app.message.as_ref().unwrap().error);
+        assert!(app.last_notification().unwrap().error);
         assert_eq!(app.workspace_name().as_deref(), Some(a.as_str()));
         std::fs::remove_dir_all(dir).ok();
     }
@@ -1046,7 +1047,7 @@ mod tests {
         app.run(Command::WorkspaceOpen(a.clone(), false));
         app.buffers[0].modified = true;
         app.run(Command::WorkspaceOpen(b.clone(), false));
-        assert!(app.message.as_ref().unwrap().error);
+        assert!(app.last_notification().unwrap().error);
         assert_eq!(app.workspace_name().as_deref(), Some(a.as_str()));
         app.run(Command::WorkspaceOpen(b.clone(), true));
         assert_eq!(app.workspace_name().as_deref(), Some(b.as_str()));
@@ -1060,7 +1061,7 @@ mod tests {
         let mut app = App::new(Config::default(), None);
         // No workspace and no name: nothing to save to.
         app.run(Command::WorkspaceSave(None, false));
-        assert!(app.message.as_ref().unwrap().error && app.workspace_file.is_none());
+        assert!(app.last_notification().unwrap().error && app.workspace_file.is_none());
         app.run(Command::WorkspaceSave(Some(a.clone()), false));
         app.run(Command::Split);
         // A new name duplicates: `a` stays as it was, `b` is active.
@@ -1069,11 +1070,11 @@ mod tests {
         assert_eq!(panes_saved(&a), 1);
         // Another name for the same session may not take over an existing workspace...
         app.run(Command::WorkspaceSave(Some(a.clone()), false));
-        assert!(app.message.as_ref().unwrap().error);
+        assert!(app.last_notification().unwrap().error);
         assert_eq!(app.workspace_name().as_deref(), Some(b.as_str()));
         // ...unless forced. Saving to the active one needs no `!`.
         app.run(Command::WorkspaceSave(Some(b.clone()), false));
-        assert!(!app.message.as_ref().unwrap().error);
+        assert!(!app.last_notification().unwrap().error);
         app.run(Command::WorkspaceSave(Some(a.clone()), true));
         assert_eq!(app.workspace_name().as_deref(), Some(a.as_str()));
         assert_eq!(panes_saved(&a), 2);
@@ -1102,7 +1103,7 @@ mod tests {
         assert_eq!(app.workspace_name().as_deref(), Some(b.as_str()));
         // A name that does not exist is an error.
         app.run(Command::WorkspaceDelete(Some(a.clone()), true));
-        assert!(app.message.as_ref().unwrap().error);
+        assert!(app.last_notification().unwrap().error);
         // The active one, without asking: the session stays, with no workspace.
         app.run(Command::WorkspaceDelete(None, true));
         assert!(!Path::new(&b).exists() && app.workspace_file.is_none());
