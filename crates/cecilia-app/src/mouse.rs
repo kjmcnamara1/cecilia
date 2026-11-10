@@ -40,8 +40,8 @@ impl App {
     /// A press of the left button on a beat of a score pane: `at` is the cursor for the beat
     /// (and string or line) under the pointer.
     ///
-    /// A plain press places the cursor, as a click always did; in Visual mode that moves the
-    /// selection's cursor end. A drag then selects. With `extend` the selection runs from the
+    /// A plain press places the cursor, as a click always did; in Visual mode that leaves it
+    /// (a drag from the press then selects afresh). A drag then selects. With `extend` the selection runs from the
     /// anchor (the cursor, when not in Visual mode) to the beat; a double click selects the bar.
     pub fn mouse_press(&mut self, pane: PaneId, at: Cursor, mods: MouseMods) {
         self.mouse_sel = None;
@@ -65,6 +65,9 @@ impl App {
                 active: true,
             });
             return;
+        }
+        if self.mode == Mode::Visual {
+            self.run(Command::Normal);
         }
         self.set_cursor(pane, at);
         let press = self.panes[&pane].cursor;
@@ -235,11 +238,12 @@ mod tests {
         let pane = app.focused();
         keys(&mut app, "0vll");
         assert_eq!(app.selection().unwrap().0.beat, 0);
-        // A plain click in Visual mode moves the cursor end and keeps the anchor.
+        // A plain click in Visual mode moves the cursor and returns to Normal mode.
         app.mouse_press(pane, at(&app, 0, 3), MouseMods::default());
         app.mouse_release();
-        let (a, b, _) = app.selection().unwrap();
-        assert_eq!((a.beat, b.beat), (0, 3));
+        assert_eq!(app.mode, Mode::Normal);
+        assert!(app.selection().is_none());
+        assert_eq!(app.pane().cursor.beat, 3);
         // A drag from a beat starts afresh there.
         app.mouse_press(pane, at(&app, 0, 2), MouseMods::default());
         app.mouse_drag(at(&app, 0, 1));

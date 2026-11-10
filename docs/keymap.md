@@ -283,7 +283,7 @@ bar and beat positions of the pressed one (the cursor keeps its string or line).
 extends the selection from the anchor (from the cursor, entering Visual mode, when not in it) to
 the clicked beat, and goes on as a drag. `Ctrl` or `Alt` with the press (or drag, or `Shift`+click)
 selects whole bars, as `V`; a double click selects the bar. A plain click in Visual mode moves
-the selection's cursor end, as before (a drag from it starts a new selection at the pressed
+the cursor and returns to Normal mode (a drag from it starts a new selection at the pressed
 beat). A drag from Insert mode leaves it for Visual mode; `<Esc>` during a drag ends the
 selection. Design-mode handles, scrollbars, borders and the tool panes take their presses first,
 and a drag started on them never selects.
