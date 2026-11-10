@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.38.0] - 2026-11-10
+
 ### Added
 
 - Command history: `<Up>`/`<A-k>` on the command line (typed text filters it) lists earlier lines above the input, and each one you step to appears on the command line to edit or run; `<Down>` past the newest returns to the line as typed. `<Down>`/`<A-j>` complete as `<Tab>` does and `<Up>` steps back to the line as typed. `:pick history` too.
