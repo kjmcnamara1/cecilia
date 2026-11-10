@@ -107,6 +107,7 @@ Planned work. Finished items move to `CHANGELOG.md` under `[Unreleased]`.
 
 ### UI
 
+- [ ] Clicking in visual mode should move the cursor and go back to normal mode
 - [ ] Allow grouping scores in tabline into groups and ability to (auto)
       collapse/expand them
 - [ ] Add ability to have multiple windows in the same workspace (not just views
