@@ -6,8 +6,8 @@ use std::time::SystemTime;
 
 use cecilia_core::{Beat, Clef, Note, Score, Staff, StaffClef, Track, TrackKind, staff};
 
-use crate::command::{Command, SettingArg};
-use crate::config::{Config, FOCUS_RING_WIDTH_MAX, Lookup, Mode, clamp_setting};
+use crate::command::Command;
+use crate::config::{Config, Lookup, Mode};
 use crate::keys::{Key, KeyCode};
 use crate::layout::{Axis, Node, PaneId, Rect, neighbour};
 
@@ -490,7 +490,7 @@ pub enum Effect {
         bar: usize,
         tick: u32,
     },
-    /// The configuration changed (e.g. a new SoundFont).
+    /// The SoundFont setting changed: the player is recreated on next use.
     ConfigReloaded,
     /// A buffer's score was edited.
     ScoreChanged {
@@ -582,27 +582,13 @@ pub struct App {
     pub paused: bool,
     /// Where the cursor was when playback paused: resuming carries on only if it's still there.
     pub(crate) paused_at: Option<(PaneId, usize, Cursor)>,
-    pub follow: bool,
     /// When the cursor last moved the play position: playhead updates from just before the
     /// player caught up are ignored, so the cursor doesn't bounce back.
     seeked: Option<std::time::Instant>,
     /// A mouse press on a score, which a drag turns into a Visual selection.
     pub(crate) mouse_sel: Option<crate::mouse::MouseSel>,
-    /// Command-line completion ignores case (`ui.completion_ignore_case`).
-    pub completion_ignore_case: bool,
-    /// Command-line completion is fuzzy (`ui.completion_fuzzy`).
-    pub completion_fuzzy: bool,
-    /// Every bar is numbered, not just the first of each line (`ui.bar_numbers`).
-    pub every_bar_number: bool,
-    /// Staff lines of incomplete bars are red (`ui.highlight_incomplete_bars`).
-    pub highlight_incomplete_bars: bool,
     /// The toolbar is shown (`ui.toolbar`, `:toolbar`).
     pub toolbar: bool,
-    /// Score panes show the progress bar along their bottom (`ui.progress_bar`,
-    /// `:progress-bar`).
-    pub progress_bar: bool,
-    /// Score panes show a scrollbar (`ui.scrollbar`, `:scrollbar`).
-    pub scrollbar: bool,
     /// Design mode: the page layout can be adjusted by hand (`:design`).
     pub design: bool,
     /// The design as it was when a mouse drag began (the drag previews without undo steps).
@@ -671,14 +657,7 @@ pub struct App {
 
 impl App {
     pub fn new(config: Config, config_path: Option<PathBuf>) -> Self {
-        let follow = config.file.ui.follow_playback;
-        let completion_ignore_case = config.file.ui.completion_ignore_case;
-        let completion_fuzzy = config.file.ui.completion_fuzzy;
-        let every_bar_number = config.file.ui.bar_numbers == "every";
-        let highlight_incomplete_bars = config.file.ui.highlight_incomplete_bars;
         let toolbar = config.file.ui.toolbar;
-        let progress_bar = config.file.ui.progress_bar;
-        let scrollbar = config.file.ui.scrollbar;
         let (score_layout, zoom) = (config.file.ui.layout.clone(), config.file.ui.zoom);
         let config_mtime = config_path.as_deref().and_then(mtime);
         let theme_file = config.file.theme.file.as_str();
@@ -746,16 +725,9 @@ impl App {
             play_start: None,
             paused: false,
             paused_at: None,
-            follow,
             seeked: None,
             mouse_sel: None,
-            completion_ignore_case,
-            completion_fuzzy,
-            every_bar_number,
-            highlight_incomplete_bars,
             toolbar,
-            progress_bar,
-            scrollbar,
             design: false,
             design_drag: None,
             tuner_reading: None,
@@ -929,7 +901,7 @@ impl App {
     }
 
     /// Whether a tool docks along the bottom of the whole view, showing the last active score
-    /// pane (`ui.global_tools`, `:global-tool`), else under its own score pane.
+    /// pane (`ui.global_tools`), else under its own score pane.
     pub fn is_global(&self, kind: PaneKind) -> bool {
         matches!(kind, PaneKind::Properties | PaneKind::Palette)
             || self
@@ -941,82 +913,36 @@ impl App {
                 .any(|t| PaneKind::parse(t) == Some(kind))
     }
 
-    /// `:global-tool`: makes a tool global or local. Making global closes all local panes of
-    /// that tool (in every view) and opens one global pane. Making local closes the global
-    /// pane and opens a local one under the current score pane.
-    fn toggle_global_tool(&mut self, name: &str) {
-        let Some(kind) = PaneKind::parse(name).filter(|k| *k != PaneKind::Score) else {
-            return self.error(format!(
-                "global-tool: '{name}' is not a tool (tracks, waveform, fretboard, piano, tuner)"
-            ));
-        };
-        if kind == PaneKind::Properties {
-            return self.error("global-tool: the properties pane always docks at the right");
+    /// After a change to `ui.global_tools`: open panes of `kind` docked the old way close, and
+    /// one opens where the tool now docks (along the window bottom, or under the current
+    /// score pane).
+    fn redock_tool(&mut self, kind: PaneKind) {
+        if matches!(
+            kind,
+            PaneKind::Score | PaneKind::Properties | PaneKind::Palette
+        ) {
+            return;
         }
-        if kind == PaneKind::Palette {
-            return self.error("global-tool: the palette always docks at the left");
-        }
-        let was_open = self.tool_pane(kind).is_some();
+        let global = self.is_global(kind);
         let equalize = self.config.file.ui.equalize_on_close;
-        let tools = &mut self.config.file.ui.global_tools;
-        let going_global = !tools.iter().any(|t| PaneKind::parse(t) == Some(kind));
-        if going_global {
-            // Close ALL local panes of this tool kind (across all views).
-            let locals: Vec<PaneId> = self
-                .panes
-                .iter()
-                .filter(|(_, p)| p.kind == kind && p.owner.is_some())
-                .map(|(id, _)| *id)
-                .collect();
-            for id in &locals {
-                for v in &mut self.views {
-                    v.root.remove_with(*id, equalize);
-                    if v.focus == *id {
-                        v.focus = v.score;
-                    }
+        let stale: Vec<PaneId> = self
+            .panes
+            .iter()
+            .filter(|(_, p)| p.kind == kind && p.owner.is_some() == global)
+            .map(|(id, _)| *id)
+            .collect();
+        for id in &stale {
+            for v in &mut self.views {
+                v.root.remove_with(*id, equalize);
+                if v.focus == *id {
+                    v.focus = v.score;
                 }
-                self.panes.remove(id);
             }
-            tools.push(kind.name().to_string());
-            // Open one global pane (the tool is now global).
-            if was_open || !locals.is_empty() {
-                self.set_tool(kind, Some(true));
-            }
-        } else {
-            // Close the global pane, if any.
-            let globals: Vec<PaneId> = self
-                .panes
-                .iter()
-                .filter(|(_, p)| p.kind == kind && p.owner.is_none())
-                .map(|(id, _)| *id)
-                .collect();
-            for id in &globals {
-                for v in &mut self.views {
-                    v.root.remove_with(*id, equalize);
-                    if v.focus == *id {
-                        v.focus = v.score;
-                    }
-                }
-                self.panes.remove(id);
-            }
-            if let Some(i) = tools.iter().position(|t| PaneKind::parse(t) == Some(kind)) {
-                tools.remove(i);
-            }
-            // Open a local one under the current score pane.
-            if was_open || !globals.is_empty() {
-                self.set_tool(kind, Some(true));
-            }
+            self.panes.remove(id);
         }
-        self.normalize_layouts();
-        self.info(format!(
-            "{}: {}",
-            kind.name(),
-            if going_global {
-                "global (along the window bottom)"
-            } else {
-                "local (under its score pane)"
-            }
-        ));
+        if !stale.is_empty() {
+            self.set_tool(kind, Some(true));
+        }
     }
 
     /// A pane's fixed size along an axis: a tool pane's own height or width.
@@ -1462,7 +1388,7 @@ impl App {
     pub fn cursor_hidden(&self, buffer: usize) -> bool {
         self.config.file.ui.hide_cursor_while_following
             && self.playing
-            && self.follow
+            && self.config.file.ui.follow_playback
             && self.playing_buffer == Some(buffer)
     }
 
@@ -2024,15 +1950,34 @@ impl App {
         }
     }
 
-    /// Makes `config` current and re-copies the settings mirrored in `App` fields.
+    /// Makes `config` current: tools that changed `ui.global_tools` membership move to their
+    /// new dock, completion candidates found under the old matching rules are dropped, and a
+    /// changed SoundFont is reported to the player.
     fn install_config(&mut self, config: Config) {
-        self.config = config;
-        self.follow = self.config.file.ui.follow_playback;
-        self.completion_ignore_case = self.config.file.ui.completion_ignore_case;
-        self.completion_fuzzy = self.config.file.ui.completion_fuzzy;
-        self.every_bar_number = self.config.file.ui.bar_numbers == "every";
-        self.highlight_incomplete_bars = self.config.file.ui.highlight_incomplete_bars;
-        self.effects.push(Effect::ConfigReloaded);
+        let old = std::mem::replace(&mut self.config, config);
+        let (was, now) = (&old.file.ui.global_tools, &self.config.file.ui.global_tools);
+        let moved: Vec<PaneKind> = was
+            .iter()
+            .filter(|t| !now.contains(t))
+            .chain(now.iter().filter(|t| !was.contains(t)))
+            .filter_map(|t| PaneKind::parse(t))
+            .collect();
+        for kind in &moved {
+            self.redock_tool(*kind);
+        }
+        if !moved.is_empty() {
+            self.normalize_layouts();
+        }
+        let (a, b) = (&old.file.ui, &self.config.file.ui);
+        if a.completion_ignore_case != b.completion_ignore_case
+            || a.completion_fuzzy != b.completion_fuzzy
+        {
+            self.completion = None;
+        }
+        // Only a new SoundFont needs a new player (dropping it would also drop a paused one).
+        if old.file.audio.soundfont != self.config.file.audio.soundfont {
+            self.effects.push(Effect::ConfigReloaded);
+        }
     }
 
     /// `:set`: applies one option to a copy of the config file and rebuilds the config from it.
@@ -2327,7 +2272,7 @@ impl App {
             _ => {
                 // Fill in what all candidates share, if that extends what was typed (with fuzzy
                 // matching they may share a start unrelated to it).
-                let prefix = common_prefix(&c.items, self.completion_ignore_case);
+                let prefix = common_prefix(&c.items, self.config.file.ui.completion_ignore_case);
                 if prefix.chars().count() > typed.chars().count()
                     && self.matcher().is_prefix(&prefix, &typed)
                 {
@@ -2345,8 +2290,8 @@ impl App {
     /// How completion matches, from the case and fuzzy settings.
     pub fn matcher(&self) -> crate::complete::Matcher {
         crate::complete::Matcher {
-            ignore_case: self.completion_ignore_case,
-            fuzzy: self.completion_fuzzy,
+            ignore_case: self.config.file.ui.completion_ignore_case,
+            fuzzy: self.config.file.ui.completion_fuzzy,
         }
     }
 
@@ -2560,7 +2505,7 @@ impl App {
             Stop => {
                 self.paused = false;
                 self.paused_at = None;
-                let follow = self.follow;
+                let follow = self.config.file.ui.follow_playback;
                 if let Some((pane_id, cursor)) = self.play_start.take() {
                     if let Some(p) = self.panes.get_mut(&pane_id) {
                         // A cursor that followed the playhead goes back with it; one moved
@@ -2580,49 +2525,6 @@ impl App {
                 self.effects.push(Effect::Pause);
             }
             Pick(kind) => self.open_picker(kind),
-            BarNumbers(every) => {
-                self.every_bar_number = every.unwrap_or(!self.every_bar_number);
-                self.info(if self.every_bar_number {
-                    "bar numbers: every bar"
-                } else {
-                    "bar numbers: first bar of each line"
-                });
-            }
-            IncompleteBars(on) => {
-                self.highlight_incomplete_bars = on.unwrap_or(!self.highlight_incomplete_bars);
-                self.info(if self.highlight_incomplete_bars {
-                    "incomplete bars highlighted"
-                } else {
-                    "incomplete bars not highlighted"
-                });
-            }
-            CompletionFuzzy(on) => {
-                self.completion_fuzzy = on.unwrap_or(!self.completion_fuzzy);
-                self.completion = None;
-                self.info(if self.completion_fuzzy {
-                    "fuzzy completion on"
-                } else {
-                    "fuzzy completion off (prefix matching)"
-                });
-            }
-            CompletionIgnoreCase(on) => {
-                self.completion_ignore_case = on.unwrap_or(!self.completion_ignore_case);
-                // Candidates found under the old setting no longer apply.
-                self.completion = None;
-                self.info(if self.completion_ignore_case {
-                    "completion ignores case"
-                } else {
-                    "completion matches case"
-                });
-            }
-            FollowToggle => {
-                self.follow = !self.follow;
-                self.info(if self.follow {
-                    "follow playback on"
-                } else {
-                    "follow playback off"
-                });
-            }
             Split => self.split(Axis::Stacked),
             // A tool pane changes its own size (in percent of the view's); score panes share.
             Resize(axis, amount) if self.focused_kind() != PaneKind::Score => {
@@ -2659,47 +2561,7 @@ impl App {
                 Ok(v) => self.info(format!("{name} = {v}")),
                 Err(e) => self.error(e),
             },
-            EqualizeOnClose(on) => {
-                let ui = &mut self.config.file.ui;
-                ui.equalize_on_close = on.unwrap_or(!ui.equalize_on_close);
-                let state = if ui.equalize_on_close { "on" } else { "off" };
-                self.info(format!("equalize-on-close {state}"));
-            }
-            FocusRingWidth(a) => {
-                let ui = &mut self.config.file.ui;
-                if let SettingArg::Set(n) = a {
-                    ui.focus_ring_width = clamp_setting(n, 0.0, FOCUS_RING_WIDTH_MAX, 4.0);
-                } else if a == SettingArg::Default {
-                    ui.focus_ring_width = 4.0;
-                }
-                let w = ui.focus_ring_width;
-                self.info(format!("focus-ring-width {w}"));
-            }
-            FocusRingColor(a) => {
-                let ui = &mut self.config.file.ui;
-                match a {
-                    SettingArg::Set(c) => ui.focus_ring_color = c,
-                    SettingArg::Default => ui.focus_ring_color = String::new(),
-                    SettingArg::Show => {}
-                }
-                let c = self.focus_ring_color().hex();
-                let from = if !self.config.file.ui.focus_ring_color.is_empty() {
-                    ""
-                } else {
-                    " (the mode's color)"
-                };
-                self.info(format!("focus-ring-color {c}{from}"));
-            }
-            TablineWrap(on) => {
-                let t = &mut self.config.file.tabline;
-                t.wrap = on.unwrap_or(!t.wrap);
-                let state = if t.wrap { "on" } else { "off" };
-                self.info(format!("tabline-wrap {state}"));
-            }
             Fretboard(on) => self.set_tool(PaneKind::Fretboard, on),
-            GlobalTool(name) => self.toggle_global_tool(&name),
-            ProgressBar(on) => self.progress_bar = on.unwrap_or(!self.progress_bar),
-            Scrollbar(on) => self.scrollbar = on.unwrap_or(!self.scrollbar),
             Design(cmd) => self.run_design(cmd),
             Piano(on) => self.set_tool(PaneKind::Piano, on),
             Tuner(on) => self.set_tool(PaneKind::Tuner, on),
@@ -3341,7 +3203,7 @@ impl App {
         // Syncing: moving the cursor (Enter moves it on) does not move the playback, which
         // runs on by itself; the cursor follows it when following is on.
         if !(self.playing || self.paused)
-            || !self.follow
+            || !self.config.file.ui.follow_playback
             || self.syncing
             || now == before
             || self.playing_buffer != Some(now.1)
@@ -3360,7 +3222,7 @@ impl App {
     }
 
     pub fn follow_playback(&mut self, buffer: usize, bar: usize, tick: u32) {
-        if !self.follow {
+        if !self.config.file.ui.follow_playback {
             return;
         }
         if let Some(t) = self.seeked {
@@ -4343,13 +4205,13 @@ pub(crate) mod tests {
         app.set_focus(audio);
         app.handle_key(crate::keys::Key::new(crate::keys::KeyCode::Esc));
         assert_eq!(app.window_focus(), second);
-        // :global-tool moves the open pane under its score pane, and back.
+        // Taking it out of ui.global_tools moves the open pane under its score pane, and back.
         assert!(app.is_global(PaneKind::Audio));
-        app.run(Command::GlobalTool("waveform".into()));
+        app.run(Command::parse("set ui.global_tools -waveform").unwrap());
         assert!(!app.is_global(PaneKind::Audio));
         let local = app.tool_pane(PaneKind::Audio).unwrap();
         assert_eq!(app.panes[&local].owner, Some(second));
-        app.run(Command::GlobalTool("waveform".into()));
+        app.run(Command::parse("set ui.global_tools +waveform").unwrap());
         assert!(
             app.panes[&app.tool_pane(PaneKind::Audio).unwrap()]
                 .owner
@@ -4361,15 +4223,15 @@ pub(crate) mod tests {
         let (_, errors) = Config::parse("[ui]\nglobal_waveform = true\n", &[]).unwrap();
         assert!(errors[0].contains("ui.global_waveform"), "{errors:?}");
         // The scrollbar is on by default and toggles.
-        assert!(app.scrollbar);
-        app.run(Command::Scrollbar(None));
-        assert!(!app.scrollbar);
-        app.run(Command::Scrollbar(Some(true)));
-        assert!(app.scrollbar);
+        assert!(app.config.file.ui.scrollbar);
+        app.run(Command::parse("set ui.scrollbar toggle").unwrap());
+        assert!(!app.config.file.ui.scrollbar);
+        app.run(Command::parse("set ui.scrollbar true").unwrap());
+        assert!(app.config.file.ui.scrollbar);
         // The progress bar is on by default and toggles.
-        assert!(app.progress_bar);
-        app.run(Command::ProgressBar(None));
-        assert!(!app.progress_bar);
+        assert!(app.config.file.ui.progress_bar);
+        app.run(Command::parse("set ui.progress_bar toggle").unwrap());
+        assert!(!app.config.file.ui.progress_bar);
     }
 
     #[test]
@@ -4714,14 +4576,14 @@ pub(crate) mod tests {
     }
 
     #[test]
-    fn equalize_on_close_command_toggles_the_setting() {
+    fn set_toggles_equalize_on_close() {
         let mut app = App::new(Config::default(), None);
         assert!(app.config.file.ui.equalize_on_close);
-        app.run(Command::parse("equalize-on-close").unwrap());
+        app.run(Command::parse("set ui.equalize_on_close toggle").unwrap());
         assert!(!app.config.file.ui.equalize_on_close);
-        app.run(Command::parse("equalize-on-close on").unwrap());
+        app.run(Command::parse("set ui.equalize_on_close true").unwrap());
         assert!(app.config.file.ui.equalize_on_close);
-        app.run(Command::parse("equalize-on-close off").unwrap());
+        app.run(Command::parse("set ui.equalize_on_close false").unwrap());
         assert!(!app.config.file.ui.equalize_on_close);
     }
 
@@ -4783,7 +4645,6 @@ pub(crate) mod tests {
         app.reload_config();
         assert!(!app.config.file.tabline.wrap);
         assert_eq!(app.config.file.ui.bar_numbers, "every");
-        assert!(app.every_bar_number);
         let _ = std::fs::remove_dir_all(&dir);
     }
 
@@ -4847,39 +4708,40 @@ pub(crate) mod tests {
     }
 
     #[test]
-    fn appearance_commands_set_show_clamp_and_reject() {
+    fn appearance_options_set_reset_and_reject() {
         let mut app = App::new(Config::default(), None);
         let run = |app: &mut App, c: &str| app.run(Command::parse(c).unwrap());
-        run(&mut app, "focus-ring-width 4");
+        run(&mut app, "set ui.focus_ring_width 4");
         assert_eq!(app.config.file.ui.focus_ring_width, 4.0);
-        run(&mut app, "focus-ring-width 99");
-        assert_eq!(app.config.file.ui.focus_ring_width, 8.0);
-        run(&mut app, "focus-ring-width -1");
+        run(&mut app, "set ui.focus_ring_width 99");
+        assert_eq!(
+            app.config.file.ui.focus_ring_width, 4.0,
+            "out of range: unchanged"
+        );
+        assert!(msg(&app).1, "an error");
+        run(&mut app, "set ui.focus_ring_width 0");
         assert_eq!(app.config.file.ui.focus_ring_width, 0.0);
-        run(&mut app, "focus-ring-width");
-        assert_eq!(app.config.file.ui.focus_ring_width, 0.0);
-        run(&mut app, "focus-ring-width default");
+        run(&mut app, "set ui.focus_ring_width default");
         assert_eq!(app.config.file.ui.focus_ring_width, 4.0);
-        assert!(Command::parse("focus-ring-width wide").is_err());
-        assert!(Command::parse("focus-ring-width NaN").is_err());
+        run(&mut app, "set ui.focus_ring_width wide");
+        assert_eq!(app.config.file.ui.focus_ring_width, 4.0);
 
-        run(&mut app, "focus-ring-color #102030");
+        run(&mut app, "set ui.focus_ring_color #102030");
         assert_eq!(
             app.focus_ring_color(),
             crate::theme::Rgba::rgb(0x10, 0x20, 0x30)
         );
-        run(&mut app, "focus-ring-color");
-        run(&mut app, "focus-ring-color default");
+        run(&mut app, "set ui.focus_ring_color red");
+        assert_eq!(app.config.file.ui.focus_ring_color, "#102030");
+        run(&mut app, "set ui.focus_ring_color default");
         assert!(app.config.file.ui.focus_ring_color.is_empty());
-        assert!(Command::parse("focus-ring-color red").is_err());
 
-        run(&mut app, "tabline-wrap");
+        run(&mut app, "set tabline.wrap toggle");
         assert!(!app.config.file.tabline.wrap);
-        run(&mut app, "tabline-wrap on");
+        run(&mut app, "set tabline.wrap true");
         assert!(app.config.file.tabline.wrap);
-        run(&mut app, "tabline-wrap off");
-        assert!(!app.config.file.tabline.wrap);
-        assert!(Command::parse("tabline-wrap maybe").is_err());
+        run(&mut app, "set tabline.wrap maybe");
+        assert!(app.config.file.tabline.wrap);
     }
 
     #[test]
@@ -4909,12 +4771,15 @@ pub(crate) mod tests {
         // Following off: it shows (and moves on its own).
         keys(&mut app, "<Space>f");
         assert!(!app.cursor_hidden(0));
-        // The setting turns it off.
-        let (config, _) =
-            Config::parse("[ui]\nhide_cursor_while_following = false\n", &[]).unwrap();
+        // The setting turns it off (following stays off, as `<Space>f` left it).
+        let (config, _) = Config::parse(
+            "[ui]\nhide_cursor_while_following = false\nfollow_playback = false\n",
+            &[],
+        )
+        .unwrap();
         app.config = config;
         keys(&mut app, "<Space>f");
-        assert!(app.follow && !app.cursor_hidden(0));
+        assert!(app.config.file.ui.follow_playback && !app.cursor_hidden(0));
     }
 
     #[test]
@@ -4923,7 +4788,7 @@ pub(crate) mod tests {
         keys(&mut app, "<Space><Space>");
         app.take_effects();
         app.set_playing(true);
-        assert!(app.follow);
+        assert!(app.config.file.ui.follow_playback);
         // `}` jumps the playback to the next bar at once…
         keys(&mut app, "}");
         assert_eq!(
@@ -4974,7 +4839,7 @@ pub(crate) mod tests {
         assert_eq!((app.pane().cursor.bar, app.pane().cursor.beat), (3, 1));
         // …until following is turned off: then it stays where it was.
         keys(&mut app, "<Space>f");
-        assert!(!app.follow);
+        assert!(!app.config.file.ui.follow_playback);
         app.follow_playback(0, 5, 0);
         assert_eq!((app.pane().cursor.bar, app.pane().cursor.beat), (3, 1));
         keys(&mut app, "<Space>f");
@@ -5178,22 +5043,20 @@ pub(crate) mod tests {
     }
 
     #[test]
-    fn incomplete_bars_setting_and_command() {
+    fn incomplete_bars_option() {
         let mut app = App::new(Config::default(), None);
-        assert!(!app.highlight_incomplete_bars);
-        app.run(Command::parse("incomplete-bars on").unwrap());
-        assert!(app.highlight_incomplete_bars);
-        app.run(Command::parse("incomplete-bars toggle").unwrap());
-        assert!(!app.highlight_incomplete_bars);
-        app.run(Command::parse("incomplete-bars").unwrap());
-        assert!(app.highlight_incomplete_bars);
-        app.run(Command::parse("incomplete-bars off").unwrap());
-        assert!(!app.highlight_incomplete_bars);
-        assert!(Command::parse("incomplete-bars maybe").is_err());
+        let on = |app: &App| app.config.file.ui.highlight_incomplete_bars;
+        assert!(!on(&app));
+        app.run(Command::parse("set ui.highlight_incomplete_bars true").unwrap());
+        assert!(on(&app));
+        app.run(Command::parse("set ui.highlight_incomplete_bars toggle").unwrap());
+        assert!(!on(&app));
+        app.run(Command::parse("set ui.highlight_incomplete_bars maybe").unwrap());
+        assert!(!on(&app));
         let (config, errors) =
             Config::parse("[ui]\nhighlight_incomplete_bars = true\n", &[]).unwrap();
         assert!(errors.is_empty());
-        assert!(App::new(config, None).highlight_incomplete_bars);
+        assert!(on(&App::new(config, None)));
         let (config, _) = Config::parse("[theme]\nincomplete_bar = \"#112233\"\n", &[]).unwrap();
         assert_eq!(
             config.theme.incomplete_bar,
@@ -5202,21 +5065,18 @@ pub(crate) mod tests {
     }
 
     #[test]
-    fn bar_numbers_setting_and_command() {
+    fn bar_numbers_option() {
         let mut app = App::new(Config::default(), None);
-        assert!(!app.every_bar_number);
-        app.run(Command::parse("bar-numbers every").unwrap());
-        assert!(app.every_bar_number);
-        app.run(Command::parse("bar-numbers toggle").unwrap());
-        assert!(!app.every_bar_number);
-        app.run(Command::parse("bar-numbers").unwrap());
-        assert!(app.every_bar_number);
-        app.run(Command::parse("bar-numbers system").unwrap());
-        assert!(!app.every_bar_number);
-        assert!(Command::parse("bar-numbers sometimes").is_err());
+        assert_eq!(app.config.file.ui.bar_numbers, "system");
+        app.run(Command::parse("set ui.bar_numbers every").unwrap());
+        assert_eq!(app.config.file.ui.bar_numbers, "every");
+        app.run(Command::parse("set ui.bar_numbers sometimes").unwrap());
+        assert_eq!(app.config.file.ui.bar_numbers, "every");
+        app.run(Command::parse("set ui.bar_numbers system").unwrap());
+        assert_eq!(app.config.file.ui.bar_numbers, "system");
         let (config, errors) = Config::parse("[ui]\nbar_numbers = \"every\"\n", &[]).unwrap();
         assert!(errors.is_empty());
-        assert!(App::new(config, None).every_bar_number);
+        assert_eq!(App::new(config, None).config.file.ui.bar_numbers, "every");
         let (_, errors) = Config::parse("[ui]\nbar_numbers = \"odd\"\n", &[]).unwrap();
         assert!(errors[0].contains("ui.bar_numbers"), "{errors:?}");
     }

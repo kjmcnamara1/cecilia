@@ -140,8 +140,8 @@ pub struct Theme {
     pub panel: Rgba,
     /// A bar without notes in the tracks panel.
     pub empty_bar: Rgba,
-    /// Staff lines of a bar that doesn't hold its full count (`:incomplete-bars`), drawn on the
-    /// page: red enough to read on every preset's light page.
+    /// Staff lines of a bar that doesn't hold its full count (`ui.highlight_incomplete_bars`),
+    /// drawn on the page: red enough to read on every preset's light page.
     pub incomplete_bar: Rgba,
     /// The command palette, pickers, which-key and tooltips.
     pub popover: Rgba,

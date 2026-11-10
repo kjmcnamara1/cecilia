@@ -864,7 +864,7 @@ impl Widget for ChantView<'_> {
         // The syllable to keep in view: the playhead's while following playback, else the
         // cursor's.
         let c = pane.cursor;
-        let focus = match playing.filter(|_| self.app.follow) {
+        let focus = match playing.filter(|_| self.app.config.file.ui.follow_playback) {
             Some(p) => p,
             None => (c.bar, c.beat),
         };

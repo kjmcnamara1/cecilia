@@ -111,14 +111,8 @@ pub const COMMAND_SCOPES: &[(&str, Scope)] = &[
     ("focus-prev", B),
     ("focus-right", B),
     ("focus-up", B),
-    ("bar-numbers", B),
-    ("incomplete-bars", B),
-    ("completion-fuzzy", B),
-    ("completion-ignore-case", B),
-    ("follow-toggle", B),
     ("gabc", C),
     ("goto-bar", B),
-    ("global-tool", B),
     ("goto-first", B),
     ("goto-last", B),
     ("help", B),
@@ -170,14 +164,8 @@ pub const COMMAND_SCOPES: &[(&str, Scope)] = &[
     ("keymaps", B),
     ("tracks", B),
     ("toolbar", B),
-    ("equalize-on-close", B),
-    ("focus-ring-width", B),
-    ("focus-ring-color", B),
-    ("tabline-wrap", B),
     ("fretboard", B),
     ("piano", B),
-    ("progress-bar", B),
-    ("scrollbar", B),
     ("design", B),
     ("bar-width", B),
     ("bars-per-line", B),
@@ -390,7 +378,6 @@ fn values(command: &str) -> Option<&'static [&'static str]> {
         "interpretation" => &["equalist", "solesmes"],
         "new" | "enew" => &["modern", "chant"],
         "clef" => &["treble", "bass", "grand", "neutral"],
-        "global-tool" => &["fretboard", "piano", "tracks", "tuner", "waveform"],
         "track-add" => &["bass", "drums", "guitar", "piano", "voice"],
         "notation" => &["standard", "tab", "tab+", "slash", "chant"],
         "lyrics-attach" => &["above", "below", "none"],
@@ -470,20 +457,12 @@ fn values(command: &str) -> Option<&'static [&'static str]> {
             "view",
             "workspace",
         ],
-        "tracks" | "toolbar" | "equalize-on-close" | "tabline-wrap" | "palette" | "fretboard"
-        | "piano" | "tuner" => &["off", "on"],
-        "focus-ring-color" => &["default"],
+        "tracks" | "toolbar" | "palette" | "fretboard" | "piano" | "tuner" => &["off", "on"],
         "track-color" => &["off"],
         "design" => &["off", "on", "toggle"],
         "bar-width" | "bars-per-line" => &["auto"],
         "beat-nudge" => &["reset"],
-        "bar-numbers" => &["every", "system", "toggle"],
-        "completion-ignore-case"
-        | "completion-fuzzy"
-        | "incomplete-bars"
-        | "waveform"
-        | "progress-bar"
-        | "scrollbar" => &["off", "on", "toggle"],
+        "waveform" => &["off", "on", "toggle"],
         "duration" => &["1", "2", "4", "8", "16", "32", "64"],
         "tuning" => &[
             "7-string", "bass", "bass5", "d", "dadgad", "drop-d", "eb", "open-d", "open-e",
@@ -1009,23 +988,23 @@ mod key_tests {
     #[test]
     fn case_setting_from_config_and_a_command_mode_binding() {
         let (config, errors) = Config::parse(
-            "[ui]\ncompletion_ignore_case = false\n[keymap.command]\n\"<C-g>\" = \"completion-ignore-case\"\n",
+            "[ui]\ncompletion_ignore_case = false\n[keymap.command]\n\"<C-g>\" = \"set ui.completion_ignore_case toggle\"\n",
             &[],
         )
         .unwrap();
         assert!(errors.is_empty(), "{errors:?}");
         let mut app = App::new(config, None);
-        assert!(!app.completion_ignore_case);
+        assert!(!app.config.file.ui.completion_ignore_case);
         keys(&mut app, ":LAY<Tab>");
         assert_eq!(app.cmdline, "LAY");
         // Toggling stays on the command line and the next Tab uses the new setting.
         keys(&mut app, "<C-g>");
-        assert!(app.completion_ignore_case);
+        assert!(app.config.file.ui.completion_ignore_case);
         assert_eq!(app.cmdline, "LAY");
         keys(&mut app, "<Tab>");
         assert_eq!(app.cmdline, "layout ");
-        app.run(crate::Command::CompletionIgnoreCase(Some(false)));
-        assert!(!app.completion_ignore_case);
+        app.run(crate::Command::parse("set ui.completion_ignore_case false").unwrap());
+        assert!(!app.config.file.ui.completion_ignore_case);
     }
 
     #[test]
@@ -1078,10 +1057,6 @@ pub fn describe(command: &str) -> Option<&'static str> {
         "clef" => "Clef of the staff: treble, bass, grand, neutral (standard); do, fa (chant)",
         "close" | "pane-close" => "Close the pane",
         "command-mode" => "Open the command line",
-        "completion-ignore-case" => "Toggle case-insensitive completion",
-        "bar-numbers" => "Number every bar, or only the first bar of each line",
-        "incomplete-bars" => "Toggle red staff lines on bars that lack their full beat count",
-        "completion-fuzzy" => "Toggle fuzzy completion (letters in order, anywhere)",
         "count-in" => "Toggle the count-in before playing",
         "delete" => "Delete operator",
         "delete-note" => "Delete the note under the cursor",
@@ -1102,7 +1077,6 @@ pub fn describe(command: &str) -> Option<&'static str> {
         "focus-prev" => "Focus the previous pane",
         "focus-right" => "Focus the pane to the right",
         "focus-up" => "Focus the pane above",
-        "follow-toggle" => "Toggle following playback",
         "gabc" => "Show or replace the chant syllable as GABC",
         "goto-first" => "Go to the first bar",
         "goto-last" => "Go to the last bar",
@@ -1176,12 +1150,6 @@ pub fn describe(command: &str) -> Option<&'static str> {
         "section-prev" => "Previous section",
         "tracks" => "Show or hide the tracks panel",
         "toolbar" => "Show or hide the toolbar",
-        "equalize-on-close" => {
-            "Equalize the remaining panes of a split when one closes (on, off or toggle)"
-        }
-        "focus-ring-width" => "Thickness of the focus ring in pixels (0 to 8)",
-        "focus-ring-color" => "Color of the focus ring: #rrggbb or default (the mode's color)",
-        "tabline-wrap" => "Wrap buffer next/prev around the tabline ends (on, off or toggle)",
         "fretboard" => "Show or hide the fretboard (notes at the cursor or playhead)",
         "piano" => "Show or hide the piano keys (notes at the cursor or playhead)",
         "tuner" => "Show or hide the tuner (listens to the audio input)",
@@ -1386,11 +1354,6 @@ pub fn describe(command: &str) -> Option<&'static str> {
         "w" | "write" => "Save (or save as / export by extension)",
         "waveform-strip" => "Toggle this pane's waveform strip",
         "waveform" => "Show or hide the waveform tool pane",
-        "global-tool" => {
-            "Toggle whether a tool pane (tracks, audio, fretboard, piano, tuner) is global"
-        }
-        "progress-bar" => "Show or hide the progress bar along the score panes",
-        "scrollbar" => "Show or hide the scrollbar on the score panes",
         "design" => "Design mode: adjust the page layout by hand (on, off or toggle)",
         "bar-width" => "Width of the cursor bar in the page layout (N, +N, -N percent, or auto)",
         "bars-per-line" => "Bars on the cursor's line in the page layout (N, +N, -N, or auto)",

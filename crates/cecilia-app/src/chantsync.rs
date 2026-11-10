@@ -922,7 +922,7 @@ mod tests {
                 .any(|e| matches!(e, Effect::Seek { .. }))
         );
         // With following off the cursor stays where it is.
-        run(&mut a, "follow-toggle");
+        run(&mut a, "set ui.follow_playback toggle");
         let at = a.pane().cursor;
         a.follow_playback(0, 0, 0);
         assert_eq!(a.pane().cursor, at);

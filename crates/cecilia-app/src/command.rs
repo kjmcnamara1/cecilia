@@ -2,19 +2,6 @@
 
 use std::path::PathBuf;
 
-/// A number for a session setting: absent shows it; `default` unsets it where `has_default`.
-/// Range checks happen where it is applied (clamped like on config load).
-fn number_arg(name: &str, arg: Option<&str>, has_default: bool) -> Result<SettingArg<f64>, String> {
-    match arg {
-        None => Ok(SettingArg::Show),
-        Some("default") if has_default => Ok(SettingArg::Default),
-        Some(a) => match a.parse::<f64>() {
-            Ok(n) if n.is_finite() => Ok(SettingArg::Set(n)),
-            _ => Err(format!("{name}: '{a}' is not a number")),
-        },
-    }
-}
-
 /// A size given as `N` (to N) or `+N` / `-N` (by N).
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Amount {
@@ -70,15 +57,6 @@ pub enum BeatAt {
     BarStart,
     /// At the end of the bar.
     BarEnd,
-}
-
-/// The argument of a command that sets a session setting: none (show it), `default` (unset),
-/// or a value.
-#[derive(Debug, Clone, PartialEq)]
-pub enum SettingArg<T> {
-    Show,
-    Default,
-    Set(T),
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -291,11 +269,6 @@ pub enum Command {
     /// The window-wide waveform bar: on, off, or toggle (None).
     /// Show or hide the audio (waveform) pane.
     AudioPane(Option<bool>),
-    /// Toggle whether a tool pane is global (`ui.global_tools`).
-    GlobalTool(String),
-    /// Show or hide the progress bar of the score panes.
-    ProgressBar(Option<bool>),
-    Scrollbar(Option<bool>),
     /// Design mode and the manual page-layout commands.
     Design(crate::design::DesignCmd),
     /// Level of "midi", "audio" or "metronome" in percent.
@@ -320,14 +293,6 @@ pub enum Command {
     Set(String, Option<String>),
     /// `:get NAME`: show an option's value.
     Get(String),
-    /// Turn `ui.equalize_on_close` on or off for this session (no argument: toggle).
-    EqualizeOnClose(Option<bool>),
-    /// Set `ui.focus_ring_width` for this session (no argument: show it).
-    FocusRingWidth(SettingArg<f64>),
-    /// Set `ui.focus_ring_color` (`#hex`, or `default` for the mode's color).
-    FocusRingColor(SettingArg<String>),
-    /// Turn `tabline.wrap` on or off for this session (no argument: toggle).
-    TablineWrap(Option<bool>),
     /// Show or hide the properties pane (no argument: toggle).
     Properties(Option<bool>),
     /// Focus the properties pane, or give the focus back to the score.
@@ -409,16 +374,6 @@ pub enum Command {
     Lyrics(String),
     /// Remove a verse row of lyrics from the cursor track (all lyrics without a number).
     LyricsClear(Option<usize>),
-    /// Whether command-line completion ignores case: on, off, or toggle (None).
-    CompletionIgnoreCase(Option<bool>),
-    /// Whether command-line completion is fuzzy: on, off, or toggle (None).
-    CompletionFuzzy(Option<bool>),
-    /// Number every bar (`Some(true)`) or only the first of each line (`Some(false)`); toggles
-    /// without an argument.
-    BarNumbers(Option<bool>),
-    /// Draw the staff lines of bars without their full count in red (`Some(true)`), or not;
-    /// toggles without an argument.
-    IncompleteBars(Option<bool>),
     /// Save the session as a workspace under a name (the active one without); `!` overwrites an
     /// existing workspace of that name.
     WorkspaceSave(Option<String>, bool),
@@ -497,7 +452,6 @@ pub enum Command {
     Play,
     Pause,
     Stop,
-    FollowToggle,
     Split,
     /// Height (stacked) or width (side by side) of the focused pane, in percent of its split;
     /// in the tracks panel, the rows it shows.
@@ -654,7 +608,6 @@ impl Command {
             "play" => Play,
             "pause" => Pause,
             "stop" => Stop,
-            "follow-toggle" => FollowToggle,
             "split" | "sp" => Split,
             "resize" | "res" | "vertical-resize" | "vresize" | "tracks-resize"
             | "waveform-resize" => {
@@ -1043,27 +996,16 @@ impl Command {
                     .ok_or("sync-nudge: expected milliseconds, e.g. :sync-nudge -10")?,
             ),
             "waveform-strip" => Waveform,
-            "waveform" | "progress-bar" | "scrollbar" => {
-                let on = match arg {
-                    None | Some("toggle") => None,
-                    Some("on" | "true" | "yes") => Some(true),
-                    Some("off" | "false" | "no") => Some(false),
-                    Some(other) => {
-                        return Err(format!("{name}: expected on, off or toggle, not '{other}'"));
-                    }
-                };
-                match name {
-                    "progress-bar" => ProgressBar(on),
-                    "scrollbar" => Scrollbar(on),
-                    _ => AudioPane(on),
+            "waveform" => AudioPane(match arg {
+                None | Some("toggle") => None,
+                Some("on" | "true" | "yes") => Some(true),
+                Some("off" | "false" | "no") => Some(false),
+                Some(other) => {
+                    return Err(format!("{name}: expected on, off or toggle, not '{other}'"));
                 }
-            }
+            }),
             "design" | "bar-width" | "bars-per-line" | "line-break" | "line-join"
             | "beat-nudge" | "design-reset" => Design(crate::design::DesignCmd::parse(name, arg)?),
-            "global-tool" => GlobalTool(
-                arg.ok_or("global-tool: expected tracks, waveform, fretboard, piano or tuner")?
-                    .to_string(),
-            ),
             "volume" => {
                 let a = arg.ok_or("volume: expected SOURCE PERCENT (midi, audio, metronome)")?;
                 let (src, pct) = a.split_once(' ').ok_or("volume: expected SOURCE PERCENT")?;
@@ -1082,46 +1024,6 @@ impl Command {
                 .transpose()?
                 .map(|n| n.saturating_sub(1)),
             ),
-            "bar-numbers" => BarNumbers(match arg {
-                None | Some("toggle") => None,
-                Some("every" | "on" | "true" | "yes") => Some(true),
-                Some("system" | "off" | "false" | "no") => Some(false),
-                Some(other) => {
-                    return Err(format!(
-                        "bar-numbers: expected every, system or toggle, not '{other}'"
-                    ));
-                }
-            }),
-            "incomplete-bars" => IncompleteBars(match arg {
-                None | Some("toggle") => None,
-                Some("on" | "true" | "yes") => Some(true),
-                Some("off" | "false" | "no") => Some(false),
-                Some(other) => {
-                    return Err(format!(
-                        "incomplete-bars: expected on, off or toggle, not '{other}'"
-                    ));
-                }
-            }),
-            "completion-fuzzy" => CompletionFuzzy(match arg {
-                None | Some("toggle") => None,
-                Some("on" | "true" | "yes") => Some(true),
-                Some("off" | "false" | "no") => Some(false),
-                Some(other) => {
-                    return Err(format!(
-                        "completion-fuzzy: expected on, off or toggle, not '{other}'"
-                    ));
-                }
-            }),
-            "completion-ignore-case" => CompletionIgnoreCase(match arg {
-                None | Some("toggle") => None,
-                Some("on" | "true" | "yes") => Some(true),
-                Some("off" | "false" | "no") => Some(false),
-                Some(other) => {
-                    return Err(format!(
-                        "completion-ignore-case: expected on, off or toggle, not '{other}'"
-                    ));
-                }
-            }),
             "workspace-save" | "workspace-save!" => {
                 WorkspaceSave(arg.map(String::from), name.ends_with('!'))
             }
@@ -1295,29 +1197,6 @@ impl Command {
                 }
             }
             "get" => Get(arg.ok_or("get: expected OPTION")?.into()),
-            "equalize-on-close" => EqualizeOnClose(match arg {
-                None => None,
-                Some("on") => Some(true),
-                Some("off") => Some(false),
-                Some(a) => return Err(format!("equalize-on-close: '{a}' is not on or off")),
-            }),
-            "focus-ring-width" => FocusRingWidth(number_arg("focus-ring-width", arg, true)?),
-            "focus-ring-color" => FocusRingColor(match arg {
-                None => SettingArg::Show,
-                Some("default") => SettingArg::Default,
-                Some(a) if crate::theme::Rgba::parse(a).is_some() => SettingArg::Set(a.into()),
-                Some(a) => {
-                    return Err(format!(
-                        "focus-ring-color: '{a}' is not a #rrggbb color or default"
-                    ));
-                }
-            }),
-            "tabline-wrap" => TablineWrap(match arg {
-                None => None,
-                Some("on") => Some(true),
-                Some("off") => Some(false),
-                Some(a) => return Err(format!("tabline-wrap: '{a}' is not on or off")),
-            }),
             "track-volume" => TrackVolume(
                 arg.and_then(crate::tracks::VolumeChange::parse)
                     .ok_or("track-volume: give a percentage (80, +10 or -10)")?,
@@ -1572,5 +1451,32 @@ mod tests {
         assert_eq!(Command::parse("w"), Ok(Command::Write(None)));
         assert!(Command::parse("e").is_err());
         assert!(Command::parse("frobnicate").is_err());
+    }
+
+    #[test]
+    fn removed_option_commands_are_unknown() {
+        for name in [
+            "equalize-on-close",
+            "focus-ring-width",
+            "focus-ring-color",
+            "tabline-wrap",
+            "completion-fuzzy",
+            "completion-ignore-case",
+            "bar-numbers",
+            "incomplete-bars",
+            "progress-bar",
+            "scrollbar",
+            "follow-toggle",
+            "global-tool",
+        ] {
+            assert!(Command::parse(name).is_err(), "{name} still parses");
+        }
+        assert_eq!(
+            Command::parse("set ui.follow_playback toggle"),
+            Ok(Command::Set(
+                "ui.follow_playback".into(),
+                Some("toggle".into())
+            ))
+        );
     }
 }
