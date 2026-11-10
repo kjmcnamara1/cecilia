@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.39.0] - 2026-11-10
+
 ### Added
 
 - Notifications: messages and errors are cards stacked over the score panes (or the window), merged when repeated (`×N`), timed out by severity with a thin bar draining along the bottom of each card, and kept in a persistent history (`:notifications`, `<leader>nh`; `:notify-dismiss`, `<leader>nd`; click a card to dismiss it). Options `notifications.anchor` (eight corners and sides), `.area` (`scores` / `window`), `.info_timeout`, `.error_timeout`, `.max_visible`, `.history_size`, `.history_time` (`relative` / `absolute`).
