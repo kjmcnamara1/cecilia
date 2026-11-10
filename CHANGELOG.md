@@ -16,6 +16,23 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - Pickers list their entries upward from the input line, best match nearest it, so `<Up>`/`<A-k>`/`<Tab>` go further up and `<Down>`/`<A-j>` back. The command palette and pickers now sit a quarter of the way down the window instead of at the top.
 
+## [0.37.1] - 2026-11-10
+
+### Fixed
+
+- The voices not being edited are dimmed in every bar, also in bars that lack the voice being edited (GUI and terminal tab view).
+
+## [0.37.0] - 2026-11-10
+
+### Added
+
+- `theme.selection_opacity` (0 to 100, percent) sets how opaque the Visual-mode selection is, for themes where it is hard to see.
+- `theme.cursor_opacity` (0 to 100, percent) sets how opaque the edit cursor's shade is in the GUI. The nord theme's selection is 40% opaque.
+
+### Changed
+
+- A plain click in Visual mode moves the cursor and returns to Normal mode, instead of moving the selection's end.
+
 ## [0.36.0] - 2026-11-10
 
 ### Added

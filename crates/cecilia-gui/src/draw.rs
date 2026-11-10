@@ -2510,7 +2510,7 @@ fn draw_pane_content(
             scene.fill(
                 Fill::NonZero,
                 to_screen(pos.page),
-                tc(|t| t.selection.with_alpha(55)),
+                tc(|t| t.selection.with_alpha(t.selection_alpha())),
                 None,
                 &rect,
             );
@@ -2541,8 +2541,7 @@ fn draw_pane_content(
         views.glide.insert(id, (pos.page, pos.top, x, w, now));
         // A translucent shade in the mode's color over just what an edit changes: the note
         // place on the cursor's string, or the whole beat on staves without strings.
-        let alpha = if focused { 110 } else { 45 };
-        let color = tc(|_| app.mode_color().with_alpha(alpha));
+        let color = tc(|t| app.mode_color().with_alpha(t.cursor_alpha(focused)));
         // A square over the cursor's string or staff position. Chant positions only match
         // the square-notation layout (a chant track in square notation).
         let c = pane.cursor;

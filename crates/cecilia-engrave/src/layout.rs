@@ -3018,15 +3018,14 @@ impl Ctx<'_> {
             }
         }
         voice_starts.push(page.items.len());
-        if bar.voices.len() > 1 {
-            // Where each voice's items lie on the page, so a frontend can dim the inactive ones.
-            for (vi, w) in voice_starts.windows(2).enumerate() {
-                page.voice_spans.push(crate::display::VoiceSpan {
-                    voice: vi,
-                    start: w[0],
-                    end: w[1],
-                });
-            }
+        // Where each voice's items lie on the page, so a frontend can dim the inactive ones (in
+        // every bar, also one without the voice being edited).
+        for (vi, w) in voice_starts.windows(2).enumerate() {
+            page.voice_spans.push(crate::display::VoiceSpan {
+                voice: vi,
+                start: w[0],
+                end: w[1],
+            });
         }
         // A bar repeat sign takes the place of the notes.
         if let Some(simile) = bar.simile {
@@ -4583,6 +4582,10 @@ mod tests {
         });
         let layout2 = engrave(&blank_two, 0, &Options::default());
         assert!(layout2.beats.contains_key(&BeatRef { voice: 1, ..at }));
+        // A bar with one voice has spans too: voice 1 being edited dims it.
+        let single = engrave(&score, 0, &Options::default());
+        assert!(single.pages[0].with_voices_dimmed(1, 90).is_some());
+        assert!(single.pages[0].with_voices_dimmed(0, 90).is_none());
         let page = &layout.pages[0];
         // A span per voice on each of the two staves.
         assert_eq!(page.voice_spans.len(), 4);

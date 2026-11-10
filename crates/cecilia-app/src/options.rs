@@ -339,6 +339,16 @@ pub static OPTIONS: LazyLock<Vec<OptionSpec>> = LazyLock::new(|| {
             List(&ItemKind::Color),
             "The colors of voices 1, 2, ...; empty: the built-in palette.",
         ),
+        o(
+            "theme.selection_opacity",
+            float(0.0, 100.0),
+            "How opaque the Visual-mode selection is, in percent; default: the preset's.",
+        ),
+        o(
+            "theme.cursor_opacity",
+            float(0.0, 100.0),
+            "How opaque the edit cursor's shade is, in percent; default: the preset's.",
+        ),
     ];
     v.extend(COLOR_NAMES.iter().map(|n| {
         let name: &'static str = Box::leak(format!("theme.{n}").into_boxed_str());
