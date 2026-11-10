@@ -18,11 +18,12 @@ pub enum ToolItem {
 pub struct ToolButton {
     /// The command line, as configured (e.g. `"write"`, `"layout page"`).
     pub command: String,
-    /// The command's name (its first word), which picks the icon.
+    /// The command's name (its first word), or the option of a `set OPTION …` line (e.g.
+    /// `"ui.follow_playback"`); it picks the icon.
     pub name: String,
     /// What it does, and its key (e.g. "Write the file (:w)  <C-s>").
     pub tooltip: String,
-    /// A toggle that is on (follow, loop, metronome…), or play while playing.
+    /// A toggle that is on (loop, metronome, a boolean option…), or play while playing.
     pub active: bool,
     /// Whether clicking does anything now (e.g. undo needs something to undo).
     pub enabled: bool,
@@ -39,7 +40,7 @@ pub const DEFAULT_ITEMS: &[&str] = &[
     "|",
     "play-toggle",
     "stop",
-    "follow-toggle",
+    "set ui.follow_playback toggle",
     "loop-toggle",
     "metronome",
     "count-in",
@@ -73,7 +74,14 @@ impl App {
                     return Some(ToolItem::Separator);
                 }
                 Command::parse(line).ok()?;
-                let name = line.split_whitespace().next().unwrap_or(line).to_string();
+                let mut words = line.split_whitespace();
+                let first = words.next().unwrap_or(line);
+                // A `set OPTION …` button is known by its option.
+                let option = (first == "set")
+                    .then(|| words.next())
+                    .flatten()
+                    .and_then(|o| crate::options::spec(o).ok());
+                let name = option.map_or(first, |o| o.name).to_string();
                 // The first key bound to exactly this command line, if any.
                 let mut keys: Vec<String> = normal
                     .names
@@ -82,14 +90,16 @@ impl App {
                     .map(|(k, _)| crate::keys::format_keys(k))
                     .collect();
                 keys.sort_by_key(|k| (k.len(), k.clone()));
-                let what = crate::complete::describe(&name).unwrap_or(line);
+                let what = match option {
+                    Some(o) => o.doc,
+                    None => crate::complete::describe(&name).unwrap_or(line),
+                };
                 let tooltip = match keys.first() {
                     Some(k) => format!("{what}  {k}"),
                     None => what.to_string(),
                 };
                 let active = match name.as_str() {
                     "play-toggle" | "play" => self.playing,
-                    "follow-toggle" => self.follow,
                     "loop-toggle" => self.pa.loop_bars.is_some(),
                     "metronome" => self.pa.metronome,
                     "count-in" => self.pa.count_in,
@@ -99,9 +109,12 @@ impl App {
                     "piano" => self.has_tool(crate::app::PaneKind::Piano),
                     "fretboard" => self.has_tool(crate::app::PaneKind::Fretboard),
                     "tuner" => self.has_tool(crate::app::PaneKind::Tuner),
-                    "progress-bar" => self.progress_bar,
                     "maximize" => self.maximized().is_some(),
-                    _ => false,
+                    _ => option.is_some_and(|o| {
+                        o.kind == crate::options::Kind::Bool
+                            && crate::options::get(&self.config.file, o.name).as_deref()
+                                == Ok("true")
+                    }),
                 };
                 let enabled = match name.as_str() {
                     "undo" | "u" => buffer.history.can_undo(),
@@ -158,16 +171,22 @@ mod tests {
         assert!(matches!(items[3], ToolItem::Separator));
         // Nothing to undo yet; follow is on; tooltips name the key.
         assert!(!button(&items, "undo").enabled);
-        assert!(button(&items, "follow-toggle").active);
+        assert!(button(&items, "ui.follow_playback").active);
         assert!(
             button(&items, "play-toggle")
                 .tooltip
                 .contains("<Space><Space>")
         );
         // Clicking runs the command.
-        let follow = find(&items, "follow-toggle").unwrap();
+        let follow = find(&items, "ui.follow_playback").unwrap();
+        assert!(
+            button(&items, "ui.follow_playback")
+                .tooltip
+                .contains("<Space>f")
+        );
         app.run_toolbar(follow);
-        assert!(!app.follow && !button(&app.toolbar_items(), "follow-toggle").active);
+        assert!(!app.config.file.ui.follow_playback);
+        assert!(!button(&app.toolbar_items(), "ui.follow_playback").active);
         let tracks = find(&items, "tracks").unwrap();
         app.run_toolbar(tracks);
         assert!(app.has_tool(crate::app::PaneKind::Tracks));
@@ -193,7 +212,7 @@ mod tests {
         app.run(Command::Toolbar(None));
         assert!(!app.toolbar);
         let (config, errors) =
-            Config::parse("[toolbar]\nitems = [\"write\", \"|\", \"nonsense\"]\n").unwrap();
+            Config::parse("[toolbar]\nitems = [\"write\", \"|\", \"nonsense\"]\n", &[]).unwrap();
         assert_eq!(errors.len(), 1, "{errors:?}");
         let app = App::new(config, None);
         assert_eq!(app.toolbar_items().len(), 2);

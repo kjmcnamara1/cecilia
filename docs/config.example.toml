@@ -1,5 +1,9 @@
 # cecilia configuration — copy to ~/.config/cecilia/config.toml
 # Changes are picked up automatically while cecilia is running (or run :source).
+# Every key below is an option named by its dotted path (ui.tab_width, tabline.wrap, ...): set it
+# here, on the command line with -o NAME=VALUE, or in the app with :set NAME [VALUE] (:get NAME
+# shows it; :set NAME default resets it). -o and :set values last for the session and win over this
+# file. Keymaps are the only part that is not an option.
 
 [general]
 leader = "<Space>"
@@ -10,7 +14,7 @@ follow_playback = true   # the cursor and view move with the playhead (red bar) 
 jk_moves_between_staves = false   # true: j/k go on from a staff's last row into the next staff (default: they stay on the staff, with ledger-line rows above and below; <A-j>/<A-k> change staff)
 lyrics_select_cursor = true   # going from a chant score to its lyrics text area puts the caret (Normal mode) on the pitch letter of the note the cursor is on; :lyrics-select (<leader>g) always does
 bar_numbers = "system"   # "system": a bar number at the start of each line; "every": every bar is numbered (GUI)
-highlight_incomplete_bars = false   # draw the staff lines of bars whose beats don't fill the time signature in red (:incomplete-bars)
+highlight_incomplete_bars = false   # draw the staff lines of bars whose beats don't fill the time signature in red (:set ui.highlight_incomplete_bars toggle)
 chant_chords = "top"   # chant is monophonic: which note of a chord `:modern-to-chant` and `cecilia convert … .gabc` keep — "top", "bottom", or "error" (refuse the conversion; a message names the chord)
 hide_cursor_while_following = true   # …and only the red bar shows then (the edit cursor hides)
 completion_ignore_case = true   # Tab completion on the command line ignores letter case
@@ -28,9 +32,9 @@ global_tools = ["tracks", "waveform", "fretboard", "piano", "tuner"]   # tool pa
                          # bottom of the window at full width (showing the last active score);
                          # others open under their score pane and always show it
 auto_resize = true       # tracks panes fit their contents' height, until you resize them by hand
-focus_ring_width = 4.0 # GUI: thickness in pixels of the ring around the focused pane (0 to 8; 0: none; the terminal UI uses a thick border above 4; :focus-ring-width N sets it for the session)
-# focus_ring_color = "#fabe28" # color of that ring (#rgb, #rrggbb or #rrggbbaa); unset: the current mode's color (:focus-ring-color #hex|default)
-equalize_on_close = true # closing a pane re-equalizes the split it was in (off: the neighbour takes its space; :equalize-on-close [on|off] changes it for the session)
+focus_ring_width = 4.0 # GUI: thickness in pixels of the ring around the focused pane (0 to 8; 0: none; the terminal UI uses a thick border above 4; :set ui.focus_ring_width N sets it for the session)
+focus_ring_color = ""    # color of that ring (#rgb, #rrggbb or #rrggbbaa; "": the current mode's color; :set ui.focus_ring_color #fabe28)
+equalize_on_close = true # closing a pane re-equalizes the split it was in (off: the neighbour takes its space; :set ui.equalize_on_close toggle changes it for the session)
 keep_files_in_new_view = true # :view-new starts the new view with the current files (as tabline.new_view says; off: with the dashboard, no files)
 workspace_autosave_on_quit = true # quitting runs :workspace-save for the active workspace (:quit! never does; no workspace: nothing)
 workspace_restore_last = true # `cecilia` with no arguments loads the last workspace (created as "default" if none is saved); off: the dashboard, with no workspace
@@ -57,7 +61,7 @@ icons = "nerd"           # terminal icons (file types, and the editing palette's
                          # palette shows short text labels like "1/8", "PM", "||"; chant notation then uses
                          # ASCII note heads)
 hide_single_view = true  # no view indicator on the right while there is only one view
-wrap = true              # :buffer-next / :buffer-prev wrap around at the ends (off: stop at the last / first tab; :tabline-wrap [on|off])
+wrap = true              # :buffer-next / :buffer-prev wrap around at the ends (off: stop at the last / first tab; :set tabline.wrap toggle)
 
 [tabline.truncation]
 max_width = 28           # longer file names are shortened in the middle…
@@ -120,8 +124,8 @@ separators = "arrow"     # terminal: between sections, as lualine: "arrow", "rou
 [toolbar]
 # The toolbar's buttons: commands as typed after ":", "|" between groups (ui.toolbar shows it).
 # items = ["new", "open", "write", "|", "undo", "redo", "|", "play-toggle", "stop",
-#          "follow-toggle", "loop-toggle", "metronome", "count-in", "|", "tracks", "properties",
-#          "waveform", "piano", "fretboard", "tuner", "split", "vsplit", "|", "command-mode",
+#          "set ui.follow_playback toggle", "loop-toggle", "metronome", "count-in", "|", "tracks",
+#          "properties", "waveform", "piano", "fretboard", "tuner", "split", "vsplit", "|", "command-mode",
 #          "pick-keymap"]
 
 [audio]
@@ -206,5 +210,5 @@ clef = "treble"          # clef of a standard staff added without one: treble, b
 
 [keymap.command]
 # "<C-p>" = "normal"
-# "<C-g>" = "completion-ignore-case"   # toggle case-insensitive completion while typing
-# "<C-f>" = "completion-fuzzy"         # toggle fuzzy completion while typing
+# "<C-g>" = "set ui.completion_ignore_case toggle"  # toggle case-insensitive completion while typing
+# "<C-f>" = "set ui.completion_fuzzy toggle"       # toggle fuzzy completion while typing

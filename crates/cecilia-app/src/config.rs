@@ -1,9 +1,9 @@
 //! TOML configuration and keymaps.
 
-use std::collections::HashMap;
+use std::collections::{BTreeMap, HashMap};
 use std::path::{Path, PathBuf};
 
-use serde::Deserialize;
+use serde::{Deserialize, Serialize};
 
 use crate::command::Command;
 use crate::keys::{Key, parse_keys};
@@ -30,7 +30,7 @@ pub enum Mode {
     Sync,
 }
 
-#[derive(Debug, Clone, Default, Deserialize)]
+#[derive(Debug, Clone, Default, Deserialize, Serialize)]
 #[serde(default, deny_unknown_fields)]
 pub struct ConfigFile {
     pub general: GeneralConfig,
@@ -46,7 +46,7 @@ pub struct ConfigFile {
 }
 
 /// Score defaults (`[score]`).
-#[derive(Debug, Clone, Deserialize)]
+#[derive(Debug, Clone, Deserialize, Serialize)]
 #[serde(default, deny_unknown_fields)]
 pub struct ScoreConfig {
     /// Clef of a standard staff added without one: "treble", "bass" or "grand".
@@ -63,7 +63,7 @@ impl Default for ScoreConfig {
 
 /// The status line: how the terminal separates its sections: "arrow" (default), "round" or
 /// "none" (the GUI draws rounded chips).
-#[derive(Debug, Clone, Deserialize)]
+#[derive(Debug, Clone, Deserialize, Serialize)]
 #[serde(default, deny_unknown_fields)]
 pub struct StatuslineConfig {
     pub separators: String,
@@ -78,7 +78,7 @@ impl Default for StatuslineConfig {
 }
 
 /// The toolbar's buttons: command lines in order, `"|"` between groups.
-#[derive(Debug, Clone, Deserialize)]
+#[derive(Debug, Clone, Deserialize, Serialize)]
 #[serde(default, deny_unknown_fields)]
 pub struct ToolbarConfig {
     pub items: Vec<String>,
@@ -96,7 +96,7 @@ impl Default for ToolbarConfig {
 }
 
 /// The tabline: the active view's buffers as tabs on the left, the views on the right.
-#[derive(Debug, Clone, Deserialize)]
+#[derive(Debug, Clone, Deserialize, Serialize)]
 #[serde(default, deny_unknown_fields)]
 pub struct TablineConfig {
     /// What a new view starts with: "copy" (the current view's buffers), "current" (the
@@ -126,7 +126,7 @@ impl Default for TablineConfig {
 
 /// Long file names in tabs keep their first `prefix_width` and last `suffix_width`
 /// characters around an ellipsis, to at most `max_width` characters.
-#[derive(Debug, Clone, Deserialize)]
+#[derive(Debug, Clone, Deserialize, Serialize)]
 #[serde(default, deny_unknown_fields)]
 pub struct TruncationConfig {
     pub max_width: usize,
@@ -144,7 +144,7 @@ impl Default for TruncationConfig {
     }
 }
 
-#[derive(Debug, Clone, Deserialize)]
+#[derive(Debug, Clone, Deserialize, Serialize)]
 #[serde(default, deny_unknown_fields)]
 pub struct GeneralConfig {
     pub leader: String,
@@ -158,7 +158,7 @@ impl Default for GeneralConfig {
     }
 }
 
-#[derive(Debug, Clone, Deserialize)]
+#[derive(Debug, Clone, Deserialize, Serialize)]
 #[serde(default, deny_unknown_fields)]
 pub struct UiConfig {
     /// TUI: characters per sixteenth note in the tab view.
@@ -232,8 +232,8 @@ pub struct UiConfig {
     pub highlight_incomplete_bars: bool,
     /// Thickness in pixels of the ring around the focused pane in the GUI (0: none; 0 to 8).
     pub focus_ring_width: f64,
-    /// Color of that ring (`#rgb`, `#rrggbb` or `#rrggbbaa`); unset: the current mode's color.
-    pub focus_ring_color: Option<String>,
+    /// Color of that ring (#rgb, #rrggbb or #rrggbbaa); empty: the current mode's color.
+    pub focus_ring_color: String,
     /// GUI: the font family of the lyrics text area in the properties pane: the app's text font
     /// (Source Sans 3) by default, or any installed font family.
     pub lyrics_font: String,
@@ -258,7 +258,7 @@ pub struct UiConfig {
 }
 
 /// Which ticks of a waveform ruler are drawn.
-#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Deserialize)]
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Deserialize, Serialize)]
 #[serde(rename_all = "lowercase")]
 pub enum Ticks {
     #[default]
@@ -312,7 +312,7 @@ impl Default for UiConfig {
             bar_numbers: "system".into(),
             highlight_incomplete_bars: false,
             focus_ring_width: 4.0,
-            focus_ring_color: None,
+            focus_ring_color: String::new(),
             zoom: 1.0,
             lyrics_font: "Source Sans 3".into(),
             lyrics_font_size: 12.0,
@@ -327,7 +327,7 @@ impl Default for UiConfig {
 }
 
 /// Swap files (`[swap]`): recovery copies of buffers with unsaved changes.
-#[derive(Debug, Clone, Deserialize)]
+#[derive(Debug, Clone, Deserialize, Serialize)]
 #[serde(default, deny_unknown_fields)]
 pub struct SwapConfig {
     /// Write swap files.
@@ -353,7 +353,7 @@ impl Default for SwapConfig {
     }
 }
 
-#[derive(Debug, Clone, Deserialize)]
+#[derive(Debug, Clone, Deserialize, Serialize)]
 #[serde(default, deny_unknown_fields)]
 pub struct AudioConfig {
     /// SoundFont (.sf2) for MIDI playback; the built-in synth is used when unset.
@@ -375,14 +375,14 @@ impl Default for AudioConfig {
 }
 
 /// A keymap value: one command or a list of commands run in order.
-#[derive(Debug, Clone, Deserialize)]
+#[derive(Debug, Clone, Deserialize, Serialize)]
 #[serde(untagged)]
 pub enum Binding {
     One(String),
     Many(Vec<String>),
 }
 
-#[derive(Debug, Clone, Default, Deserialize)]
+#[derive(Debug, Clone, Default, Deserialize, Serialize)]
 #[serde(default, deny_unknown_fields)]
 pub struct KeymapConfig {
     pub normal: HashMap<String, Binding>,
@@ -462,7 +462,7 @@ const DEFAULT_NORMAL: &[(&str, &str)] = &[
     ("zb", "scroll-bottom"),
     ("<leader><leader>", "play-toggle"),
     ("<leader>s", "stop"),
-    ("<leader>f", "follow-toggle"),
+    ("<leader>f", "set ui.follow_playback toggle"),
     ("<C-o>", "open"),
     ("<C-q>", "quit"),
     ("<C-w>s", "split"),
@@ -794,7 +794,7 @@ const DEFAULT_TRACKS: &[(&str, &str)] = &[
     ("q", "tracks-focus"),
     ("<leader><leader>", "play-toggle"),
     ("<leader>s", "stop"),
-    ("<leader>f", "follow-toggle"),
+    ("<leader>f", "set ui.follow_playback toggle"),
     ("<leader>T", "tracks"),
     ("<leader>?", "pick-keymap"),
     ("<C-q>", "quit"),
@@ -900,7 +900,7 @@ const DEFAULT_PROPERTIES: &[(&str, &str)] = &[
     ("q", "properties-focus"),
     ("<leader><leader>", "play-toggle"),
     ("<leader>s", "stop"),
-    ("<leader>f", "follow-toggle"),
+    ("<leader>f", "set ui.follow_playback toggle"),
     ("<leader>p", "properties"),
     ("<leader>P", "properties-focus"),
     ("<leader>?", "pick-keymap"),
@@ -997,6 +997,9 @@ pub struct Config {
     pub leader: Vec<Key>,
     /// Interface colors (`[theme]`).
     pub theme: crate::theme::Theme,
+    /// Option values given on the command line (or `:set` sessions): resolved name -> value.
+    /// They win over the file and survive a config reload.
+    pub overrides: BTreeMap<String, String>,
 }
 
 impl Default for Config {
@@ -1192,70 +1195,11 @@ impl Config {
             "keymap.command",
             &mut errors,
         );
-        if !matches!(file.ui.bar_numbers.as_str(), "system" | "every") {
-            errors.push(format!(
-                "ui.bar_numbers: '{}' is not system or every (using system)",
-                file.ui.bar_numbers
-            ));
-        }
-        if !matches!(
-            file.ui.chant_text_font.as_str(),
-            "noto-serif" | "source-sans"
-        ) {
-            errors.push(format!(
-                "ui.chant_text_font: '{}' is not noto-serif or source-sans (using noto-serif)",
-                file.ui.chant_text_font
-            ));
-        }
-        file.ui.sync_snap = file.ui.sync_snap.clamp(0.0, 200.0);
-        if cecilia_core::melody::ChordPolicy::parse(&file.ui.chant_chords).is_none() {
-            errors.push(format!(
-                "ui.chant_chords: '{}' is not top, bottom or error (using top)",
-                file.ui.chant_chords
-            ));
-        }
-        let ui = &mut file.ui;
-        if !(0.0..=FOCUS_RING_WIDTH_MAX).contains(&ui.focus_ring_width) {
-            errors.push(format!(
-                "ui.focus_ring_width: {} is outside 0 to 8 (clamped)",
-                ui.focus_ring_width
-            ));
-        }
-        ui.focus_ring_width = clamp_setting(ui.focus_ring_width, 0.0, FOCUS_RING_WIDTH_MAX, 4.0);
-        if let Some(c) = &ui.focus_ring_color {
-            if crate::theme::Rgba::parse(c).is_none() {
-                errors.push(format!(
-                    "ui.focus_ring_color: '{c}' is not a #rrggbb color (using the mode's color)"
-                ));
-                ui.focus_ring_color = None;
-            }
-        }
-        if file.ui.global_waveform.is_some() {
-            errors.push(
-                "ui.global_waveform: no longer used; list \"waveform\" in ui.global_tools and open it with :waveform".into(),
-            );
-        }
-        if !file.keymap.play.is_empty() {
-            errors.push(
-                "keymap.play: there is no Play mode any more; bind these in [keymap.normal]".into(),
-            );
-        }
+        errors.extend(crate::options::validate(&mut file));
         keymaps.insert(Mode::Normal, normal);
         keymaps.insert(Mode::Command, command);
         let (theme, theme_errors) = crate::theme::Theme::from_config(&file.theme);
         errors.extend(theme_errors);
-        if !["treble", "bass", "grand"].contains(&file.score.clef.as_str()) {
-            errors.push(format!(
-                "score.clef: '{}' is not treble, bass or grand",
-                file.score.clef
-            ));
-        }
-        if !["arrow", "round", "none"].contains(&file.statusline.separators.as_str()) {
-            errors.push(format!(
-                "statusline.separators: '{}' is not arrow, round or none",
-                file.statusline.separators
-            ));
-        }
         for item in &file.toolbar.items {
             if item.trim() != "|" {
                 if let Err(e) = Command::parse(item) {
@@ -1272,6 +1216,7 @@ impl Config {
                 design_keymap,
                 leader,
                 theme,
+                overrides: BTreeMap::new(),
             },
             errors,
         )
@@ -1279,29 +1224,63 @@ impl Config {
 
     /// Parses TOML text. Hard errors (invalid TOML/unknown fields) return `Err`; invalid
     /// keymap entries are skipped and reported in the returned list.
-    pub fn parse(text: &str) -> Result<(Self, Vec<String>), String> {
-        let file: ConfigFile = toml::from_str(text).map_err(|e| e.to_string())?;
-        Ok(Self::from_file(file))
+    pub fn parse(
+        text: &str,
+        overrides: &[(String, String)],
+    ) -> Result<(Self, Vec<String>), String> {
+        Self::parse_from(text, overrides, None)
     }
 
-    pub fn load(path: &Path) -> Result<(Self, Vec<String>), String> {
+    /// [`Config::parse`], prefixing errors in the TOML text (not in `overrides`) with `origin`.
+    fn parse_from(
+        text: &str,
+        overrides: &[(String, String)],
+        origin: Option<&Path>,
+    ) -> Result<(Self, Vec<String>), String> {
+        let mut file: ConfigFile = toml::from_str(text).map_err(|e| match origin {
+            Some(p) => format!("{}: {e}", p.display()),
+            None => e.to_string(),
+        })?;
+        // Checked on the parsed file: applying options rebuilds it and drops these fields.
+        let mut deprecated = Vec::new();
+        if file.ui.global_waveform.is_some() {
+            deprecated.push(
+                "ui.global_waveform: no longer used; list \"waveform\" in ui.global_tools and open it with :waveform".into(),
+            );
+        }
+        if !file.keymap.play.is_empty() {
+            deprecated.push(
+                "keymap.play: there is no Play mode any more; bind these in [keymap.normal]".into(),
+            );
+        }
+        let mut resolved = BTreeMap::new();
+        for (name, value) in overrides {
+            let v = crate::options::set(&mut file, name, Some(value))?;
+            resolved.insert(name.clone(), v);
+        }
+        let (mut config, errors) = Self::from_file(file);
+        config.overrides = resolved;
+        deprecated.extend(errors);
+        Ok((config, deprecated))
+    }
+
+    /// Loads the config file at `path` (defaults when it doesn't exist), then applies the
+    /// `overrides` (raw name/value pairs) on top.
+    pub fn load(
+        path: &Path,
+        overrides: &[(String, String)],
+    ) -> Result<(Self, Vec<String>), String> {
         match std::fs::read_to_string(path) {
-            Ok(text) => Self::parse(&text).map_err(|e| format!("{}: {e}", path.display())),
-            Err(e) if e.kind() == std::io::ErrorKind::NotFound => Ok((Self::default(), vec![])),
+            Ok(text) => Self::parse_from(&text, overrides, Some(path)),
+            Err(e) if e.kind() == std::io::ErrorKind::NotFound => Self::parse("", overrides),
             Err(e) => Err(format!("{}: {e}", path.display())),
         }
     }
 
-    /// The color of the focus ring in `mode`: `ui.focus_ring_color`, else the mode's color.
     /// The focus ring's color: `ui.focus_ring_color` when set, else `fallback` (the mode's color,
     /// see [`crate::App::focus_ring_color`]).
     pub fn focus_ring_color(&self, fallback: crate::theme::Rgba) -> crate::theme::Rgba {
-        self.file
-            .ui
-            .focus_ring_color
-            .as_deref()
-            .and_then(crate::theme::Rgba::parse)
-            .unwrap_or(fallback)
+        crate::theme::Rgba::parse(&self.file.ui.focus_ring_color).unwrap_or(fallback)
     }
 
     pub fn keymap(&self, mode: Mode) -> &Keymap {
@@ -1431,6 +1410,7 @@ mod tests {
             "h" = "nop"
             "q" = "not-a-command"
             "#,
+            &[],
         )
         .unwrap();
         assert_eq!(errors.len(), 1);
@@ -1452,6 +1432,7 @@ mod tests {
             [keymap.insert-standard]
             "a" = "accidental sharp"
             "#,
+            &[],
         )
         .unwrap();
         assert!(errors.is_empty(), "{errors:?}");
@@ -1475,8 +1456,8 @@ mod tests {
 
     #[test]
     fn invalid_toml_is_an_error() {
-        assert!(Config::parse("[general]\nleader = ").is_err());
-        assert!(Config::parse("[nope]\n").is_err());
+        assert!(Config::parse("[general]\nleader = ", &[]).is_err());
+        assert!(Config::parse("[nope]\n", &[]).is_err());
     }
 
     #[test]
@@ -1485,6 +1466,7 @@ mod tests {
         assert!(c.file.ui.waveform_time_ticks.shows(false));
         let (c, errors) = Config::parse(
             "[ui]\nwaveform_time_ticks = \"major\"\nwaveform_beat_ticks = \"off\"\nwaveform_time_labels = false\n",
+            &[],
         )
         .unwrap();
         assert!(errors.is_empty());
@@ -1496,24 +1478,100 @@ mod tests {
 
     #[test]
     fn the_chant_text_font_is_noto_serif_or_source_sans() {
-        let (c, errors) = Config::parse("").unwrap();
+        let (c, errors) = Config::parse("", &[]).unwrap();
         assert!(errors.is_empty());
         assert_eq!(c.file.ui.chant_text_font, "noto-serif");
-        let (_, errors) = Config::parse("[ui]\nchant_text_font = \"source-sans\"\n").unwrap();
+        let (_, errors) = Config::parse("[ui]\nchant_text_font = \"source-sans\"\n", &[]).unwrap();
         assert!(errors.is_empty(), "{errors:?}");
-        let (_, errors) = Config::parse("[ui]\nchant_text_font = \"comic\"\n").unwrap();
+        let (_, errors) = Config::parse("[ui]\nchant_text_font = \"comic\"\n", &[]).unwrap();
         assert_eq!(errors.len(), 1, "{errors:?}");
     }
 
     #[test]
     fn the_example_config_loads_cleanly() {
-        let (_, errors) = Config::parse(include_str!("../../../docs/config.example.toml")).unwrap();
+        let (_, errors) =
+            Config::parse(include_str!("../../../docs/config.example.toml"), &[]).unwrap();
         assert!(errors.is_empty(), "{errors:?}");
     }
 
     #[test]
     fn an_old_play_keymap_still_loads_with_a_warning() {
-        let (_, errors) = Config::parse("[keymap.play]\n\"p\" = \"play-toggle\"\n").unwrap();
+        let (_, errors) = Config::parse("[keymap.play]\n\"p\" = \"play-toggle\"\n", &[]).unwrap();
         assert!(errors[0].contains("keymap.play"), "{errors:?}");
+    }
+
+    fn pairs(v: &[(&str, &str)]) -> Vec<(String, String)> {
+        v.iter()
+            .map(|(a, b)| (a.to_string(), b.to_string()))
+            .collect()
+    }
+
+    #[test]
+    fn invalid_option_in_file_warns_and_defaults() {
+        let (c, errors) =
+            Config::parse("[ui]\nbar_numbers = \"x\"\ntab_width = 99\n", &[]).unwrap();
+        assert_eq!(c.file.ui.bar_numbers, "system");
+        assert_eq!(c.file.ui.tab_width, 8);
+        assert!(
+            errors.iter().any(|e| e.starts_with("ui.bar_numbers:")),
+            "{errors:?}"
+        );
+        assert!(
+            errors.iter().any(|e| e.starts_with("ui.tab_width:")),
+            "{errors:?}"
+        );
+    }
+
+    #[test]
+    fn override_errors_carry_no_path() {
+        let dir = std::env::temp_dir().join(format!("cecilia-ovr-err-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let path = dir.join("config.toml");
+        std::fs::write(&path, "").unwrap();
+        let e = Config::load(&path, &[("nope.nothing".into(), "1".into())])
+            .err()
+            .unwrap();
+        assert!(!e.contains("config.toml"), "{e}");
+        std::fs::write(&path, "[ui\n").unwrap();
+        let e = Config::load(&path, &[]).err().unwrap();
+        assert!(e.starts_with(&path.display().to_string()), "{e}");
+        std::fs::remove_dir_all(&dir).ok();
+    }
+
+    #[test]
+    fn overrides_beat_the_file() {
+        let (c, errors) = Config::parse(
+            "[tabline]\nwrap = true\n",
+            &pairs(&[("tabline.wrap", "false")]),
+        )
+        .unwrap();
+        assert!(errors.is_empty(), "{errors:?}");
+        assert!(!c.file.tabline.wrap);
+        assert_eq!(
+            c.overrides.get("tabline.wrap").map(String::as_str),
+            Some("false")
+        );
+    }
+
+    #[test]
+    fn bad_override_is_an_error() {
+        let e = Config::parse("", &pairs(&[("tabline.wrap", "maybe")]))
+            .err()
+            .unwrap();
+        assert!(e.contains("tabline.wrap"), "{e}");
+        assert!(Config::parse("", &pairs(&[("nope.nothing", "1")])).is_err());
+    }
+
+    #[test]
+    fn deprecated_settings_warn_even_with_overrides() {
+        let (_, errors) = Config::parse(
+            "[ui]\nglobal_waveform = true\n",
+            &pairs(&[("tabline.wrap", "false")]),
+        )
+        .unwrap();
+        assert!(
+            errors.iter().any(|e| e.starts_with("ui.global_waveform")),
+            "{errors:?}"
+        );
     }
 }

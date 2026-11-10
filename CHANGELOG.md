@@ -7,6 +7,25 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- `:set NAME [VALUE]` changes any option for the session (`toggle`, `default`, relative numbers) and survives config reloads; `:get NAME` shows it.
+- `-o` / `--option NAME=VALUE ...` sets options from the command line (an invalid one exits before the UI starts); `--` ends the options, so what follows is file names.
+- Array options take `+item` / `-item`; a leading `+` / `-` applies to the whole comma-separated value (`+a,b` adds both).
+
+### Changed
+
+- **Breaking:** the commands that only set one option are gone, replaced by `:set`: `:equalize-on-close`, `:focus-ring-width`, `:focus-ring-color`, `:tabline-wrap`, `:completion-fuzzy`, `:completion-ignore-case`, `:bar-numbers`, `:incomplete-bars`, `:progress-bar`, `:scrollbar` become `:set <option> [value]` (`:set ui.scrollbar toggle`, `:set ui.bar_numbers every`); `:follow-toggle` is `:set ui.follow_playback toggle` (what `<leader>f` and the toolbar button run); `:global-tool X` is `:set ui.global_tools +X` / `-X`. Keymaps, toolbar items and configs that use the old names need updating.
+- `:set` and `-o` values survive a reload of `config.toml`; `:set X default` pins the default for the session over the file.
+- `ui.focus_ring_color` is a plain string, `""` (the default) meaning the mode's color.
+- **Breaking:** a `preset = "dark"` in `config.toml` no longer overrides a non-dark preset set in a theme file (an unset preset and `"dark"` are the same now).
+- **Breaking:** new workspace files no longer store `follow` (it is the `ui.follow_playback` option); older versions cannot read them.
+- `-o` must come after the subcommand, or the files must follow `--`: `cecilia -o a=b info f` fails, `cecilia info -o a=b -- f` works.
+
+### Fixed
+
+- Changing `audio.speed` applies to a paused player.
+
 ## [0.35.0] - 2026-11-09
 
 ### Added

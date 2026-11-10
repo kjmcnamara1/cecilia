@@ -1,7 +1,7 @@
 //! Interface colors: a preset (`[theme] preset = "dark"` or `"light"`) with any color
 //! overridden in `config.toml`, and the palette tracks are colored from.
 
-use serde::Deserialize;
+use serde::{Deserialize, Serialize};
 
 /// A color with alpha.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -140,8 +140,8 @@ pub struct Theme {
     pub panel: Rgba,
     /// A bar without notes in the tracks panel.
     pub empty_bar: Rgba,
-    /// Staff lines of a bar that doesn't hold its full count (`:incomplete-bars`), drawn on the
-    /// page: red enough to read on every preset's light page.
+    /// Staff lines of a bar that doesn't hold its full count (`ui.highlight_incomplete_bars`),
+    /// drawn on the page: red enough to read on every preset's light page.
     pub incomplete_bar: Rgba,
     /// The command palette, pickers, which-key and tooltips.
     pub popover: Rgba,
@@ -888,9 +888,10 @@ impl Theme {
     /// (`file`) is read first; the preset and colors given in `[theme]` itself win over it.
     pub fn from_config(c: &ThemeConfig) -> (Self, Vec<String>) {
         let mut errors = Vec::new();
-        let from_file = match &c.file {
-            Some(path) => {
-                let path = theme_path(path);
+        let from_file = match c.file.as_str() {
+            "" => None,
+            path => {
+                let path = theme_path(std::path::Path::new(path));
                 match std::fs::read_to_string(&path)
                     .map_err(|e| e.to_string())
                     .and_then(|t| toml::from_str::<ThemeConfig>(&t).map_err(|e| e.to_string()))
@@ -902,13 +903,17 @@ impl Theme {
                     }
                 }
             }
-            None => None,
         };
-        let preset = c
-            .preset
-            .as_deref()
-            .or(from_file.as_ref().and_then(|f| f.preset.as_deref()))
-            .unwrap_or("dark");
+        // "dark" is the default, so it can't tell "unset" from "dark": a preset other than it
+        // wins, then the theme file's.
+        let preset = [
+            Some(c.preset.as_str()),
+            from_file.as_ref().map(|f| f.preset.as_str()),
+        ]
+        .into_iter()
+        .flatten()
+        .find(|p| !matches!(*p, "dark" | ""))
+        .unwrap_or("dark");
         let mut t = Self::preset(preset).unwrap_or_else(|| {
             errors.push(format!(
                 "theme.preset: unknown preset '{preset}' ({})",
@@ -921,7 +926,7 @@ impl Theme {
         let mut track_colors = None;
         let mut voice_colors = None;
         for layer in layers {
-            for (name, value) in &layer.colors {
+            for (name, value) in layer.colors.iter().filter(|(_, v)| !v.is_empty()) {
                 if name == "cursor_border" {
                     match Rgba::parse(value) {
                         Some(color) => t.cursor_border = Some(color),
@@ -942,11 +947,11 @@ impl Theme {
                     }
                 }
             }
-            if layer.track_colors.is_some() {
-                track_colors = layer.track_colors.clone();
+            if !layer.track_colors.is_empty() {
+                track_colors = Some(layer.track_colors.clone());
             }
-            if layer.voice_colors.is_some() {
-                voice_colors = layer.voice_colors.clone();
+            if !layer.voice_colors.is_empty() {
+                voice_colors = Some(layer.voice_colors.clone());
             }
         }
         match track_colors {
@@ -1155,17 +1160,31 @@ pub fn spectrum(from: Rgba, n: usize, l: f32) -> Vec<Rgba> {
 
 /// `[theme]` in config.toml (or a theme file): a preset, colors overriding it by name
 /// (`chrome = "#282a30"`, see [`COLOR_NAMES`]) and the track palette.
-#[derive(Debug, Clone, Default, Deserialize)]
+#[derive(Debug, Clone, Deserialize, Serialize)]
 #[serde(default)]
 pub struct ThemeConfig {
-    pub preset: Option<String>,
-    /// A theme file with the same keys, applied under the ones here.
-    pub file: Option<std::path::PathBuf>,
-    pub track_colors: Option<Vec<String>>,
-    /// The colors of voices 1, 2, … (the voice buttons of the editing palette).
-    pub voice_colors: Option<Vec<String>>,
+    /// The color preset (empty: "dark").
+    pub preset: String,
+    /// A theme file with the same keys, applied under the ones here (empty: none).
+    pub file: String,
+    /// The colors of tracks 1, 2, … (empty: the built-in palette).
+    pub track_colors: Vec<String>,
+    /// The colors of voices 1, 2, … (the voice buttons of the editing palette; empty: built-in).
+    pub voice_colors: Vec<String>,
     #[serde(flatten)]
     pub colors: std::collections::BTreeMap<String, String>,
+}
+
+impl Default for ThemeConfig {
+    fn default() -> Self {
+        Self {
+            preset: "dark".into(),
+            file: String::new(),
+            track_colors: Vec::new(),
+            voice_colors: Vec::new(),
+            colors: Default::default(),
+        }
+    }
 }
 
 #[cfg(test)]

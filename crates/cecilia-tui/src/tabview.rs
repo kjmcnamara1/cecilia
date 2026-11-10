@@ -611,7 +611,10 @@ impl Widget for TabView<'_> {
             area
         };
         // Follow the playhead while playing (if following), otherwise the cursor.
-        let focus_bar = match self.play.filter(|_| self.app.follow) {
+        let focus_bar = match self
+            .play
+            .filter(|_| self.app.config.file.ui.follow_playback)
+        {
             Some((bar, _)) => bar,
             None => pane.cursor.bar,
         };
@@ -746,7 +749,7 @@ impl Widget for TabView<'_> {
                 buf.set_string(bx, top_y, header, Style::default().fg(rc(th.marker)));
                 // Staff lines and bar lines; a bar without its full count has red staff lines
                 // when `ui.highlight_incomplete_bars` is on.
-                let staff_style = if self.app.highlight_incomplete_bars
+                let staff_style = if self.app.config.file.ui.highlight_incomplete_bars
                     && score.bar_incomplete(pane.cursor.track, bl.bar)
                 {
                     Style::default().fg(rc(th.incomplete_bar))

@@ -24,7 +24,6 @@ pub struct Workspace {
     pub views: Vec<ViewState>,
     pub panes: Vec<PaneState>,
     pub zoom: f64,
-    pub follow: bool,
     pub global_waveform: bool,
     #[serde(default)]
     pub tracks_panel: bool,
@@ -398,7 +397,6 @@ impl App {
             views,
             panes,
             zoom: self.pane().zoom,
-            follow: self.follow,
             // Tool panes are saved as panes; these older switches stay off.
             global_waveform: false,
             tracks_panel: false,
@@ -767,7 +765,6 @@ impl App {
         }
         self.next_pane = self.panes.keys().max().copied().unwrap_or(0) + 1;
         self.active_view = ws.active_view.min(self.views.len() - 1);
-        self.follow = ws.follow;
         self.toolbar = ws.toolbar;
         if let Some(tab) = ws
             .properties_tab

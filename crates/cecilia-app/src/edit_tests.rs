@@ -698,7 +698,7 @@ fn chant_app() -> App {
 fn chant_insert_moves_like_standard_and_keeps_its_letters() {
     let a = chant_app();
     assert_eq!(a.insert_kind(), InsertKind::Chant);
-    let (c, _) = Config::parse("").unwrap();
+    let (c, _) = Config::parse("", &[]).unwrap();
     let chant = c.insert_keymap(InsertKind::Chant);
     // h j k l are not GABC pitches in insert mode: they fall through to the cursor movement.
     for k in ["h", "j", "k", "l"] {

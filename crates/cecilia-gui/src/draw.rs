@@ -420,7 +420,7 @@ fn draw_tracks(
     let gw = (r.x1 - 8.0 - gx).max(BLOCK_STEP);
     let playing_here = play.filter(|p| p.0 == buffer && (app.playing || app.paused));
     let follow_bar = match playing_here {
-        Some((_, loc, ..)) if app.follow && app.playing => loc.bar,
+        Some((_, loc, ..)) if app.config.file.ui.follow_playback && app.playing => loc.bar,
         _ => cursor.bar,
     };
     // The row to keep in view: the panel's selection while it has the focus, else the
@@ -1714,7 +1714,7 @@ fn draw_tool_icon(
             solid(scene, &|| rect(9.5, 2.0, 13.0, 14.0, 1.0));
         }
         "stop" => solid(scene, &|| rect(3.0, 3.0, 13.0, 13.0, 1.5)),
-        "follow-toggle" => {
+        "ui.follow_playback" => {
             line(scene, &Circle::new((x + 8.0, y + 8.0), 5.0).to_path(0.1));
             for (a, b2) in [
                 ((8.0, 0.5), (8.0, 4.0)),
@@ -2152,7 +2152,7 @@ fn draw_pane_content(
     }
     let mut content = Rect::new(rect.x0 + 2.0, rect.y0 + TITLE, rect.x1 - 2.0, rect.y1 - 2.0);
     // The progress bar along the bottom, under the waveform strip.
-    if app.progress_bar && content.height() > 120.0 {
+    if app.config.file.ui.progress_bar && content.height() > 120.0 {
         let r = Rect::new(content.x0, content.y1 - PROGRESS_H, content.x1, content.y1);
         content.y1 -= PROGRESS_H + 2.0;
         draw_progress(scene, app, views, id, r, play, mode_tag(&pane) != "page");
@@ -2182,7 +2182,7 @@ fn draw_pane_content(
     let mode_name = mode_tag(&pane);
     // The scrollbars' gutters (right and bottom): the score lays out and draws beside them,
     // never under them.
-    let gutters = app.scrollbar.then(|| {
+    let gutters = app.config.file.ui.scrollbar.then(|| {
         let right = Rect::new(
             content.x1 - SCROLLBAR,
             content.y0,
@@ -2224,9 +2224,9 @@ fn draw_pane_content(
             [p.r, p.g, p.b, p.a, i.r, i.g, i.b, i.a]
         },
         app.chord_policy().name(),
-        app.every_bar_number,
+        app.config.file.ui.bar_numbers == "every",
         app.config.file.ui.chant_text_font.clone(),
-        app.highlight_incomplete_bars.then(|| {
+        app.config.file.ui.highlight_incomplete_bars.then(|| {
             let c = app.config.theme.incomplete_bar;
             [c.r, c.g, c.b]
         }),
@@ -2250,12 +2250,12 @@ fn draw_pane_content(
             margin: if mode_name == "page" { 40.0 } else { 16.0 },
             chant: true,
             chords: app.chord_policy(),
-            every_bar_number: app.every_bar_number,
+            every_bar_number: app.config.file.ui.bar_numbers == "every",
             chant_font: cecilia_engrave::display::TextFamily::parse(
                 &app.config.file.ui.chant_text_font,
             )
             .unwrap_or_default(),
-            incomplete_bars: app.highlight_incomplete_bars.then(|| {
+            incomplete_bars: app.config.file.ui.highlight_incomplete_bars.then(|| {
                 let c = app.config.theme.incomplete_bar;
                 cecilia_engrave::display::Color::rgb(c.r, c.g, c.b)
             }),
@@ -2355,7 +2355,7 @@ fn draw_pane_content(
     } else {
         0.0
     };
-    let target = match playhead.filter(|_| app.follow) {
+    let target = match playhead.filter(|_| app.config.file.ui.follow_playback) {
         Some((page, x, top, bottom)) => Some((page, (x, x + 1.0), (top, bottom))),
         None if moved => cached
             .layout
@@ -2528,7 +2528,7 @@ fn draw_pane_content(
         // Following playback, it slides forward along a system towards its beat (an easing that
         // settles well within a beat); moves back or to another system jump.
         let now = std::time::Instant::now();
-        let gliding = app.playing && app.follow && playhead.is_some();
+        let gliding = app.playing && app.config.file.ui.follow_playback && playhead.is_some();
         let (x, w) = match views.glide.get(&id) {
             Some(&(page, top, gx, gw, t))
                 if gliding && page == pos.page && top == pos.top && pos.x >= gx - 0.5 =>

@@ -128,7 +128,7 @@ fn page_layout<'a>(
         pane.buffer,
         buffer.version,
         pane.cursor.track,
-        app.every_bar_number,
+        app.config.file.ui.bar_numbers == "every",
     );
     let entry = cache.entry(id).or_insert_with(|| PageCache {
         key: (usize::MAX, 0, 0, false),
@@ -141,7 +141,7 @@ fn page_layout<'a>(
         let options = cecilia_engrave::Options {
             chant: true,
             chords: app.chord_policy(),
-            every_bar_number: app.every_bar_number,
+            every_bar_number: app.config.file.ui.bar_numbers == "every",
             chant_font: cecilia_engrave::display::TextFamily::parse(
                 &app.config.file.ui.chant_text_font,
             )
@@ -869,7 +869,7 @@ fn draw(f: &mut Frame, app: &mut App, play: Option<(usize, Location, f64, f64)>,
         let mut inner = block.inner(area);
         f.render_widget(block, area);
         // The progress bar on the pane's last row.
-        if app.progress_bar && inner.height > 4 {
+        if app.config.file.ui.progress_bar && inner.height > 4 {
             let row = Rect {
                 y: inner.y + inner.height - 1,
                 height: 1,
@@ -879,7 +879,7 @@ fn draw(f: &mut Frame, app: &mut App, play: Option<(usize, Location, f64, f64)>,
             draw_progress(f, app, id, row, play);
         }
         // The scrollbar takes the last column (the layout is a column narrower).
-        let bar_col = (app.scrollbar && inner.width > 20).then(|| {
+        let bar_col = (app.config.file.ui.scrollbar && inner.width > 20).then(|| {
             inner.width -= 1;
             Rect {
                 x: inner.x + inner.width,
@@ -1469,7 +1469,7 @@ fn tool_icon(b: &cecilia_app::toolbar::ToolButton, style: &str) -> String {
         "redo" => ("\u{f01e}", "↷", "redo"),
         "play-toggle" | "play" => ("\u{f04b}", "▶", "play"),
         "stop" => ("\u{f04d}", "■", "stop"),
-        "follow-toggle" => ("\u{f05b}", "◎", "follow"),
+        "ui.follow_playback" => ("\u{f05b}", "◎", "follow"),
         "loop-toggle" => ("\u{f079}", "↻", "loop"),
         "metronome" => ("\u{f017}", "♩", "click"),
         "count-in" => ("12", "12", "count"),
@@ -2392,7 +2392,7 @@ fn draw_tracks(
     let gw = area.width.saturating_sub(TRACK_INFO_W + 1) as usize;
     let playing = play.filter(|p| p.0 == buffer && (app.playing || app.paused));
     let follow_bar = match playing {
-        Some((_, loc, ..)) if app.follow && app.playing => loc.bar,
+        Some((_, loc, ..)) if app.config.file.ui.follow_playback && app.playing => loc.bar,
         _ => cursor.bar,
     };
     // Scroll to the cursor's track and bar when they move (the wheel scrolls freely between).
@@ -2996,7 +2996,7 @@ mod render_tests {
 
     #[test]
     fn the_toolbar_shows_its_buttons_and_runs_them() {
-        let (config, _) = cecilia_app::Config::parse("[tabline]\nicons = \"none\"\n").unwrap();
+        let (config, _) = cecilia_app::Config::parse("[tabline]\nicons = \"none\"\n", &[]).unwrap();
         let mut app = App::new(config, None);
         app.run(cecilia_app::Command::New);
         let mut terminal = Terminal::new(TestBackend::new(120, 20)).unwrap();
@@ -4004,7 +4004,7 @@ mod page_tests {
     #[test]
     fn the_progress_bar_is_dark_with_light_text() {
         let mut app = app_with_bars(4);
-        app.progress_bar = true;
+        app.config.file.ui.progress_bar = true;
         let id = app.focused();
         let theme = app.config.theme.clone();
         let mut term = Terminal::new(TestBackend::new(60, 3)).unwrap();

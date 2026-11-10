@@ -111,14 +111,8 @@ pub const COMMAND_SCOPES: &[(&str, Scope)] = &[
     ("focus-prev", B),
     ("focus-right", B),
     ("focus-up", B),
-    ("bar-numbers", B),
-    ("incomplete-bars", B),
-    ("completion-fuzzy", B),
-    ("completion-ignore-case", B),
-    ("follow-toggle", B),
     ("gabc", C),
     ("goto-bar", B),
-    ("global-tool", B),
     ("goto-first", B),
     ("goto-last", B),
     ("help", B),
@@ -170,14 +164,8 @@ pub const COMMAND_SCOPES: &[(&str, Scope)] = &[
     ("keymaps", B),
     ("tracks", B),
     ("toolbar", B),
-    ("equalize-on-close", B),
-    ("focus-ring-width", B),
-    ("focus-ring-color", B),
-    ("tabline-wrap", B),
     ("fretboard", B),
     ("piano", B),
-    ("progress-bar", B),
-    ("scrollbar", B),
     ("design", B),
     ("bar-width", B),
     ("bars-per-line", B),
@@ -251,6 +239,8 @@ pub const COMMAND_SCOPES: &[(&str, Scope)] = &[
     ("section", M),
     ("solo", B),
     ("source", B),
+    ("set", B),
+    ("get", B),
     ("speed", B),
     ("speed-down", B),
     ("speed-up", B),
@@ -388,7 +378,6 @@ fn values(command: &str) -> Option<&'static [&'static str]> {
         "interpretation" => &["equalist", "solesmes"],
         "new" | "enew" => &["modern", "chant"],
         "clef" => &["treble", "bass", "grand", "neutral"],
-        "global-tool" => &["fretboard", "piano", "tracks", "tuner", "waveform"],
         "track-add" => &["bass", "drums", "guitar", "piano", "voice"],
         "notation" => &["standard", "tab", "tab+", "slash", "chant"],
         "lyrics-attach" => &["above", "below", "none"],
@@ -468,20 +457,12 @@ fn values(command: &str) -> Option<&'static [&'static str]> {
             "view",
             "workspace",
         ],
-        "tracks" | "toolbar" | "equalize-on-close" | "tabline-wrap" | "palette" | "fretboard"
-        | "piano" | "tuner" => &["off", "on"],
-        "focus-ring-color" => &["default"],
+        "tracks" | "toolbar" | "palette" | "fretboard" | "piano" | "tuner" => &["off", "on"],
         "track-color" => &["off"],
         "design" => &["off", "on", "toggle"],
         "bar-width" | "bars-per-line" => &["auto"],
         "beat-nudge" => &["reset"],
-        "bar-numbers" => &["every", "system", "toggle"],
-        "completion-ignore-case"
-        | "completion-fuzzy"
-        | "incomplete-bars"
-        | "waveform"
-        | "progress-bar"
-        | "scrollbar" => &["off", "on", "toggle"],
+        "waveform" => &["off", "on", "toggle"],
         "duration" => &["1", "2", "4", "8", "16", "32", "64"],
         "tuning" => &[
             "7-string", "bass", "bass5", "d", "dadgad", "drop-d", "eb", "open-d", "open-e",
@@ -715,6 +696,21 @@ pub fn complete_in(
             }
             v
         }
+        "set" | "get" if offered(command) => {
+            let word_start = arg.rfind(' ').map_or(0, |i| i + 1);
+            let word = &arg[word_start..];
+            let items: Vec<String> = if word_start == 0 {
+                crate::options::OPTIONS
+                    .iter()
+                    .map(|o| o.name.to_string())
+                    .collect()
+            } else if command == "set" && !arg[..word_start].trim_end().contains(' ') {
+                option_values(arg[..word_start].trim_end())
+            } else {
+                Vec::new()
+            };
+            return completions(arg_start + word_start, m.rank(items, word), false);
+        }
         _ => {
             // Complete the last word of the arguments (e.g. `:volume mi`).
             let word_start = arg.rfind(' ').map_or(0, |i| i + 1);
@@ -734,6 +730,21 @@ pub fn complete_in(
         }
     };
     completions(arg_start, ranked, false)
+}
+
+/// The values `:set` takes for an option.
+fn option_values(name: &str) -> Vec<String> {
+    use crate::options::{ItemKind, Kind};
+    let Ok(spec) = crate::options::spec(name) else {
+        return Vec::new();
+    };
+    let words: Vec<&str> = match spec.kind {
+        Kind::Bool => vec!["true", "false", "toggle", "default"],
+        Kind::Choice(c) => c.iter().copied().chain(["default"]).collect(),
+        Kind::List(ItemKind::Choice(c)) => c.iter().copied().chain(["default"]).collect(),
+        _ => vec!["default"],
+    };
+    words.into_iter().map(String::from).collect()
 }
 
 /// Files and folders matching a typed path (relative to `base`); folders end with `/`. Only the
@@ -991,6 +1002,56 @@ mod tests {
         assert_eq!(common_prefix(&["Song1".into(), "song2".into()], false), "");
         std::fs::remove_dir_all(dir).ok();
     }
+
+    #[test]
+    fn set_completes_option_names() {
+        let cwd = Path::new(".");
+        let c = complete(":set tabl", cwd, None, PREFIX);
+        assert_eq!(c.start, 5);
+        assert!(!c.items.is_empty());
+        assert!(
+            c.items.iter().all(|i| i.starts_with("tabline.")),
+            "{:?}",
+            c.items
+        );
+        assert!(c.items.contains(&"tabline.wrap".to_string()));
+        // Ignoring case.
+        let c = complete(":set TABLINE.WR", cwd, None, NOCASE);
+        assert_eq!(c.items, ["tabline.wrap"]);
+    }
+
+    #[test]
+    fn set_completes_choices() {
+        let cwd = Path::new(".");
+        let c = complete(":set ui.bar_numbers ", cwd, None, PREFIX);
+        assert_eq!(c.items, ["system", "every", "default"]);
+        assert_eq!(c.start, 20);
+        assert_eq!(
+            complete(":set ui.bar_numbers sy", cwd, None, PREFIX).items,
+            ["system"]
+        );
+        assert_eq!(
+            complete(":set tabline.wrap ", cwd, None, PREFIX).items,
+            ["true", "false", "toggle", "default"]
+        );
+        assert_eq!(
+            complete(":set tabline.truncation.max_width ", cwd, None, PREFIX).items,
+            ["default"]
+        );
+        assert!(complete(":set nope.x ", cwd, None, PREFIX).items.is_empty());
+    }
+
+    #[test]
+    fn get_completes_names() {
+        let cwd = Path::new(".");
+        let c = complete(":get tabline.wr", cwd, None, PREFIX);
+        assert_eq!(c.items, ["tabline.wrap"]);
+        assert!(
+            complete(":get tabline.wrap ", cwd, None, PREFIX)
+                .items
+                .is_empty()
+        );
+    }
 }
 
 #[cfg(test)]
@@ -1005,24 +1066,42 @@ mod key_tests {
     }
 
     #[test]
+    fn set_audio_speed_queues_playback_settings() {
+        let mut app = App::new(Config::default(), None);
+        app.take_effects();
+        app.run(crate::Command::parse("set audio.speed 1.5").unwrap());
+        assert!(
+            app.take_effects()
+                .contains(&crate::Effect::PlaybackSettings)
+        );
+        // An unrelated option does not.
+        app.run(crate::Command::parse("set tabline.wrap true").unwrap());
+        assert!(
+            !app.take_effects()
+                .contains(&crate::Effect::PlaybackSettings)
+        );
+    }
+
+    #[test]
     fn case_setting_from_config_and_a_command_mode_binding() {
         let (config, errors) = Config::parse(
-            "[ui]\ncompletion_ignore_case = false\n[keymap.command]\n\"<C-g>\" = \"completion-ignore-case\"\n",
+            "[ui]\ncompletion_ignore_case = false\n[keymap.command]\n\"<C-g>\" = \"set ui.completion_ignore_case toggle\"\n",
+            &[],
         )
         .unwrap();
         assert!(errors.is_empty(), "{errors:?}");
         let mut app = App::new(config, None);
-        assert!(!app.completion_ignore_case);
+        assert!(!app.config.file.ui.completion_ignore_case);
         keys(&mut app, ":LAY<Tab>");
         assert_eq!(app.cmdline, "LAY");
         // Toggling stays on the command line and the next Tab uses the new setting.
         keys(&mut app, "<C-g>");
-        assert!(app.completion_ignore_case);
+        assert!(app.config.file.ui.completion_ignore_case);
         assert_eq!(app.cmdline, "LAY");
         keys(&mut app, "<Tab>");
         assert_eq!(app.cmdline, "layout ");
-        app.run(crate::Command::CompletionIgnoreCase(Some(false)));
-        assert!(!app.completion_ignore_case);
+        app.run(crate::Command::parse("set ui.completion_ignore_case false").unwrap());
+        assert!(!app.config.file.ui.completion_ignore_case);
     }
 
     #[test]
@@ -1075,10 +1154,6 @@ pub fn describe(command: &str) -> Option<&'static str> {
         "clef" => "Clef of the staff: treble, bass, grand, neutral (standard); do, fa (chant)",
         "close" | "pane-close" => "Close the pane",
         "command-mode" => "Open the command line",
-        "completion-ignore-case" => "Toggle case-insensitive completion",
-        "bar-numbers" => "Number every bar, or only the first bar of each line",
-        "incomplete-bars" => "Toggle red staff lines on bars that lack their full beat count",
-        "completion-fuzzy" => "Toggle fuzzy completion (letters in order, anywhere)",
         "count-in" => "Toggle the count-in before playing",
         "delete" => "Delete operator",
         "delete-note" => "Delete the note under the cursor",
@@ -1099,7 +1174,6 @@ pub fn describe(command: &str) -> Option<&'static str> {
         "focus-prev" => "Focus the previous pane",
         "focus-right" => "Focus the pane to the right",
         "focus-up" => "Focus the pane above",
-        "follow-toggle" => "Toggle following playback",
         "gabc" => "Show or replace the chant syllable as GABC",
         "goto-first" => "Go to the first bar",
         "goto-last" => "Go to the last bar",
@@ -1173,12 +1247,6 @@ pub fn describe(command: &str) -> Option<&'static str> {
         "section-prev" => "Previous section",
         "tracks" => "Show or hide the tracks panel",
         "toolbar" => "Show or hide the toolbar",
-        "equalize-on-close" => {
-            "Equalize the remaining panes of a split when one closes (on, off or toggle)"
-        }
-        "focus-ring-width" => "Thickness of the focus ring in pixels (0 to 8)",
-        "focus-ring-color" => "Color of the focus ring: #rrggbb or default (the mode's color)",
-        "tabline-wrap" => "Wrap buffer next/prev around the tabline ends (on, off or toggle)",
         "fretboard" => "Show or hide the fretboard (notes at the cursor or playhead)",
         "piano" => "Show or hide the piano keys (notes at the cursor or playhead)",
         "tuner" => "Show or hide the tuner (listens to the audio input)",
@@ -1274,6 +1342,8 @@ pub fn describe(command: &str) -> Option<&'static str> {
         "section" => "Set or clear the bar's section name",
         "solo" => "Toggle soloing a track",
         "source" => "Reload the configuration",
+        "set" => "Set an option for this session (:set NAME [VALUE|toggle|default])",
+        "get" => "Show an option value",
         "speed" => "Playback speed in percent",
         "speed-down" => "Slower playback",
         "speed-up" => "Faster playback",
@@ -1381,11 +1451,6 @@ pub fn describe(command: &str) -> Option<&'static str> {
         "w" | "write" => "Save (or save as / export by extension)",
         "waveform-strip" => "Toggle this pane's waveform strip",
         "waveform" => "Show or hide the waveform tool pane",
-        "global-tool" => {
-            "Toggle whether a tool pane (tracks, audio, fretboard, piano, tuner) is global"
-        }
-        "progress-bar" => "Show or hide the progress bar along the score panes",
-        "scrollbar" => "Show or hide the scrollbar on the score panes",
         "design" => "Design mode: adjust the page layout by hand (on, off or toggle)",
         "bar-width" => "Width of the cursor bar in the page layout (N, +N, -N percent, or auto)",
         "bars-per-line" => "Bars on the cursor's line in the page layout (N, +N, -N, or auto)",

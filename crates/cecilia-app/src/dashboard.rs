@@ -570,7 +570,7 @@ mod tests {
     fn a_custom_quit_binding_works_on_the_dashboard() {
         for bind in ["<C-S-q>", "<A-x>", "Q", "<F9>"] {
             let toml = format!("[keymap.normal]\n\"{bind}\" = \"quit!\"\n");
-            let (config, warnings) = Config::parse(&toml).unwrap();
+            let (config, warnings) = Config::parse(&toml, &[]).unwrap();
             assert!(warnings.is_empty(), "{warnings:?}");
             let mut app = test_app();
             app.config = config;
@@ -602,7 +602,7 @@ mod tests {
 
     #[test]
     fn dashboard_keys_win_over_bindings_of_the_same_key() {
-        let (config, _) = Config::parse("[keymap.normal]\n\"j\" = \"quit!\"\n").unwrap();
+        let (config, _) = Config::parse("[keymap.normal]\n\"j\" = \"quit!\"\n", &[]).unwrap();
         let mut app = test_app();
         app.config = config;
         app.show_dashboard();
