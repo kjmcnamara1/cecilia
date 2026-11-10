@@ -203,7 +203,7 @@ that moves.
 ● when modified), the views (with their files) or the saved workspaces (with their view and file
 counts). Typing filters the list with the same matching as completion (fuzzy, case-insensitive
 by default) and highlights what matched; the top match, nearest the input, is selected — the
-list grows upward, so `<Up>` (or `<Tab>`, `<A-k>`, `<C-p>`) goes further up and `<Down>` (`<S-Tab>`, `<A-j>`, `<C-n>`) back; `<Enter>` switches, `<Esc>` cancels. The buffer and
+list grows down from the input, so `<Down>` (or `<Tab>`, `<A-j>`, `<C-n>`) goes further down and `<Up>` (`<S-Tab>`, `<A-k>`, `<C-p>`) back; `<Enter>` switches, `<Esc>` cancels. The buffer and
 view pickers also work while a song plays.
 
 | command                                                                                          |                                                                                                     |
@@ -720,15 +720,15 @@ As you type, the matches for the word being typed are listed below it: command n
 description on the right, then each command's arguments — file names for `:open`, `:w`,
 `:view-new` and `:audio` (folders first, only files cecilia can open or write) and the values of
 `:layout`, `:mix`, `:volume`, `:track-add`, `:tuning`, `:toggle`, `:duration`, `:clef`,
-`:interpretation`. `<Tab>` fills in a unique match (or the common part), and `<Tab>`/`<S-Tab>`
+`:interpretation`. Command names that match equally are ordered by how often and lately you ran them (zoxide's ranking, `ui.frecency`; kept in `frecency.json` in the state directory), not alphabetically, and the buffer, recent file and workspace pickers are ordered the same way. `<Tab>` fills in a unique match (or the common part), and `<Tab>`/`<S-Tab>`
 or `<Down>`/`<Up>` (`<A-j>`/`<A-k>`) move through the list, putting the selected match on the line;
 `<Up>` back to the first candidate returns to the line as you typed it. `<Up>` from there opens the
 **command history**: earlier lines, newest first, listed above the input and filtered by what you
-typed; each one you step to is put on the command line, so type to edit it, `<Enter>` to run it,
+typed, with when each was run on the right (`ui.command_history_time`: "5m ago" or a date and time; `ui.command_history_size` lines are kept, saved between sessions in the state directory's `commands.jsonl`); each one you step to is put on the command line, so type to edit it, `<Enter>` to run it,
 `<Down>` past the newest to return to the typed line (and complete again), `<Esc>` to close the
 command line as usual (`:pick history` also opens it). The box sits `ui.picker_position` percent
-(default 25) down the window and lists at most `ui.picker_max_items` (12) candidates; the history
-and the pickers below grow upward from the input, so a small position leaves little room for them. `<Enter>`
+(default 25) down the window and lists at most `ui.picker_max_items` (12) candidates; the pickers
+list downward from the input and only the command history upward, so a large position leaves little room below and a small one little above. `<Enter>`
 runs the line, `<Esc>` closes the palette, `<C-p>`/`<C-n>` recall earlier commands.
 
 Matching is **fuzzy** by default: the typed letters may appear anywhere in a candidate, in order

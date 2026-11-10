@@ -172,6 +172,8 @@ fn main() -> Result<()> {
             let mut app = App::new(config, config_path);
             if cli.screenshot.is_none() {
                 app.keep_notification_history();
+                app.keep_command_history();
+                app.keep_frecency();
             }
             if !warnings.is_empty() {
                 app.error(warnings.join("; "));

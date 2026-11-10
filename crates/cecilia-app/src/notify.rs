@@ -487,11 +487,12 @@ impl Notifications {
 /// Where the history lives: `$XDG_STATE_HOME/cecilia/notifications.jsonl`, else
 /// `~/.local/state/cecilia/notifications.jsonl`.
 pub fn default_history_file() -> Option<PathBuf> {
-    Some(
-        crate::default_swap_dir()?
-            .parent()?
-            .join("notifications.jsonl"),
-    )
+    state_file("notifications.jsonl")
+}
+
+/// A file in cecilia's state directory (the swap directory's parent).
+pub(crate) fn state_file(name: &str) -> Option<PathBuf> {
+    Some(crate::default_swap_dir()?.parent()?.join(name))
 }
 
 /// A time as the history shows it: how long ago ("now", "5m", "2h", "3d"), or the date and time

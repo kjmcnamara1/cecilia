@@ -120,6 +120,21 @@ pub static OPTIONS: LazyLock<Vec<OptionSpec>> = LazyLock::new(|| {
             "The most candidates the command palette and pickers list at once.",
         ),
         o(
+            "ui.frecency",
+            Bool,
+            "Order command completion and the buffer, recent file and workspace pickers by how often and how lately each was used.",
+        ),
+        o(
+            "ui.command_history_size",
+            int(0, 10000),
+            "Command lines kept in the command history (0: no history).",
+        ),
+        o(
+            "ui.command_history_time",
+            Choice(&["relative", "absolute"]),
+            "The command history shows when a line was run as how long ago, or as a date and time.",
+        ),
+        o(
             "ui.progress_bar",
             Bool,
             "A progress bar along the bottom of every score pane.",

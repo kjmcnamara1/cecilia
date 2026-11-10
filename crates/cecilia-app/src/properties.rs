@@ -3617,9 +3617,9 @@ mod tests {
         assert_eq!(app.property_selected(), 1);
         // Pickers: the wheel moves the selection.
         app.run(Command::Pick(crate::picker::PickerKind::Keymap));
-        app.picker_scroll(-2);
+        app.picker_scroll(2);
         assert_eq!(app.picker.as_ref().unwrap().selected, 2);
-        app.picker_scroll(5);
+        app.picker_scroll(-5);
         assert_eq!(app.picker.as_ref().unwrap().selected, 0);
         keys(&mut app, "<Esc>");
         // The staff names: treble, bass, grand.

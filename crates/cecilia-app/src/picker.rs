@@ -479,14 +479,16 @@ impl App {
     fn picker_entries(&self, kind: PickerKind) -> Vec<Entry> {
         match kind {
             PickerKind::History => {
+                let now = crate::frecency::unix_now();
+                let absolute = self.config.file.ui.command_history_time == "absolute";
                 let mut seen = std::collections::HashSet::new();
                 self.history
                     .iter()
                     .rev()
-                    .filter(|line| seen.insert(line.as_str()))
-                    .map(|line| Entry {
+                    .filter(|(line, _)| seen.insert(line.as_str()))
+                    .map(|(line, ts)| Entry {
                         label: line.clone(),
-                        description: String::new(),
+                        description: crate::notify::format_time(*ts, now, absolute),
                         action: Command::Nop,
                         search_description: false,
                         swatch: None,
@@ -497,42 +499,44 @@ impl App {
                     })
                     .collect()
             }
-            PickerKind::Buffer => self
-                .bufferline()
-                .into_iter()
-                .enumerate()
-                .map(|(i, tab)| {
-                    let b = &self.buffers[tab.buffer];
-                    let mut description = b
-                        .path
-                        .as_deref()
-                        .and_then(|p| p.parent())
-                        .map(tilde)
-                        .unwrap_or_else(|| "unsaved".into());
-                    if tab.modified {
-                        description = format!("● {description}");
-                    }
-                    if tab.active {
-                        description = format!("{description}  (shown)");
-                    }
-                    Entry {
-                        label: tab.name,
-                        description,
-                        action: Command::BufferGoto(i + 1),
-                        search_description: false,
-                        swatch: None,
-                        icon: None,
-                        current: false,
-                        notice: None,
-                        bold: 0,
-                    }
-                })
-                .collect(),
+            PickerKind::Buffer => {
+                let mut tabs: Vec<_> = self.bufferline().into_iter().enumerate().collect();
+                self.by_frecency(crate::frecency::Domain::Buffers, &mut tabs, |(_, tab)| {
+                    self.buffers[tab.buffer].key()
+                });
+                tabs.into_iter()
+                    .filter(|(_, tab)| !tab.active)
+                    .map(|(i, tab)| {
+                        let b = &self.buffers[tab.buffer];
+                        let mut description = b
+                            .path
+                            .as_deref()
+                            .and_then(|p| p.parent())
+                            .map(tilde)
+                            .unwrap_or_else(|| "unsaved".into());
+                        if tab.modified {
+                            description = format!("● {description}");
+                        }
+                        Entry {
+                            label: tab.name,
+                            description,
+                            action: Command::BufferGoto(i + 1),
+                            search_description: false,
+                            swatch: None,
+                            icon: None,
+                            current: false,
+                            notice: None,
+                            bold: 0,
+                        }
+                    })
+                    .collect()
+            }
             PickerKind::View => self
                 .view_labels()
                 .into_iter()
                 .zip(&self.views)
                 .enumerate()
+                .filter(|&(i, _)| i != self.active_view)
                 .map(|(i, (label, v))| {
                     let names: Vec<&str> = v
                         .buffers
@@ -541,15 +545,12 @@ impl App {
                         .map(|b| b.name.as_str())
                         .collect();
                     let panes = v.root.panes().len();
-                    let mut description = format!(
+                    let description = format!(
                         "{} pane{} · {}",
                         panes,
                         if panes == 1 { "" } else { "s" },
                         names.join(", ")
                     );
-                    if i == self.active_view {
-                        description = format!("(current) {description}");
-                    }
                     Entry {
                         label,
                         description,
@@ -584,9 +585,7 @@ impl App {
                 })
                 .collect(),
             PickerKind::Notification => {
-                let now = std::time::SystemTime::now()
-                    .duration_since(std::time::UNIX_EPOCH)
-                    .map_or(0, |d| d.as_secs());
+                let now = crate::frecency::unix_now();
                 let absolute = self.config.file.notifications.history_time == "absolute";
                 self.notifications
                     .history()
@@ -1039,29 +1038,43 @@ impl App {
                 }
                 out
             }
-            PickerKind::Recent => self
-                .recent_files()
-                .into_iter()
-                .map(|path| Entry {
-                    label: path.file_name().map_or_else(
-                        || path.display().to_string(),
-                        |n| n.to_string_lossy().into(),
-                    ),
-                    description: path.parent().map(tilde).unwrap_or_default(),
-                    search_description: true,
-                    action: Command::Edit(path),
-                    swatch: None,
-                    icon: None,
-                    current: false,
-                    notice: None,
-                    bold: 0,
-                })
-                .collect(),
+            PickerKind::Recent => {
+                let current = self.buffer().path.clone();
+                let mut files = self.recent_files();
+                files.retain(|p| Some(p) != current.as_ref());
+                self.by_frecency(crate::frecency::Domain::Recent, &mut files, |p| {
+                    p.display().to_string()
+                });
+                files
+                    .into_iter()
+                    .map(|path| Entry {
+                        label: path.file_name().map_or_else(
+                            || path.display().to_string(),
+                            |n| n.to_string_lossy().into(),
+                        ),
+                        description: path.parent().map(tilde).unwrap_or_default(),
+                        search_description: true,
+                        action: Command::Edit(path),
+                        swatch: None,
+                        icon: None,
+                        current: false,
+                        notice: None,
+                        bold: 0,
+                    })
+                    .collect()
+            }
             PickerKind::Workspace | PickerKind::WorkspaceDiscard => {
                 let discard = kind == PickerKind::WorkspaceDiscard;
                 let active = self.workspace_name();
-                crate::workspace::workspace_names()
+                let mut names = crate::workspace::workspace_names();
+                self.by_frecency(
+                    crate::frecency::Domain::Workspaces,
+                    &mut names,
+                    Clone::clone,
+                );
+                names
                     .into_iter()
+                    .filter(|name| active.as_deref() != Some(name.as_str()))
                     .map(|name| {
                         let summary = crate::workspace::workspace_path(&name)
                             .and_then(|p| std::fs::read_to_string(p).ok())
@@ -1076,11 +1089,7 @@ impl App {
                                 )
                             })
                             .unwrap_or_else(|| "unreadable".into());
-                        let description = if active.as_deref() == Some(name.as_str()) {
-                            format!("(active) {summary}")
-                        } else {
-                            summary
-                        };
+                        let description = summary;
                         Entry {
                             action: Command::WorkspaceOpen(name.clone(), discard),
                             label: name,
@@ -1240,18 +1249,24 @@ impl App {
                 })
                 .collect(),
             selected,
-            up: true,
+            up: history,
         })
     }
 
-    /// The wheel over an open picker: moves the selection by `by` entries.
+    /// The wheel over an open picker: moves the selection down the list by `by` entries.
     pub fn picker_scroll(&mut self, by: isize) {
         let Some(p) = self.picker.clone() else {
             return;
         };
         let n = self.picker_matches(&p).len();
+        // The history grows upward from its input, the others down.
+        let by = if p.kind == PickerKind::History {
+            -by
+        } else {
+            by
+        };
         if let Some(q) = self.picker.as_mut() {
-            q.selected = (q.selected as isize - by).clamp(0, n.saturating_sub(1) as isize) as usize;
+            q.selected = (q.selected as isize + by).clamp(0, n.saturating_sub(1) as isize) as usize;
         }
     }
 
@@ -1296,13 +1311,13 @@ impl App {
                     )),
                 }
             }
-            // The list grows upward from the input: Up goes further from it.
-            KeyCode::Up | KeyCode::Tab => p.selected += 1,
-            KeyCode::Char('k') if key.alt => p.selected += 1,
-            KeyCode::Char('p') if key.ctrl => p.selected += 1,
-            KeyCode::Down | KeyCode::BackTab => p.selected = p.selected.saturating_sub(1),
-            KeyCode::Char('j') if key.alt => p.selected = p.selected.saturating_sub(1),
-            KeyCode::Char('n') if key.ctrl => p.selected = p.selected.saturating_sub(1),
+            // The list grows down from the input: Down goes further from it.
+            KeyCode::Down | KeyCode::Tab => p.selected += 1,
+            KeyCode::Char('j') if key.alt => p.selected += 1,
+            KeyCode::Char('n') if key.ctrl => p.selected += 1,
+            KeyCode::Up | KeyCode::BackTab => p.selected = p.selected.saturating_sub(1),
+            KeyCode::Char('k') if key.alt => p.selected = p.selected.saturating_sub(1),
+            KeyCode::Char('p') if key.ctrl => p.selected = p.selected.saturating_sub(1),
             KeyCode::Char('u') if key.ctrl => {
                 p.query.clear();
                 p.selected = 0;
@@ -1357,17 +1372,18 @@ mod tests {
         keys(&mut app, "<Space>b");
         assert_eq!(app.mode, Mode::Picker);
         let p = app.palette().unwrap();
-        assert_eq!((p.title.as_str(), p.items.len()), ("Buffers", 3));
+        assert_eq!((p.title.as_str(), p.items.len()), ("Buffers", 2));
+        assert!(p.items.iter().all(|i| i.text != app.buffer().name));
         keys(&mut app, "wndw");
         let p = app.palette().unwrap();
         assert_eq!(p.items[0].text, "Wonderwall.ccm");
         keys(&mut app, "<CR>");
         assert_eq!(app.mode, Mode::Normal);
         assert_eq!(app.buffer().name, "Wonderwall.ccm");
-        // Up/Down move; Esc cancels without switching.
-        keys(&mut app, "<Space>b<Up><Up><Esc>");
+        // Down/Up move (the list grows down); Esc cancels without switching.
+        keys(&mut app, "<Space>b<Down><Down><Esc>");
         assert_eq!(app.buffer().name, "Wonderwall.ccm");
-        keys(&mut app, "<Space>b<Up><CR>");
+        keys(&mut app, "<Space>bhurt<CR>");
         assert_eq!(app.buffer().name, "Hurt.ccm");
         // Views.
         app.run(Command::ViewNew(None));
@@ -1380,6 +1396,73 @@ mod tests {
         keys(&mut app, "<Space>bzzz<CR>");
         assert!(app.last_notification().unwrap().error);
         std::fs::remove_dir_all(dir).ok();
+    }
+
+    #[test]
+    fn command_history_is_capped_and_shows_when_each_line_ran() {
+        let mut app = App::new(Config::default(), None);
+        app.run(Command::New);
+        app.config.file.ui.command_history_size = 2;
+        for line in ["bar-next", "bar-prev", "bar-next", "bar-first"] {
+            keys(&mut app, &format!(":{line}<CR>"));
+        }
+        assert_eq!(app.history.len(), 2);
+        let entries = app.picker_entries(PickerKind::History);
+        let labels: Vec<_> = entries.iter().map(|e| e.label.as_str()).collect();
+        assert_eq!(labels, ["bar-first", "bar-next"]);
+        assert_eq!(entries[0].description, "now");
+        app.config.file.ui.command_history_time = "absolute".into();
+        let shown = &app.picker_entries(PickerKind::History)[0].description;
+        assert_eq!(shown.len(), "2026-11-10 14:03".len());
+        app.config.file.ui.command_history_size = 0;
+        keys(&mut app, ":bar-next<CR>");
+        assert_eq!(app.history.len(), 2);
+    }
+
+    #[test]
+    fn used_commands_and_buffers_come_first() {
+        let mut app = App::new(Config::default(), None);
+        app.run(Command::New);
+        // Alphabetical until something is used.
+        let names = |app: &App| {
+            app.palette()
+                .unwrap()
+                .items
+                .iter()
+                .map(|i| i.text.clone())
+                .collect::<Vec<_>>()
+        };
+        keys(&mut app, ":bar-");
+        let before = names(&app);
+        assert!(before.len() > 2);
+        let last = "bar-prev".to_string();
+        assert_ne!(before[0], last);
+        keys(&mut app, "<Esc>");
+        // Running a command (its first word) moves it first among equal matches.
+        keys(&mut app, &format!(":{last}<CR>:bar-"));
+        assert_eq!(names(&app)[0], last);
+        keys(&mut app, "<Esc>");
+        // Off: back to alphabetical.
+        app.config.file.ui.frecency = false;
+        keys(&mut app, ":bar-");
+        assert_eq!(names(&app), before);
+        keys(&mut app, "<Esc>");
+        // Pickers order their candidates the same way.
+        app.config.file.ui.frecency = true;
+        app.run(Command::New);
+        app.run(Command::New);
+        let order = |app: &App| {
+            app.picker_entries(PickerKind::Buffer)
+                .into_iter()
+                .map(|e| e.action)
+                .collect::<Vec<_>>()
+        };
+        let first = order(&app);
+        app.run(Command::BufferGoto(2));
+        app.run(Command::BufferGoto(3));
+        // The current buffer is not listed; the one used before it is first.
+        assert_eq!(order(&app)[0], Command::BufferGoto(2));
+        assert_ne!(first[0], order(&app)[0]);
     }
 
     #[test]
