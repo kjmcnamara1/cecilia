@@ -176,8 +176,8 @@ cancels. `:bdelete!` closes without asking. A new score counts as unchanged unti
 Besides scores, a pane can show a **tool**: the tracks (`:tracks`), the audio waveform
 (`:waveform`), the piano (`:piano`), the fretboard (`:fretboard`) or the tuner
 (`:tuner`). Each command shows its tool, or hides it. A tool listed in `ui.global_tools` (all
-of them by default; `:set ui.global_tools +tuner` / `-tuner` switches one between global and local, moving it if it
-is open) docks along the bottom of the whole view, above the status line, as wide as
+of them by default; `:set ui.global_tools +tuner` / `-tuner` switches one between global and
+local, moving it if it is open) docks along the bottom of the whole view, above the status line, as wide as
 the window, and shows the score pane worked on last. Any other tool opens at the bottom of the
 score pane worked on last, as wide as it, and always shows that pane's score (focusing it
 makes that pane the one worked on again); it closes with its score pane. `<Esc>` in a tool
@@ -324,6 +324,27 @@ them (Nerd Font glyphs when `tabline.icons = "nerd"`, flat blocks otherwise). `t
 colors the second sections. The tuning and capo of a fretted track are printed under the
 track name at the top of the score (and in the pane title in the terminal and in the GUI's
 horizontal layout).
+
+## Pane display options
+
+- **Scrollbars** (`ui.scrollbar`, default on; `:set ui.scrollbar toggle`): every score pane gets
+  one down the right side and one along the bottom, each shown when the score scrolls that way (a
+  bar wider than the pane, a zoomed page, a tall horizontal layout), in their own gutter (the
+  score never draws under it). Click or drag one to scroll (the view then stays put until the
+  cursor moves).
+- **Progress bar** (`ui.progress_bar`, default on; `:set ui.progress_bar toggle`): along the bottom
+  of every score pane, the sections (letter and title), a translucent red mark at the play
+  position (or the cursor), and the time. Clicking it moves the cursor to that bar.
+- **Incomplete bars** (`ui.highlight_incomplete_bars`, default off;
+  `:set ui.highlight_incomplete_bars toggle`): the staff lines of bars that don't hold their full
+  count are drawn in red (`theme.incomplete_bar`). A bar is flagged when any of its voices that
+  holds notes or rests is shorter or longer than the time signature (tuplets and dots counted
+  exactly, a few ticks of rounding allowed); bars with nothing in them, free-time bars and a
+  pickup first bar are never flagged. All staff kinds are marked in the GUI engraving; the TUI tab
+  view colors the bar's dashed staff lines.
+- **Bar numbers** (`ui.bar_numbers`: `system`, the default, numbers the first bar of each line;
+  `every` numbers every bar; `:set ui.bar_numbers every`). The GUI engraving shows the numbers; the
+  TUI tab view always numbers every bar.
 
 ## Toolbar
 
@@ -727,7 +748,9 @@ the subcommand, or end the options with `--` before the files), and in the app w
   `+item` adds, `-item` removes (`:set ui.global_tools +tuner`). A leading `+` / `-` applies to
   the whole value (`+a,b` adds both).
 
-An invalid value changes nothing and the error lists what is allowed.
+An invalid value changes nothing and the error lists what is allowed. `:set` and `-o` refuse
+out-of-range or invalid values (the error names the range or the allowed values), while the same
+values in `config.toml` are clamped or reset to the default, with a warning.
 
 | command                                                              |                                                                                                                                                                                             |
 | -------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
