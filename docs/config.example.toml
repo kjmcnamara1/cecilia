@@ -111,6 +111,7 @@ preset = "dark"
 # icon_guitar_pro = "#f08c32" # also icon_musicxml, icon_midi, icon_chant, icon_cecilia
 # score_modern = "#d68c50"    # the status line's MODERN chip (the CHANT chip uses icon_chant)
 # track_colors = ["#e05050", "#e0a030", "#50b060", "#4090e0"]   # instead of the spectrum
+# voice_colors = ["#468ce6", "#eb8c32", "#3caa64", "#aa64d2"]   # voices 1-4 (blue, orange, green, purple), in the palette's voice buttons
 
 [statusline]
 separators = "arrow"     # terminal: between sections, as lualine: "arrow", "round" or "none"

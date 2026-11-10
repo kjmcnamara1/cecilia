@@ -4239,11 +4239,13 @@ fn draw_edit_palette(scene: &mut Scene, app: &App, views: &mut Views, r: Rect) {
                     let over = b.contains((hx, hy));
                     let selected = i == sel && show_sel;
                     let off = row.unavailable.is_some();
+                    // The button in force: the accent, or a voice's own color.
+                    let mark = row.active_color(th).unwrap_or(th.accent);
                     if row.active && !off {
                         scene.fill(
                             Fill::NonZero,
                             Affine::IDENTITY,
-                            col(th.accent.with_alpha(60)),
+                            col(mark.with_alpha(60)),
                             None,
                             &shape,
                         );
@@ -4259,7 +4261,7 @@ fn draw_edit_palette(scene: &mut Scene, app: &App, views: &mut Views, r: Rect) {
                     let color = if off {
                         col(th.dim.with_alpha(90))
                     } else if row.active {
-                        col(th.text_on(th.accent.mix(th.panel, 0.6)))
+                        col(th.text_on(mark.mix(th.panel, 0.6)))
                     } else {
                         chrome_text()
                     };
