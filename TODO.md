@@ -5,6 +5,7 @@ Planned work. Finished items move to `CHANGELOG.md` under `[Unreleased]`.
 ### Docs
 
 - [ ] Static site for documentation (Zensical)
+  - [ ] Github pages
 - [ ] Document all options in docs/OPTIONS.md
   - Describe option types
   - How to set/get options
@@ -14,7 +15,7 @@ Planned work. Finished items move to `CHANGELOG.md` under `[Unreleased]`.
 
 ### Refactor
 
-- [ ] Split chant and modern scores into 2 file extensions:
+- [x] Split chant and modern scores into 2 file extensions:
   - .ccc for cecilia chant
   - .ccm for cecilia modern
 
@@ -60,7 +61,7 @@ Planned work. Finished items move to `CHANGELOG.md` under `[Unreleased]`.
 
 - [x] TODO: Deep dive on waveform ux and audio track syncing (auto, manual, & tapping)
 - [ ] Add ability to create multitracks that are a combination of other tracks
-- [ ] Voice selection indicator in tool palette should be color coded by selected voice #
+- [x] Voice selection indicator in tool palette should be color coded by selected voice #
 - [ ] Toolbar
   - Window close button?
   - Reorder/regroup icons
@@ -97,7 +98,7 @@ Planned work. Finished items move to `CHANGELOG.md` under `[Unreleased]`.
 
 ### Audio
 
-- [ ] Add additional more realistic instrument sounds
+- [x] Add additional more realistic instrument sounds
 - [ ] Add AI singing voice that can sing lyrics?
 
 ### Keymaps
@@ -120,7 +121,7 @@ Planned work. Finished items move to `CHANGELOG.md` under `[Unreleased]`.
 
 ### Voices
 
-- [ ] Dim the voices not being edited in the GUI engraving (the terminal tab view does)
+- [x] Dim the voices not being edited in the GUI engraving (the terminal tab view does)
 - [ ] Shortening or lengthening a beat in a voice should refill the rest of the bar with rests
       (or eat following rests), as Guitar Pro does; today the bar goes incomplete
 - [ ] Voice-specific copy/paste of all voices of a selection at once (copy and paste work on the
