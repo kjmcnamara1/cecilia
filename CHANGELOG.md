@@ -7,6 +7,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- Your own themes: any `<name>.toml` in `~/.config/cecilia/themes/` can be a `theme.preset`. It
+  has the keys of `[theme]` and starts from the theme its own `preset` names (default `dark`).
+- Themes `nord-dark` (dark UI and page, light engraving) and `nord-light`.
+
+### Changed
+
+- The built-in themes are TOML files in the repo (`crates/cecilia-app/themes/`), embedded in the
+  binary, instead of Rust code. Same colors.
+- Standard-notation staff lines are as thin and grey as tab staff lines.
+- The `cecilia-hybrid` theme is now called `cecilia`.
+
 ## [0.36.0] - 2026-11-10
 
 ### Added

@@ -1,10 +1,10 @@
-//! Interface colors: a preset (`[theme] preset = "dark"` or `"light"`) with any color
+//! Interface colors: a preset (`[theme] preset = "dark"`, a `themes/*.toml` file) with any color
 //! overridden in `config.toml`, and the palette tracks are colored from.
 
 use serde::{Deserialize, Serialize};
 
 /// A color with alpha.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub struct Rgba {
     pub r: u8,
     pub g: u8,
@@ -107,8 +107,8 @@ impl Rgba {
     }
 }
 
-/// The interface colors.
-#[derive(Debug, Clone, PartialEq)]
+/// The interface colors. `Default` is blank: a theme is built from its layers (`from_config`).
+#[derive(Debug, Clone, PartialEq, Default)]
 pub struct Theme {
     /// Around the engraved pages.
     pub paper: Rgba,
@@ -213,22 +213,102 @@ impl Theme {
     }
 }
 
-/// The built-in themes.
-pub const PRESETS: &[&str] = &[
-    "dark",
-    "light",
-    "cecilia-dark",
-    "cecilia-light",
-    "cecilia-hybrid",
-    "nord",
-    "gruvbox",
-    "solarized-dark",
-    "solarized-light",
-    "catppuccin-latte",
-    "catppuccin-frappe",
-    "catppuccin-macchiato",
-    "catppuccin-mocha",
+/// The built-in themes: `themes/<name>.toml` in the source tree, in the format of `[theme]`
+/// in config.toml. `dark` holds every color; the others start from the theme their `preset`
+/// names (`dark` when absent) and could set only what differs.
+const BUILTIN: &[(&str, &str)] = &[
+    ("dark", include_str!("../themes/dark.toml")),
+    ("light", include_str!("../themes/light.toml")),
+    ("cecilia-dark", include_str!("../themes/cecilia-dark.toml")),
+    (
+        "cecilia-light",
+        include_str!("../themes/cecilia-light.toml"),
+    ),
+    ("cecilia", include_str!("../themes/cecilia.toml")),
+    ("nord", include_str!("../themes/nord.toml")),
+    ("nord-dark", include_str!("../themes/nord-dark.toml")),
+    ("nord-light", include_str!("../themes/nord-light.toml")),
+    ("gruvbox", include_str!("../themes/gruvbox.toml")),
+    (
+        "solarized-dark",
+        include_str!("../themes/solarized-dark.toml"),
+    ),
+    (
+        "solarized-light",
+        include_str!("../themes/solarized-light.toml"),
+    ),
+    (
+        "catppuccin-latte",
+        include_str!("../themes/catppuccin-latte.toml"),
+    ),
+    (
+        "catppuccin-frappe",
+        include_str!("../themes/catppuccin-frappe.toml"),
+    ),
+    (
+        "catppuccin-macchiato",
+        include_str!("../themes/catppuccin-macchiato.toml"),
+    ),
+    (
+        "catppuccin-mocha",
+        include_str!("../themes/catppuccin-mocha.toml"),
+    ),
 ];
+
+/// The folder of the user's own themes, `<name>.toml`: they can start from any theme and
+/// shadow a built-in one of the same name.
+pub fn user_themes_dir() -> Option<std::path::PathBuf> {
+    directories::ProjectDirs::from("", "", "cecilia").map(|d| d.config_dir().join("themes"))
+}
+
+/// The names `theme.preset` takes: the built-in themes, then the user's.
+pub fn preset_names() -> Vec<String> {
+    let mut names: Vec<String> = BUILTIN.iter().map(|(n, _)| n.to_string()).collect();
+    let user = user_themes_dir().and_then(|d| std::fs::read_dir(d).ok());
+    let mut mine: Vec<String> = user
+        .into_iter()
+        .flatten()
+        .filter_map(|e| {
+            let path = e.ok()?.path();
+            (path.extension()? == "toml").then(|| path.file_stem()?.to_str().map(String::from))?
+        })
+        .filter(|n| !names.contains(n))
+        .collect();
+    mine.sort();
+    names.extend(mine);
+    names
+}
+
+/// The layers a theme is made of, base first: what its `preset` names, and so on up to `dark`.
+fn preset_layers(name: &str, dir: Option<&std::path::Path>) -> Result<Vec<ThemeConfig>, String> {
+    let mut layers = Vec::new();
+    let mut name = name.to_string();
+    loop {
+        if layers.len() > 8 || name.contains(['/', '\\']) || name.starts_with('.') {
+            return Err(format!(
+                "theme '{name}' is not a theme (or its presets loop)"
+            ));
+        }
+        let user = dir.map(|d| d.join(format!("{name}.toml")));
+        let text = match user.as_ref().map(std::fs::read_to_string) {
+            Some(Ok(text)) => text,
+            _ => match BUILTIN.iter().find(|(n, _)| *n == name) {
+                Some((_, text)) => text.to_string(),
+                None => return Err(format!("unknown theme '{name}'")),
+            },
+        };
+        let layer: ThemeConfig =
+            toml::from_str(&text).map_err(|e| format!("theme '{name}': {e}"))?;
+        let parent = layer.preset.clone();
+        layers.push(layer);
+        if parent.is_empty() || parent == name {
+            break;
+        }
+        name = parent;
+    }
+    layers.reverse();
+    Ok(layers)
+}
 
 /// The colors a theme sets, by their names in config.toml.
 pub const COLOR_NAMES: &[&str] = &[
@@ -283,492 +363,7 @@ pub const COLOR_NAMES: &[&str] = &[
     "score_modern",
 ];
 
-fn hex(s: &str) -> Rgba {
-    Rgba::parse(s).expect("valid built-in color")
-}
-
 impl Theme {
-    pub fn dark() -> Self {
-        let accent = Rgba::rgb(250, 190, 40);
-        Self {
-            paper: Rgba::rgb(232, 233, 236),
-            page: Rgba::rgb(255, 255, 255),
-            ink: Rgba::rgb(0, 0, 0),
-            chrome: Rgba::rgb(40, 42, 48),
-            chrome_text: Rgba::rgb(225, 225, 230),
-            capo: Rgba::rgb(225, 225, 230),
-            dim: Rgba::rgb(150, 152, 160),
-            accent,
-            playhead: Rgba::rgb(225, 40, 40),
-            selection: Rgba::rgb(150, 90, 220),
-            tab: Rgba::rgb(52, 55, 63),
-            tab_hover: Rgba::rgb(72, 75, 86),
-            status_b: Rgba::rgb(60, 63, 73),
-            toolbar: Rgba::rgb(46, 48, 55),
-            button_hover: Rgba::rgb(72, 75, 86),
-            panel: Rgba::rgb(30, 32, 37),
-            empty_bar: Rgba::rgb(55, 58, 66),
-            incomplete_bar: Rgba::rgb(214, 40, 40),
-            popover: Rgba::rgb(36, 38, 44),
-            error: Rgba::rgb(255, 110, 100),
-            lyrics: Rgba::rgb(110, 200, 130),
-            lyrics_text: Rgba::rgb(225, 225, 230),
-            lyrics_text_dim: Rgba::rgb(150, 152, 160),
-            lyrics_gabc: Rgba::rgb(240, 240, 244),
-            lyrics_label: Rgba::rgb(100, 160, 240),
-            lyrics_anchor: Rgba::rgb(240, 90, 90),
-            lyrics_clef: Rgba::rgb(190, 130, 230),
-            lyrics_division: Rgba::rgb(240, 90, 90),
-            lyrics_note: Rgba::rgb(100, 160, 240),
-            lyrics_shape: Rgba::rgb(230, 200, 90),
-            lyrics_attach: Rgba::rgb(90, 200, 210),
-            lyrics_space: Rgba::rgb(130, 134, 144),
-            lyrics_markup: Rgba::rgb(110, 200, 130),
-            marker: Rgba::rgb(90, 190, 210),
-            waveform: Rgba::rgb(110, 170, 230),
-            loop_region: Rgba::rgb(60, 190, 110).with_alpha(50),
-            sync_point: accent,
-            mode_normal: Rgba::rgb(90, 150, 230),
-            mode_insert: Rgba::rgb(100, 190, 120),
-            mode_visual: Rgba::rgb(190, 120, 220),
-            mode_command: Rgba::rgb(240, 180, 60),
-            mode_picker: Rgba::rgb(80, 190, 200),
-            mode_tracks: Rgba::rgb(230, 120, 80),
-            icon_guitar_pro: Rgba::rgb(240, 140, 50),
-            icon_musicxml: Rgba::rgb(80, 150, 230),
-            icon_midi: Rgba::rgb(90, 190, 110),
-            icon_chant: Rgba::rgb(180, 110, 210),
-            icon_cecilia: Rgba::rgb(60, 190, 190),
-            score_modern: Rgba::rgb(214, 140, 80),
-            cursor_border: None,
-            voice_colors: default_voice_colors(),
-            track_colors: spectrum(accent, 8, 0.62),
-        }
-    }
-
-    pub fn light() -> Self {
-        let accent = Rgba::rgb(214, 140, 0);
-        Self {
-            paper: Rgba::rgb(250, 250, 251),
-            chrome: Rgba::rgb(236, 237, 241),
-            chrome_text: Rgba::rgb(36, 38, 44),
-            capo: Rgba::rgb(36, 38, 44),
-            dim: Rgba::rgb(110, 114, 124),
-            accent,
-            playhead: Rgba::rgb(215, 30, 30),
-            selection: Rgba::rgb(140, 80, 210),
-            tab: Rgba::rgb(220, 221, 227),
-            tab_hover: Rgba::rgb(205, 207, 214),
-            status_b: Rgba::rgb(214, 216, 222),
-            toolbar: Rgba::rgb(244, 244, 247),
-            button_hover: Rgba::rgb(218, 219, 225),
-            panel: Rgba::rgb(246, 246, 248),
-            empty_bar: Rgba::rgb(222, 223, 228),
-            incomplete_bar: Rgba::rgb(214, 40, 40),
-            popover: Rgba::rgb(252, 252, 253),
-            error: Rgba::rgb(200, 40, 30),
-            lyrics: Rgba::rgb(40, 140, 80),
-            lyrics_text: Rgba::rgb(36, 38, 44),
-            lyrics_text_dim: Rgba::rgb(130, 134, 144),
-            lyrics_gabc: Rgba::rgb(20, 20, 24),
-            lyrics_label: Rgba::rgb(40, 100, 200),
-            lyrics_anchor: Rgba::rgb(200, 40, 40),
-            lyrics_clef: Rgba::rgb(140, 70, 190),
-            lyrics_division: Rgba::rgb(200, 40, 40),
-            lyrics_note: Rgba::rgb(40, 100, 200),
-            lyrics_shape: Rgba::rgb(170, 130, 0),
-            lyrics_attach: Rgba::rgb(0, 140, 150),
-            lyrics_space: Rgba::rgb(120, 124, 134),
-            lyrics_markup: Rgba::rgb(30, 140, 60),
-            marker: Rgba::rgb(30, 130, 150),
-            waveform: Rgba::rgb(40, 110, 200),
-            loop_region: Rgba::rgb(40, 160, 90).with_alpha(50),
-            sync_point: accent,
-            mode_normal: Rgba::rgb(60, 120, 210),
-            mode_insert: Rgba::rgb(60, 160, 90),
-            mode_visual: Rgba::rgb(160, 90, 200),
-            mode_command: Rgba::rgb(220, 150, 30),
-            mode_picker: Rgba::rgb(40, 160, 175),
-            mode_tracks: Rgba::rgb(210, 100, 60),
-            score_modern: Rgba::rgb(190, 105, 45),
-            cursor_border: None,
-            voice_colors: default_voice_colors(),
-            track_colors: spectrum(accent, 8, 0.48),
-            ..Self::dark()
-        }
-    }
-
-    /// Dark UI, dark score page and light engraving: neutral charcoal with the logo's gold and cream.
-    pub fn cecilia_dark() -> Self {
-        let accent = hex("#e8b73c");
-        Self {
-            paper: hex("#161514"),
-            page: hex("#1f1e1c"),
-            ink: hex("#f6efdc"),
-            chrome: hex("#1a1918"),
-            chrome_text: hex("#f6efdc"),
-            capo: hex("#f6efdc"),
-            dim: hex("#9a948a"),
-            accent,
-            playhead: hex("#e5606a"),
-            selection: hex("#8d7ad6"),
-            tab: hex("#262422"),
-            tab_hover: hex("#33302c"),
-            status_b: hex("#2c2a27"),
-            toolbar: hex("#1c1b19"),
-            button_hover: hex("#33302c"),
-            panel: hex("#161514"),
-            empty_bar: hex("#2a2826"),
-            popover: hex("#211f1d"),
-            error: hex("#ff7a82"),
-            lyrics_text: hex("#f6efdc"),
-            lyrics_text_dim: hex("#9a948a"),
-            lyrics_gabc: hex("#fffaf0"),
-            lyrics_anchor: hex("#ff7a82"),
-            lyrics_division: hex("#ff7a82"),
-            lyrics_shape: accent,
-            lyrics: hex("#aab95a"),
-            lyrics_markup: hex("#aab95a"),
-            sync_point: accent,
-            waveform: hex("#8fb4e8"),
-            mode_command: accent,
-            score_modern: hex("#d98a45"),
-            track_colors: spectrum(accent, 8, 0.62),
-            ..Self::dark()
-        }
-    }
-
-    /// Dark UI around a light cream page with black engraving.
-    pub fn cecilia_hybrid() -> Self {
-        Self {
-            paper: hex("#e4dcc4"),
-            page: hex("#fbf7ea"),
-            ink: hex("#000000"),
-            cursor_border: None,
-            voice_colors: default_voice_colors(),
-            ..Self::cecilia_dark()
-        }
-    }
-
-    /// Light UI, light cream page and black engraving.
-    pub fn cecilia_light() -> Self {
-        let accent = hex("#c8921c");
-        Self {
-            paper: hex("#f4efe0"),
-            page: hex("#fffcf2"),
-            ink: hex("#000000"),
-            chrome: hex("#ece4cc"),
-            chrome_text: hex("#0f2a52"),
-            capo: hex("#0f2a52"),
-            dim: hex("#6b7690"),
-            accent,
-            playhead: hex("#d6404c"),
-            tab: hex("#ddd3b6"),
-            tab_hover: hex("#cfc4a2"),
-            status_b: hex("#d8ceb0"),
-            toolbar: hex("#f3ecd6"),
-            button_hover: hex("#d8ceb0"),
-            panel: hex("#f6f0dd"),
-            empty_bar: hex("#ddd3b6"),
-            popover: hex("#fffcf2"),
-            error: hex("#c4303a"),
-            lyrics_text: hex("#0f2a52"),
-            lyrics_text_dim: hex("#8590a8"),
-            lyrics_gabc: hex("#06142a"),
-            lyrics_anchor: hex("#c4303a"),
-            lyrics_division: hex("#c4303a"),
-            lyrics_shape: hex("#a87400"),
-            sync_point: accent,
-            waveform: hex("#2a5fa8"),
-            mode_command: hex("#d9921a"),
-            score_modern: hex("#b05f25"),
-            track_colors: spectrum(accent, 8, 0.48),
-            ..Self::light()
-        }
-    }
-
-    pub fn nord() -> Self {
-        let accent = hex("#88c0d0");
-        Self {
-            paper: hex("#d8dee9"),
-            page: hex("#f2f4f8"),
-            ink: hex("#2e3440"),
-            chrome: hex("#2e3440"),
-            chrome_text: hex("#eceff4"),
-            capo: hex("#eceff4"),
-            dim: hex("#9aa5b8"),
-            accent,
-            playhead: hex("#bf616a"),
-            selection: hex("#b48ead"),
-            tab: hex("#3b4252"),
-            tab_hover: hex("#434c5e"),
-            status_b: hex("#3b4252"),
-            toolbar: hex("#323946"),
-            button_hover: hex("#434c5e"),
-            panel: hex("#272c36"),
-            empty_bar: hex("#3b4252"),
-            incomplete_bar: Rgba::rgb(214, 40, 40),
-            popover: hex("#3b4252"),
-            error: hex("#bf616a"),
-            lyrics: hex("#a3be8c"),
-            lyrics_text: hex("#e5e9f0"),
-            lyrics_text_dim: hex("#7b88a1"),
-            lyrics_gabc: hex("#eceff4"),
-            lyrics_label: hex("#81a1c1"),
-            lyrics_anchor: hex("#bf616a"),
-            lyrics_clef: hex("#b48ead"),
-            lyrics_division: hex("#bf616a"),
-            lyrics_note: hex("#81a1c1"),
-            lyrics_shape: hex("#ebcb8b"),
-            lyrics_attach: hex("#88c0d0"),
-            lyrics_space: hex("#7b88a1"),
-            lyrics_markup: hex("#a3be8c"),
-            marker: hex("#88c0d0"),
-            waveform: hex("#81a1c1"),
-            loop_region: hex("#a3be8c").with_alpha(50),
-            sync_point: hex("#ebcb8b"),
-            mode_normal: hex("#81a1c1"),
-            mode_insert: hex("#a3be8c"),
-            mode_visual: hex("#b48ead"),
-            mode_command: hex("#ebcb8b"),
-            mode_picker: hex("#88c0d0"),
-            mode_tracks: hex("#d08770"),
-            icon_guitar_pro: hex("#d08770"),
-            icon_musicxml: hex("#81a1c1"),
-            icon_midi: hex("#a3be8c"),
-            icon_chant: hex("#b48ead"),
-            icon_cecilia: hex("#8fbcbb"),
-            score_modern: hex("#ebcb8b"),
-            cursor_border: None,
-            voice_colors: default_voice_colors(),
-            track_colors: spectrum(accent, 8, 0.65),
-        }
-    }
-
-    pub fn gruvbox() -> Self {
-        let accent = hex("#fabd2f");
-        Self {
-            paper: hex("#ebdbb2"),
-            page: hex("#fbf1c7"),
-            ink: hex("#282828"),
-            chrome: hex("#282828"),
-            chrome_text: hex("#ebdbb2"),
-            capo: hex("#ebdbb2"),
-            dim: hex("#a89984"),
-            accent,
-            playhead: hex("#fb4934"),
-            selection: hex("#d3869b"),
-            tab: hex("#3c3836"),
-            tab_hover: hex("#504945"),
-            status_b: hex("#3c3836"),
-            toolbar: hex("#32302f"),
-            button_hover: hex("#504945"),
-            panel: hex("#1d2021"),
-            empty_bar: hex("#3c3836"),
-            incomplete_bar: Rgba::rgb(214, 40, 40),
-            popover: hex("#3c3836"),
-            error: hex("#fb4934"),
-            lyrics: hex("#b8bb26"),
-            lyrics_text: hex("#ebdbb2"),
-            lyrics_text_dim: hex("#928374"),
-            lyrics_gabc: hex("#fbf1c7"),
-            lyrics_label: hex("#83a598"),
-            lyrics_anchor: hex("#fb4934"),
-            lyrics_clef: hex("#d3869b"),
-            lyrics_division: hex("#fb4934"),
-            lyrics_note: hex("#83a598"),
-            lyrics_shape: hex("#fabd2f"),
-            lyrics_attach: hex("#8ec07c"),
-            lyrics_space: hex("#928374"),
-            lyrics_markup: hex("#b8bb26"),
-            marker: hex("#8ec07c"),
-            waveform: hex("#83a598"),
-            loop_region: hex("#b8bb26").with_alpha(50),
-            sync_point: hex("#fabd2f"),
-            mode_normal: hex("#83a598"),
-            mode_insert: hex("#b8bb26"),
-            mode_visual: hex("#d3869b"),
-            mode_command: hex("#fabd2f"),
-            mode_picker: hex("#8ec07c"),
-            mode_tracks: hex("#fe8019"),
-            icon_guitar_pro: hex("#fe8019"),
-            icon_musicxml: hex("#83a598"),
-            icon_midi: hex("#b8bb26"),
-            icon_chant: hex("#d3869b"),
-            icon_cecilia: hex("#8ec07c"),
-            score_modern: hex("#fe8019"),
-            cursor_border: None,
-            voice_colors: default_voice_colors(),
-            track_colors: spectrum(accent, 8, 0.6),
-        }
-    }
-
-    pub fn solarized_dark() -> Self {
-        let accent = hex("#b58900");
-        Self {
-            paper: hex("#eee8d5"),
-            page: hex("#fdf6e3"),
-            ink: hex("#002b36"),
-            chrome: hex("#002b36"),
-            chrome_text: hex("#93a1a1"),
-            capo: hex("#93a1a1"),
-            dim: hex("#657b83"),
-            accent,
-            playhead: hex("#dc322f"),
-            selection: hex("#6c71c4"),
-            tab: hex("#073642"),
-            tab_hover: hex("#0b4553"),
-            status_b: hex("#073642"),
-            toolbar: hex("#03303b"),
-            button_hover: hex("#0b4553"),
-            panel: hex("#00212b"),
-            empty_bar: hex("#073642"),
-            incomplete_bar: Rgba::rgb(214, 40, 40),
-            popover: hex("#073642"),
-            error: hex("#dc322f"),
-            lyrics: hex("#859900"),
-            lyrics_text: hex("#93a1a1"),
-            lyrics_text_dim: hex("#586e75"),
-            lyrics_gabc: hex("#eee8d5"),
-            lyrics_label: hex("#268bd2"),
-            lyrics_anchor: hex("#dc322f"),
-            lyrics_clef: hex("#6c71c4"),
-            lyrics_division: hex("#dc322f"),
-            lyrics_note: hex("#268bd2"),
-            lyrics_shape: hex("#b58900"),
-            lyrics_attach: hex("#2aa198"),
-            lyrics_space: hex("#586e75"),
-            lyrics_markup: hex("#859900"),
-            marker: hex("#2aa198"),
-            waveform: hex("#268bd2"),
-            loop_region: hex("#859900").with_alpha(50),
-            sync_point: hex("#b58900"),
-            mode_normal: hex("#268bd2"),
-            mode_insert: hex("#859900"),
-            mode_visual: hex("#d33682"),
-            mode_command: hex("#b58900"),
-            mode_picker: hex("#2aa198"),
-            mode_tracks: hex("#cb4b16"),
-            icon_guitar_pro: hex("#cb4b16"),
-            icon_musicxml: hex("#268bd2"),
-            icon_midi: hex("#859900"),
-            icon_chant: hex("#6c71c4"),
-            icon_cecilia: hex("#2aa198"),
-            score_modern: hex("#cb4b16"),
-            cursor_border: None,
-            voice_colors: default_voice_colors(),
-            track_colors: spectrum(accent, 8, 0.55),
-        }
-    }
-
-    pub fn solarized_light() -> Self {
-        Self {
-            chrome: hex("#eee8d5"),
-            chrome_text: hex("#586e75"),
-            capo: hex("#586e75"),
-            dim: hex("#93a1a1"),
-            tab: hex("#e4ddc8"),
-            tab_hover: hex("#d9d2bd"),
-            status_b: hex("#e4ddc8"),
-            toolbar: hex("#f5efdc"),
-            button_hover: hex("#e4ddc8"),
-            panel: hex("#f5efdc"),
-            empty_bar: hex("#e4ddc8"),
-            incomplete_bar: Rgba::rgb(214, 40, 40),
-            popover: hex("#fdf6e3"),
-            lyrics_text: hex("#586e75"),
-            lyrics_text_dim: hex("#93a1a1"),
-            lyrics_gabc: hex("#073642"),
-            track_colors: spectrum(hex("#b58900"), 8, 0.45),
-            ..Self::solarized_dark()
-        }
-    }
-
-    /// A built-in theme by name.
-    /// A Catppuccin flavor (<https://catppuccin.com/palette>): the page in the flavor's base with
-    /// its text as ink, so the dark flavors engrave light on dark.
-    fn catppuccin(c: &Catppuccin) -> Self {
-        let h = hex;
-        Self {
-            paper: h(c.crust),
-            page: h(c.base),
-            ink: h(c.text),
-            chrome: h(c.mantle),
-            chrome_text: h(c.text),
-            capo: h(c.text),
-            dim: h(c.overlay1),
-            accent: h(c.mauve),
-            playhead: h(c.red),
-            selection: h(c.lavender),
-            tab: h(c.surface0),
-            tab_hover: h(c.surface1),
-            status_b: h(c.surface0),
-            toolbar: h(c.mantle),
-            button_hover: h(c.surface1),
-            panel: h(c.crust),
-            empty_bar: h(c.surface0),
-            incomplete_bar: h(c.red),
-            popover: h(c.surface0),
-            error: h(c.red),
-            lyrics: h(c.green),
-            lyrics_text: h(c.text),
-            lyrics_text_dim: h(c.overlay0),
-            lyrics_gabc: h(c.subtext1),
-            lyrics_label: h(c.blue),
-            lyrics_anchor: h(c.red),
-            lyrics_clef: h(c.mauve),
-            lyrics_division: h(c.maroon),
-            lyrics_note: h(c.sapphire),
-            lyrics_shape: h(c.yellow),
-            lyrics_attach: h(c.teal),
-            lyrics_space: h(c.overlay0),
-            lyrics_markup: h(c.green),
-            marker: h(c.teal),
-            waveform: h(c.blue),
-            loop_region: h(c.green).with_alpha(50),
-            sync_point: h(c.yellow),
-            mode_normal: h(c.blue),
-            mode_insert: h(c.green),
-            mode_visual: h(c.mauve),
-            mode_command: h(c.peach),
-            mode_picker: h(c.teal),
-            mode_tracks: h(c.flamingo),
-            icon_guitar_pro: h(c.peach),
-            icon_musicxml: h(c.blue),
-            icon_midi: h(c.green),
-            icon_chant: h(c.mauve),
-            icon_cecilia: h(c.teal),
-            score_modern: h(c.peach),
-            cursor_border: None,
-            voice_colors: vec![h(c.blue), h(c.peach), h(c.green), h(c.mauve)],
-            track_colors: [
-                c.mauve, c.blue, c.green, c.peach, c.pink, c.teal, c.yellow, c.red,
-            ]
-            .into_iter()
-            .map(h)
-            .collect(),
-        }
-    }
-
-    pub fn preset(name: &str) -> Option<Self> {
-        Some(match name {
-            "dark" => Self::dark(),
-            "light" => Self::light(),
-            "cecilia-dark" => Self::cecilia_dark(),
-            "cecilia-light" => Self::cecilia_light(),
-            "cecilia-hybrid" => Self::cecilia_hybrid(),
-            "nord" => Self::nord(),
-            "gruvbox" => Self::gruvbox(),
-            "solarized-dark" => Self::solarized_dark(),
-            "solarized-light" => Self::solarized_light(),
-            "catppuccin-latte" => Self::catppuccin(&LATTE),
-            "catppuccin-frappe" => Self::catppuccin(&FRAPPE),
-            "catppuccin-macchiato" => Self::catppuccin(&MACCHIATO),
-            "catppuccin-mocha" => Self::catppuccin(&MOCHA),
-            _ => return None,
-        })
-    }
-
     /// A color by its config name (see [`COLOR_NAMES`]).
     pub fn color_mut(&mut self, name: &str) -> Option<&mut Rgba> {
         Some(match name {
@@ -884,6 +479,57 @@ impl Theme {
         }
     }
 
+    /// The built-in dark theme.
+    pub fn dark() -> Self {
+        Self::from_config(&ThemeConfig::default()).0
+    }
+
+    /// Lays one theme layer over the colors so far, reporting what couldn't be used.
+    fn apply(&mut self, layer: &ThemeConfig, errors: &mut Vec<String>) {
+        let accent_before = self.accent;
+        for (name, value) in layer.colors.iter().filter(|(_, v)| !v.is_empty()) {
+            let color = Rgba::parse(value);
+            if color.is_none() {
+                errors.push(format!("theme.{name}: '{value}' is not a color (#rrggbb)"));
+                continue;
+            }
+            if name == "cursor_border" {
+                self.cursor_border = color;
+            } else if let Some(slot) = self.color_mut(name) {
+                *slot = color.unwrap();
+            } else {
+                errors.push(format!("theme.{name}: not a theme color"));
+            }
+        }
+        let mut palette = |key: &str, list: &[String]| {
+            let colors: Vec<Rgba> = list
+                .iter()
+                .filter_map(|v| {
+                    let c = Rgba::parse(v);
+                    if c.is_none() {
+                        errors.push(format!("theme.{key}: '{v}' is not a color"));
+                    }
+                    c
+                })
+                .collect();
+            (!colors.is_empty()).then_some(colors)
+        };
+        let tracks = palette("track_colors", &layer.track_colors);
+        let voices = palette("voice_colors", &layer.voice_colors);
+        match tracks {
+            Some(colors) => self.track_colors = colors,
+            // A new accent shifts the default spectrum with it.
+            None if self.accent != accent_before => {
+                let l = self.track_colors.first().map_or(0.55, |c| c.to_hsl().2);
+                self.track_colors = spectrum(self.accent, 8, l);
+            }
+            None => {}
+        }
+        if let Some(colors) = voices {
+            self.voice_colors = colors;
+        }
+    }
+
     /// The theme a config asks for, and anything in it that couldn't be used. A theme file
     /// (`file`) is read first; the preset and colors given in `[theme]` itself win over it.
     pub fn from_config(c: &ThemeConfig) -> (Self, Vec<String>) {
@@ -914,91 +560,17 @@ impl Theme {
         .flatten()
         .find(|p| !matches!(*p, "dark" | ""))
         .unwrap_or("dark");
-        let mut t = Self::preset(preset).unwrap_or_else(|| {
-            errors.push(format!(
-                "theme.preset: unknown preset '{preset}' ({})",
-                PRESETS.join(", ")
-            ));
-            Self::dark()
+        let mut layers = preset_layers(preset, user_themes_dir().as_deref()).unwrap_or_else(|e| {
+            errors.push(format!("theme.preset: {e} ({})", preset_names().join(", ")));
+            preset_layers("dark", None).expect("built-in dark theme")
         });
-        let accent_before = t.accent;
-        let layers = from_file.iter().chain([c]);
-        let mut track_colors = None;
-        let mut voice_colors = None;
-        for layer in layers {
-            for (name, value) in layer.colors.iter().filter(|(_, v)| !v.is_empty()) {
-                if name == "cursor_border" {
-                    match Rgba::parse(value) {
-                        Some(color) => t.cursor_border = Some(color),
-                        None => {
-                            errors.push(format!("theme.{name}: '{value}' is not a color (#rrggbb)"))
-                        }
-                    }
-                    continue;
-                }
-                let Some(slot) = t.color_mut(name) else {
-                    errors.push(format!("theme.{name}: not a theme color"));
-                    continue;
-                };
-                match Rgba::parse(value) {
-                    Some(color) => *slot = color,
-                    None => {
-                        errors.push(format!("theme.{name}: '{value}' is not a color (#rrggbb)"))
-                    }
-                }
-            }
-            if !layer.track_colors.is_empty() {
-                track_colors = Some(layer.track_colors.clone());
-            }
-            if !layer.voice_colors.is_empty() {
-                voice_colors = Some(layer.voice_colors.clone());
-            }
-        }
-        match track_colors {
-            Some(list) => {
-                let colors: Vec<Rgba> = list
-                    .iter()
-                    .filter_map(|v| {
-                        let c = Rgba::parse(v);
-                        if c.is_none() {
-                            errors.push(format!("theme.track_colors: '{v}' is not a color"));
-                        }
-                        c
-                    })
-                    .collect();
-                if !colors.is_empty() {
-                    t.track_colors = colors;
-                }
-            }
-            // A new accent shifts the default spectrum with it.
-            None if t.accent != accent_before => {
-                let (_, _, l) = t.track_colors[0].to_hsl();
-                t.track_colors = spectrum(t.accent, 8, l);
-            }
-            None => {}
-        }
-        if let Some(list) = voice_colors {
-            let colors: Vec<Rgba> = list
-                .iter()
-                .filter_map(|v| {
-                    let c = Rgba::parse(v);
-                    if c.is_none() {
-                        errors.push(format!("theme.voice_colors: '{v}' is not a color"));
-                    }
-                    c
-                })
-                .collect();
-            if !colors.is_empty() {
-                t.voice_colors = colors;
-            }
+        layers.extend(from_file);
+        layers.push(c.clone());
+        let mut t = Self::default();
+        for layer in &layers {
+            t.apply(layer, &mut errors);
         }
         (t, errors)
-    }
-}
-
-impl Default for Theme {
-    fn default() -> Self {
-        Self::dark()
     }
 }
 
@@ -1016,127 +588,6 @@ pub fn theme_path(path: &std::path::Path) -> std::path::PathBuf {
         .map(|d| d.config_dir().join(path))
         .unwrap_or_else(|| path.to_path_buf())
 }
-
-/// The Catppuccin colors the presets use, for one flavor.
-struct Catppuccin {
-    flamingo: &'static str,
-    pink: &'static str,
-    mauve: &'static str,
-    red: &'static str,
-    maroon: &'static str,
-    peach: &'static str,
-    yellow: &'static str,
-    green: &'static str,
-    teal: &'static str,
-    sapphire: &'static str,
-    blue: &'static str,
-    lavender: &'static str,
-    text: &'static str,
-    subtext1: &'static str,
-    overlay0: &'static str,
-    overlay1: &'static str,
-    surface0: &'static str,
-    surface1: &'static str,
-    base: &'static str,
-    mantle: &'static str,
-    crust: &'static str,
-}
-
-const LATTE: Catppuccin = Catppuccin {
-    flamingo: "#dd7878",
-    pink: "#ea76cb",
-    mauve: "#8839ef",
-    red: "#d20f39",
-    maroon: "#e64553",
-    peach: "#fe640b",
-    yellow: "#df8e1d",
-    green: "#40a02b",
-    teal: "#179299",
-    sapphire: "#209fb5",
-    blue: "#1e66f5",
-    lavender: "#7287fd",
-    text: "#4c4f69",
-    subtext1: "#5c5f77",
-    overlay0: "#9ca0b0",
-    overlay1: "#8c8fa1",
-    surface0: "#ccd0da",
-    surface1: "#bcc0cc",
-    base: "#eff1f5",
-    mantle: "#e6e9ef",
-    crust: "#dce0e8",
-};
-
-const FRAPPE: Catppuccin = Catppuccin {
-    flamingo: "#eebebe",
-    pink: "#f4b8e4",
-    mauve: "#ca9ee6",
-    red: "#e78284",
-    maroon: "#ea999c",
-    peach: "#ef9f76",
-    yellow: "#e5c890",
-    green: "#a6d189",
-    teal: "#81c8be",
-    sapphire: "#85c1dc",
-    blue: "#8caaee",
-    lavender: "#babbf1",
-    text: "#c6d0f5",
-    subtext1: "#b5bfe2",
-    overlay0: "#737994",
-    overlay1: "#838ba7",
-    surface0: "#414559",
-    surface1: "#51576d",
-    base: "#303446",
-    mantle: "#292c3c",
-    crust: "#232634",
-};
-
-const MACCHIATO: Catppuccin = Catppuccin {
-    flamingo: "#f0c6c6",
-    pink: "#f5bde6",
-    mauve: "#c6a0f6",
-    red: "#ed8796",
-    maroon: "#ee99a0",
-    peach: "#f5a97f",
-    yellow: "#eed49f",
-    green: "#a6da95",
-    teal: "#8bd5ca",
-    sapphire: "#7dc4e4",
-    blue: "#8aadf4",
-    lavender: "#b7bdf8",
-    text: "#cad3f5",
-    subtext1: "#b8c0e0",
-    overlay0: "#6e738d",
-    overlay1: "#8087a2",
-    surface0: "#363a4f",
-    surface1: "#494d64",
-    base: "#24273a",
-    mantle: "#1e2030",
-    crust: "#181926",
-};
-
-const MOCHA: Catppuccin = Catppuccin {
-    flamingo: "#f2cdcd",
-    pink: "#f5c2e7",
-    mauve: "#cba6f7",
-    red: "#f38ba8",
-    maroon: "#eba0ac",
-    peach: "#fab387",
-    yellow: "#f9e2af",
-    green: "#a6e3a1",
-    teal: "#94e2d5",
-    sapphire: "#74c7ec",
-    blue: "#89b4fa",
-    lavender: "#b4befe",
-    text: "#cdd6f4",
-    subtext1: "#bac2de",
-    overlay0: "#6c7086",
-    overlay1: "#7f849c",
-    surface0: "#313244",
-    surface1: "#45475a",
-    base: "#1e1e2e",
-    mantle: "#181825",
-    crust: "#11111b",
-};
 
 /// The default colors of voices 1 to 4: blue, orange, green, purple. They read on the dark and
 /// the light interface presets alike.
@@ -1191,6 +642,16 @@ impl Default for ThemeConfig {
 mod tests {
     use super::*;
 
+    fn preset(name: &str) -> Theme {
+        let c = ThemeConfig {
+            preset: name.into(),
+            ..Default::default()
+        };
+        let (t, errors) = Theme::from_config(&c);
+        assert!(errors.is_empty(), "{name}: {errors:?}");
+        t
+    }
+
     #[test]
     fn colors_parse_and_presets_take_overrides() {
         assert_eq!(Rgba::parse("#fa0"), Some(Rgba::rgb(255, 170, 0)));
@@ -1202,7 +663,7 @@ mod tests {
             toml::from_str("preset = \"light\"\nplayhead = \"#00ff00\"\ndim = \"nope\"").unwrap();
         let (t, errors) = Theme::from_config(&c);
         assert_eq!(t.playhead, Rgba::rgb(0, 255, 0));
-        assert_eq!(t.chrome, Theme::light().chrome);
+        assert_eq!(t.chrome, preset("light").chrome);
         assert_eq!(errors.len(), 1);
         // Tracks cycle through the palette; it follows the accent unless given.
         assert_eq!(t.track_color(8), t.track_color(0));
@@ -1244,8 +705,8 @@ mod tests {
 
     #[test]
     fn every_preset_and_color_name_works() {
-        for p in PRESETS {
-            let mut t = Theme::preset(p).unwrap();
+        for (p, _) in BUILTIN {
+            let mut t = preset(p);
             for name in COLOR_NAMES {
                 assert!(t.color_mut(name).is_some(), "{name}");
             }
@@ -1279,21 +740,28 @@ mod tests {
                 "{p}"
             );
         }
-        assert!(Theme::preset("nope").is_none());
+        // Every built-in theme file holds only known colors and parses.
+        for (p, text) in BUILTIN {
+            let c: ThemeConfig = toml::from_str(text).unwrap();
+            assert!(
+                c.colors.keys().all(|k| COLOR_NAMES.contains(&k.as_str())),
+                "{p}"
+            );
+        }
+        // An unknown theme is reported and falls back to dark.
+        let c: ThemeConfig = toml::from_str("preset = \"nope\"").unwrap();
+        let (t, errors) = Theme::from_config(&c);
+        assert_eq!(errors.len(), 1);
+        assert_eq!(t, Theme::dark());
     }
 
     #[test]
     fn cecilia_themes_resolve_and_split_ui_from_score() {
         let luma = |c: Rgba| 0.299 * c.r as f32 + 0.587 * c.g as f32 + 0.114 * c.b as f32;
-        let by_name = |n: &str| {
-            let c: ThemeConfig = toml::from_str(&format!("preset = \"{n}\"")).unwrap();
-            let (t, errs) = Theme::from_config(&c);
-            assert!(errs.is_empty(), "{n}: {errs:?}");
-            t
-        };
+        let by_name = |n: &str| preset(n);
         let dark = by_name("cecilia-dark");
         assert!(luma(dark.page) < 80.0 && luma(dark.chrome) < 80.0 && luma(dark.ink) > 200.0);
-        let hybrid = by_name("cecilia-hybrid");
+        let hybrid = by_name("cecilia");
         assert!(luma(hybrid.chrome) < 80.0 && luma(hybrid.panel) < 80.0);
         assert!(luma(hybrid.page) > 220.0 && luma(hybrid.paper) > 180.0);
         assert_eq!(hybrid.ink, Rgba::rgb(0, 0, 0));
@@ -1320,11 +788,40 @@ mod tests {
         let (t, errors) = Theme::from_config(&c);
         assert!(errors.is_empty(), "{errors:?}");
         // The file's preset and colors, then the config's own on top.
-        assert_eq!(t.paper, Theme::nord().paper);
+        assert_eq!(t.paper, preset("nord").paper);
         assert_eq!(t.accent, Rgba::rgb(255, 0, 0));
         assert_eq!(t.chrome, Rgba::rgb(10, 11, 12));
         let c: ThemeConfig = toml::from_str("file = \"/nonexistent/x.toml\"").unwrap();
         assert_eq!(Theme::from_config(&c).1.len(), 1);
+        std::fs::remove_dir_all(dir).ok();
+    }
+
+    #[test]
+    fn user_themes_inherit_from_any_theme() {
+        let dir = std::env::temp_dir().join(format!("cecilia-themes-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        std::fs::write(
+            dir.join("mine.toml"),
+            "preset = \"nord\"\nchrome = \"#010203\"\n",
+        )
+        .unwrap();
+        std::fs::write(dir.join("plain.toml"), "ink = \"#102030\"\n").unwrap();
+        std::fs::write(dir.join("a.toml"), "preset = \"b\"\n").unwrap();
+        std::fs::write(dir.join("b.toml"), "preset = \"a\"\n").unwrap();
+        let build = |name: &str| {
+            let layers = preset_layers(name, Some(&dir))?;
+            let mut t = Theme::default();
+            layers.iter().for_each(|l| t.apply(l, &mut Vec::new()));
+            Ok::<_, String>(t)
+        };
+        let mine = build("mine").unwrap();
+        assert_eq!(mine.chrome, Rgba::rgb(1, 2, 3));
+        assert_eq!(mine.paper, preset("nord").paper);
+        // Without a `preset`, a theme starts from dark.
+        let plain = build("plain").unwrap();
+        assert_eq!(plain.ink, Rgba::rgb(16, 32, 48));
+        assert_eq!(plain.chrome, Theme::dark().chrome);
+        assert!(build("a").is_err() && build("nope").is_err() && build("../x").is_err());
         std::fs::remove_dir_all(dir).ok();
     }
 }

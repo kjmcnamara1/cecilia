@@ -17,7 +17,8 @@ use vello::peniko::{Color, Fill, Mix};
 
 thread_local! {
     /// The theme of the frame being built (set by [`build`]).
-    static THEME: std::cell::RefCell<cecilia_app::theme::Theme> = Default::default();
+    static THEME: std::cell::RefCell<cecilia_app::theme::Theme> =
+        std::cell::RefCell::new(cecilia_app::theme::Theme::dark());
 }
 
 /// A color of the current theme.

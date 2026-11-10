@@ -7,7 +7,7 @@ use serde::Deserialize;
 use toml::{Table, Value};
 
 use crate::config::ConfigFile;
-use crate::theme::{COLOR_NAMES, PRESETS, Rgba};
+use crate::theme::{COLOR_NAMES, Rgba};
 
 /// What an option holds.
 #[derive(Debug, Clone, Copy, PartialEq)]
@@ -313,7 +313,11 @@ pub static OPTIONS: LazyLock<Vec<OptionSpec>> = LazyLock::new(|| {
             Str,
             "Where swap files go; empty: the XDG state directory.",
         ),
-        o("theme.preset", Choice(PRESETS), "The color preset."),
+        o(
+            "theme.preset",
+            Str,
+            "The color theme: a built-in one or a file in the themes folder of the config folder.",
+        ),
         o(
             "theme.file",
             Str,
