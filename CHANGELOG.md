@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed
+
+- A plain click in Visual mode moves the cursor and returns to Normal mode, instead of moving the selection's end.
+
 ## [0.36.0] - 2026-11-10
 
 ### Added
