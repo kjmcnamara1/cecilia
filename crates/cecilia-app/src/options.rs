@@ -614,7 +614,7 @@ pub fn set(file: &mut ConfigFile, name: &str, raw: Option<&str>) -> Result<Strin
 /// values reset to the default. One warning per fix.
 pub fn validate(file: &mut ConfigFile) -> Vec<String> {
     let (Ok(mut table), Ok(defaults)) = (to_table(file), to_table(&ConfigFile::default())) else {
-        return Vec::new();
+        return vec!["options: could not check the settings (left unchanged)".into()];
     };
     let mut warnings = Vec::new();
     for s in OPTIONS.iter() {
@@ -682,7 +682,9 @@ pub fn validate(file: &mut ConfigFile) -> Vec<String> {
             store(&mut table, s.name, Some(v));
         }
     }
-    let _ = rebuild(file, table);
+    if let Err(e) = rebuild(file, table) {
+        warnings.push(format!("options: could not apply the fixes: {e}"));
+    }
     warnings
 }
 

@@ -1195,17 +1195,6 @@ impl Config {
             "keymap.command",
             &mut errors,
         );
-        if file.ui.global_waveform.is_some() {
-            errors.push(
-                "ui.global_waveform: no longer used; list \"waveform\" in ui.global_tools and open it with :waveform".into(),
-            );
-        }
-        if !file.keymap.play.is_empty() {
-            errors.push(
-                "keymap.play: there is no Play mode any more; bind these in [keymap.normal]".into(),
-            );
-        }
-        // After the deprecated-setting checks: validation rebuilds the file from the registry.
         errors.extend(crate::options::validate(&mut file));
         keymaps.insert(Mode::Normal, normal);
         keymaps.insert(Mode::Command, command);
@@ -1240,6 +1229,18 @@ impl Config {
         overrides: &[(String, String)],
     ) -> Result<(Self, Vec<String>), String> {
         let mut file: ConfigFile = toml::from_str(text).map_err(|e| e.to_string())?;
+        // Checked on the parsed file: applying options rebuilds it and drops these fields.
+        let mut deprecated = Vec::new();
+        if file.ui.global_waveform.is_some() {
+            deprecated.push(
+                "ui.global_waveform: no longer used; list \"waveform\" in ui.global_tools and open it with :waveform".into(),
+            );
+        }
+        if !file.keymap.play.is_empty() {
+            deprecated.push(
+                "keymap.play: there is no Play mode any more; bind these in [keymap.normal]".into(),
+            );
+        }
         let mut resolved = BTreeMap::new();
         for (name, value) in overrides {
             let v = crate::options::set(&mut file, name, Some(value))?;
@@ -1247,7 +1248,8 @@ impl Config {
         }
         let (mut config, errors) = Self::from_file(file);
         config.overrides = resolved;
-        Ok((config, errors))
+        deprecated.extend(errors);
+        Ok((config, deprecated))
     }
 
     /// Loads the config file at `path` (defaults when it doesn't exist), then applies the
@@ -1533,5 +1535,18 @@ mod tests {
             .unwrap();
         assert!(e.contains("tabline.wrap"), "{e}");
         assert!(Config::parse("", &pairs(&[("nope.nothing", "1")])).is_err());
+    }
+
+    #[test]
+    fn deprecated_settings_warn_even_with_overrides() {
+        let (_, errors) = Config::parse(
+            "[ui]\nglobal_waveform = true\n",
+            &pairs(&[("tabline.wrap", "false")]),
+        )
+        .unwrap();
+        assert!(
+            errors.iter().any(|e| e.starts_with("ui.global_waveform")),
+            "{errors:?}"
+        );
     }
 }
