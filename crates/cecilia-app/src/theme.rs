@@ -188,6 +188,8 @@ pub struct Theme {
     pub cursor_border: Option<Rgba>,
     /// Colors given to tracks in order (a track can have its own with `:track-color`).
     pub track_colors: Vec<Rgba>,
+    /// Colors of the voices in order: the selected voice in the editing palette's voice buttons.
+    pub voice_colors: Vec<Rgba>,
 }
 
 impl Theme {
@@ -339,6 +341,7 @@ impl Theme {
             icon_cecilia: Rgba::rgb(60, 190, 190),
             score_modern: Rgba::rgb(214, 140, 80),
             cursor_border: None,
+            voice_colors: default_voice_colors(),
             track_colors: spectrum(accent, 8, 0.62),
         }
     }
@@ -389,6 +392,7 @@ impl Theme {
             mode_tracks: Rgba::rgb(210, 100, 60),
             score_modern: Rgba::rgb(190, 105, 45),
             cursor_border: None,
+            voice_colors: default_voice_colors(),
             track_colors: spectrum(accent, 8, 0.48),
             ..Self::dark()
         }
@@ -441,6 +445,7 @@ impl Theme {
             page: hex("#fbf7ea"),
             ink: hex("#000000"),
             cursor_border: None,
+            voice_colors: default_voice_colors(),
             ..Self::cecilia_dark()
         }
     }
@@ -535,6 +540,7 @@ impl Theme {
             icon_cecilia: hex("#8fbcbb"),
             score_modern: hex("#ebcb8b"),
             cursor_border: None,
+            voice_colors: default_voice_colors(),
             track_colors: spectrum(accent, 8, 0.65),
         }
     }
@@ -592,6 +598,7 @@ impl Theme {
             icon_cecilia: hex("#8ec07c"),
             score_modern: hex("#fe8019"),
             cursor_border: None,
+            voice_colors: default_voice_colors(),
             track_colors: spectrum(accent, 8, 0.6),
         }
     }
@@ -649,6 +656,7 @@ impl Theme {
             icon_cecilia: hex("#2aa198"),
             score_modern: hex("#cb4b16"),
             cursor_border: None,
+            voice_colors: default_voice_colors(),
             track_colors: spectrum(accent, 8, 0.55),
         }
     }
@@ -732,6 +740,7 @@ impl Theme {
             icon_cecilia: h(c.teal),
             score_modern: h(c.peach),
             cursor_border: None,
+            voice_colors: vec![h(c.blue), h(c.peach), h(c.green), h(c.mauve)],
             track_colors: [
                 c.mauve, c.blue, c.green, c.peach, c.pink, c.teal, c.yellow, c.red,
             ]
@@ -845,6 +854,14 @@ impl Theme {
         }
     }
 
+    /// The color of voice `i` (0-based); voices past the palette cycle through it.
+    pub fn voice_color(&self, i: usize) -> Rgba {
+        match self.voice_colors.len() {
+            0 => self.accent,
+            n => self.voice_colors[i % n],
+        }
+    }
+
     /// The color of a file-type icon (`kind` from [`crate::file_kind`]).
     pub fn file_icon(&self, kind: &str) -> Rgba {
         match kind {
@@ -902,6 +919,7 @@ impl Theme {
         let accent_before = t.accent;
         let layers = from_file.iter().chain([c]);
         let mut track_colors = None;
+        let mut voice_colors = None;
         for layer in layers {
             for (name, value) in &layer.colors {
                 if name == "cursor_border" {
@@ -927,6 +945,9 @@ impl Theme {
             if layer.track_colors.is_some() {
                 track_colors = layer.track_colors.clone();
             }
+            if layer.voice_colors.is_some() {
+                voice_colors = layer.voice_colors.clone();
+            }
         }
         match track_colors {
             Some(list) => {
@@ -950,6 +971,21 @@ impl Theme {
                 t.track_colors = spectrum(t.accent, 8, l);
             }
             None => {}
+        }
+        if let Some(list) = voice_colors {
+            let colors: Vec<Rgba> = list
+                .iter()
+                .filter_map(|v| {
+                    let c = Rgba::parse(v);
+                    if c.is_none() {
+                        errors.push(format!("theme.voice_colors: '{v}' is not a color"));
+                    }
+                    c
+                })
+                .collect();
+            if !colors.is_empty() {
+                t.voice_colors = colors;
+            }
         }
         (t, errors)
     }
@@ -1097,6 +1133,17 @@ const MOCHA: Catppuccin = Catppuccin {
     crust: "#11111b",
 };
 
+/// The default colors of voices 1 to 4: blue, orange, green, purple. They read on the dark and
+/// the light interface presets alike.
+pub fn default_voice_colors() -> Vec<Rgba> {
+    vec![
+        Rgba::rgb(70, 140, 230),
+        Rgba::rgb(235, 140, 50),
+        Rgba::rgb(60, 170, 100),
+        Rgba::rgb(170, 100, 210),
+    ]
+}
+
 /// `n` colors around the color wheel starting at `from`'s hue, at lightness `l`.
 pub fn spectrum(from: Rgba, n: usize, l: f32) -> Vec<Rgba> {
     let (h, s, _) = from.to_hsl();
@@ -1115,6 +1162,8 @@ pub struct ThemeConfig {
     /// A theme file with the same keys, applied under the ones here.
     pub file: Option<std::path::PathBuf>,
     pub track_colors: Option<Vec<String>>,
+    /// The colors of voices 1, 2, … (the voice buttons of the editing palette).
+    pub voice_colors: Option<Vec<String>>,
     #[serde(flatten)]
     pub colors: std::collections::BTreeMap<String, String>,
 }
@@ -1144,6 +1193,12 @@ mod tests {
         let c: ThemeConfig = toml::from_str("track_colors = [\"#ff0000\", \"#00ff00\"]").unwrap();
         let (t, _) = Theme::from_config(&c);
         assert_eq!(t.track_color(3), Rgba::rgb(0, 255, 0));
+        // Voices cycle through their palette, which can be replaced.
+        assert_eq!(t.voice_color(4), t.voice_color(0));
+        assert_ne!(t.voice_color(0), t.voice_color(1));
+        let c: ThemeConfig = toml::from_str("voice_colors = [\"#ff0000\", \"#00ff00\"]").unwrap();
+        let (t, _) = Theme::from_config(&c);
+        assert_eq!(t.voice_color(1), Rgba::rgb(0, 255, 0));
         // Unknown names are reported.
         let c: ThemeConfig = toml::from_str("chrom = \"#000000\"").unwrap();
         assert_eq!(Theme::from_config(&c).1.len(), 1);

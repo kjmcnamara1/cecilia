@@ -435,6 +435,18 @@ impl PaletteRow {
         self.command.starts_with("voice ")
     }
 
+    /// The 0-based voice a voice button switches to.
+    pub fn voice_index(&self) -> Option<usize> {
+        let n: usize = self.command.strip_prefix("voice ")?.parse().ok()?;
+        n.checked_sub(1)
+    }
+
+    /// The color that marks the button in force: the theme's color of the voice for a voice
+    /// button, else `None` (the frontends use the accent).
+    pub fn active_color(&self, theme: &crate::theme::Theme) -> Option<crate::theme::Rgba> {
+        self.voice_index().map(|v| theme.voice_color(v))
+    }
+
     /// The name as the tooltip and the label show it: with its insert-mode keys and, if it
     /// can't be applied now, "(unavailable)", e.g. "Palm mute (m) (unavailable)".
     pub fn name(&self) -> String {
@@ -1490,6 +1502,16 @@ mod tests {
             .collect();
         assert_eq!(active.len(), 1);
         assert_eq!(active[0].command, "voice 2");
+        // The marker takes the voice's color from the theme; other buttons have none.
+        let theme = &app.config.theme;
+        assert_eq!(active[0].voice_index(), Some(1));
+        assert_eq!(active[0].active_color(theme), Some(theme.voice_color(1)));
+        assert_ne!(theme.voice_color(0), theme.voice_color(1));
+        assert!(
+            rows.iter()
+                .filter(|r| !r.is_voice())
+                .all(|r| r.active_color(theme).is_none())
+        );
     }
 
     #[test]

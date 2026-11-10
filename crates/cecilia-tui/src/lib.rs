@@ -1968,14 +1968,15 @@ fn draw_edit_palette(f: &mut Frame, app: &App, area: Rect, ui: &mut Ui) {
                             .fg(rc(t.chrome_text))
                             .bg(rc(t.button_hover))
                     } else if row.active {
-                        on(app, t.mode_normal)
+                        on(app, row.active_color(&t).unwrap_or(t.mode_normal))
                     } else {
                         base
                     };
                     let style = if row.unavailable.is_some() {
                         style.fg(rc(t.dim)).add_modifier(Modifier::DIM)
                     } else if i == sel && focused && row.active {
-                        style.fg(rc(t.mode_normal)).add_modifier(Modifier::BOLD)
+                        let mark = row.active_color(&t).unwrap_or(t.mode_normal);
+                        style.fg(rc(mark)).add_modifier(Modifier::BOLD)
                     } else {
                         style
                     };

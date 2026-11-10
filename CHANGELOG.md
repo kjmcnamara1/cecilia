@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- The voice being edited is marked in the editing palette's voice buttons in its own color (blue, orange, green, purple for voices 1-4), in the GUI and the terminal UI; `theme.voice_colors` sets them.
+
 ## [0.34.0] - 2026-11-09
 
 ### Changed

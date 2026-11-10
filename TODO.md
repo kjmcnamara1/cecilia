@@ -61,7 +61,6 @@ Planned work. Finished items move to `CHANGELOG.md` under `[Unreleased]`.
 
 - [x] TODO: Deep dive on waveform ux and audio track syncing (auto, manual, & tapping)
 - [ ] Add ability to create multitracks that are a combination of other tracks
-- [x] Voice selection indicator in tool palette should be color coded by selected voice #
 - [ ] Toolbar
   - Window close button?
   - Reorder/regroup icons
