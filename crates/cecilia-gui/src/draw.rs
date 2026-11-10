@@ -24,6 +24,25 @@ thread_local! {
 thread_local! {
     /// The popup look of the frame being built (set by [`build`]).
     static POPUPS: std::cell::RefCell<cecilia_app::config::PopupsConfig> = Default::default();
+    /// The blurred frame behind popups and its scale (logical units per image pixel), when
+    /// [`Views::set_backdrop`] gave one for the frame being built.
+    static BACKDROP: std::cell::RefCell<Option<(vello::peniko::Image, f64)>> = const { std::cell::RefCell::new(None) };
+}
+
+/// Fills `shape` with the blurred page behind it (nothing without a backdrop): the layer under a
+/// popup's translucent surface.
+fn backdrop(scene: &mut Scene, shape: &impl vello::kurbo::Shape) {
+    BACKDROP.with(|b| {
+        if let Some((image, k)) = &*b.borrow() {
+            scene.fill(
+                Fill::NonZero,
+                Affine::IDENTITY,
+                image,
+                Some(Affine::scale(*k)),
+                shape,
+            );
+        }
+    });
 }
 
 /// A popup option: opacity, shadow opacity, shadow blur, shadow offset.
@@ -151,6 +170,8 @@ const SCROLLBAR: f64 = 10.0;
 /// Per-pane view state kept between frames.
 #[derive(Default)]
 pub struct Views {
+    /// The blurred page behind popups (see [`Views::set_backdrop`]).
+    backdrop: Option<(vello::peniko::Image, f64)>,
     cache: HashMap<PaneId, Cached>,
     scroll: HashMap<PaneId, (f64, f64)>,
     geometry: Vec<Geometry>,
@@ -1038,8 +1059,10 @@ fn fill(scene: &mut Scene, r: Rect, c: Color) {
     scene.fill(Fill::NonZero, Affine::IDENTITY, c, None, &r);
 }
 
+#[allow(clippy::too_many_arguments)]
 pub fn build(
     scene: &mut Scene,
+    popups: &mut Scene,
     app: &mut App,
     views: &mut Views,
     mut playback: Option<&mut Playback>,
@@ -1049,6 +1072,7 @@ pub fn build(
 ) {
     THEME.with(|t| *t.borrow_mut() = app.config.theme.clone());
     POPUPS.with(|p| *p.borrow_mut() = app.config.file.popups.clone());
+    BACKDROP.with(|b| *b.borrow_mut() = views.backdrop.clone());
     // Panes fill the window between the tab bar and the status line; tool panes are among
     // them.
     let bottom = height - STATUS;
@@ -1222,19 +1246,19 @@ pub fn build(
         app.take_scroll_request(id);
     }
     draw_status(scene, app, views, play, width, height);
-    draw_notifications(scene, app, views, main);
+    draw_notifications(popups, app, views, main);
     // Keys that can follow the ones typed, or the marks while ' ` m wait for one.
     if let Some((title, rows)) = app.which_key() {
-        draw_which_key(scene, &title, &rows, main);
+        draw_which_key(popups, &title, &rows, main);
     }
     if app.show_help {
-        draw_help(scene, app, main);
+        draw_help(popups, app, main);
     }
     if let Some((r, tip)) = views.tooltip.take() {
-        draw_tooltip(scene, r, &tip, width);
+        draw_tooltip(popups, r, &tip, width);
     }
     if let Some(p) = app.palette() {
-        draw_palette(scene, &p, &app.config.file.ui, width, height);
+        draw_palette(popups, &p, &app.config.file.ui, width, height);
     }
     views.cache.retain(|id, _| app.panes.contains_key(id));
 }
@@ -1606,6 +1630,7 @@ fn draw_tooltip(scene: &mut Scene, r: Rect, tip: &str, width: f64) {
     let w = cecilia_engrave::fonts::fonts().text_width(FontKind::Text, tip, 12.5) + 16.0;
     let x = r.x0.min(width - w - 4.0).max(4.0);
     let tr = Rect::new(x, r.y1 + 6.0, x + w, r.y1 + 30.0);
+    backdrop(scene, &tr.to_rounded_rect(5.0));
     scene.fill(
         Fill::NonZero,
         Affine::IDENTITY,
@@ -3546,6 +3571,16 @@ fn popover_shadow(scene: &mut Scene, r: Rect, radius: f64) {
     );
 }
 
+/// `s` split into lines at most `max` wide, at spaces where it can (always at least one line).
+fn wrap_text(s: &str, max: f64, size: f64) -> Vec<String> {
+    let fonts = cecilia_engrave::fonts::fonts();
+    let chars: Vec<char> = s.chars().collect();
+    cecilia_app::properties::wrap_ranges(s, |l| fonts.text_width(FontKind::Text, l, size) <= max)
+        .into_iter()
+        .map(|(a, b)| chars[a..b].iter().collect())
+        .collect()
+}
+
 /// The command palette: a rounded box with the typed command `ui.picker_position` percent down
 /// the window and its list (at most `ui.picker_max_items`) below it, or above it (the first
 /// item nearest the input) when `p.up`; descriptions right-aligned for commands.
@@ -3559,7 +3594,18 @@ fn draw_palette(
     let fonts = cecilia_engrave::fonts::fonts();
     let w = (width - 40.0).clamp(200.0, 680.0);
     let x0 = (width - w) / 2.0;
-    let input_h = 38.0;
+    let line = if p.prompt == ":" {
+        format!(":{}", p.input)
+    } else {
+        format!("{} {}", p.prompt, p.input)
+    };
+    // The typed text wraps onto more rows (the last few when it is very long); the box grows
+    // by a row each time.
+    let mut wrapped = wrap_text(&line, w - 28.0 - 4.0, 16.0);
+    let skip = wrapped.len().saturating_sub(6);
+    wrapped.drain(..skip);
+    const INPUT_ROW: f64 = 22.0;
+    let input_h = 38.0 + (wrapped.len() - 1) as f64 * INPUT_ROW;
     let row_h = 26.0;
     // The input's top edge; the list takes the room above or below it.
     let yi = (height * f64::from(ui.picker_position.min(100)) / 100.0)
@@ -3584,25 +3630,24 @@ fn draw_palette(
     // Shadow, frame, input.
     popover_shadow(scene, Rect::new(x0, y0, x0 + w, y0 + h), 10.0);
     let frame = RoundedRect::new(x0, y0, x0 + w, y0 + h, 10.0);
+    backdrop(scene, &frame);
     scene.fill(Fill::NonZero, Affine::IDENTITY, glass(), None, &frame);
     scene.stroke(&Stroke::new(1.0), Affine::IDENTITY, accent(), None, &frame);
-    let line = if p.prompt == ":" {
-        format!(":{}", p.input)
-    } else {
-        format!("{} {}", p.prompt, p.input)
-    };
-    let ty = yi + 25.0;
-    text(
-        scene,
-        &line,
-        x0 + 14.0,
-        ty,
-        16.0,
-        Align::Left,
-        text_on(popover()),
-        false,
-    );
-    let cx = x0 + 14.0 + fonts.text_width(FontKind::Text, &line, 16.0) + 1.0;
+    for (k, row) in wrapped.iter().enumerate() {
+        text(
+            scene,
+            row,
+            x0 + 14.0,
+            yi + 25.0 + k as f64 * INPUT_ROW,
+            16.0,
+            Align::Left,
+            text_on(popover()),
+            false,
+        );
+    }
+    let ty = yi + 25.0 + (wrapped.len() - 1) as f64 * INPUT_ROW;
+    let last = wrapped.last().map_or("", String::as_str);
+    let cx = x0 + 14.0 + fonts.text_width(FontKind::Text, last, 16.0) + 1.0;
     fill(
         scene,
         Rect::new(cx, ty - 15.0, cx + 2.0, ty + 4.0),
@@ -5930,6 +5975,7 @@ fn draw_workspace_icon(scene: &mut Scene, x: f64, cy: f64, color: Color) {
 }
 
 fn panel(scene: &mut Scene, r: Rect, title: &str) {
+    backdrop(scene, &RoundedRect::from_rect(r, 8.0));
     scene.fill(
         Fill::NonZero,
         Affine::IDENTITY,
@@ -6053,6 +6099,7 @@ fn draw_notifications(scene: &mut Scene, app: &App, views: &mut Views, window: R
     for (i, p) in placed.iter().enumerate() {
         let Some(card) = cards.get(i) else {
             let r = Rect::new(p.x, p.y, p.x + p.w, p.y + p.h);
+            backdrop(scene, &r.to_rounded_rect(11.0));
             scene.fill(
                 Fill::NonZero,
                 Affine::IDENTITY,
@@ -6088,6 +6135,7 @@ fn draw_notifications(scene: &mut Scene, app: &App, views: &mut Views, window: R
                 r.x1 - 6.0 * k,
                 r.y1 + PEEK * k,
             );
+            backdrop(scene, &b.to_rounded_rect(8.0));
             scene.fill(
                 Fill::NonZero,
                 Affine::IDENTITY,
@@ -6104,6 +6152,7 @@ fn draw_notifications(scene: &mut Scene, app: &App, views: &mut Views, window: R
             );
         }
         popover_shadow(scene, r, 8.0);
+        backdrop(scene, &r.to_rounded_rect(8.0));
         scene.fill(
             Fill::NonZero,
             Affine::IDENTITY,
@@ -6363,6 +6412,12 @@ fn draw_help(scene: &mut Scene, app: &App, main: Rect) {
 }
 
 impl Views {
+    /// Gives the frames built next a blurred page behind their popups: `image` stands for the
+    /// blurred frame and is drawn `scale` logical units per image pixel.
+    pub fn set_backdrop(&mut self, backdrop: Option<(vello::peniko::Image, f64)>) {
+        self.backdrop = backdrop;
+    }
+
     /// Pane and page-space point under a window position.
     fn locate(&self, x: f64, y: f64) -> Option<(Geometry, f64, f64)> {
         let g = *self.geometry.iter().find(|g| g.content.contains((x, y)))?;
