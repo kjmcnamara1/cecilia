@@ -176,6 +176,9 @@ pub struct UiConfig {
     pub completion_ignore_case: bool,
     /// Command-line completion matches the typed letters in order anywhere in a candidate.
     pub completion_fuzzy: bool,
+    /// How far down the window (percent) the command palette's and pickers' input line sits;
+    /// their lists grow upward from it.
+    pub picker_position: u8,
     /// No longer used (`global_tools` lists the audio pane instead); kept so old configs
     /// still load, with a warning.
     #[serde(skip_serializing)]
@@ -287,6 +290,7 @@ impl Default for UiConfig {
             lyrics_select_cursor: true,
             completion_ignore_case: true,
             completion_fuzzy: true,
+            picker_position: 33,
             global_waveform: None,
             progress_bar: true,
             scrollbar: true,

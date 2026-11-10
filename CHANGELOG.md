@@ -7,6 +7,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- Command history picker: `<Up>` or `<A-k>` in the command palette opens it (filtered by what is typed); `:pick history` too. Enter puts the line back on the command line.
+- `ui.picker_position` (default 33) sets how far down the window the command palette and pickers sit.
+
+### Changed
+
+- The command palette and pickers list their entries upward from the input line, best match nearest it, so `<Up>`/`<A-k>`/`<Tab>` go further up and `<Down>`/`<A-j>` back. They now sit a third of the way down the window instead of at the top.
+
 ## [0.36.0] - 2026-11-10
 
 ### Added

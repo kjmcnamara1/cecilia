@@ -33,6 +33,8 @@ pub enum PickerKind {
     Staff(usize, usize),
     /// The clefs of a track's staff (its index) in its notation.
     Clef(usize, usize),
+    /// Command lines run before, newest first (opened by `<Up>` in the command palette).
+    History,
 }
 
 impl PickerKind {
@@ -46,6 +48,7 @@ impl PickerKind {
             "macro" | "macros" => PickerKind::Macro,
             "keymap" | "keymaps" | "keys" => PickerKind::Keymap,
             "section" | "sections" => PickerKind::Section,
+            "history" => PickerKind::History,
             _ => return None,
         })
     }
@@ -66,6 +69,7 @@ impl PickerKind {
             PickerKind::Tuning(_) => "Tunings",
             PickerKind::Staff(..) => "Notation",
             PickerKind::Clef(..) => "Clefs",
+            PickerKind::History => "History",
         }
     }
 }
@@ -400,8 +404,36 @@ impl App {
         self.mode = Mode::Picker;
     }
 
+    /// Opens the history picker over the command line, filtered by what is typed so far.
+    pub(crate) fn open_history_picker(&mut self) {
+        self.picker = Some(Picker {
+            kind: PickerKind::History,
+            query: self.cmdline.clone(),
+            selected: 0,
+            back: Mode::Command,
+        });
+        self.mode = Mode::Picker;
+    }
+
     fn picker_entries(&self, kind: PickerKind) -> Vec<Entry> {
         match kind {
+            PickerKind::History => {
+                let mut seen = std::collections::HashSet::new();
+                self.history
+                    .iter()
+                    .rev()
+                    .filter(|line| seen.insert(line.as_str()))
+                    .map(|line| Entry {
+                        label: line.clone(),
+                        description: String::new(),
+                        action: Command::Nop,
+                        search_description: false,
+                        swatch: None,
+                        icon: None,
+                        current: false,
+                    })
+                    .collect()
+            }
             PickerKind::Buffer => self
                 .bufferline()
                 .into_iter()
@@ -1063,7 +1095,7 @@ impl App {
         };
         let n = self.picker_matches(&p).len();
         if let Some(q) = self.picker.as_mut() {
-            q.selected = (q.selected as isize + by).clamp(0, n.saturating_sub(1) as isize) as usize;
+            q.selected = (q.selected as isize - by).clamp(0, n.saturating_sub(1) as isize) as usize;
         }
     }
 
@@ -1090,6 +1122,12 @@ impl App {
                 let matches = self.picker_matches(&p);
                 self.close_picker();
                 match matches.into_iter().nth(p.selected) {
+                    // Back on the command line, with the line to edit or run.
+                    Some((entry, _)) if p.kind == PickerKind::History => {
+                        self.cmdline = entry.label;
+                        self.completion = None;
+                        self.history_pos = None;
+                    }
                     Some((entry, _)) if entry.action == Command::Nop => {
                         self.info(format!("{}: {}", entry.label, entry.description))
                     }
@@ -1101,12 +1139,13 @@ impl App {
                     )),
                 }
             }
-            KeyCode::Down | KeyCode::Tab => p.selected += 1,
-            KeyCode::Char('j') if key.alt => p.selected += 1,
-            KeyCode::Char('k') if key.alt => p.selected = p.selected.saturating_sub(1),
-            KeyCode::Char('n') if key.ctrl => p.selected += 1,
-            KeyCode::Up | KeyCode::BackTab => p.selected = p.selected.saturating_sub(1),
-            KeyCode::Char('p') if key.ctrl => p.selected = p.selected.saturating_sub(1),
+            // The list grows upward from the input: Up goes further from it.
+            KeyCode::Up | KeyCode::Tab => p.selected += 1,
+            KeyCode::Char('k') if key.alt => p.selected += 1,
+            KeyCode::Char('p') if key.ctrl => p.selected += 1,
+            KeyCode::Down | KeyCode::BackTab => p.selected = p.selected.saturating_sub(1),
+            KeyCode::Char('j') if key.alt => p.selected = p.selected.saturating_sub(1),
+            KeyCode::Char('n') if key.ctrl => p.selected = p.selected.saturating_sub(1),
             KeyCode::Char('u') if key.ctrl => {
                 p.query.clear();
                 p.selected = 0;
@@ -1169,9 +1208,9 @@ mod tests {
         assert_eq!(app.mode, Mode::Normal);
         assert_eq!(app.buffer().name, "Wonderwall.ccm");
         // Up/Down move; Esc cancels without switching.
-        keys(&mut app, "<Space>b<Down><Down><Esc>");
+        keys(&mut app, "<Space>b<Up><Up><Esc>");
         assert_eq!(app.buffer().name, "Wonderwall.ccm");
-        keys(&mut app, "<Space>b<Down><CR>");
+        keys(&mut app, "<Space>b<Up><CR>");
         assert_eq!(app.buffer().name, "Hurt.ccm");
         // Views.
         app.run(Command::ViewNew(None));
@@ -1184,6 +1223,41 @@ mod tests {
         keys(&mut app, "<Space>bzzz<CR>");
         assert!(app.message.as_ref().unwrap().error);
         std::fs::remove_dir_all(dir).ok();
+    }
+
+    #[test]
+    fn up_in_the_command_palette_opens_the_history_picker() {
+        let mut app = App::new(Config::default(), None);
+        app.run(Command::New);
+        // No history yet: Up just cycles the candidates.
+        keys(&mut app, ":<Up>");
+        assert_eq!(app.mode, Mode::Command);
+        keys(&mut app, "<Esc>");
+        for line in ["bar-next", "bar-prev", "bar-next"] {
+            keys(&mut app, &format!(":{line}<CR>"));
+        }
+        keys(&mut app, ":<Up>");
+        assert_eq!(app.mode, Mode::Picker);
+        let p = app.palette().unwrap();
+        assert_eq!(p.title, "History");
+        // Newest first, repeats once.
+        let lines: Vec<&str> = p.items.iter().map(|i| i.text.as_str()).collect();
+        assert_eq!(lines, ["bar-next", "bar-prev"]);
+        // Up goes further from the input, Down back.
+        keys(&mut app, "<Up>");
+        assert_eq!(app.palette().unwrap().selected, Some(1));
+        keys(&mut app, "<A-j>");
+        assert_eq!(app.palette().unwrap().selected, Some(0));
+        keys(&mut app, "<A-k><CR>");
+        assert_eq!(
+            (app.mode, app.cmdline.as_str()),
+            (Mode::Command, "bar-prev")
+        );
+        // Esc returns to the command line with what was typed; typed text filters the list.
+        keys(&mut app, "<C-u>prev<A-k>");
+        assert_eq!(app.palette().unwrap().items.len(), 1);
+        keys(&mut app, "<Esc>");
+        assert_eq!((app.mode, app.cmdline.as_str()), (Mode::Command, "prev"));
     }
 
     #[test]

@@ -1209,7 +1209,7 @@ pub fn build(
         draw_tooltip(scene, r, &tip, width);
     }
     if let Some(p) = app.palette() {
-        draw_palette(scene, &p, width, height);
+        draw_palette(scene, &p, app.config.file.ui.picker_position, width, height);
     }
     views.cache.retain(|id, _| app.panes.contains_key(id));
 }
@@ -3515,23 +3515,33 @@ fn popover_shadow(scene: &mut Scene, r: Rect, radius: f64) {
 /// Rows of candidates the palette shows at once.
 const PALETTE_ROWS: usize = 12;
 
-/// The command palette: a rounded box near the top centre with the typed command and, below
-/// it, the completions of the word being typed (descriptions right-aligned for commands).
-fn draw_palette(scene: &mut Scene, p: &cecilia_app::Palette, width: f64, height: f64) {
+/// The command palette: a rounded box with the typed command `position` percent down the window
+/// and, above it, the completions of the word being typed, the first nearest the input
+/// (descriptions right-aligned for commands).
+fn draw_palette(
+    scene: &mut Scene,
+    p: &cecilia_app::Palette,
+    position: u8,
+    width: f64,
+    height: f64,
+) {
     let fonts = cecilia_engrave::fonts::fonts();
     let w = (width - 40.0).clamp(200.0, 680.0);
     let x0 = (width - w) / 2.0;
-    let y0 = TAB_BAR + 36.0;
     let input_h = 38.0;
     let row_h = 26.0;
-    let room = ((height - y0 - input_h - 60.0) / row_h).max(0.0) as usize;
+    // The input's top edge; the list takes the room above it.
+    let yi = (height * f64::from(position.min(100)) / 100.0)
+        .clamp(TAB_BAR + 8.0, (height - input_h - 8.0).max(TAB_BAR + 8.0));
+    let room = ((yi - TAB_BAR - 18.0) / row_h).max(0.0) as usize;
     let rows = p.items.len().min(PALETTE_ROWS).min(room);
-    let h = input_h
-        + if rows > 0 {
-            rows as f64 * row_h + 10.0
-        } else {
-            0.0
-        };
+    let list_h = if rows > 0 {
+        rows as f64 * row_h + 10.0
+    } else {
+        0.0
+    };
+    let y0 = yi - list_h;
+    let h = list_h + input_h;
     // Shadow, frame, input.
     popover_shadow(scene, Rect::new(x0, y0, x0 + w, y0 + h), 10.0);
     let frame = RoundedRect::new(x0, y0, x0 + w, y0 + h, 10.0);
@@ -3542,7 +3552,7 @@ fn draw_palette(scene: &mut Scene, p: &cecilia_app::Palette, width: f64, height:
     } else {
         format!("{} {}", p.prompt, p.input)
     };
-    let ty = y0 + 25.0;
+    let ty = yi + 25.0;
     text(
         scene,
         &line,
@@ -3564,7 +3574,7 @@ fn draw_palette(scene: &mut Scene, p: &cecilia_app::Palette, width: f64, height:
     }
     fill(
         scene,
-        Rect::new(x0 + 8.0, y0 + input_h - 1.0, x0 + w - 8.0, y0 + input_h),
+        Rect::new(x0 + 8.0, yi - 1.0, x0 + w - 8.0, yi),
         dim(),
     );
     // Scroll so the selected candidate is visible.
@@ -3577,7 +3587,7 @@ fn draw_palette(scene: &mut Scene, p: &cecilia_app::Palette, width: f64, height:
         .iter()
         .any(|i| i.swatch.is_some() || i.icon.is_some());
     for (k, item) in p.items.iter().enumerate().skip(first).take(rows) {
-        let ry = y0 + input_h + 5.0 + (k - first) as f64 * row_h;
+        let ry = yi - 5.0 - ((k - first) as f64 + 1.0) * row_h;
         let selected = p.selected == Some(k);
         if selected {
             scene.fill(
@@ -3665,7 +3675,7 @@ fn draw_palette(scene: &mut Scene, p: &cecilia_app::Palette, width: f64, height:
             scene,
             &more,
             x0 + w - 12.0,
-            y0 + 24.0,
+            yi + 24.0,
             11.0,
             Align::Right,
             dim(),

@@ -562,14 +562,14 @@ pub struct App {
     pub(crate) wave_press: Option<(usize, f64, f64)>,
     /// The line was begun by a palette tool that asks for an argument: `.` repeats the tool.
     pub(crate) cmd_from_palette: bool,
-    history: Vec<String>,
-    history_pos: Option<usize>,
+    pub(crate) history: Vec<String>,
+    pub(crate) history_pos: Option<usize>,
     /// Bookmarks (`m{a-z}`, `m{A-Z}`).
     pub marks: crate::marks::Marks,
     /// The open picker (Picker mode).
     pub(crate) picker: Option<crate::picker::Picker>,
     /// Command-line completion in progress: candidates, where they start and which is shown.
-    completion: Option<(crate::complete::Completions, Option<usize>)>,
+    pub(crate) completion: Option<(crate::complete::Completions, Option<usize>)>,
     pub message: Option<Message>,
     pub(crate) swap: crate::swap::SwapState,
     pub show_help: bool,
@@ -2123,8 +2123,10 @@ impl App {
         match key.code {
             KeyCode::Tab => self.complete_step(true),
             KeyCode::BackTab => self.complete_step(false),
-            KeyCode::Char('j') if key.alt => self.complete_step(true),
-            KeyCode::Char('k') if key.alt => self.complete_step(false),
+            KeyCode::Up => self.command_up(),
+            KeyCode::Char('k') if key.alt => self.command_up(),
+            KeyCode::Down => self.command_down(),
+            KeyCode::Char('j') if key.alt => self.command_down(),
             KeyCode::Esc => self.leave_command_mode(),
             KeyCode::Char('c') if key.ctrl => self.leave_command_mode(),
             KeyCode::Char('u') if key.ctrl => self.cmdline.clear(),
@@ -2150,9 +2152,7 @@ impl App {
                     self.leave_command_mode();
                 }
             }
-            // Up/Down move through the palette's candidates; <C-p>/<C-n> recall history.
-            KeyCode::Down => self.complete_step(true),
-            KeyCode::Up => self.complete_step(false),
+            // <C-p>/<C-n> recall history in place.
             KeyCode::Char('p' | 'n') if key.ctrl && !self.history.is_empty() => {
                 let back = key.code == KeyCode::Char('p');
                 let last = self.history.len() - 1;
@@ -2167,6 +2167,23 @@ impl App {
             }
             KeyCode::Char(c) if !key.ctrl && !key.alt && !key.sup => self.cmdline.push(c),
             _ => {}
+        }
+    }
+
+    /// The palette's list grows upward: Up goes on through the candidates once cycling, and
+    /// otherwise opens the command history.
+    fn command_up(&mut self) {
+        if self.completion.is_none() && !self.history.is_empty() {
+            self.open_history_picker();
+        } else {
+            self.complete_step(true);
+        }
+    }
+
+    /// Down goes back toward the input while cycling through the candidates.
+    fn command_down(&mut self) {
+        if self.completion.is_some() {
+            self.complete_step(false);
         }
     }
 
@@ -3988,16 +4005,16 @@ pub(crate) mod tests {
     fn alt_j_k_step_through_pickers_and_completions() {
         let mut app = test_app();
         app.open_picker(crate::picker::PickerKind::Keymap);
-        keys(&mut app, "<A-j><A-j>");
+        keys(&mut app, "<A-k><A-k>");
         assert_eq!(app.picker.as_ref().unwrap().selected, 2);
-        keys(&mut app, "<A-k>");
+        keys(&mut app, "<A-j>");
         assert_eq!(app.picker.as_ref().unwrap().selected, 1);
         assert!(app.picker.as_ref().unwrap().query.is_empty());
-        keys(&mut app, "<Esc>:fo<A-j>");
+        keys(&mut app, "<Esc>:fo<A-k>");
         let first = app.cmdline.clone();
-        keys(&mut app, "<A-j>");
-        assert_ne!(app.cmdline, first);
         keys(&mut app, "<A-k>");
+        assert_ne!(app.cmdline, first);
+        keys(&mut app, "<A-j>");
         assert_eq!(app.cmdline, first);
         assert!(app.cmdline.starts_with("fo"));
     }
