@@ -854,7 +854,8 @@ impl Widget for TabView<'_> {
                         if selected {
                             buf.set_style(
                                 cell,
-                                Style::default().bg(rc(th.selection.mix(th.chrome, 0.5))),
+                                Style::default()
+                                    .bg(rc(th.selection.mix(th.chrome, th.selection_mix()))),
                             );
                         }
                         // Every voice's note on the string; the cursor's voice is drawn last, on top.
