@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.37.0] - 2026-11-10
+
 ### Added
 
 - `theme.selection_opacity` (0 to 100, percent) sets how opaque the Visual-mode selection is, for themes where it is hard to see.
