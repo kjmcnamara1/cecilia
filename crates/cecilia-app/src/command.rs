@@ -288,8 +288,8 @@ pub enum Command {
     Tuner(Option<bool>),
     /// Show or hide the toolbar (no argument: toggle).
     Toolbar(Option<bool>),
-    /// `:set NAME [VALUE]`: change an option for this session (no value: toggle booleans;
-    /// `default` resets).
+    /// `:set NAME [VALUE]`: change an option for this session (no value or `default`:
+    /// reset to the default).
     Set(String, Option<String>),
     /// `:get NAME`: show an option's value.
     Get(String),

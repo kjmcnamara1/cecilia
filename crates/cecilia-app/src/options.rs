@@ -168,8 +168,16 @@ pub static OPTIONS: LazyLock<Vec<OptionSpec>> = LazyLock::new(|| {
             Bool,
             "While playing with follow on, hide the edit cursor.",
         ),
-        o("ui.layout", Choice(LAYOUTS), "GUI score layout."),
-        o("ui.zoom", float(0.1, 10.0), "GUI zoom factor."),
+        o(
+            "ui.layout",
+            Choice(LAYOUTS),
+            "Default GUI score layout for new panes.",
+        ),
+        o(
+            "ui.zoom",
+            float(0.1, 10.0),
+            "Default GUI zoom factor at startup.",
+        ),
         o(
             "ui.chant_chords",
             Choice(&["top", "bottom", "error"]),

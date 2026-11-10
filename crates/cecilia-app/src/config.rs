@@ -1228,7 +1228,19 @@ impl Config {
         text: &str,
         overrides: &[(String, String)],
     ) -> Result<(Self, Vec<String>), String> {
-        let mut file: ConfigFile = toml::from_str(text).map_err(|e| e.to_string())?;
+        Self::parse_from(text, overrides, None)
+    }
+
+    /// [`Config::parse`], prefixing errors in the TOML text (not in `overrides`) with `origin`.
+    fn parse_from(
+        text: &str,
+        overrides: &[(String, String)],
+        origin: Option<&Path>,
+    ) -> Result<(Self, Vec<String>), String> {
+        let mut file: ConfigFile = toml::from_str(text).map_err(|e| match origin {
+            Some(p) => format!("{}: {e}", p.display()),
+            None => e.to_string(),
+        })?;
         // Checked on the parsed file: applying options rebuilds it and drops these fields.
         let mut deprecated = Vec::new();
         if file.ui.global_waveform.is_some() {
@@ -1259,15 +1271,12 @@ impl Config {
         overrides: &[(String, String)],
     ) -> Result<(Self, Vec<String>), String> {
         match std::fs::read_to_string(path) {
-            Ok(text) => {
-                Self::parse(&text, overrides).map_err(|e| format!("{}: {e}", path.display()))
-            }
+            Ok(text) => Self::parse_from(&text, overrides, Some(path)),
             Err(e) if e.kind() == std::io::ErrorKind::NotFound => Self::parse("", overrides),
             Err(e) => Err(format!("{}: {e}", path.display())),
         }
     }
 
-    /// The color of the focus ring in `mode`: `ui.focus_ring_color`, else the mode's color.
     /// The focus ring's color: `ui.focus_ring_color` when set, else `fallback` (the mode's color,
     /// see [`crate::App::focus_ring_color`]).
     pub fn focus_ring_color(&self, fallback: crate::theme::Rgba) -> crate::theme::Rgba {
@@ -1511,6 +1520,22 @@ mod tests {
             errors.iter().any(|e| e.starts_with("ui.tab_width:")),
             "{errors:?}"
         );
+    }
+
+    #[test]
+    fn override_errors_carry_no_path() {
+        let dir = std::env::temp_dir().join(format!("cecilia-ovr-err-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let path = dir.join("config.toml");
+        std::fs::write(&path, "").unwrap();
+        let e = Config::load(&path, &[("nope.nothing".into(), "1".into())])
+            .err()
+            .unwrap();
+        assert!(!e.contains("config.toml"), "{e}");
+        std::fs::write(&path, "[ui\n").unwrap();
+        let e = Config::load(&path, &[]).err().unwrap();
+        assert!(e.starts_with(&path.display().to_string()), "{e}");
+        std::fs::remove_dir_all(&dir).ok();
     }
 
     #[test]

@@ -1989,9 +1989,14 @@ impl App {
         let mut file = self.config.file.clone();
         match crate::options::set(&mut file, name, value) {
             Ok(v) => {
-                let mut overrides = std::mem::take(&mut self.config.overrides);
+                let mut overrides = self.config.overrides.clone();
                 overrides.insert(name.to_string(), v.clone());
-                let mut config = Config::from_file(file).0;
+                let old_errors = Config::from_file(self.config.file.clone()).1;
+                let (mut config, errors) = Config::from_file(file);
+                if let Some(e) = errors.iter().find(|e| !old_errors.contains(e)) {
+                    self.error(format!("{name}: {e}"));
+                    return;
+                }
                 config.overrides = overrides;
                 self.install_config(config);
                 self.info(format!("{name} = {v}"));
@@ -4618,6 +4623,20 @@ pub(crate) mod tests {
         assert!(text.contains("every"), "{text}");
         assert!(Command::parse("set").is_err());
         assert!(Command::parse("get").is_err());
+    }
+
+    #[test]
+    fn set_rejects_values_that_break_the_config() {
+        let mut app = App::new(Config::default(), None);
+        let leader = app.config.leader.clone();
+        app.run(Command::parse("set general.leader <Nope>").unwrap());
+        assert_eq!(app.config.leader, leader);
+        assert!(app.config.overrides.is_empty());
+        assert!(app.message.as_ref().is_some_and(|m| m.error));
+        app.message = None;
+        app.run(Command::parse("set toolbar.items +nonsense").unwrap());
+        assert!(app.config.overrides.is_empty());
+        assert!(app.message.as_ref().is_some_and(|m| m.error));
     }
 
     #[test]
