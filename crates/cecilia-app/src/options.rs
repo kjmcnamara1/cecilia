@@ -102,7 +102,12 @@ pub static OPTIONS: LazyLock<Vec<OptionSpec>> = LazyLock::new(|| {
         o(
             "ui.picker_position",
             int(0, 100),
-            "How far down the window (percent) the command palette and pickers sit; lists grow upward.",
+            "How far down the window (percent) the command palette and pickers sit.",
+        ),
+        o(
+            "ui.picker_max_items",
+            int(1, 50),
+            "The most candidates the command palette and pickers list at once.",
         ),
         o(
             "ui.progress_bar",

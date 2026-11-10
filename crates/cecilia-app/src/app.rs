@@ -122,6 +122,8 @@ pub struct Palette {
     pub input: String,
     pub items: Vec<PaletteItem>,
     pub selected: Option<usize>,
+    /// The list grows upward from the input (the first item nearest it) instead of down.
+    pub up: bool,
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -569,6 +571,8 @@ pub struct App {
     /// The open picker (Picker mode).
     pub(crate) picker: Option<crate::picker::Picker>,
     /// Command-line completion in progress: candidates, where they start and which is shown.
+    /// The command line as typed before Tab/Down filled in a candidate (what `<Up>` goes back to).
+    pub(crate) cmd_typed: String,
     pub(crate) completion: Option<(crate::complete::Completions, Option<usize>)>,
     pub message: Option<Message>,
     pub(crate) swap: crate::swap::SwapState,
@@ -711,6 +715,7 @@ impl App {
             wave_grab: None,
             wave_press: None,
             cmd_from_palette: false,
+            cmd_typed: String::new(),
             history: Vec::new(),
             history_pos: None,
             completion: None,
@@ -2170,21 +2175,23 @@ impl App {
         }
     }
 
-    /// The palette's list grows upward: Up goes on through the candidates once cycling, and
-    /// otherwise opens the command history.
+    /// Up goes back through the candidates Down went through; from the line as typed it opens
+    /// the command history.
     fn command_up(&mut self) {
-        if self.completion.is_none() && !self.history.is_empty() {
-            self.open_history_picker();
-        } else {
-            self.complete_step(true);
+        match self.completion.as_mut() {
+            Some((_, index @ Some(0))) => {
+                *index = None;
+                self.cmdline = self.cmd_typed.clone();
+            }
+            Some((_, Some(_))) => self.complete_step(false),
+            _ if !self.history.is_empty() => self.open_history_picker(),
+            _ => {}
         }
     }
 
-    /// Down goes back toward the input while cycling through the candidates.
+    /// Down cycles through the candidates for the word being typed.
     fn command_down(&mut self) {
-        if self.completion.is_some() {
-            self.complete_step(false);
-        }
+        self.complete_step(true);
     }
 
     /// Parses a command line and checks that its command is for the kind of score being edited
@@ -2222,7 +2229,7 @@ impl App {
         self.info("sync mode off");
     }
 
-    fn leave_command_mode(&mut self) {
+    pub(crate) fn leave_command_mode(&mut self) {
         self.mode = if self.syncing {
             Mode::Sync
         } else {
@@ -2260,6 +2267,7 @@ impl App {
             .and_then(Path::parent)
             .map(Path::to_path_buf);
         let kind = Some(self.buffer().score.is_chant());
+        self.cmd_typed = self.cmdline.clone();
         let c = complete_in(
             &self.cmdline,
             &cwd,
@@ -2365,6 +2373,7 @@ impl App {
             input: self.cmdline.clone(),
             items,
             selected,
+            up: false,
         })
     }
 
@@ -4010,11 +4019,11 @@ pub(crate) mod tests {
         keys(&mut app, "<A-j>");
         assert_eq!(app.picker.as_ref().unwrap().selected, 1);
         assert!(app.picker.as_ref().unwrap().query.is_empty());
-        keys(&mut app, "<Esc>:fo<A-k>");
+        keys(&mut app, "<Esc>:fo<A-j>");
         let first = app.cmdline.clone();
-        keys(&mut app, "<A-k>");
-        assert_ne!(app.cmdline, first);
         keys(&mut app, "<A-j>");
+        assert_ne!(app.cmdline, first);
+        keys(&mut app, "<A-k>");
         assert_eq!(app.cmdline, first);
         assert!(app.cmdline.starts_with("fo"));
     }

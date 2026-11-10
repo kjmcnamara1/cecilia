@@ -717,12 +717,14 @@ description on the right, then each command's arguments — file names for `:ope
 `:view-new` and `:audio` (folders first, only files cecilia can open or write) and the values of
 `:layout`, `:mix`, `:volume`, `:track-add`, `:tuning`, `:toggle`, `:duration`, `:clef`,
 `:interpretation`. `<Tab>` fills in a unique match (or the common part), and `<Tab>`/`<S-Tab>`
-move through the list, putting the selected match on the line; the list grows upward from the
-input, so `<Up>`/`<A-k>` go on up it and `<Down>`/`<A-j>` back, and before any cycling `<Up>`/`<A-k>`
-open the **history picker**: earlier command lines, newest first, filtered by what you typed
-(`<Enter>` puts one back on the line, `<Esc>` returns; also `:pick history`). The box sits
-`ui.picker_position` percent (default 33) down the window — the input line there, the list above it,
-so a small value leaves little room for the list. `<Enter>`
+or `<Down>`/`<Up>` (`<A-j>`/`<A-k>`) move through the list, putting the selected match on the line;
+`<Up>` back to the first candidate returns to the line as you typed it. `<Up>` from there opens the
+**command history**: earlier lines, newest first, listed above the input and filtered by what you
+typed; each one you step to is put on the command line, so type to edit it, `<Enter>` to run it,
+`<Down>` past the newest to return to the typed line (and complete again), `<Esc>` to close the
+command line as usual (`:pick history` also opens it). The box sits `ui.picker_position` percent
+(default 25) down the window and lists at most `ui.picker_max_items` (12) candidates; the history
+and the pickers below grow upward from the input, so a small position leaves little room for them. `<Enter>`
 runs the line, `<Esc>` closes the palette, `<C-p>`/`<C-n>` recall earlier commands.
 
 Matching is **fuzzy** by default: the typed letters may appear anywhere in a candidate, in order
