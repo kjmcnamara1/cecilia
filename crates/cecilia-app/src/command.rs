@@ -1065,7 +1065,7 @@ impl Command {
             "pick-workspace" => Pick(crate::picker::PickerKind::Workspace),
             "pick" => Pick(
                 arg.and_then(crate::picker::PickerKind::parse)
-                    .ok_or("pick: expected buffer, view or workspace")?,
+                    .ok_or("pick: expected buffer, view, workspace, recent, mark, macro, keymap, section or history")?,
             ),
             "gabc" => Gabc(arg.map(String::from)),
             "interpretation" => Interpretation(arg.map(String::from)),

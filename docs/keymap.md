@@ -200,8 +200,8 @@ that moves.
 **Pickers** open in the command palette's box and list the view's buffers (with their folder,
 ● when modified), the views (with their files) or the saved workspaces (with their view and file
 counts). Typing filters the list with the same matching as completion (fuzzy, case-insensitive
-by default) and highlights what matched; the top match is selected — `<Up>`/`<Down>` (or
-`<Tab>`/`<S-Tab>`, `<C-p>`/`<C-n>`) move, `<Enter>` switches, `<Esc>` cancels. The buffer and
+by default) and highlights what matched; the top match, nearest the input, is selected — the
+list grows upward, so `<Up>` (or `<Tab>`, `<A-k>`, `<C-p>`) goes further up and `<Down>` (`<S-Tab>`, `<A-j>`, `<C-n>`) back; `<Enter>` switches, `<Esc>` cancels. The buffer and
 view pickers also work while a song plays.
 
 | command                                                                                          |                                                                                                     |
@@ -209,7 +209,7 @@ view pickers also work while a song plays.
 | `:open {file}`                                                                                   | open a file in the focused pane, adding it to the view's tabs                                       |
 | `:open` (`:open-dialog`, `<C-o>`) | choose one or more files in the system file picker; they open as tabs and the first is shown |
 | `<leader>?` (`:keymaps`, `:pick-keymap`) | every key binding of every mode, found by keys, command or description; Enter runs a Normal-mode one |
-| `:pick-buffer` / `:pick-view` / `:pick-workspace` (`:pick buffer\|view\|workspace\|recent\|mark\|macro`) | open a picker                                                                                       |
+| `:pick-buffer` / `:pick-view` / `:pick-workspace` (`:pick buffer\|view\|workspace\|recent\|mark\|macro\|history`) | open a picker                                                                                       |
 | `:marks` / `:macros` (`:registers`)                                                              | pick a mark to jump to / a macro to run                                                             |
 | `:mark x` (`:k x`) / `:delmarks xyz` / `:delmarks!`                                              | set a mark / delete marks / delete this file's lowercase marks                                      |
 | `:goto-mark x` / `:run-macro r`                                                                  | jump to a mark / run a macro (for bindings)                                                         |
@@ -717,7 +717,14 @@ description on the right, then each command's arguments — file names for `:ope
 `:view-new` and `:audio` (folders first, only files cecilia can open or write) and the values of
 `:layout`, `:mix`, `:volume`, `:track-add`, `:tuning`, `:toggle`, `:duration`, `:clef`,
 `:interpretation`. `<Tab>` fills in a unique match (or the common part), and `<Tab>`/`<S-Tab>`
-or `<Down>`/`<Up>` move through the list, putting the selected match on the line. `<Enter>`
+or `<Down>`/`<Up>` (`<A-j>`/`<A-k>`) move through the list, putting the selected match on the line;
+`<Up>` back to the first candidate returns to the line as you typed it. `<Up>` from there opens the
+**command history**: earlier lines, newest first, listed above the input and filtered by what you
+typed; each one you step to is put on the command line, so type to edit it, `<Enter>` to run it,
+`<Down>` past the newest to return to the typed line (and complete again), `<Esc>` to close the
+command line as usual (`:pick history` also opens it). The box sits `ui.picker_position` percent
+(default 25) down the window and lists at most `ui.picker_max_items` (12) candidates; the history
+and the pickers below grow upward from the input, so a small position leaves little room for them. `<Enter>`
 runs the line, `<Esc>` closes the palette, `<C-p>`/`<C-n>` recall earlier commands.
 
 Matching is **fuzzy** by default: the typed letters may appear anywhere in a candidate, in order

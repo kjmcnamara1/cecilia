@@ -100,6 +100,16 @@ pub static OPTIONS: LazyLock<Vec<OptionSpec>> = LazyLock::new(|| {
             "Command-line completion matches the typed letters in order anywhere.",
         ),
         o(
+            "ui.picker_position",
+            int(0, 100),
+            "How far down the window (percent) the command palette and pickers sit.",
+        ),
+        o(
+            "ui.picker_max_items",
+            int(1, 50),
+            "The most candidates the command palette and pickers list at once.",
+        ),
+        o(
             "ui.progress_bar",
             Bool,
             "A progress bar along the bottom of every score pane.",

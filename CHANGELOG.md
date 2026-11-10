@@ -7,6 +7,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- Command history: `<Up>`/`<A-k>` on the command line (typed text filters it) lists earlier lines above the input, and each one you step to appears on the command line to edit or run; `<Down>` past the newest returns to the line as typed. `<Down>`/`<A-j>` complete as `<Tab>` does and `<Up>` steps back to the line as typed. `:pick history` too.
+- `ui.picker_position` (default 25) sets how far down the window the command palette and pickers sit; `ui.picker_max_items` (default 12) how many candidates they list.
+
+### Changed
+
+- Pickers list their entries upward from the input line, best match nearest it, so `<Up>`/`<A-k>`/`<Tab>` go further up and `<Down>`/`<A-j>` back. The command palette and pickers now sit a quarter of the way down the window instead of at the top.
+
 ## [0.37.1] - 2026-11-10
 
 ### Fixed
