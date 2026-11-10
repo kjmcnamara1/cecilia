@@ -122,6 +122,8 @@ pub struct Palette {
     pub input: String,
     pub items: Vec<PaletteItem>,
     pub selected: Option<usize>,
+    /// The list grows upward from the input (the first item nearest it) instead of down.
+    pub up: bool,
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -560,14 +562,16 @@ pub struct App {
     pub(crate) wave_press: Option<(usize, f64, f64)>,
     /// The line was begun by a palette tool that asks for an argument: `.` repeats the tool.
     pub(crate) cmd_from_palette: bool,
-    history: Vec<String>,
-    history_pos: Option<usize>,
+    pub(crate) history: Vec<String>,
+    pub(crate) history_pos: Option<usize>,
     /// Bookmarks (`m{a-z}`, `m{A-Z}`).
     pub marks: crate::marks::Marks,
     /// The open picker (Picker mode).
     pub(crate) picker: Option<crate::picker::Picker>,
     /// Command-line completion in progress: candidates, where they start and which is shown.
-    completion: Option<(crate::complete::Completions, Option<usize>)>,
+    /// The command line as typed before Tab/Down filled in a candidate (what `<Up>` goes back to).
+    pub(crate) cmd_typed: String,
+    pub(crate) completion: Option<(crate::complete::Completions, Option<usize>)>,
     pub notifications: crate::notify::Notifications,
     pub(crate) swap: crate::swap::SwapState,
     pub show_help: bool,
@@ -709,6 +713,7 @@ impl App {
             wave_grab: None,
             wave_press: None,
             cmd_from_palette: false,
+            cmd_typed: String::new(),
             history: Vec::new(),
             history_pos: None,
             completion: None,
@@ -2136,8 +2141,10 @@ impl App {
         match key.code {
             KeyCode::Tab => self.complete_step(true),
             KeyCode::BackTab => self.complete_step(false),
-            KeyCode::Char('j') if key.alt => self.complete_step(true),
-            KeyCode::Char('k') if key.alt => self.complete_step(false),
+            KeyCode::Up => self.command_up(),
+            KeyCode::Char('k') if key.alt => self.command_up(),
+            KeyCode::Down => self.command_down(),
+            KeyCode::Char('j') if key.alt => self.command_down(),
             KeyCode::Esc => self.leave_command_mode(),
             KeyCode::Char('c') if key.ctrl => self.leave_command_mode(),
             KeyCode::Char('u') if key.ctrl => self.cmdline.clear(),
@@ -2163,9 +2170,7 @@ impl App {
                     self.leave_command_mode();
                 }
             }
-            // Up/Down move through the palette's candidates; <C-p>/<C-n> recall history.
-            KeyCode::Down => self.complete_step(true),
-            KeyCode::Up => self.complete_step(false),
+            // <C-p>/<C-n> recall history in place.
             KeyCode::Char('p' | 'n') if key.ctrl && !self.history.is_empty() => {
                 let back = key.code == KeyCode::Char('p');
                 let last = self.history.len() - 1;
@@ -2181,6 +2186,25 @@ impl App {
             KeyCode::Char(c) if !key.ctrl && !key.alt && !key.sup => self.cmdline.push(c),
             _ => {}
         }
+    }
+
+    /// Up goes back through the candidates Down went through; from the line as typed it opens
+    /// the command history.
+    fn command_up(&mut self) {
+        match self.completion.as_mut() {
+            Some((_, index @ Some(0))) => {
+                *index = None;
+                self.cmdline = self.cmd_typed.clone();
+            }
+            Some((_, Some(_))) => self.complete_step(false),
+            _ if !self.history.is_empty() => self.open_history_picker(),
+            _ => {}
+        }
+    }
+
+    /// Down cycles through the candidates for the word being typed.
+    fn command_down(&mut self) {
+        self.complete_step(true);
     }
 
     /// Parses a command line and checks that its command is for the kind of score being edited
@@ -2218,7 +2242,7 @@ impl App {
         self.info("sync mode off");
     }
 
-    fn leave_command_mode(&mut self) {
+    pub(crate) fn leave_command_mode(&mut self) {
         self.mode = if self.syncing {
             Mode::Sync
         } else {
@@ -2256,6 +2280,7 @@ impl App {
             .and_then(Path::parent)
             .map(Path::to_path_buf);
         let kind = Some(self.buffer().score.is_chant());
+        self.cmd_typed = self.cmdline.clone();
         let c = complete_in(
             &self.cmdline,
             &cwd,
@@ -2363,6 +2388,7 @@ impl App {
             input: self.cmdline.clone(),
             items,
             selected,
+            up: false,
         })
     }
 
@@ -4014,9 +4040,9 @@ pub(crate) mod tests {
     fn alt_j_k_step_through_pickers_and_completions() {
         let mut app = test_app();
         app.open_picker(crate::picker::PickerKind::Keymap);
-        keys(&mut app, "<A-j><A-j>");
+        keys(&mut app, "<A-k><A-k>");
         assert_eq!(app.picker.as_ref().unwrap().selected, 2);
-        keys(&mut app, "<A-k>");
+        keys(&mut app, "<A-j>");
         assert_eq!(app.picker.as_ref().unwrap().selected, 1);
         assert!(app.picker.as_ref().unwrap().query.is_empty());
         keys(&mut app, "<Esc>:fo<A-j>");

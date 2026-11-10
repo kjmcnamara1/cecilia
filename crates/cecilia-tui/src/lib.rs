@@ -1101,17 +1101,35 @@ fn draw_dashboard(f: &mut Frame, app: &App, area: Rect, ui: &mut Ui) {
     }
 }
 
-/// The command palette: a rounded box near the top centre with the typed command and the
-/// completions of the word being typed below it (descriptions right-aligned for commands).
+/// The command palette: a rounded box with the typed command `ui.picker_position` percent down
+/// the screen and the completions of the word being typed above it, the first nearest the input
+/// (descriptions right-aligned for commands).
 fn draw_palette(f: &mut Frame, app: &App, p: &cecilia_app::Palette, screen: Rect) {
-    const ROWS: usize = 12;
     let w = screen.width.saturating_sub(4).clamp(20, 76);
-    let room = screen.height.saturating_sub(8) as usize;
-    let rows = p.items.len().min(ROWS).min(room);
+    // The input line's row; the list takes the rows above or below it.
+    let line = (u32::from(screen.height) * u32::from(app.config.file.ui.picker_position.min(100))
+        / 100) as u16;
+    let line = line.clamp(1, screen.height.saturating_sub(2).max(1));
+    let room = if p.up {
+        line.saturating_sub(2)
+    } else {
+        screen.height.saturating_sub(line + 3)
+    } as usize;
+    let rows = p
+        .items
+        .len()
+        .min(usize::from(app.config.file.ui.picker_max_items))
+        .min(room);
+    // Top border, the list and its separator, the input, bottom border.
     let h = 3 + rows as u16 + u16::from(rows > 0);
     let area = Rect {
         x: screen.x + (screen.width.saturating_sub(w)) / 2,
-        y: screen.y + 2,
+        y: screen.y
+            + if p.up {
+                (line + 2).saturating_sub(h)
+            } else {
+                line.saturating_sub(1)
+            },
         width: w,
         height: h.min(screen.height),
     };
@@ -1133,8 +1151,20 @@ fn draw_palette(f: &mut Frame, app: &App, p: &cecilia_app::Palette, screen: Rect
     } else {
         format!("{} {}", p.prompt, p.input)
     };
-    f.render_widget(Paragraph::new(input.clone()), Rect { height: 1, ..inner });
-    f.set_cursor_position((inner.x + input.chars().count() as u16, inner.y));
+    let input_y = if p.up {
+        inner.y + inner.height.saturating_sub(1)
+    } else {
+        inner.y
+    };
+    f.render_widget(
+        Paragraph::new(input.clone()),
+        Rect {
+            y: input_y,
+            height: 1,
+            ..inner
+        },
+    );
+    f.set_cursor_position((inner.x + input.chars().count() as u16, input_y));
     if rows == 0 {
         return;
     }
@@ -1142,7 +1172,7 @@ fn draw_palette(f: &mut Frame, app: &App, p: &cecilia_app::Palette, screen: Rect
     f.render_widget(
         Paragraph::new(sep).style(Style::default().fg(Color::DarkGray)),
         Rect {
-            y: inner.y + 1,
+            y: if p.up { input_y - 1 } else { input_y + 1 },
             height: 1,
             ..inner
         },
@@ -1157,7 +1187,11 @@ fn draw_palette(f: &mut Frame, app: &App, p: &cecilia_app::Palette, screen: Rect
         .any(|i| i.swatch.is_some() || i.icon.is_some() || i.notice.is_some());
     for (k, item) in p.items.iter().enumerate().skip(first).take(rows) {
         let row = Rect {
-            y: inner.y + 2 + (k - first) as u16,
+            y: if p.up {
+                input_y - 2 - (k - first) as u16
+            } else {
+                input_y + 2 + (k - first) as u16
+            },
             height: 1,
             ..inner
         };
@@ -3405,6 +3439,8 @@ mod render_tests {
     }
 
     fn render(app: &mut App, w: u16, h: u16) -> String {
+        // Notification cards would cover the score: these tests look at what is under them.
+        app.notifications.dismiss_all();
         let mut terminal = Terminal::new(TestBackend::new(w, h)).unwrap();
         let mut ui = Ui::default();
         terminal.draw(|f| draw(f, app, None, &mut ui)).unwrap();
