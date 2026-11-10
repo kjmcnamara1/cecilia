@@ -696,6 +696,21 @@ pub fn complete_in(
             }
             v
         }
+        "set" | "get" if offered(command) => {
+            let word_start = arg.rfind(' ').map_or(0, |i| i + 1);
+            let word = &arg[word_start..];
+            let items: Vec<String> = if word_start == 0 {
+                crate::options::OPTIONS
+                    .iter()
+                    .map(|o| o.name.to_string())
+                    .collect()
+            } else if command == "set" && !arg[..word_start].trim_end().contains(' ') {
+                option_values(arg[..word_start].trim_end())
+            } else {
+                Vec::new()
+            };
+            return completions(arg_start + word_start, m.rank(items, word), false);
+        }
         _ => {
             // Complete the last word of the arguments (e.g. `:volume mi`).
             let word_start = arg.rfind(' ').map_or(0, |i| i + 1);
@@ -715,6 +730,21 @@ pub fn complete_in(
         }
     };
     completions(arg_start, ranked, false)
+}
+
+/// The values `:set` takes for an option.
+fn option_values(name: &str) -> Vec<String> {
+    use crate::options::{ItemKind, Kind};
+    let Ok(spec) = crate::options::spec(name) else {
+        return Vec::new();
+    };
+    let words: Vec<&str> = match spec.kind {
+        Kind::Bool => vec!["true", "false", "toggle", "default"],
+        Kind::Choice(c) => c.iter().copied().chain(["default"]).collect(),
+        Kind::List(ItemKind::Choice(c)) => c.iter().copied().chain(["default"]).collect(),
+        _ => vec!["default"],
+    };
+    words.into_iter().map(String::from).collect()
 }
 
 /// Files and folders matching a typed path (relative to `base`); folders end with `/`. Only the
@@ -971,6 +1001,56 @@ mod tests {
         );
         assert_eq!(common_prefix(&["Song1".into(), "song2".into()], false), "");
         std::fs::remove_dir_all(dir).ok();
+    }
+
+    #[test]
+    fn set_completes_option_names() {
+        let cwd = Path::new(".");
+        let c = complete(":set tabl", cwd, None, PREFIX);
+        assert_eq!(c.start, 5);
+        assert!(!c.items.is_empty());
+        assert!(
+            c.items.iter().all(|i| i.starts_with("tabline.")),
+            "{:?}",
+            c.items
+        );
+        assert!(c.items.contains(&"tabline.wrap".to_string()));
+        // Ignoring case.
+        let c = complete(":set TABLINE.WR", cwd, None, NOCASE);
+        assert_eq!(c.items, ["tabline.wrap"]);
+    }
+
+    #[test]
+    fn set_completes_choices() {
+        let cwd = Path::new(".");
+        let c = complete(":set ui.bar_numbers ", cwd, None, PREFIX);
+        assert_eq!(c.items, ["system", "every", "default"]);
+        assert_eq!(c.start, 20);
+        assert_eq!(
+            complete(":set ui.bar_numbers sy", cwd, None, PREFIX).items,
+            ["system"]
+        );
+        assert_eq!(
+            complete(":set tabline.wrap ", cwd, None, PREFIX).items,
+            ["true", "false", "toggle", "default"]
+        );
+        assert_eq!(
+            complete(":set tabline.truncation.max_width ", cwd, None, PREFIX).items,
+            ["default"]
+        );
+        assert!(complete(":set nope.x ", cwd, None, PREFIX).items.is_empty());
+    }
+
+    #[test]
+    fn get_completes_names() {
+        let cwd = Path::new(".");
+        let c = complete(":get tabline.wr", cwd, None, PREFIX);
+        assert_eq!(c.items, ["tabline.wrap"]);
+        assert!(
+            complete(":get tabline.wrap ", cwd, None, PREFIX)
+                .items
+                .is_empty()
+        );
     }
 }
 
