@@ -39,8 +39,27 @@ struct Cli {
     /// Config file (default: $XDG_CONFIG_HOME/cecilia/config.toml).
     #[arg(long, global = true)]
     config: Option<PathBuf>,
+    /// Set an option for this run, overriding the config file (repeatable; e.g. -o
+    /// ui.tab_width=4 tabline.wrap=true). Use -- before file names that follow.
+    #[arg(
+        short = 'o',
+        long = "option",
+        value_name = "NAME=VALUE",
+        num_args = 1..,
+        global = true,
+        value_parser = parse_assignment
+    )]
+    options: Vec<(String, String)>,
     #[command(subcommand)]
     command: Option<Cmd>,
+}
+
+/// Split `NAME=VALUE` on the first `=`; the value may be empty.
+fn parse_assignment(s: &str) -> Result<(String, String), String> {
+    match s.split_once('=') {
+        Some((name, value)) if !name.is_empty() => Ok((name.to_string(), value.to_string())),
+        _ => Err("expected NAME=VALUE (file names go after --)".into()),
+    }
 }
 
 #[derive(Subcommand)]
@@ -83,8 +102,8 @@ fn main() -> Result<()> {
         .clone()
         .or_else(cecilia_app::config::default_config_path);
     let (config, warnings) = match &config_path {
-        Some(p) => Config::load(p, &[]).map_err(anyhow::Error::msg)?,
-        None => (Config::default(), vec![]),
+        Some(p) => Config::load(p, &cli.options).map_err(anyhow::Error::msg)?,
+        None => Config::parse("", &cli.options).map_err(anyhow::Error::msg)?,
     };
     match cli.command {
         Some(Cmd::Info { file, json }) => info(&file, json),
@@ -505,4 +524,53 @@ fn play(path: &Path, config: &Config, speed: Option<f64>) -> Result<()> {
     }
     eprintln!();
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn options_then_double_dash_then_files() {
+        let cli = Cli::try_parse_from([
+            "cecilia",
+            "-o",
+            "tabline.wrap=true",
+            "ui.tab_width=4",
+            "-W",
+            "foo",
+            "--",
+            "song.cc",
+            "tab.gp",
+        ])
+        .unwrap();
+        assert_eq!(
+            cli.options,
+            vec![
+                ("tabline.wrap".to_string(), "true".to_string()),
+                ("ui.tab_width".to_string(), "4".to_string())
+            ]
+        );
+        assert_eq!(cli.workspace.as_deref(), Some("foo"));
+        assert_eq!(
+            cli.files,
+            vec![PathBuf::from("song.cc"), PathBuf::from("tab.gp")]
+        );
+    }
+
+    #[test]
+    fn option_without_equals_is_an_error() {
+        let err = Cli::try_parse_from(["cecilia", "-o", "song.gp"])
+            .err()
+            .unwrap()
+            .to_string();
+        assert!(err.contains("NAME=VALUE") && err.contains("--"), "{err}");
+    }
+
+    #[test]
+    fn dash_file_after_double_dash() {
+        let cli = Cli::try_parse_from(["cecilia", "--", "-odd.gp"]).unwrap();
+        assert!(cli.options.is_empty());
+        assert_eq!(cli.files, vec![PathBuf::from("-odd.gp")]);
+    }
 }
