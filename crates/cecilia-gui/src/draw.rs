@@ -3571,20 +3571,14 @@ fn popover_shadow(scene: &mut Scene, r: Rect, radius: f64) {
     );
 }
 
-/// `s` split into lines at most `max` wide (by characters; always at least one line, and a
-/// character that fills a line exactly starts the next).
+/// `s` split into lines at most `max` wide, at spaces where it can (always at least one line).
 fn wrap_text(s: &str, max: f64, size: f64) -> Vec<String> {
     let fonts = cecilia_engrave::fonts::fonts();
-    let mut lines = vec![String::new()];
-    for c in s.chars() {
-        let cur = lines.last_mut().expect("never empty");
-        cur.push(c);
-        if cur.chars().count() > 1 && fonts.text_width(FontKind::Text, cur, size) > max {
-            cur.pop();
-            lines.push(c.to_string());
-        }
-    }
-    lines
+    let chars: Vec<char> = s.chars().collect();
+    cecilia_app::properties::wrap_ranges(s, |l| fonts.text_width(FontKind::Text, l, size) <= max)
+        .into_iter()
+        .map(|(a, b)| chars[a..b].iter().collect())
+        .collect()
 }
 
 /// The command palette: a rounded box with the typed command `ui.picker_position` percent down

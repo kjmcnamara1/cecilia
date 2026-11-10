@@ -1114,16 +1114,14 @@ fn draw_palette(f: &mut Frame, app: &App, p: &cecilia_app::Palette, screen: Rect
     };
     let chars: Vec<char> = input.chars().collect();
     let width = usize::from(w - 2);
-    // A cursor at the end of a full row wraps to a new one.
-    let all = (chars.len() / width + 1).max(1);
-    let n = all.min(usize::from(screen.height / 3).max(1));
-    let shown: Vec<String> = (all - n..all)
-        .map(|r| {
-            chars[(r * width).min(chars.len())..((r + 1) * width).min(chars.len())]
-                .iter()
-                .collect()
-        })
-        .collect();
+    let mut shown: Vec<String> =
+        cecilia_app::properties::wrap_ranges(&input, |l| l.chars().count() < width)
+            .into_iter()
+            .map(|(a, b)| chars[a..b].iter().collect())
+            .collect();
+    // Only the last few rows when it is very long.
+    let n = shown.len().min(usize::from(screen.height / 3).max(1));
+    shown.drain(..shown.len() - n);
     let n = n as u16;
     // The input line's row; the list takes the rows above or below it.
     let line = (u32::from(screen.height) * u32::from(app.config.file.ui.picker_position.min(100))
@@ -1179,7 +1177,10 @@ fn draw_palette(f: &mut Frame, app: &App, p: &cecilia_app::Palette, screen: Rect
             ..inner
         },
     );
-    let last = shown.last().map_or(0, |l| l.chars().count());
+    let last = shown
+        .last()
+        .map_or(0, |l| l.chars().count())
+        .min(usize::from(inner.width.saturating_sub(1)));
     f.set_cursor_position((inner.x + last as u16, input_y + n - 1));
     if rows == 0 {
         return;
@@ -3159,8 +3160,14 @@ mod render_tests {
         };
         let short = rows_of(&mut terminal, &palette("w"));
         terminal.clear().unwrap();
+        // Words wrap whole: 3 x 20 chars and spaces over a 38-wide box are two rows.
+        let words = ["a".repeat(20), "b".repeat(20), "c".repeat(20)].join(" ");
+        let long = rows_of(&mut terminal, &palette(&words));
+        assert_eq!(long, short + 2, "one word per row");
+        terminal.clear().unwrap();
+        // A word longer than the box breaks anywhere.
         let long = rows_of(&mut terminal, &palette(&"x".repeat(100)));
-        assert_eq!(long, short + 2, "100 chars take three 34-wide rows");
+        assert_eq!(long, short + 3, "100 chars take four rows");
     }
 
     #[test]
