@@ -243,10 +243,18 @@ pub struct UiConfig {
     /// Command-line completion matches the typed letters in order anywhere in a candidate.
     pub completion_fuzzy: bool,
     /// How far down the window (percent) the command palette's and pickers' input line sits;
-    /// the history and pickers' lists grow upward from it.
+    /// the pickers' lists grow down from it, the command history's up.
     pub picker_position: u8,
     /// The most candidates the command palette and pickers list at once.
     pub picker_max_items: u8,
+    /// Order command completion and the buffer, recent file and workspace pickers by how often
+    /// and how lately each was used (zoxide's way), not alphabetically or by position.
+    pub frecency: bool,
+    /// Command lines kept in the command history (0: no history).
+    pub command_history_size: usize,
+    /// How the command history shows when a line was run: "relative" (5m ago) or "absolute"
+    /// (the date and time).
+    pub command_history_time: String,
     /// No longer used (`global_tools` lists the audio pane instead); kept so old configs
     /// still load, with a warning.
     #[serde(skip_serializing)]
@@ -360,6 +368,9 @@ impl Default for UiConfig {
             completion_fuzzy: true,
             picker_position: 25,
             picker_max_items: 12,
+            frecency: true,
+            command_history_size: 500,
+            command_history_time: "relative".into(),
             global_waveform: None,
             progress_bar: true,
             scrollbar: true,

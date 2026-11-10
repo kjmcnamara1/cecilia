@@ -27,6 +27,18 @@ pub struct Buffer {
     pub disk: Option<(SystemTime, u64)>,
 }
 
+/// Scores command names for completion.
+type CommandOrder<'a> = Box<dyn Fn(&str) -> f64 + 'a>;
+
+impl Buffer {
+    /// What identifies the buffer in the usage ranking: its path, else its name.
+    pub(crate) fn key(&self) -> String {
+        self.path
+            .as_ref()
+            .map_or_else(|| self.name.clone(), |p| p.display().to_string())
+    }
+}
+
 /// What a score pane displays, reported by the frontend for half-page movement.
 #[derive(Debug, Clone, Default)]
 pub struct ViewInfo {
@@ -562,8 +574,13 @@ pub struct App {
     pub(crate) wave_press: Option<(usize, f64, f64)>,
     /// The line was begun by a palette tool that asks for an argument: `.` repeats the tool.
     pub(crate) cmd_from_palette: bool,
-    pub(crate) history: Vec<String>,
+    /// Command lines run, oldest first, with the Unix time each was run.
+    pub(crate) history: Vec<(String, u64)>,
     pub(crate) history_pos: Option<usize>,
+    /// Where the command history is kept between sessions (set by the frontends, never by tests).
+    history_file: Option<std::path::PathBuf>,
+    /// How often and lately commands, buffers, files and workspaces were used.
+    pub(crate) frecency: crate::frecency::Frecency,
     /// Bookmarks (`m{a-z}`, `m{A-Z}`).
     pub marks: crate::marks::Marks,
     /// The open picker (Picker mode).
@@ -716,6 +733,8 @@ impl App {
             cmd_typed: String::new(),
             history: Vec::new(),
             history_pos: None,
+            history_file: None,
+            frecency: Default::default(),
             completion: None,
             picker: None,
             marks: Default::default(),
@@ -2133,11 +2152,22 @@ impl App {
                     self.mode = Mode::Visual;
                 }
                 if !line.trim().is_empty() {
-                    self.history.push(line.clone());
+                    self.record_command(&line);
                 }
                 match self.parse_for_score(&line) {
-                    Ok(cmd) if from_palette => self.run_tool(cmd),
-                    Ok(cmd) => self.run(cmd),
+                    Ok(cmd) => {
+                        if let Some(name) = line.split_whitespace().next() {
+                            self.used(
+                                crate::frecency::Domain::Commands,
+                                name.trim_start_matches(':'),
+                            );
+                        }
+                        if from_palette {
+                            self.run_tool(cmd)
+                        } else {
+                            self.run(cmd)
+                        }
+                    }
                     Err(e) => self.error(e),
                 }
             }
@@ -2157,7 +2187,7 @@ impl App {
                     _ => None,
                 };
                 self.history_pos = pos;
-                self.cmdline = pos.map(|p| self.history[p].clone()).unwrap_or_default();
+                self.cmdline = pos.map(|p| self.history[p].0.clone()).unwrap_or_default();
             }
             KeyCode::Char(c) if !key.ctrl && !key.alt && !key.sup => self.cmdline.push(c),
             _ => {}
@@ -2218,6 +2248,114 @@ impl App {
         self.info("sync mode off");
     }
 
+    /// Keeps the command history in the state directory from now on, loading what is there (and
+    /// trimming the file to the configured size when it grew past twice that). The frontends
+    /// call this once.
+    pub fn keep_command_history(&mut self) {
+        let limit = self.config.file.ui.command_history_size;
+        let Some(path) = crate::notify::state_file("commands.jsonl").filter(|_| limit > 0) else {
+            return;
+        };
+        if let Some(dir) = path.parent() {
+            let _ = std::fs::create_dir_all(dir);
+        }
+        let mut entries: Vec<(String, u64)> = std::fs::read_to_string(&path)
+            .unwrap_or_default()
+            .lines()
+            .filter_map(|l| serde_json::from_str(l).ok())
+            .collect();
+        if entries.len() > limit * 2 {
+            entries.drain(..entries.len() - limit);
+            let text: String = entries
+                .iter()
+                .filter_map(|e| serde_json::to_string(e).ok())
+                .map(|l| l + "\n")
+                .collect();
+            let _ = std::fs::write(&path, text);
+        }
+        let extra = entries.len().saturating_sub(limit);
+        entries.drain(..extra);
+        entries.append(&mut self.history);
+        self.history = entries;
+        self.history_file = Some(path);
+    }
+
+    /// Keeps how often and lately things were used in the state directory from now on (the
+    /// frontends call this once).
+    pub fn keep_frecency(&mut self) {
+        if let Some(path) = crate::notify::state_file("frecency.json") {
+            if let Some(dir) = path.parent() {
+                let _ = std::fs::create_dir_all(dir);
+            }
+            self.frecency.keep(path);
+        }
+    }
+
+    /// Notes a use of a command, buffer, file or workspace.
+    pub(crate) fn used(&mut self, domain: crate::frecency::Domain, key: &str) {
+        self.frecency.bump(domain, key, crate::frecency::unix_now());
+    }
+
+    /// Notes that a buffer was shown or opened (and, for a file, that it was opened).
+    fn used_buffer(&mut self, buffer: usize, opened: bool) {
+        use crate::frecency::Domain;
+        let Some(b) = self.buffers.get(buffer) else {
+            return;
+        };
+        let key = b.key();
+        let file = b.path.is_some();
+        self.used(Domain::Buffers, &key);
+        if opened && file {
+            self.used(Domain::Recent, &key);
+        }
+    }
+
+    /// The candidates of a picker with the most used first (unchanged when `ui.frecency` is off).
+    pub(crate) fn by_frecency<T>(
+        &self,
+        domain: crate::frecency::Domain,
+        items: &mut [T],
+        key: impl Fn(&T) -> String,
+    ) {
+        if self.config.file.ui.frecency {
+            self.frecency.sort(domain, items, key);
+        }
+    }
+
+    /// Command completion's order of use, when `ui.frecency` is on.
+    fn command_order(&self) -> Option<CommandOrder<'_>> {
+        self.config.file.ui.frecency.then(|| {
+            let now = crate::frecency::unix_now();
+            Box::new(move |name: &str| {
+                self.frecency
+                    .score(crate::frecency::Domain::Commands, name, now)
+            }) as CommandOrder
+        })
+    }
+
+    /// Adds a run command line to the history, dropping the oldest beyond the configured size.
+    fn record_command(&mut self, line: &str) {
+        let limit = self.config.file.ui.command_history_size;
+        if limit == 0 {
+            return;
+        }
+        let now = crate::frecency::unix_now();
+        if let Some(path) = &self.history_file {
+            // Failing to write the history must never raise a notification.
+            if let Ok(entry) = serde_json::to_string(&(line, now)) {
+                use std::io::Write;
+                let _ = std::fs::OpenOptions::new()
+                    .create(true)
+                    .append(true)
+                    .open(path)
+                    .and_then(|mut f| writeln!(f, "{entry}"));
+            }
+        }
+        self.history.push((line.to_string(), now));
+        let extra = self.history.len().saturating_sub(limit);
+        self.history.drain(..extra);
+    }
+
     pub(crate) fn leave_command_mode(&mut self) {
         self.mode = if self.syncing {
             Mode::Sync
@@ -2257,13 +2395,17 @@ impl App {
             .map(Path::to_path_buf);
         let kind = Some(self.buffer().score.is_chant());
         self.cmd_typed = self.cmdline.clone();
-        let c = complete_in(
-            &self.cmdline,
-            &cwd,
-            score_dir.as_deref(),
-            self.matcher(),
-            kind,
-        );
+        let c = {
+            let order = self.command_order();
+            complete_in(
+                &self.cmdline,
+                &cwd,
+                score_dir.as_deref(),
+                self.matcher(),
+                kind,
+                order.as_deref(),
+            )
+        };
         let typed = self.cmdline[c.start..].to_string();
         // One candidate starting with what was typed completes outright, whatever fuzzy
         // matching also found.
@@ -2334,8 +2476,16 @@ impl App {
                 let cwd = std::env::current_dir().unwrap_or_default();
                 let score_dir = self.buffer().path.as_deref().and_then(Path::parent);
                 let kind = Some(self.buffer().score.is_chant());
+                let order = self.command_order();
                 (
-                    complete_in(&self.cmdline, &cwd, score_dir, self.matcher(), kind),
+                    complete_in(
+                        &self.cmdline,
+                        &cwd,
+                        score_dir,
+                        self.matcher(),
+                        kind,
+                        order.as_deref(),
+                    ),
                     None,
                 )
             }
@@ -2721,7 +2871,10 @@ impl App {
                 self.move_tab(from, to.clamp(0, tabs.len() as i64 - 1) as usize);
             }
             BufferGoto(n) => match n.checked_sub(1).and_then(|i| self.view().buffers.get(i)) {
-                Some(&b) => self.show_buffer(b),
+                Some(&b) => {
+                    self.show_buffer(b);
+                    self.used_buffer(b, false);
+                }
                 None => self.error(format!("no buffer tab {n}")),
             },
             BufferClose(n, force) => {
@@ -2753,6 +2906,7 @@ impl App {
             Edit(path) => match self.open(&path) {
                 Ok(b) => {
                     self.show_buffer(b);
+                    self.used_buffer(b, true);
                     self.swap_show_notices();
                 }
                 Err(e) => self.error(e),
@@ -4016,9 +4170,9 @@ pub(crate) mod tests {
     fn alt_j_k_step_through_pickers_and_completions() {
         let mut app = test_app();
         app.open_picker(crate::picker::PickerKind::Keymap);
-        keys(&mut app, "<A-k><A-k>");
+        keys(&mut app, "<A-j><A-j>");
         assert_eq!(app.picker.as_ref().unwrap().selected, 2);
-        keys(&mut app, "<A-j>");
+        keys(&mut app, "<A-k>");
         assert_eq!(app.picker.as_ref().unwrap().selected, 1);
         assert!(app.picker.as_ref().unwrap().query.is_empty());
         keys(&mut app, "<Esc>:fo<A-j>");
