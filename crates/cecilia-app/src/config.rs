@@ -89,6 +89,8 @@ impl Default for NotificationsConfig {
 pub struct PopupsConfig {
     /// How opaque their fill is, in percent: 0 (invisible) to 100.
     pub opacity: f64,
+    /// How far the page behind them is blurred (pixels; 0: not blurred).
+    pub blur: f64,
     /// How dark the shadow under them is, in percent: 0 (none) to 100.
     pub shadow_opacity: f64,
     /// How far the shadow is blurred (pixels).
@@ -100,7 +102,8 @@ pub struct PopupsConfig {
 impl Default for PopupsConfig {
     fn default() -> Self {
         Self {
-            opacity: 98.0,
+            opacity: 85.0,
+            blur: 20.0,
             shadow_opacity: 45.0,
             shadow_blur: 15.0,
             shadow_offset: 7.0,

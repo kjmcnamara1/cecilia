@@ -159,7 +159,8 @@ history_size = 500       # notifications kept for :notifications (0: no history)
 history_time = "relative" # the picker shows when each appeared as "5m ago" (relative) or as a date and time (absolute)
 
 [popups]
-opacity = 98             # GUI: how opaque (percent) pickers, the palette and notification cards are (0 to 100)
+opacity = 85             # GUI: how opaque (percent) pickers, the palette and notification cards are (0 to 100)
+blur = 20.0              # GUI: how far the page behind them is blurred (pixels; 0: not blurred)
 shadow_opacity = 45      # GUI: how dark (percent) the shadow under them is (0: none)
 shadow_blur = 15.0       # GUI: how far it is blurred (pixels)
 shadow_offset = 7.0      # GUI: how far it is pushed down (pixels)

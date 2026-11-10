@@ -389,6 +389,11 @@ pub static OPTIONS: LazyLock<Vec<OptionSpec>> = LazyLock::new(|| {
             "GUI: how opaque (percent) pickers, the palette and notification cards are (100: solid).",
         ),
         o(
+            "popups.blur",
+            float(0.0, 100.0),
+            "GUI: how far the page behind pickers, the palette and notification cards is blurred, in pixels (0: not blurred).",
+        ),
+        o(
             "popups.shadow_opacity",
             float(0.0, 100.0),
             "GUI: how dark (percent) the shadow under popups is (0: none).",
