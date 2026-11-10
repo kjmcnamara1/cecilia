@@ -870,12 +870,11 @@ impl Widget for TabView<'_> {
                             }) else {
                                 continue;
                             };
-                            let style =
-                                if n.ghost || n.tie || (v != cur_voice && bar_voices.len() > 1) {
-                                    dim
-                                } else {
-                                    Style::default().fg(rc(th.chrome_text))
-                                };
+                            let style = if n.ghost || n.tie || v != cur_voice {
+                                dim
+                            } else {
+                                Style::default().fg(rc(th.chrome_text))
+                            };
                             buf.set_string(
                                 bx_beat,
                                 y,

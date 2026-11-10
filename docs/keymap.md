@@ -72,7 +72,7 @@ the voice being edited (leaving it empty); a new voice is empty too (no rest, no
 until typed into. The staves draw voices 1 and 3 with stems up and 2 and 4 with stems down,
 their rests offset, beats at the same time on the same column and clashing tab frets side by side;
 the editing palette starts with a button per voice that switches to it and
-highlights the one being edited in that voice's color (`theme.voice_colors`); the terminal tab shows every voice on a shared time grid (the voices not being edited dimmed).
+highlights the one being edited in that voice's color (`theme.voice_colors`); the terminal tab shows every voice on a shared time grid (the voices not being edited dimmed, in every bar).
 Writing `.gp5` keeps two voices per bar (the status line warns when more with notes are left out);
 `.gp`, `.gpx`, `.cc` and MusicXML keep all four.
 
