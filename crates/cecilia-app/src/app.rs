@@ -1641,30 +1641,6 @@ impl App {
         }
         self.switch_pane_buffer(self.focused(), buffer);
         self.palette_follow_kind();
-        let b = &self.buffers[buffer];
-        let s = &b.score;
-        let msg = format!(
-            "\"{}\" {} — {} tracks, {} bars, tempo {}",
-            b.name,
-            if s.meta.title.is_empty() {
-                ""
-            } else {
-                &s.meta.title
-            },
-            s.tracks.len(),
-            s.master_bars.len(),
-            s.tempo
-        );
-        let hint = (s.audio.is_none())
-            .then(|| b.path.as_deref().and_then(crate::playalong::find_audio_for))
-            .flatten()
-            .map(|a| {
-                format!(
-                    " — matching audio {}, :audio to attach",
-                    a.file_name().unwrap_or_default().to_string_lossy()
-                )
-            });
-        self.info(msg + &hint.unwrap_or_default());
     }
 
     /// Points a pane at a buffer, restoring the cursor it last had there.
