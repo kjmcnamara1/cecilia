@@ -865,7 +865,7 @@ autosaving that file until you choose:
 | `:recover`               | restore the file from its swap file, left unsaved (`:recover!` if another cecilia owns it) |
 | `:recover swapfile`      | open a swap file as a new unnamed buffer (for scores that were never saved)      |
 | `:swap-discard`          | delete the file's swap file                                                      |
-| `:notifications`         | pick from the notification history (`:pick notification`); Enter shows that one again |
+| `:notifications`         | pick from the notification history (`:pick notification`); Enter opens that one in a read-only popup (move, `v`/`V` select, `y` copies, `<Esc>` or the "x" closes) |
 | `:notify-dismiss`        | dismiss the notification cards on screen                                         |
 | `:notify [-s SUBJECT] [-t SECONDS] [-u info\|error] [-i ICON] MESSAGE` | show a notification (only the message is needed; quote a subject with spaces; `-t 0` stays until dismissed; icons: info, error, success, command, workspace, file, option, audio) |
 

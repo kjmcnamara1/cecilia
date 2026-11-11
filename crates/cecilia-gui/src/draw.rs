@@ -221,6 +221,8 @@ pub struct Views {
     props_rect: Option<Rect>,
     /// The lyrics text area as drawn, to put the caret where a click lands.
     props_text: Option<PropsText>,
+    /// The text viewer popup as drawn: its area, close button, title bar and text.
+    viewer: Option<(Rect, Rect, Rect, PropsText)>,
     /// Clickable areas of the properties pane drawn last frame.
     props: Vec<(Rect, PropHit)>,
     /// The editing palette's rows drawn last frame, and its area for the wheel.
@@ -232,6 +234,8 @@ pub struct Views {
     progress: Vec<(Rect, PaneId)>,
     /// The last click: when and where, to tell a double click.
     last_click: Option<(std::time::Instant, f64, f64)>,
+    /// How many presses in a row that click made (2: double, 3: triple).
+    click_run: u8,
     /// The waveforms drawn last frame (`None`: the window bar, else a pane's strip).
     wave_rects: Vec<(Rect, Option<PaneId>)>,
     /// Scroll and zoom of each waveform.
@@ -296,6 +300,10 @@ enum Edge {
 enum Drag {
     /// A selection in the lyrics text area.
     Text,
+    /// A selection in the text viewer popup.
+    Viewer,
+    /// The popup being moved by its title bar: where the pointer was last.
+    ViewerMove(f64, f64),
     /// A staff row of the properties pane (where it began, and the row under the mouse now).
     Prop(usize, usize, bool),
     /// A row's volume slider (row, left, right).
@@ -1254,6 +1262,7 @@ pub fn build(
     if app.show_help {
         draw_help(popups, app, main);
     }
+    draw_viewer(popups, app, views, main);
     if let Some((r, tip)) = views.tooltip.take() {
         draw_tooltip(popups, r, &tip, width);
     }
@@ -6411,7 +6420,209 @@ fn draw_help(scene: &mut Scene, app: &App, main: Rect) {
     }
 }
 
+/// The text viewer: a popup in the middle of `main` with the text as a read-only text area (the
+/// caret a block in normal mode, the selection highlighted) and an "x" in the top right corner.
+fn draw_viewer(scene: &mut Scene, app: &App, views: &mut Views, main: Rect) {
+    views.viewer = None;
+    let Some(v) = app.viewer() else {
+        return;
+    };
+    const HEAD: f64 = 44.0;
+    const PAD: f64 = 18.0;
+    let th = &app.config.theme;
+    let ui = &app.config.file.ui;
+    let mono = crate::mono::font(&ui.lyrics_font, false);
+    let size = ui.lyrics_font_size.clamp(6.0, 48.0) * 96.0 / 72.0;
+    let line_h = size * 1.35;
+    let w = (main.width() - 80.0).clamp(200.0, 640.0).min(main.width());
+    let inner = w - 2.0 * PAD;
+    let chars: Vec<char> = v.edit.text.chars().collect();
+    let lines =
+        cecilia_app::properties::wrap_ranges(&v.edit.text, |l| mono.text_width(l, size) <= inner);
+    *v.lines.borrow_mut() = lines.clone();
+    let room = (main.height() - 2.0 * HEAD - PAD).max(line_h);
+    let shown = ((room / line_h).floor() as usize).min(lines.len()).max(1);
+    let h = HEAD + shown as f64 * line_h + PAD;
+    // Dragged from the middle, but never out of the window.
+    let (ox, oy) = v.offset.get();
+    let x0 = (main.x0 + (main.width() - w) / 2.0 + ox).clamp(main.x0, (main.x1 - w).max(main.x0));
+    let y0 = (main.y0 + (main.height() - h) / 2.0 + oy).clamp(main.y0, (main.y1 - h).max(main.y0));
+    v.offset.set((
+        x0 - (main.x0 + (main.width() - w) / 2.0),
+        y0 - (main.y0 + (main.height() - h) / 2.0),
+    ));
+    let area = Rect::new(x0, y0, x0 + w, y0 + h);
+    let frame = area.to_rounded_rect(10.0);
+    let color = if v.error { tc(|t| t.error) } else { accent() };
+    popover_shadow(scene, area, 10.0);
+    backdrop(scene, &frame);
+    scene.fill(Fill::NonZero, Affine::IDENTITY, glass(), None, &frame);
+    scene.stroke(&Stroke::new(1.0), Affine::IDENTITY, color, None, &frame);
+    // The heading, and the "x" that closes it.
+    draw_notice_icon(scene, v.icon, (x0 + PAD, y0 + 14.0), color);
+    text(
+        scene,
+        &v.subject,
+        x0 + PAD + 28.0,
+        y0 + 28.0,
+        15.0,
+        Align::Left,
+        text_on(popover()),
+        true,
+    );
+    // The "x" is dim; under the pointer it gets the red disc of a buffer tab's close button.
+    let c = (x0 + w - 24.0, y0 + HEAD / 2.0 - 2.0);
+    let close = Rect::new(c.0 - 10.0, c.1 - 10.0, c.0 + 10.0, c.1 + 10.0);
+    let hover = close.contains(views.hover);
+    if hover {
+        scene.fill(
+            Fill::NonZero,
+            Affine::IDENTITY,
+            tc(|t| t.error.with_alpha(120)),
+            None,
+            &Circle::new(c, 8.0),
+        );
+    }
+    let mut cross = BezPath::new();
+    cross.move_to((c.0 - 3.5, c.1 - 3.5));
+    cross.line_to((c.0 + 3.5, c.1 + 3.5));
+    cross.move_to((c.0 + 3.5, c.1 - 3.5));
+    cross.line_to((c.0 - 3.5, c.1 + 3.5));
+    let ink = if hover { chrome_text() } else { dim() };
+    scene.stroke(&Stroke::new(1.6), Affine::IDENTITY, ink, None, &cross);
+    let title = Rect::new(x0, y0, close.x0, y0 + HEAD);
+    scene.fill(
+        Fill::NonZero,
+        Affine::IDENTITY,
+        dim(),
+        None,
+        &Rect::new(x0 + 10.0, y0 + HEAD - 4.0, x0 + w - 10.0, y0 + HEAD - 3.0),
+    );
+    // The text.
+    let tx = x0 + PAD;
+    let top = y0 + HEAD;
+    let skip = v.window(lines.len(), shown);
+    let cw = |a: usize, z: usize| -> f64 {
+        let t: String = chars[a..z].iter().collect();
+        mono.text_width(&t, size)
+    };
+    if let Some((a, z)) = v.edit.selection() {
+        for (n, &(s, e)) in lines.iter().enumerate().skip(skip).take(shown) {
+            let (lo, hi) = (a.max(s), z.min(e));
+            if lo < hi || (a < s && z > e && s == e) {
+                let sx = tx + cw(s, lo.max(s));
+                // An empty line inside the selection shows a sliver.
+                let sw = cw(lo.max(s), hi.max(lo)).max(if s == e { 6.0 } else { 0.0 });
+                let ly = top + line_h * (n - skip) as f64;
+                fill(
+                    scene,
+                    Rect::new(sx, ly + 2.0, sx + sw, ly + size + 4.0),
+                    col(th.mode_normal.with_alpha(110)),
+                );
+            }
+        }
+    }
+    for (n, &(s, e)) in lines.iter().enumerate().skip(skip).take(shown) {
+        if s < e {
+            let run: String = chars[s..e].iter().collect();
+            let ly = top + line_h * (n - skip) as f64 + size;
+            let path = mono.text_path(&run, tx, ly, size);
+            scene.fill(
+                Fill::NonZero,
+                Affine::IDENTITY,
+                text_on(popover()),
+                None,
+                &path,
+            );
+        }
+    }
+    let (row, ccol) = cecilia_app::properties::caret_in(&lines, v.edit.caret);
+    if !v.edit.insert && row >= skip && row < skip + shown {
+        let s = lines[row].0;
+        let cx = tx + cw(s, s + ccol);
+        let ly = top + line_h * (row - skip) as f64;
+        let ch = chars.get(s + ccol).filter(|c| **c != '\n');
+        let wide = ch.map_or(mono.advance(' ', size), |c| mono.advance(*c, size));
+        fill(
+            scene,
+            Rect::new(cx, ly + 2.0, cx + wide, ly + size + 4.0),
+            col(th.mode_normal.with_alpha(150)),
+        );
+    }
+    let text_area = Rect::new(x0, top, x0 + w, top + shown as f64 * line_h);
+    views.viewer = Some((
+        area,
+        close,
+        title,
+        PropsText {
+            area: text_area,
+            font: mono,
+            x: tx,
+            top,
+            line_h,
+            size,
+            skip,
+            lines,
+            chars,
+        },
+    ));
+}
+
 impl Views {
+    /// A press while the text viewer is open: the "x" closes it, the text takes the caret (a
+    /// double click selects a word, a drag selects). Nothing else gets the click.
+    fn viewer_click(&mut self, app: &mut App, x: f64, y: f64) {
+        let Some((area, close, title, text)) = &self.viewer else {
+            return;
+        };
+        if close.contains((x, y)) || !area.contains((x, y)) {
+            // The "x", or a click outside, closes it as <Esc> does.
+            app.close_viewer();
+        } else if title.contains((x, y)) {
+            self.drag = Some(Drag::ViewerMove(x, y));
+        } else {
+            let at = text.at(x, y);
+            match self.click_count(x, y) {
+                1 => {
+                    app.viewer_click(at);
+                    self.drag = Some(Drag::Viewer);
+                }
+                2 => app.viewer_double_click(at),
+                _ => app.viewer_triple_click(),
+            }
+        }
+    }
+
+    /// How many presses in a row this one makes at a point (1, 2 or 3; the next starts over).
+    fn click_count(&mut self, x: f64, y: f64) -> u8 {
+        let now = std::time::Instant::now();
+        let again = self.last_click.is_some_and(|(t, x0, y0)| {
+            now.duration_since(t) < std::time::Duration::from_millis(400)
+                && (x - x0).abs() < 4.0
+                && (y - y0).abs() < 4.0
+        });
+        self.click_run = if again { self.click_run % 3 + 1 } else { 1 };
+        self.last_click = Some((now, x, y));
+        self.click_run
+    }
+
+    /// The pointer moves over the viewer's text with the button down: the selection grows
+    /// (past its top or bottom, by a line, which scrolls it).
+    fn viewer_drag(&self, app: &mut App, x: f64, y: f64) {
+        let Some((_, _, _, t)) = &self.viewer else {
+            return;
+        };
+        let shown = (t.area.height() / t.line_h).floor() as usize;
+        let at = if y < t.area.y0 {
+            t.lines.get(t.skip.saturating_sub(1)).map(|l| l.0)
+        } else if y > t.area.y1 {
+            t.lines.get(t.skip + shown).map(|l| l.1)
+        } else {
+            Some(t.at(x, y))
+        };
+        app.viewer_drag(at.unwrap_or_else(|| t.lines.last().map_or(0, |l| l.1)));
+    }
+
     /// Gives the frames built next a blurred page behind their popups: `image` stands for the
     /// blurred frame and is drawn `scale` logical units per image pixel.
     pub fn set_backdrop(&mut self, backdrop: Option<(vello::peniko::Image, f64)>) {
@@ -6452,6 +6663,9 @@ impl Views {
 
     /// Middle-click: closes the buffer tab under the mouse.
     pub fn middle_click(&mut self, app: &mut App, x: f64, y: f64) {
+        if app.viewer().is_some() {
+            return;
+        }
         let hit = self
             .tabline
             .iter()
@@ -6570,6 +6784,11 @@ impl Views {
     /// Mouse moved with the button down: drags a slider, a pane border or a panel's edge.
     pub fn drag_to(&mut self, app: &mut App, x: f64, y: f64) -> bool {
         match self.drag.clone() {
+            Some(Drag::Viewer) => self.viewer_drag(app, x, y),
+            Some(Drag::ViewerMove(px, py)) => {
+                app.viewer_move(x - px, y - py);
+                self.drag = Some(Drag::ViewerMove(x, y));
+            }
             Some(Drag::Text) => {
                 if let Some(pt) = &self.props_text {
                     // Past the top or bottom of the text scrolls it.
@@ -6746,6 +6965,8 @@ impl Views {
         match self.drag.take() {
             Some(Drag::Volume(..)) => app.group_edits(false),
             Some(Drag::Text) => app.text_release(),
+            Some(Drag::Viewer) => app.viewer_release(),
+            Some(Drag::ViewerMove(..)) => {}
             Some(Drag::Design(..)) => app.design_end(),
             Some(Drag::Select(..)) => app.mouse_release(),
             Some(Drag::WaveSync(key, ..)) => {
@@ -6808,6 +7029,15 @@ impl Views {
     /// pixels the view moves right and down; `zoom` for Ctrl, which zooms a waveform). False
     /// when nothing there takes it.
     pub fn wheel(&mut self, app: &App, x: f64, y: f64, dx: f64, dy: f64, zoom: bool) -> bool {
+        // The text viewer takes the wheel wherever it is.
+        if let Some(v) = app.viewer() {
+            v.scroll_by(if dy == 0.0 {
+                0
+            } else {
+                (dy / 30.0).round().max(1.0).copysign(dy) as isize
+            });
+            return true;
+        }
         if let Some(&(r, key)) = self.wave_rects.iter().find(|(r, _)| r.contains((x, y))) {
             let view = self.waves.entry(key).or_default();
             if zoom {
@@ -6863,6 +7093,9 @@ impl Views {
     }
 
     pub fn click(&mut self, app: &mut App, x: f64, y: f64) {
+        if app.viewer().is_some() {
+            return self.viewer_click(app, x, y);
+        }
         if let Some(&(_, id)) = self.notifications.iter().find(|(r, _)| r.contains((x, y))) {
             app.dismiss_notification(id);
             return;
@@ -6904,13 +7137,7 @@ impl Views {
             self.scrollbar_to(pane, horizontal, grab, x, y);
             return;
         }
-        let now = std::time::Instant::now();
-        let double = self.last_click.is_some_and(|(t, x0, y0)| {
-            now.duration_since(t) < std::time::Duration::from_millis(400)
-                && (x - x0).abs() < 4.0
-                && (y - y0).abs() < 4.0
-        });
-        self.last_click = Some((now, x, y));
+        let double = self.click_count(x, y) >= 2;
         // A click on a progress bar moves that pane's cursor to the bar there.
         if let Some(&(r, id)) = self.progress.iter().find(|(r, _)| r.contains((x, y))) {
             app.set_focus(id);

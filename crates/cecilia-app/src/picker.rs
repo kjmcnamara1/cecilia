@@ -615,7 +615,7 @@ impl App {
                             cut + &badge
                         },
                         description: crate::notify::format_time(n.ts, now, absolute),
-                        action: Command::NotifyReplay(n.key),
+                        action: Command::NotifyView(n.key),
                         search_description: false,
                         swatch: None,
                         icon: None,

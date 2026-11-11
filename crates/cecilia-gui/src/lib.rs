@@ -289,7 +289,8 @@ impl ApplicationHandler for Gui {
                     }
                 }
                 // Hover effects on the tabline (close buttons) need a redraw.
-                if was_over || self.views.over_tabline(self.mouse.1) {
+                if was_over || self.views.over_tabline(self.mouse.1) || self.app.viewer().is_some()
+                {
                     if let Some(gpu) = &self.gpu {
                         gpu.window.request_redraw();
                     }

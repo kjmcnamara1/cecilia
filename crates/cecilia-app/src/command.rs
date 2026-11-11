@@ -613,8 +613,8 @@ pub enum Command {
     NotifyDismiss,
     /// `:notify`: raises a notification.
     Notify(NotifyArgs),
-    /// Shows a notification of the history again (by its key).
-    NotifyReplay(u64),
+    /// Shows a notification of the history in a popup (by its key).
+    NotifyView(u64),
     Source,
     CommandMode,
     Normal,

@@ -592,6 +592,8 @@ pub struct App {
     pub notifications: crate::notify::Notifications,
     pub(crate) swap: crate::swap::SwapState,
     pub show_help: bool,
+    /// The text viewer popup, while open: it takes every key and click.
+    pub(crate) viewer: Option<crate::viewer::Viewer>,
     /// Set by the frontend to reflect the player state.
     pub playing: bool,
     /// Buffer being played, set when playback starts.
@@ -742,6 +744,7 @@ impl App {
             confirm_close: None,
             swap: Default::default(),
             show_help: false,
+            viewer: None,
             playing: false,
             playing_buffer: None,
             play_start: None,
@@ -2046,6 +2049,9 @@ impl App {
 
     pub fn handle_key(&mut self, key: Key) {
         self.palette_follow_kind();
+        if self.viewer.is_some() {
+            return self.viewer_key(key);
+        }
         if let Some(path) = self.confirm_delete_workspace.take() {
             return self.answer_delete_workspace(path, key);
         }
@@ -2904,10 +2910,8 @@ impl App {
                 subject: a.subject,
                 icon: a.icon,
                 timeout: a.timeout,
-                body_at: None,
-                record: true,
             }),
-            NotifyReplay(key) => self.notify_replay(key),
+            NotifyView(key) => self.notify_view(key),
             Edit(path) => match self.open(&path) {
                 Ok(b) => {
                     self.show_buffer(b);
