@@ -2,7 +2,6 @@
 //! audio tracks in the background, records sync taps and reports the playing position.
 
 use std::collections::HashMap;
-use std::path::PathBuf;
 use std::sync::Arc;
 use std::sync::mpsc::{Receiver, TryRecvError, channel};
 
@@ -93,26 +92,31 @@ impl Playback {
         let Some(audio) = &b.score.audio else { return };
         let embedded = audio.embedded.clone();
         let file = audio.file.clone();
-        let base = b.path.as_ref().and_then(|p| p.parent().map(PathBuf::from));
         let (tx, rx) = channel();
+        // A score's own audio file name is only trusted inside its folder.
+        let named = match (&embedded, &file) {
+            (None, Some(f)) => match crate::playalong::score_audio_path(b.path.as_deref(), f) {
+                Some(p) => Some(p),
+                None => {
+                    let _ = tx.send(Err(format!(
+                        "{f} is outside the score's folder; not loaded"
+                    )));
+                    self.audio.insert(buffer, AudioState::Loading(rx));
+                    return;
+                }
+            },
+            _ => None,
+        };
         std::thread::spawn(move || {
             let ext = file
                 .as_deref()
                 .and_then(|f| f.rsplit('.').next())
                 .map(str::to_string);
-            let result = match (embedded, file) {
+            let result = match (embedded, named) {
                 (Some(bytes), _) => {
                     AudioClip::decode((*bytes).clone(), ext.as_deref()).map_err(|e| e.to_string())
                 }
-                (None, Some(f)) => {
-                    let p = PathBuf::from(&f);
-                    let p = if p.is_absolute() {
-                        p
-                    } else {
-                        base.unwrap_or_default().join(p)
-                    };
-                    AudioClip::load(&p).map_err(|e| e.to_string())
-                }
+                (None, Some(p)) => AudioClip::load(&p).map_err(|e| e.to_string()),
                 (None, None) => Err("no audio file".to_string()),
             };
             let _ = tx.send(result);
@@ -364,6 +368,22 @@ impl Playback {
                     }
                 }
             }
+            Effect::BufferReplaced { buffer } => {
+                self.sequences.remove(&buffer);
+                self.audio.remove(&buffer);
+                if self.loaded == Some(buffer) {
+                    self.loaded = None;
+                    if let Some(p) = &self.player {
+                        p.pause();
+                    }
+                }
+                if self.audio_on_player == Some(buffer) {
+                    if let Some(p) = &self.player {
+                        p.set_audio(None);
+                    }
+                    self.audio_on_player = None;
+                }
+            }
             Effect::AudioChanged { buffer } => {
                 self.sequences.remove(&buffer);
                 self.audio.remove(&buffer);
@@ -550,5 +570,32 @@ impl Playback {
     /// Audio-timeline position of a written position (for waveform display).
     pub fn time_of(&mut self, app: &App, buffer: usize, bar: usize, tick: u32) -> Option<f64> {
         self.sequence(app, buffer).time_of(Location { bar, tick })
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::Config;
+
+    #[test]
+    fn audio_named_outside_the_score_folder_is_not_loaded() {
+        let mut app = App::new(Config::default(), None);
+        for name in ["/etc/hostname", "../x.mp3"] {
+            app.buffers[0].score.audio = Some(cecilia_core::AudioSync {
+                file: Some(name.into()),
+                ..Default::default()
+            });
+            let mut pb = Playback::default();
+            pb.ensure_audio(&app, 0);
+            pb.poll_audio(&mut app);
+            assert!(pb.loaded_audio(0).is_none(), "{name}");
+            let n = app.last_notification().unwrap();
+            assert!(
+                n.error && n.text.contains("outside the score's folder"),
+                "{}",
+                n.text
+            );
+        }
     }
 }

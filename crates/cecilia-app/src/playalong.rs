@@ -190,6 +190,25 @@ pub fn find_audio_for(score_path: &Path) -> Option<PathBuf> {
     best.map(|b| b.1)
 }
 
+/// The audio file a score names, if it is inside the score's folder: an absolute path, one
+/// climbing out with `..` or with a drive `:` (which a downloaded score could use to read any
+/// file) is refused. Windows-style separators in the stored name are accepted. Without a score
+/// file the name is relative to the working folder.
+pub(crate) fn score_audio_path(score_path: Option<&Path>, name: &str) -> Option<PathBuf> {
+    use std::path::Component;
+    let rel: PathBuf = name.split(['/', '\\']).filter(|p| !p.is_empty()).collect();
+    if name.starts_with(['/', '\\'])
+        || name.contains(':')
+        || rel
+            .components()
+            .any(|c| !matches!(c, Component::Normal(_) | Component::CurDir))
+    {
+        return None;
+    }
+    let base = score_path.and_then(Path::parent).unwrap_or(Path::new("."));
+    Some(base.join(rel))
+}
+
 fn relative(path: &Path, base: Option<&Path>) -> String {
     base.and_then(|b| b.parent())
         .and_then(|d| path.strip_prefix(d).ok())
@@ -529,6 +548,12 @@ impl App {
             return self.error(format!("{}: no such file", path.display()));
         }
         let file = relative(&path, score_path.as_deref());
+        if score_audio_path(score_path.as_deref(), &file).is_none() {
+            return self.error(format!(
+                "audio: {} must be in the score's folder (or below it); save the score first if it has no file",
+                path.display()
+            ));
+        }
         self.edit(|cx| {
             let s = cx.whole();
             let keep = s
@@ -690,5 +715,49 @@ mod tests {
         assert_eq!(audio.points[0].bar, 0);
         assert!((audio.points[0].tempo - 120.0).abs() < 1e-9);
         assert!((audio.points[1].tempo - 120.0).abs() < 1e-9);
+    }
+
+    #[test]
+    fn a_score_names_audio_only_inside_its_folder() {
+        let score = Path::new("/music/song.gp5");
+        let ok = |n: &str| score_audio_path(Some(score), n);
+        assert_eq!(ok("a.mp3"), Some(PathBuf::from("/music/a.mp3")));
+        assert_eq!(ok("mp3/a.mp3"), Some(PathBuf::from("/music/mp3/a.mp3")));
+        assert_eq!(ok("mp3\\a.mp3"), Some(PathBuf::from("/music/mp3/a.mp3")));
+        assert_eq!(ok("./a.mp3"), Some(PathBuf::from("/music/a.mp3")));
+        for bad in [
+            "/etc/passwd",
+            "\\\\host\\share",
+            "../a.mp3",
+            "x/../../a.mp3",
+            "C:a.mp3",
+            "C:\\a.mp3",
+        ] {
+            assert_eq!(ok(bad), None, "{bad}");
+        }
+    }
+
+    #[test]
+    fn attaching_audio_from_outside_the_score_folder_is_refused() {
+        let base = std::env::temp_dir().join(format!("cecilia-audio-out-{}", std::process::id()));
+        let (score_dir, other) = (base.join("score"), base.join("other"));
+        std::fs::create_dir_all(&score_dir).unwrap();
+        std::fs::create_dir_all(&other).unwrap();
+        std::fs::write(other.join("a.mp3"), "x").unwrap();
+        std::fs::write(score_dir.join("b.mp3"), "x").unwrap();
+        let mut app = App::new(crate::Config::default(), None);
+        app.run(Command::New);
+        app.run(Command::Write(Some(score_dir.join("s.ccm"))));
+        app.run(Command::Audio(Some(
+            other.join("a.mp3").display().to_string(),
+        )));
+        assert!(app.last_notification().unwrap().error);
+        assert!(app.buffer().score.audio.is_none());
+        app.run(Command::Audio(Some("b.mp3".into())));
+        assert_eq!(
+            app.buffer().score.audio.as_ref().unwrap().file.as_deref(),
+            Some("b.mp3")
+        );
+        std::fs::remove_dir_all(base).ok();
     }
 }

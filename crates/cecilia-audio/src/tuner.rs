@@ -131,14 +131,18 @@ impl Tuner {
         // Keep a little more than a window of input (at the device's rate).
         let decimate = if rate > 32_000.0 { 2 } else { 1 };
         let keep = WINDOW * decimate * 2;
-        let buffer = Arc::new(Mutex::new(VecDeque::<f32>::with_capacity(keep)));
+        // Never grows past `keep`, so the capture callback does not allocate.
+        let buffer = Arc::new(Mutex::new(VecDeque::<f32>::with_capacity(keep + 1)));
         let push = {
             let buffer = buffer.clone();
             move |mono: &mut dyn Iterator<Item = f32>| {
                 if let Ok(mut b) = buffer.lock() {
-                    b.extend(mono);
-                    let excess = b.len().saturating_sub(keep);
-                    b.drain(..excess);
+                    for s in mono {
+                        if b.len() >= keep {
+                            b.pop_front();
+                        }
+                        b.push_back(s);
+                    }
                 }
             }
         };
@@ -181,6 +185,20 @@ impl Tuner {
                             f.iter()
                                 .map(|&s| (s as f32 - 32768.0) / 32768.0)
                                 .sum::<f32>()
+                                / channels as f32
+                        }))
+                    }
+                },
+                err,
+                None,
+            ),
+            cpal::SampleFormat::I32 => device.build_input_stream(
+                &config,
+                {
+                    let push = push.clone();
+                    move |data: &[i32], _| {
+                        push(&mut data.chunks(channels).map(|f| {
+                            f.iter().map(|&s| s as f32 / 2_147_483_648.0).sum::<f32>()
                                 / channels as f32
                         }))
                     }

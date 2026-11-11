@@ -1,8 +1,8 @@
-//! Notation conversions for cecilia.
+//! Notation conversions for cecilia: assigning strings and frets to pitched notes
+//! ([`fret_chord`], [`pitched_to_fretted`]) and modern ⇄ chant ([`chant`]).
 //!
-//! Currently: assigning strings and frets to pitched notes. This is a simple greedy fingering
-//! that keeps the hand near its previous position; the cost-based fingering in the spec
-//! (milestone 4) will replace it.
+//! The fingering is a bounded search that places as many notes of a chord as it can and keeps
+//! the hand near its previous position.
 
 pub mod chant;
 
@@ -10,6 +10,10 @@ use cecilia_core::{Note, Track, TrackKind};
 
 /// Highest fret the fingering will use.
 const MAX_FRET: i32 = 24;
+
+/// Most notes of a chord the fingering searches over (the highest ones; no instrument has
+/// more strings, and the search grows with the chord).
+const MAX_CHORD: usize = 12;
 
 /// Chooses (string, fret) for each MIDI pitch of a chord, using each string at most once.
 /// `strings` are open-string pitches with index 0 = highest string. `position` is the fret the
@@ -21,7 +25,7 @@ pub fn fret_chord(
     capo: u8,
     position: &mut i32,
 ) -> Vec<Option<(u8, u8)>> {
-    let candidates: Vec<Vec<(usize, i32)>> = pitches
+    let mut candidates: Vec<Vec<(usize, i32)>> = pitches
         .iter()
         .map(|&p| {
             let key = p as i32 - capo as i32;
@@ -35,6 +39,15 @@ pub fn fret_chord(
             c
         })
         .collect();
+    if pitches.len() > MAX_CHORD {
+        // Notes that fit the instrument come first, the highest of them before the rest; the
+        // others are left unplaced.
+        let mut order: Vec<usize> = (0..pitches.len()).collect();
+        order.sort_by_key(|&i| (candidates[i].is_empty(), std::cmp::Reverse(pitches[i])));
+        for &i in &order[MAX_CHORD..] {
+            candidates[i].clear();
+        }
+    }
     let mut best = Search {
         placed: 0,
         cost: i32::MAX,
@@ -89,6 +102,11 @@ fn search(
 ) {
     // Even placing every remaining note cannot beat the best: prune.
     if placed + (candidates.len() - i) < best.placed {
+        return;
+    }
+    // Costs only grow: a branch that cannot place more notes than the best, at no less cost,
+    // cannot replace it.
+    if cost >= best.cost && placed + (candidates.len() - i) <= best.placed {
         return;
     }
     if i == candidates.len() {
@@ -186,6 +204,15 @@ mod tests {
     use super::*;
 
     const STANDARD: [u8; 6] = [64, 59, 55, 50, 45, 40];
+
+    #[test]
+    fn huge_chords_are_searched_quickly() {
+        let mut pos = 0;
+        let pitches: Vec<u8> = (40..90).collect();
+        let placed = fret_chord(&pitches, &STANDARD, 0, &mut pos);
+        let n = placed.iter().flatten().count();
+        assert!((3..=6).contains(&n), "{n} placed");
+    }
 
     #[test]
     fn chord_uses_distinct_strings() {

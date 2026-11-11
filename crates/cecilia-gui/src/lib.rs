@@ -64,6 +64,28 @@ fn renderer_options() -> RendererOptions {
     }
 }
 
+/// Most bytes a screenshot may take (RGBA, plus the readback's padding).
+const MAX_IMAGE_BYTES: u64 = 1 << 30;
+
+/// The screenshot size limited to what the GPU can make a texture of (`max_dimension`) and to a
+/// memory budget, keeping the aspect ratio; None for an empty or absurd request.
+fn clamp_image_size(width: u32, height: u32, max_dimension: u32) -> Option<(u32, u32)> {
+    if width == 0 || height == 0 || max_dimension == 0 {
+        return None;
+    }
+    let mut k = f64::min(1.0, f64::from(max_dimension) / f64::from(width.max(height)));
+    let bytes = |k: f64| (f64::from(width) * k).floor() * (f64::from(height) * k).floor() * 4.0;
+    if bytes(k) > MAX_IMAGE_BYTES as f64 {
+        k *= (MAX_IMAGE_BYTES as f64 / bytes(k)).sqrt();
+    }
+    let size = (
+        ((f64::from(width) * k).floor() as u32).max(1),
+        ((f64::from(height) * k).floor() as u32).max(1),
+    );
+    // 256-aligned rows of 4 bytes per pixel must fit in u32.
+    (u64::from(size.0) * 4 + 255 < u64::from(u32::MAX)).then_some(size)
+}
+
 /// Opens the GUI window and runs until the user quits.
 pub fn run(app: App) -> Result<()> {
     let event_loop = EventLoop::new().context("cannot open a window (no display?)")?;
@@ -137,11 +159,23 @@ impl Gui {
             (width, height),
             blur_px * factor,
         )?;
-        let frame = gpu
-            .surface
-            .surface
-            .get_current_texture()
-            .context("surface texture")?;
+        let frame = match gpu.surface.surface.get_current_texture() {
+            Ok(frame) => frame,
+            // The surface no longer matches the window (resized, minimized, device reset):
+            // configure it again and draw the next frame instead of reporting an error.
+            Err(wgpu::SurfaceError::Outdated | wgpu::SurfaceError::Lost) => {
+                self.cx
+                    .resize_surface(&mut gpu.surface, width.max(1), height.max(1));
+                gpu.window.request_redraw();
+                return Ok(());
+            }
+            Err(wgpu::SurfaceError::Timeout) => {
+                gpu.window.request_redraw();
+                return Ok(());
+            }
+            Err(e) => return Err(anyhow!("surface texture: {e}")),
+        };
+        let dev = &self.cx.devices[gpu.surface.dev_id];
         let mut encoder = dev
             .device
             .create_command_encoder(&wgpu::CommandEncoderDescriptor {
@@ -459,6 +493,8 @@ pub fn screenshot(
     let dev_id = pollster::block_on(cx.device(None)).ok_or_else(|| anyhow!("no GPU adapter"))?;
     let dev = &cx.devices[dev_id];
     let (device, queue) = (&dev.device, &dev.queue);
+    let (width, height) = clamp_image_size(width, height, device.limits().max_texture_dimension_2d)
+        .ok_or_else(|| anyhow!("screenshot size {width}x{height} is too large"))?;
     let mut renderer =
         Renderer::new(device, renderer_options()).map_err(|e| anyhow!("renderer: {e}"))?;
     let mut scene = Scene::new();
@@ -541,10 +577,10 @@ pub fn screenshot(
         (width, height),
         blur_px * factor,
     )?;
-    let row = (width * 4).div_ceil(256) * 256;
+    let row = (width * 4).div_ceil(256) * 256; // fits: clamp_image_size bounds the size
     let buffer = device.create_buffer(&wgpu::BufferDescriptor {
         label: Some("readback"),
-        size: (row * height) as u64,
+        size: u64::from(row) * u64::from(height),
         usage: wgpu::BufferUsages::MAP_READ | wgpu::BufferUsages::COPY_DST,
         mapped_at_creation: false,
     });
@@ -574,10 +610,27 @@ pub fn screenshot(
     let data = slice.get_mapped_range();
     let mut pixels = Vec::with_capacity((width * height * 4) as usize);
     for y in 0..height {
-        let start = (y * row) as usize;
+        let start = y as usize * row as usize;
         pixels.extend_from_slice(&data[start..start + (width * 4) as usize]);
     }
     let size = tiny_skia::IntSize::from_wh(width, height).ok_or_else(|| anyhow!("bad size"))?;
     let pixmap = tiny_skia::Pixmap::from_vec(pixels, size).ok_or_else(|| anyhow!("bad pixmap"))?;
     pixmap.encode_png().map_err(|e| anyhow!("png: {e}"))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::clamp_image_size;
+
+    #[test]
+    fn screenshot_size_is_clamped_to_the_gpu_limit() {
+        assert_eq!(clamp_image_size(1400, 900, 16384), Some((1400, 900)));
+        // 16x scale on a monitor with a 16384 px texture limit.
+        let (w, h) = clamp_image_size(22400, 14400, 16384).unwrap();
+        assert!(w <= 16384 && h <= 16384 && w > 16000);
+        assert_eq!(clamp_image_size(0, 900, 16384), None);
+        // Huge requests are cut to the memory budget instead of overflowing.
+        let (w, h) = clamp_image_size(u32::MAX, u32::MAX, u32::MAX).unwrap();
+        assert!(u64::from(w) * u64::from(h) * 4 <= super::MAX_IMAGE_BYTES);
+    }
 }

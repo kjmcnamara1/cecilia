@@ -37,20 +37,36 @@ pub fn convert(event: &KeyEvent, mods: ModifiersState) -> Option<Key> {
             _ => return None,
         },
         WKey::Character(s) => {
+            let produced = s.chars().next()?;
             // With Ctrl/Alt/Super held, use the unmodified character (Ctrl-W gives 'w', not a
             // control code; Ctrl-Shift-Q gives 'q' with the shift flag set).
             if mods.control_key() || mods.alt_key() || mods.super_key() {
-                match event.key_without_modifiers() {
-                    WKey::Character(base) => KeyCode::Char(base.chars().next()?),
-                    _ => KeyCode::Char(s.chars().next()?),
+                let base = match event.key_without_modifiers() {
+                    WKey::Character(base) => base.chars().next()?,
+                    _ => produced,
+                };
+                if is_altgr_text(cfg!(windows), mods, produced, base) {
+                    // Windows reports AltGr as Ctrl+Alt: the character it typed is the key.
+                    return Some(with_modifiers(
+                        KeyCode::Char(produced),
+                        mods & !(ModifiersState::CONTROL | ModifiersState::ALT),
+                    ));
                 }
+                KeyCode::Char(base)
             } else {
-                KeyCode::Char(s.chars().next()?)
+                KeyCode::Char(produced)
             }
         }
         _ => return None,
     };
     Some(with_modifiers(code, mods))
+}
+
+/// Whether a key press is AltGr typing a character (Windows reports AltGr as Ctrl+Alt held
+/// together): both are down and the layout produced a printable character other than the
+/// key's own.
+fn is_altgr_text(windows: bool, mods: ModifiersState, produced: char, base: char) -> bool {
+    windows && mods.control_key() && mods.alt_key() && produced != base && !produced.is_control()
 }
 
 /// The key for `code` with the modifier state (Shift folded per `Key::with_mods`).
@@ -67,6 +83,17 @@ fn with_modifiers(code: KeyCode, mods: ModifiersState) -> Key {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn altgr_text_only_on_windows_with_a_produced_character() {
+        let both = ModifiersState::CONTROL | ModifiersState::ALT;
+        assert!(is_altgr_text(true, both, '@', 'q'));
+        assert!(!is_altgr_text(false, both, '@', 'q'));
+        assert!(!is_altgr_text(true, ModifiersState::ALT, '@', 'q'));
+        // A real Ctrl+Alt chord: the key's own character, or a control code.
+        assert!(!is_altgr_text(true, both, 'q', 'q'));
+        assert!(!is_altgr_text(true, both, '\u{11}', 'q'));
+    }
 
     #[test]
     fn modifiers_become_flags() {

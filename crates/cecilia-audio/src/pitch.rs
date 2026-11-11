@@ -82,6 +82,15 @@ fn distance(a: f32, b: f32) -> f32 {
     d.min(12.0 - d)
 }
 
+/// The most cells (melody notes times sung notes) [`align`] works on, about 160 MB of scores.
+pub const MAX_ALIGN_CELLS: usize = 40_000_000;
+
+/// Whether a melody of `notes` against `sung` notes is too big for [`align`], which then
+/// matches nothing; callers should say so rather than report a failed alignment.
+pub fn align_too_large(notes: usize, sung: usize) -> bool {
+    (notes + 1).saturating_mul(sung + 1) > MAX_ALIGN_CELLS
+}
+
 /// Lays a melody (MIDI notes) along the notes sung: for each note, the index of the sung note
 /// it is, in order and with some left out on either side; the best of the transpositions in
 /// half semitones. The singing may start before and go on after the melody.
@@ -94,43 +103,47 @@ pub fn align(melody: &[f32], sung: &[Segment]) -> Vec<Option<usize>> {
     if n == 0 || m == 0 {
         return best.1;
     }
+    if align_too_large(n, m) {
+        return best.1;
+    }
+    let w = m + 1;
+    let mut dp = vec![0f32; (n + 1) * w];
     for shift in (0..24).map(|k| k as f32 * 0.5) {
         let score = |i: usize, j: usize| {
             let d = distance(sung[j].midi - melody[i], shift);
             if d <= TOLERANCE { 2.0 - d } else { -1.5 }
         };
-        let mut dp = vec![vec![0f32; m + 1]; n + 1];
         for i in 1..=n {
-            dp[i][0] = dp[i - 1][0] + SKIP_NOTE;
+            dp[i * w] = dp[(i - 1) * w] + SKIP_NOTE;
             for j in 1..=m {
-                dp[i][j] = (dp[i - 1][j - 1] + score(i - 1, j - 1))
-                    .max(dp[i - 1][j] + SKIP_NOTE)
-                    .max(dp[i][j - 1] + SKIP_SUNG);
+                dp[i * w + j] = (dp[(i - 1) * w + j - 1] + score(i - 1, j - 1))
+                    .max(dp[(i - 1) * w + j] + SKIP_NOTE)
+                    .max(dp[i * w + j - 1] + SKIP_SUNG);
             }
         }
         let jend = (0..=m)
-            .max_by(|&a, &b| dp[n][a].total_cmp(&dp[n][b]))
+            .max_by(|&a, &b| dp[n * w + a].total_cmp(&dp[n * w + b]))
             .unwrap_or(0);
-        if dp[n][jend] <= best.0 {
+        if dp[n * w + jend] <= best.0 {
             continue;
         }
         let mut out = vec![None; n];
         let (mut i, mut j) = (n, jend);
         while i > 0 && j > 0 {
-            let here = dp[i][j];
-            if (here - (dp[i - 1][j - 1] + score(i - 1, j - 1))).abs() < 1e-4
+            let here = dp[i * w + j];
+            if (here - (dp[(i - 1) * w + j - 1] + score(i - 1, j - 1))).abs() < 1e-4
                 && score(i - 1, j - 1) > 0.0
             {
                 out[i - 1] = Some(j - 1);
                 i -= 1;
                 j -= 1;
-            } else if (here - (dp[i - 1][j] + SKIP_NOTE)).abs() < 1e-4 {
+            } else if (here - (dp[(i - 1) * w + j] + SKIP_NOTE)).abs() < 1e-4 {
                 i -= 1;
             } else {
                 j -= 1;
             }
         }
-        best = (dp[n][jend], out);
+        best = (dp[n * w + jend], out);
     }
     best.1
 }

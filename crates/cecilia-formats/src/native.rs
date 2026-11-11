@@ -1,7 +1,8 @@
-//! The native `.cc` format: a zip archive holding a versioned manifest and the full score
-//! model as JSON, so nothing is lost when saving.
+//! The native `.ccc` / `.ccm` format (and the legacy `.cc`, which shares it): a zip archive
+//! holding a versioned manifest and the full score model as JSON, so nothing is lost when
+//! saving.
 
-use std::io::{Read, Write};
+use std::io::Write;
 
 use cecilia_core::Score;
 
@@ -65,10 +66,14 @@ pub fn write_cecilia(score: &Score) -> Result<Vec<u8>> {
 pub fn read_cecilia(bytes: &[u8]) -> Result<Score> {
     let mut zip =
         zip::ZipArchive::new(std::io::Cursor::new(bytes)).map_err(|e| err(e.to_string()))?;
-    let mut manifest = String::new();
-    zip.by_name("manifest.toml")
-        .map_err(|e| err(e.to_string()))?
-        .read_to_string(&mut manifest)?;
+    let mut budget = crate::MAX_ARCHIVE_BYTES;
+    let manifest = String::from_utf8_lossy(&crate::read_entry(
+        zip.by_name("manifest.toml")
+            .map_err(|e| err(e.to_string()))?,
+        &mut budget,
+        "manifest.toml",
+    )?)
+    .into_owned();
     let version = manifest
         .lines()
         .find_map(|l| l.trim().strip_prefix("format_version"))
@@ -79,10 +84,11 @@ pub fn read_cecilia(bytes: &[u8]) -> Result<Score> {
             "file format version {version} is newer than this cecilia (supports {FORMAT_VERSION})"
         )));
     }
-    let mut json = Vec::new();
-    zip.by_name("score.json")
-        .map_err(|e| err(e.to_string()))?
-        .read_to_end(&mut json)?;
+    let json = crate::read_entry(
+        zip.by_name("score.json").map_err(|e| err(e.to_string()))?,
+        &mut budget,
+        "score.json",
+    )?;
     let mut value: serde_json::Value =
         serde_json::from_slice(&json).map_err(|e| err(e.to_string()))?;
     drop_chant_staves(&mut value);
@@ -93,9 +99,8 @@ pub fn read_cecilia(bytes: &[u8]) -> Result<Score> {
             .as_deref()
             .map(|f| f.rsplit('/').next().unwrap_or(f).to_string());
         if let Some(base) = base {
-            if let Ok(mut entry) = zip.by_name(&format!("audio/{base}")) {
-                let mut data = Vec::new();
-                entry.read_to_end(&mut data)?;
+            if let Ok(entry) = zip.by_name(&format!("audio/{base}")) {
+                let data = crate::read_entry(entry, &mut budget, "embedded audio")?;
                 audio.embedded = Some(std::sync::Arc::new(data));
             }
         }
@@ -201,6 +206,7 @@ pub fn is_cecilia(bytes: &[u8]) -> bool {
 mod tests {
     use super::*;
     use cecilia_core::*;
+    use std::io::Read;
 
     #[test]
     fn round_trips_exactly() {

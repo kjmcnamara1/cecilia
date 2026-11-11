@@ -7,6 +7,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Security
+
+- Reading untrusted files is bounded: GPX, zip (`.ccc`, `.gp`, `.mxl`) and decoded audio have size caps, and a huge GABC `nabc-lines`, MusicXML `<forward>`, NaN tempo or oversized chord no longer panics or exhausts memory or time.
+- A score's `audio.file` must stay inside the score's folder (no absolute paths, `..` or `:`); saving a `.gp` no longer embeds files from elsewhere. `:audio FILE` follows the same rule.
+
+### Fixed
+
+- A workspace switch or closing the last view no longer plays the previous file's music or audio from stale caches.
+- The audio track stays in step when speed or transpose changes during playback; pre-roll notes use their track's instrument.
+- `:w FILE` and `:save-as FILE` refuse to overwrite another existing file (use `:w! FILE`); file and workspace writes are atomic (temp file, then rename); `:workspace-delete` only deletes workspace files; workspace files that fail to open stay in the workspace.
+- Guitar Pro 3/4 grace notes read transition and duration in the right order; the GP5 writer refuses what it cannot store (more than 128 tracks, 10,000 bars or 7 strings) instead of dropping notes.
+- Windows AltGr characters are typed as the character, the GUI reconfigures a lost surface, SoundFont search paths cover macOS, the terminal is restored (mouse capture off) after a panic, and swap files are checked against live processes on Unix.
+
 ### Added
 
 - Question prompts (save changes, file changed on disk, delete workspace) have clickable buttons (GUI and TUI) alongside the y/n/Esc keys (the GUI fades a highlight in under the pointer); clicking a question card elsewhere no longer dismisses it.

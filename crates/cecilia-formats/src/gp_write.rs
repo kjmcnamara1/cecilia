@@ -2,7 +2,7 @@
 
 use cecilia_core::*;
 
-use crate::Result;
+use crate::{Error, Result};
 
 /// Encodes a score as a GP5 file. Pitched tracks are fingered onto a fretboard, and only the
 /// first two voices of each bar are kept (GP5's limit).
@@ -15,6 +15,19 @@ pub fn write_gp5(score: &Score) -> Result<Vec<u8>> {
             t.kind = TrackKind::Pitched;
             cecilia_convert::pitched_to_fretted(t);
         }
+    }
+    // Limits of the format (and of this crate's reader): saving past them would lose music or
+    // write a file that does not open again.
+    if score.tracks.len() > 128 {
+        return Err(Error::Unsupported("GP5 holds at most 128 tracks".into()));
+    }
+    if score.master_bars.len() > 10_000 {
+        return Err(Error::Unsupported("GP5 holds at most 10000 bars".into()));
+    }
+    if score.tracks.iter().any(|t| t.strings.len() > 7) {
+        return Err(Error::Unsupported(
+            "GP5 holds at most 7 strings per track".into(),
+        ));
     }
     let mut w = Writer::default();
     w.write_score(&score);
@@ -69,8 +82,7 @@ impl Writer {
     }
 
     fn byte_size_string(&mut self, s: &str, size: usize) {
-        let mut bytes = encode_text(s);
-        bytes.truncate(size.min(255));
+        let bytes = fit(encode_text(s), size.min(255));
         self.u8(bytes.len() as u8);
         let len = bytes.len();
         self.buf.extend(bytes);
@@ -78,8 +90,7 @@ impl Writer {
     }
 
     fn int_byte_size_string(&mut self, s: &str) {
-        let mut bytes = encode_text(s);
-        bytes.truncate(255);
+        let bytes = fit(encode_text(s), 255);
         self.i32(bytes.len() as i32 + 1);
         self.u8(bytes.len() as u8);
         self.buf.extend(bytes);
@@ -859,6 +870,22 @@ fn encode_text(s: &str) -> Vec<u8> {
     out
 }
 
+/// Cuts encoded text to `max` bytes, never in the middle of a UTF-8 character (the reader would
+/// then take the whole string for Windows-1252).
+fn fit(mut bytes: Vec<u8>, max: usize) -> Vec<u8> {
+    if bytes.len() <= max {
+        return bytes;
+    }
+    let mut n = max;
+    if let Ok(s) = std::str::from_utf8(&bytes) {
+        while !s.is_char_boundary(n) {
+            n -= 1;
+        }
+    }
+    bytes.truncate(n);
+    bytes
+}
+
 fn cp1252_byte(c: char) -> Option<u8> {
     let code = c as u32;
     if code < 0x80 || (0xA0..=0xFF).contains(&code) {
@@ -870,6 +897,27 @@ fn cp1252_byte(c: char) -> Option<u8> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn refuses_what_gp5_cannot_hold() {
+        let mut score = Score::default();
+        score.master_bars.push(MasterBar::default());
+        score.tracks.push(Track {
+            kind: TrackKind::Fretted,
+            strings: vec![40; 8],
+            bars: vec![Bar::default()],
+            ..Track::default()
+        });
+        assert!(write_gp5(&score).is_err());
+    }
+
+    #[test]
+    fn long_utf8_text_is_cut_on_a_character() {
+        let text = "é日".repeat(200);
+        let cut = fit(encode_text(&text), 255);
+        assert!(cut.len() <= 255);
+        assert!(std::str::from_utf8(&cut).is_ok());
+    }
 
     #[test]
     fn encodes_cp1252_or_utf8() {

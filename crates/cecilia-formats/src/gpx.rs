@@ -86,7 +86,7 @@ fn decompress(data: &[u8]) -> Result<Vec<u8>> {
         return Err(err(format!("implausible decompressed size {len}")));
     }
     let len = len as usize;
-    let mut out = Vec::with_capacity(len);
+    let mut out = Vec::with_capacity(len.min(1 << 20));
     let mut bits = Bits {
         data: &data[4..],
         pos: 0,
@@ -126,8 +126,12 @@ fn int_at(data: &[u8], at: usize) -> Option<usize> {
     Some(i32::from_le_bytes(b.try_into().unwrap()).max(0) as usize)
 }
 
+/// Most bytes `read_filesystem` extracts in total (its entries may share blocks).
+const MAX_EXTRACTED: usize = 256 << 20;
+
 fn read_filesystem(data: &[u8]) -> Result<Vec<(String, Vec<u8>)>> {
     let mut files = Vec::new();
+    let mut extracted = 0usize;
     let mut offset = SECTOR;
     while offset + SECTOR <= data.len() {
         if int_at(data, offset) == Some(2) {
@@ -138,7 +142,7 @@ fn read_filesystem(data: &[u8]) -> Result<Vec<(String, Vec<u8>)>> {
                 .unwrap_or(name_bytes.len());
             let name = String::from_utf8_lossy(&name_bytes[..end]).into_owned();
             let size = int_at(data, offset + 0x8C).ok_or_else(|| err("truncated file entry"))?;
-            let mut contents = Vec::with_capacity(size);
+            let mut contents = Vec::with_capacity(size.min(data.len()));
             let mut pointer = offset + 0x94;
             while contents.len() < size {
                 let Some(block) = int_at(data, pointer).filter(|&b| b != 0) else {
@@ -148,6 +152,10 @@ fn read_filesystem(data: &[u8]) -> Result<Vec<(String, Vec<u8>)>> {
                 let chunk = data
                     .get(start..(start + SECTOR).min(data.len()))
                     .ok_or_else(|| err("block out of range"))?;
+                extracted += chunk.len();
+                if extracted > MAX_EXTRACTED {
+                    return Err(err("container files are too large"));
+                }
                 contents.extend_from_slice(chunk);
                 pointer += 4;
             }
@@ -311,5 +319,22 @@ mod tests {
         assert_eq!(files.len(), 2);
         assert_eq!(files[0], ("score.gpif".to_string(), big));
         assert_eq!(files[1].1, b"<x/>");
+    }
+
+    #[test]
+    fn many_entries_sharing_blocks_are_capped() {
+        // Every sector is an entry claiming 1000 shared blocks: 65k * 4 MB without a cap.
+        let sectors = 40_000;
+        let mut fs = vec![0u8; sectors * SECTOR];
+        for s in 1..sectors {
+            let o = s * SECTOR;
+            fs[o..o + 4].copy_from_slice(&2i32.to_le_bytes());
+            fs[o + 0x8C..o + 0x90].copy_from_slice(&i32::MAX.to_le_bytes());
+            for k in 0..((SECTOR - 0x94) / 4) {
+                fs[o + 0x94 + k * 4..o + 0x98 + k * 4].copy_from_slice(&1i32.to_le_bytes());
+            }
+        }
+        fs[SECTOR..SECTOR + 4].copy_from_slice(&0i32.to_le_bytes());
+        assert!(read_filesystem(&fs).is_err());
     }
 }

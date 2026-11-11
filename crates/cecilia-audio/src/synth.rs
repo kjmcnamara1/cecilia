@@ -22,10 +22,17 @@ impl SoundFontSynth {
         let err =
             |e: &dyn std::fmt::Display| crate::Error::SoundFont(format!("{}: {e}", path.display()));
         let mut file = std::fs::File::open(path).map_err(|e| err(&e))?;
-        let sf = Arc::new(rustysynth::SoundFont::new(&mut file).map_err(|e| err(&e))?);
-        let settings = rustysynth::SynthesizerSettings::new(sample_rate as i32);
-        let synth = rustysynth::Synthesizer::new(&sf, &settings).map_err(|e| err(&e))?;
-        Ok(Self { synth })
+        // A malformed file must be an error, not a crash of the whole editor.
+        let built = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+            let sf = Arc::new(rustysynth::SoundFont::new(&mut file).map_err(|e| e.to_string())?);
+            let settings = rustysynth::SynthesizerSettings::new(sample_rate as i32);
+            rustysynth::Synthesizer::new(&sf, &settings).map_err(|e| e.to_string())
+        }));
+        match built {
+            Ok(Ok(synth)) => Ok(Self { synth }),
+            Ok(Err(e)) => Err(err(&e)),
+            Err(_) => Err(err(&"the file is not a valid SoundFont")),
+        }
     }
 }
 

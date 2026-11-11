@@ -47,6 +47,13 @@ pub struct Trainer {
     pub target: f64,
 }
 
+/// Values the audio thread is done with, dropped elsewhere (freeing a big clip would glitch).
+#[allow(dead_code)] // held only to be dropped on the reaper thread
+enum Trash {
+    Seq(Arc<Sequence>),
+    Clip(Arc<AudioClip>),
+}
+
 enum Command {
     Load(Arc<Sequence>),
     Audio(Option<Arc<AudioClip>>),
@@ -90,7 +97,9 @@ pub struct Renderer {
     audio: Option<Arc<AudioClip>>,
     /// Read position in the audio clip (frames) while stretching.
     audio_pos: f64,
-    stretch: Option<signalsmith_stretch::Stretch>,
+    /// Allocated up front (the audio callback must not allocate); used while `stretch_on`.
+    stretch: signalsmith_stretch::Stretch,
+    stretch_on: bool,
     stretch_input: Vec<f32>,
     loop_range: Option<(f64, f64)>,
     trainer: Option<Trainer>,
@@ -98,7 +107,11 @@ pub struct Renderer {
     metronome: bool,
     /// Count-in: remaining click times (seconds from now) and remaining duration.
     count_in: Option<(Vec<f64>, f64)>,
+    /// Spare buffer for the count-in times, so starting a count-in does not allocate.
+    count_spare: Vec<f64>,
     clicks: Vec<Click>,
+    /// Where replaced sequences and clips go to be freed off the audio thread.
+    trash: Option<Sender<Trash>>,
     left: [f32; BLOCK],
     right: [f32; BLOCK],
     audio_buf: [f32; BLOCK * 2],
@@ -118,14 +131,17 @@ impl Renderer {
             transpose: 0.0,
             audio: None,
             audio_pos: 0.0,
-            stretch: None,
-            stretch_input: Vec::new(),
+            stretch: signalsmith_stretch::Stretch::preset_default(2, sample_rate),
+            stretch_on: false,
+            stretch_input: Vec::with_capacity(BLOCK * 2 * 2 + 16),
             loop_range: None,
             trainer: None,
             mix: Mix::default(),
             metronome: false,
             count_in: None,
-            clicks: Vec::new(),
+            count_spare: Vec::with_capacity(16),
+            clicks: Vec::with_capacity(64),
+            trash: None,
             left: [0.0; BLOCK],
             right: [0.0; BLOCK],
             audio_buf: [0.0; BLOCK * 2],
@@ -133,13 +149,32 @@ impl Renderer {
     }
 
     pub fn load(&mut self, seq: Arc<Sequence>) {
-        self.seq = seq;
+        let old = std::mem::replace(&mut self.seq, seq);
+        if let Some(t) = &self.trash {
+            let _ = t.send(Trash::Seq(old));
+        }
         self.seek(self.time);
     }
 
     pub fn set_audio(&mut self, clip: Option<Arc<AudioClip>>) {
-        self.audio = clip;
+        let old = std::mem::replace(&mut self.audio, clip);
+        if let (Some(t), Some(old)) = (&self.trash, old) {
+            let _ = t.send(Trash::Clip(old));
+        }
         self.seek(self.time);
+    }
+
+    /// Frees replaced sequences and clips on a helper thread instead of the audio thread.
+    fn with_reaper(mut self) -> Self {
+        let (tx, rx) = channel::<Trash>();
+        if std::thread::Builder::new()
+            .name("cecilia-reaper".into())
+            .spawn(move || while rx.recv().is_ok() {})
+            .is_ok()
+        {
+            self.trash = Some(tx);
+        }
+        self
     }
 
     fn end_time(&self) -> f64 {
@@ -169,8 +204,8 @@ impl Renderer {
         self.next_event = idx;
         self.next_beat = self.seq.beats.partition_point(|b| b.0 < self.time);
         self.audio_pos = self.time * self.sample_rate;
-        if let Some(s) = self.stretch.as_mut() {
-            s.reset();
+        if self.stretch_on {
+            self.stretch.reset();
         }
     }
 
@@ -178,20 +213,14 @@ impl Renderer {
         if self.playing && !playing {
             self.synth.all_notes_off();
         }
-        self.count_in = None;
+        self.recycle_count_in();
         if playing && self.time >= self.end_time() {
             self.seek(0.0);
         }
         if playing && count_in {
             // One bar of clicks at the tempo around the start.
-            let beats: Vec<(f64, bool)> = self
-                .seq
-                .beats
-                .iter()
-                .skip(self.next_beat)
-                .take(9)
-                .copied()
-                .collect();
+            let beats = &self.seq.beats[self.next_beat.min(self.seq.beats.len())..];
+            let beats = &beats[..beats.len().min(9)];
             let beat_len = beats
                 .windows(2)
                 .map(|w| w[1].0 - w[0].0)
@@ -203,7 +232,9 @@ impl Renderer {
                 .position(|b| b.1)
                 .map_or(4, |p| p + 1)
                 .clamp(2, 12);
-            let times: Vec<f64> = (0..per_bar).map(|i| i as f64 * beat_len).collect();
+            let mut times = std::mem::take(&mut self.count_spare);
+            times.clear();
+            times.extend((0..per_bar).map(|i| i as f64 * beat_len));
             self.count_in = Some((times, per_bar as f64 * beat_len));
             self.playing = false;
             return;
@@ -224,14 +255,25 @@ impl Renderer {
     fn update_stretch(&mut self) {
         let needed = (self.speed - 1.0).abs() > 1e-6 || self.transpose.abs() > 1e-6;
         if !needed {
-            self.stretch = None;
+            self.stretch_on = false;
             return;
         }
-        let rate = self.sample_rate as u32;
-        let s = self
-            .stretch
-            .get_or_insert_with(|| signalsmith_stretch::Stretch::preset_default(2, rate));
-        s.set_transpose_factor_semitones(self.transpose, None);
+        if !self.stretch_on {
+            // The audio read position is only tracked while stretching: pick up at the clock.
+            self.stretch_on = true;
+            self.audio_pos = self.time * self.sample_rate;
+            self.stretch.reset();
+        }
+        self.stretch
+            .set_transpose_factor_semitones(self.transpose, None);
+    }
+
+    /// Ends a count-in, keeping its buffer for the next one.
+    fn recycle_count_in(&mut self) {
+        if let Some((mut times, _)) = self.count_in.take() {
+            times.clear();
+            self.count_spare = times;
+        }
     }
 
     pub fn time(&self) -> f64 {
@@ -260,7 +302,7 @@ impl Renderer {
             return;
         };
         let total = clip.frames() as f64;
-        match self.stretch.as_mut() {
+        match self.stretch_on.then_some(&mut self.stretch) {
             None => {
                 let start = (self.time * self.sample_rate).round();
                 for i in 0..frames {
@@ -315,7 +357,7 @@ impl Renderer {
             self.click(downbeat_fired && k == 0 && first_pending >= 2);
         }
         if done {
-            self.count_in = None;
+            self.recycle_count_in();
             self.playing = true;
         }
     }
@@ -522,7 +564,7 @@ impl Player {
         let format = supported.sample_format();
         let config: cpal::StreamConfig = supported.into();
         let (synth, synth_name, warning) = make_synth(soundfont, config.sample_rate.0);
-        let renderer = Renderer::new(synth, config.sample_rate.0);
+        let renderer = Renderer::new(synth, config.sample_rate.0).with_reaper();
         let (tx, rx) = channel();
         let shared = Arc::new(Shared::default());
         shared.speed.store(1.0f64.to_bits(), Ordering::Relaxed);
@@ -530,6 +572,7 @@ impl Player {
             cpal::SampleFormat::F32 => build::<f32>(&device, &config, renderer, rx, shared.clone()),
             cpal::SampleFormat::I16 => build::<i16>(&device, &config, renderer, rx, shared.clone()),
             cpal::SampleFormat::U16 => build::<u16>(&device, &config, renderer, rx, shared.clone()),
+            cpal::SampleFormat::I32 => build::<i32>(&device, &config, renderer, rx, shared.clone()),
             other => return Err(Error::Device(format!("unsupported sample format {other}"))),
         }?;
         stream.play().map_err(|e| Error::Device(e.to_string()))?;
@@ -747,5 +790,37 @@ mod tests {
         let mut more = vec![0.0; 48_000 * 2];
         r.process(&mut more, 2);
         assert!(r.time() < 0.25 && r.is_playing(), "{}", r.time());
+    }
+
+    #[test]
+    fn speed_change_mid_play_keeps_the_audio_in_step() {
+        let rate = 48_000usize;
+        // Audio whose sample value is its position, so the output shows where it reads.
+        let samples: Vec<f32> = (0..rate * 4)
+            .flat_map(|i| {
+                let v = i as f32 / (rate * 4) as f32;
+                [v, v]
+            })
+            .collect();
+        let clip = Arc::new(AudioClip {
+            rate: rate as u32,
+            samples,
+        });
+        let mut r = Renderer::new(Box::new(PluckSynth::new(rate as u32)), rate as u32);
+        r.mix.midi = 0.0;
+        r.load(note_seq());
+        r.set_audio(Some(clip));
+        r.set_playing(true, false);
+        let mut out = vec![0.0; rate * 2 / 2];
+        r.process(&mut out, 2);
+        let before = r.time();
+        assert!(before > 0.4);
+        r.set_speed(1.5);
+        assert!(
+            (r.audio_pos - before * rate as f64).abs() < 1.0,
+            "{} vs {}",
+            r.audio_pos,
+            before * rate as f64
+        );
     }
 }

@@ -25,8 +25,8 @@ Conventions:
 | `new [modern\|chant]`, `enew` | New empty score (modern by default). |
 | `open [FILE]` | Open a file; without a name, the system file dialog. |
 | `open-dialog` | System file dialog. |
-| `write [FILE]`, `w` | Save the buffer, or save it as FILE (the buffer then takes that file; format by extension). |
-| `save-as [FILE]`, `saveas` | Save to a new file and make it the buffer's file; without a name, the dialog. |
+| `write [FILE]`, `w`, `write! FILE`, `w! FILE` | Save the buffer, or save it as FILE (the buffer then takes that file; format by extension). An existing file other than the buffer's own is only overwritten with `!`. |
+| `save-as [FILE]`, `saveas`, `save-as! FILE`, `saveas! FILE` | Save to a new file and make it the buffer's file; without a name, the dialog. An existing file is only overwritten with `!`. |
 | `wall`, `wa` | Write every changed file. |
 | `write-quit`, `wq`, `x`, `wqall`, `wqa`, `xall`, `xa` | Write every changed file, then quit. |
 | `quit`, `q`, `quitall`, `qa` | Quit; refused while files have unsaved changes. |
@@ -122,7 +122,7 @@ Keymap-only commands that drive the tool panes while they have the focus:
 | --- | --- |
 | `workspace-save [NAME]`, `workspace-save!` | Save the session as a workspace (the active one without a name; `!` overwrites). |
 | `workspace-open [NAME]`, `workspace-open!` | Save the current workspace and switch to NAME (created if new); without a name, a picker. `!` discards unsaved changes instead of saving. |
-| `workspace-delete [NAME]`, `workspace-delete!` | Delete a workspace (the active one without a name); `!` skips the confirmation. |
+| `workspace-delete [NAME]`, `workspace-delete!` | Delete a workspace (the active one without a name); `!` skips the confirmation. Only workspace files go: a path to any other file is refused. |
 
 ## Moving the cursor
 
@@ -287,7 +287,7 @@ Commands marked _(chant)_ only work on a chant score. See [CHANT.md](CHANT.md).
 | `count-in`, `countin` | Toggle the count-in. |
 | `volume midi\|audio\|metronome\|master PERCENT` | Mixer level, 0–150 (`click` is the same as `metronome`). |
 | `mute [N\|audio\|master]`, `solo [N\|audio\|master]` | Mute / solo a track, the audio track or the synth master (default: the cursor's track). |
-| `audio [FILE\|off]` | Attach an audio file (the best match next to the score by default). |
+| `audio [FILE\|off]` | Attach an audio file (the best match next to the score by default). It must be in the score's folder or below; the score needs a file name. |
 | `mix [both\|audio\|midi]` | Mixer source; none cycles. |
 | `pitch SEMITONES` | Pitch-shift the audio (clamped to ±12). |
 | `sync` | Start / stop tapping sync points from the cursor bar. |

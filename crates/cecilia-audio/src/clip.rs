@@ -19,6 +19,9 @@ pub struct AudioClip {
     pub samples: Vec<f32>,
 }
 
+/// Longest recording decoded (seconds); more would use gigabytes of memory.
+pub const MAX_SECONDS: usize = 2 * 60 * 60;
+
 impl AudioClip {
     pub fn frames(&self) -> usize {
         self.samples.len() / 2
@@ -78,6 +81,12 @@ impl AudioClip {
                 let r = if channels > 1 { frame[1] } else { l };
                 samples.push(l);
                 samples.push(r);
+            }
+            if samples.len() / 2 > rate as usize * MAX_SECONDS {
+                return Err(Error::Decode(format!(
+                    "recording is longer than {} hours",
+                    MAX_SECONDS / 3600
+                )));
             }
         }
         if samples.is_empty() {

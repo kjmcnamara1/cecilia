@@ -592,6 +592,8 @@ pub enum Command {
     OpenDialog,
     /// Write the buffer, to its own file or (exporting) to another path.
     Write(Option<PathBuf>),
+    /// `:write! FILE` / `:save-as! FILE`: save as FILE even if that file already exists.
+    WriteOver(PathBuf),
     /// Write the buffer to a new file and make that its file (`:save-as`); without a path, ask
     /// in the system file dialog.
     SaveAs(Option<PathBuf>),
@@ -770,6 +772,14 @@ impl Command {
             "open-dialog" => OpenDialog,
             "write" | "w" => Write(arg.map(expand_tilde)),
             "save-as" | "saveas" => SaveAs(arg.map(expand_tilde)),
+            "write!" | "w!" => match arg {
+                Some(_) => WriteOver(path()?),
+                None => Write(None),
+            },
+            "save-as!" | "saveas!" => match arg {
+                Some(_) => WriteOver(path()?),
+                None => SaveAs(None),
+            },
             "wall" | "wa" => WriteAll,
             "write-quit" | "wq" | "x" | "wqall" | "wqa" | "xall" | "xa" => WriteQuit,
             "quit" | "q" | "quitall" | "qa" => Quit { force: false },
