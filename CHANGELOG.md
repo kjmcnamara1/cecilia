@@ -9,6 +9,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- GUI: a window close "x" at the far right of the toolbar, styled like a buffer tab's close button (runs `:quit`).
 - `docs/COMMANDS.md`: reference of every command, with aliases, arguments and scope. A test in `complete.rs` fails when it drifts from the parser.
 - `docs/OPTIONS.md`: the option types, how to set and get options (config file, `-o`, `:set` / `:get`), and a table of every option with its type, default, description and an example.
 
