@@ -1,10 +1,10 @@
-<p align="center"><img src="assets/cecilia.png" alt="cecilia" width="120"></p>
+<p align="center"><img src="assets/lily.svg" alt="cecilia" width="120"></p>
 
 # cecilia
 
 **A keyboard-first editor and player for guitar tab, standard notation and Gregorian chant.**
 Open Guitar Pro files, play along with a recording, and edit square-note chant in a real
-WYSIWYG editor. Free and open source, written in Rust, with a window *and* a terminal interface.
+WYSIWYG editor. Free and open source, written in Rust, with a window _and_ a terminal interface.
 
 ![cecilia: reading a Guitar Pro tab, a live fretboard, the tracks panel, then Gregorian chant](assets/demo.gif)
 
@@ -29,6 +29,7 @@ WYSIWYG editor. Free and open source, written in Rust, with a window *and* a ter
 ## Features
 
 **Notation and engraving**
+
 - Guitar tablature, standard notation, slash notation, drums (standard drum notation and
   CY/HH/SN/BD drum tab) and piano grand staves; up to four voices per bar
 - Lyrics with several verses, hyphenation and repeats; markers, sections and repeats
@@ -39,6 +40,7 @@ WYSIWYG editor. Free and open source, written in Rust, with a window *and* a ter
 - Page, continuous-vertical and continuous-horizontal layouts, zoom, split panes
 
 **Playback and practice**
+
 - MIDI playback with a moving cursor, through a SoundFont (`.sf2`) or a built-in synth
 - Audio play-along: attach a recording (or use the one embedded in a GP7/8 file), sync it by
   tapping bars or with beat detection, and play it alone or mixed with the MIDI at any speed or
@@ -48,8 +50,9 @@ WYSIWYG editor. Free and open source, written in Rust, with a window *and* a ter
 - A tracks panel with volume, solo, mute and instrument per track
 
 **Editing**
+
 - Vim-style Normal / Insert / Visual modes, operators and counts, macros, marks and an undo
-  *tree*
+  _tree_
 - Command line (`:`), command palette, pickers for files, buffers and workspaces, a which-key
   hint popup, mouse support
 - Workspaces: views, pane splits and open files are remembered between sessions
@@ -57,10 +60,12 @@ WYSIWYG editor. Free and open source, written in Rust, with a window *and* a ter
   reloaded as you save
 
 **Interfaces**
+
 - **GUI**: a GPU-rendered window (wgpu/vello) with engraved notation and click-to-place cursor
 - **TUI**: a terminal interface with tablature view and basic editing, which also works over SSH
 
 **Files and export**
+
 - From the command line (`cecilia convert`): PDF, SVG and PNG export of engraved notation; WAV/FLAC
   export of the MIDI rendering mixed with the recording; MIDI, MusicXML and GABC output
 
@@ -110,11 +115,11 @@ git clone https://github.com/kjmcnamara1/cecilia.git && cd cecilia
 
 Building needs a C compiler, `pkg-config` and the ALSA development files (the window system libraries are loaded at run time):
 
-| Distribution | Packages |
-|---|---|
+| Distribution    | Packages                                                     |
+| --------------- | ------------------------------------------------------------ |
 | Debian / Ubuntu | `sudo apt install build-essential pkg-config libasound2-dev` |
-| Fedora | `sudo dnf install gcc pkgconf-pkg-config alsa-lib-devel` |
-| Arch | `sudo pacman -S base-devel alsa-lib` |
+| Fedora          | `sudo dnf install gcc pkgconf-pkg-config alsa-lib-devel`     |
+| Arch            | `sudo pacman -S base-devel alsa-lib`                         |
 
 Then run the installer, which builds cecilia and adds a desktop entry, icon and file types so
 file managers offer it for Guitar Pro, GABC and cecilia files:
@@ -169,20 +174,20 @@ cecilia convert chant.gabc chant.pdf                  # square notation
 
 ### First steps in the editor
 
-| keys | what it does |
-|---|---|
-| `h` `j` `k` `l` | move by beat and string (`j` / `k` between staff lines in notation) |
-| `w` `b`, `{` `}` | next / previous note, previous / next bar |
-| `J` `K` | next / previous track |
-| `Space Space`, `Space s` | play / pause, stop |
-| `Space v` | cycle page / vertical / horizontal layout |
-| `Space T`, `Space F`, `Space K` | tracks panel, fretboard, piano |
-| `i` | Insert mode: type fret numbers, `Esc` to leave |
-| `u`, `U` | undo, redo (`g-` / `g+` walk the undo tree) |
-| `Ctrl-=` `Ctrl--` | zoom |
-| `<C-w>s` `<C-w>v` | split the pane |
-| `:` | command line, e.g. `:w song.gp5`, `:q` |
-| `F1` or `Space ?` | every key binding, searchable |
+| keys                            | what it does                                                        |
+| ------------------------------- | ------------------------------------------------------------------- |
+| `h` `j` `k` `l`                 | move by beat and string (`j` / `k` between staff lines in notation) |
+| `w` `b`, `{` `}`                | next / previous note, previous / next bar                           |
+| `J` `K`                         | next / previous track                                               |
+| `Space Space`, `Space s`        | play / pause, stop                                                  |
+| `Space v`                       | cycle page / vertical / horizontal layout                           |
+| `Space T`, `Space F`, `Space K` | tracks panel, fretboard, piano                                      |
+| `i`                             | Insert mode: type fret numbers, `Esc` to leave                      |
+| `u`, `U`                        | undo, redo (`g-` / `g+` walk the undo tree)                         |
+| `Ctrl-=` `Ctrl--`               | zoom                                                                |
+| `<C-w>s` `<C-w>v`               | split the pane                                                      |
+| `:`                             | command line, e.g. `:w song.gp5`, `:q`                              |
+| `F1` or `Space ?`               | every key binding, searchable                                       |
 
 `Space` is the leader key. Open a chant with `cecilia chant.gabc --gui` and use `t` followed by
 a letter for note shapes, clefs and divisions (see [docs/keymap.md](docs/keymap.md)).
