@@ -56,3 +56,28 @@ jobs:
       - uses: dtolnay/rust-toolchain@stable
       - uses: Swatinem/rust-cache@v2
       - run: cargo test --workspace --locked --no-fail-fast
+
+  # Informational: does the GPU renderer start on hosted macOS and Windows runners? These runners
+  # may have no usable GPU, so a failure here is a finding, not a regression (hence
+  # continue-on-error). The image is uploaded to look at.
+  render-smoke:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [macos-latest, windows-latest]
+    runs-on: ${{ matrix.os }}
+    continue-on-error: true
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+      - run: cargo build --release --locked
+      - name: Render the start screen headless
+        shell: bash
+        run: ./target/release/cecilia -W ci --screenshot render.png
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: render-${{ matrix.os }}
+          path: render.png
+          if-no-files-found: warn
