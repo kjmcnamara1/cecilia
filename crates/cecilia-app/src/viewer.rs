@@ -305,10 +305,10 @@ impl App {
 
     /// The button comes up: a press without a drag selects nothing.
     pub fn viewer_release(&mut self) {
-        if let Some(e) = self.viewer.as_mut().map(|v| &mut v.edit) {
-            if e.anchor == Some(e.caret) {
-                e.anchor = None;
-            }
+        if let Some(e) = self.viewer.as_mut().map(|v| &mut v.edit)
+            && e.anchor == Some(e.caret)
+        {
+            e.anchor = None;
         }
         self.viewer_sync_mode();
     }

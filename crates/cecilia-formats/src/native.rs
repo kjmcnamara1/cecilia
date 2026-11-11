@@ -49,16 +49,16 @@ pub fn write_cecilia(score: &Score) -> Result<Vec<u8>> {
     zip.write_all(manifest.as_bytes())?;
     zip.start_file("score.json", options).map_err(zerr)?;
     zip.write_all(&json)?;
-    if let Some(audio) = &score.audio {
-        if let Some(data) = &audio.embedded {
-            let name = audio.file.as_deref().unwrap_or("audio");
-            let base = name.rsplit('/').next().unwrap_or(name);
-            let stored = zip::write::SimpleFileOptions::default()
-                .compression_method(zip::CompressionMethod::Stored);
-            zip.start_file(format!("audio/{base}"), stored)
-                .map_err(zerr)?;
-            zip.write_all(data)?;
-        }
+    if let Some(audio) = &score.audio
+        && let Some(data) = &audio.embedded
+    {
+        let name = audio.file.as_deref().unwrap_or("audio");
+        let base = name.rsplit('/').next().unwrap_or(name);
+        let stored = zip::write::SimpleFileOptions::default()
+            .compression_method(zip::CompressionMethod::Stored);
+        zip.start_file(format!("audio/{base}"), stored)
+            .map_err(zerr)?;
+        zip.write_all(data)?;
     }
     Ok(zip.finish().map_err(zerr)?.into_inner())
 }
@@ -98,11 +98,11 @@ pub fn read_cecilia(bytes: &[u8]) -> Result<Score> {
             .file
             .as_deref()
             .map(|f| f.rsplit('/').next().unwrap_or(f).to_string());
-        if let Some(base) = base {
-            if let Ok(entry) = zip.by_name(&format!("audio/{base}")) {
-                let data = crate::read_entry(entry, &mut budget, "embedded audio")?;
-                audio.embedded = Some(std::sync::Arc::new(data));
-            }
+        if let Some(base) = base
+            && let Ok(entry) = zip.by_name(&format!("audio/{base}"))
+        {
+            let data = crate::read_entry(entry, &mut budget, "embedded audio")?;
+            audio.embedded = Some(std::sync::Arc::new(data));
         }
     }
     if version < 2 {
@@ -186,10 +186,10 @@ fn drop_chant_staves(score: &mut serde_json::Value) {
             if let Some(a) = track.get_mut("staves").and_then(|s| s.as_array_mut()) {
                 a.remove(i);
             }
-            if let Some(a) = track.get_mut("staff_lyrics").and_then(|s| s.as_array_mut()) {
-                if i < a.len() {
-                    a.remove(i);
-                }
+            if let Some(a) = track.get_mut("staff_lyrics").and_then(|s| s.as_array_mut())
+                && i < a.len()
+            {
+                a.remove(i);
             }
         }
     }

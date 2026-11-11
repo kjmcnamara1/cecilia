@@ -707,13 +707,13 @@ fn source_reads_as(chant: &Chant, source: &ChantSource) -> Option<SourceMap> {
 /// The chant's kept GABC body when it still reads as the chant, else the chant written out
 /// afresh. The map is always the text's own.
 pub fn source_of(chant: &Chant) -> ChantSource {
-    if let Some(src) = &chant.source {
-        if let Some(map) = source_reads_as(chant, src) {
-            return ChantSource {
-                text: src.text.clone(),
-                map,
-            };
-        }
+    if let Some(src) = &chant.source
+        && let Some(map) = source_reads_as(chant, src)
+    {
+        return ChantSource {
+            text: src.text.clone(),
+            map,
+        };
     }
     let (text, map) = body_with_map(chant);
     ChantSource { text, map }
@@ -722,13 +722,13 @@ pub fn source_of(chant: &Chant) -> ChantSource {
 /// Makes the chant's kept text and map consistent (after a file was read: the maps are not
 /// saved). A text that no longer reads as the chant is dropped.
 pub fn refresh_source(chant: &mut Chant) {
-    if let Some(src) = chant.source.take() {
-        if let Some(map) = source_reads_as(chant, &src) {
-            chant.source = Some(ChantSource {
-                text: src.text,
-                map,
-            });
-        }
+    if let Some(src) = chant.source.take()
+        && let Some(map) = source_reads_as(chant, &src)
+    {
+        chant.source = Some(ChantSource {
+            text: src.text,
+            map,
+        });
     }
 }
 
@@ -748,23 +748,23 @@ pub enum SourceSync {
 /// gets a splice at the place the chants differ, so the rest of it stays byte for byte; when
 /// that does not read as `new` the whole text is written afresh.
 pub fn sync_source(old: &Chant, new: &mut Chant) -> SourceSync {
-    if let Some(src) = &new.source {
-        if let Some(map) = source_reads_as(new, src) {
-            new.source = Some(ChantSource {
-                text: src.text.clone(),
-                map,
-            });
-            return SourceSync::Kept;
-        }
+    if let Some(src) = &new.source
+        && let Some(map) = source_reads_as(new, src)
+    {
+        new.source = Some(ChantSource {
+            text: src.text.clone(),
+            map,
+        });
+        return SourceSync::Kept;
     }
     let before = source_of(old);
     if let Some(splice) = plan_splice(old, &before.map, &before.text, new) {
         let text = splice.apply(&before.text);
-        if let Ok((read, map)) = reparse_body(new, &text) {
-            if read.syllables == new.syllables {
-                new.source = Some(ChantSource { text, map });
-                return SourceSync::Spliced(splice.kind);
-            }
+        if let Ok((read, map)) = reparse_body(new, &text)
+            && read.syllables == new.syllables
+        {
+            new.source = Some(ChantSource { text, map });
+            return SourceSync::Spliced(splice.kind);
         }
     }
     let (text, map) = body_with_map(new);

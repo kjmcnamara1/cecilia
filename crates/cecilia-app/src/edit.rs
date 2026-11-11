@@ -1267,14 +1267,14 @@ pub fn reflow(cx: &mut EditCx, from: Pos, to: Pos) -> Result<(), String> {
                 beats.push(beat);
                 continue;
             }
-            if room > 0 {
-                if let Some((head, tail)) = split_beat(&beat, room) {
-                    beats.extend(head);
-                    for p in tail.into_iter().rev() {
-                        queue.push_front(p);
-                    }
-                    break;
+            if room > 0
+                && let Some((head, tail)) = split_beat(&beat, room)
+            {
+                beats.extend(head);
+                for p in tail.into_iter().rev() {
+                    queue.push_front(p);
                 }
+                break;
             }
             // It does not fit and cannot be split: it starts the next bar (a beat longer than
             // a whole bar stays alone in an empty one).

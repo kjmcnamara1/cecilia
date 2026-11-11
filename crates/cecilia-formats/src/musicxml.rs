@@ -272,12 +272,12 @@ fn tuplet_brackets(beats: &[(Option<usize>, Beat)]) -> Vec<(bool, bool)> {
     let mut group: Option<(Tuplet, u32, u32, usize)> = None; // ratio, span, filled, first index
     for (i, (_, b)) in beats.iter().enumerate() {
         let tp = b.duration.tuplet;
-        if let Some((ratio, _, _, first)) = group {
-            if tp != Some(ratio) {
-                out[first].0 = true;
-                out[i - 1].1 = true;
-                group = None;
-            }
+        if let Some((ratio, _, _, first)) = group
+            && tp != Some(ratio)
+        {
+            out[first].0 = true;
+            out[i - 1].1 = true;
+            group = None;
         }
         let Some(tp) = tp else { continue };
         let g = group.get_or_insert((tp, tp.times as u32 * b.duration.value.ticks(), 0, i));
@@ -1497,10 +1497,10 @@ fn read_part(score: &mut Score, part: Node, index: usize, info: PartInfo) {
             track.bars.push(bar);
         }
         // Keep the clef only where it differs from the one cecilia would choose anyway.
-        if let Some(c) = track.clef.take() {
-            if track.staff_clef() != c {
-                track.clef = Some(c);
-            }
+        if let Some(c) = track.clef.take()
+            && track.staff_clef() != c
+        {
+            track.clef = Some(c);
         }
         score.tracks.push(track);
     }

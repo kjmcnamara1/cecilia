@@ -105,7 +105,7 @@ In the terminal, chant is shown as a text staff (the engraved view needs the GUI
 ## Installation
 
 cecilia is not packaged yet: the repository has version tags only, no binary releases or
-distribution packages, so for now you build it from source. You need a [Rust toolchain](https://rustup.rs) (1.85 or newer) and git.
+distribution packages, so for now you build it from source. You need a [Rust toolchain](https://rustup.rs) (1.88 or newer) and git.
 
 ```sh
 git clone https://github.com/kjmcnamara1/cecilia.git && cd cecilia

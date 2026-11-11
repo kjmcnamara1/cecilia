@@ -977,16 +977,16 @@ impl Widget for TabView<'_> {
                         }
                     }
                     // Beat text above the staff, if room.
-                    if let Some(text) = beat.and_then(|b| b.text.as_deref()) {
-                        if bl.beats.len() > 1 || bl.width > 6 {
-                            let t: String = text.chars().take(w as usize).collect();
-                            buf.set_string(
-                                bx_beat,
-                                top_y + sh - 1,
-                                t,
-                                Style::default().fg(rc(th.marker)),
-                            );
-                        }
+                    if let Some(text) = beat.and_then(|b| b.text.as_deref())
+                        && (bl.beats.len() > 1 || bl.width > 6)
+                    {
+                        let t: String = text.chars().take(w as usize).collect();
+                        buf.set_string(
+                            bx_beat,
+                            top_y + sh - 1,
+                            t,
+                            Style::default().fg(rc(th.marker)),
+                        );
                     }
                     if let Some(px) = playhead.filter(|&x| x < area.x + area.width) {
                         for s in 0..rows as u16 {

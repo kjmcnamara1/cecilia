@@ -95,10 +95,10 @@ impl Frecency {
         if let Some(path) = &self.file {
             // Failing to save must never raise a notification.
             let tmp = path.with_extension("tmp");
-            if let Ok(text) = serde_json::to_string(&self.table) {
-                if std::fs::write(&tmp, text).is_ok() {
-                    let _ = std::fs::rename(&tmp, path);
-                }
+            if let Ok(text) = serde_json::to_string(&self.table)
+                && std::fs::write(&tmp, text).is_ok()
+            {
+                let _ = std::fs::rename(&tmp, path);
             }
         }
     }

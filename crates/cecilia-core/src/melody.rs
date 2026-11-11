@@ -161,10 +161,10 @@ pub fn melody(
             tick += ticks;
         }
         tick_total += score.master_bars.get(bi).map_or(tick, |m| m.ticks());
-        if score.master_bars.get(bi).is_some_and(|m| m.double_bar) {
-            if let Some(last) = events.last_mut() {
-                last.division = Some(":".into());
-            }
+        if score.master_bars.get(bi).is_some_and(|m| m.double_bar)
+            && let Some(last) = events.last_mut()
+        {
+            last.division = Some(":".into());
         }
     }
     if let Some(last) = events.last_mut() {

@@ -74,10 +74,12 @@ pub fn handle_at(
         .collect();
     beats.sort_by_key(|b| (b.voice, b.beat));
     for b in beats {
-        if let Some((p, bx, by)) = beat_handle(layout, b) {
-            if p == page && (x - bx).abs() <= BEAT_R + tol && (y - by).abs() <= BEAT_R + tol {
-                return Some(Handle::Beat(*b));
-            }
+        if let Some((p, bx, by)) = beat_handle(layout, b)
+            && p == page
+            && (x - bx).abs() <= BEAT_R + tol
+            && (y - by).abs() <= BEAT_R + tol
+        {
+            return Some(Handle::Beat(*b));
         }
     }
     for (i, sys) in layout

@@ -235,18 +235,17 @@ impl App {
 
     /// Keys while the tracks panel has the focus: its own keymap (`[keymap.tracks]`).
     pub(crate) fn tracks_key(&mut self, key: Key) {
-        if self.pending.is_empty() {
-            if let Some(d) = key.as_char().and_then(|c| c.to_digit(10)) {
-                if d != 0 || self.count.is_some() {
-                    self.count = Some(
-                        self.count
-                            .unwrap_or(0)
-                            .saturating_mul(10)
-                            .saturating_add(d as usize),
-                    );
-                    return;
-                }
-            }
+        if self.pending.is_empty()
+            && let Some(d) = key.as_char().and_then(|c| c.to_digit(10))
+            && (d != 0 || self.count.is_some())
+        {
+            self.count = Some(
+                self.count
+                    .unwrap_or(0)
+                    .saturating_mul(10)
+                    .saturating_add(d as usize),
+            );
+            return;
         }
         self.pending.push(key);
         let cmds = match self.config.keymap(Mode::Tracks).lookup(&self.pending) {
@@ -293,11 +292,11 @@ impl App {
             c.string = 0;
             c.voice = 0;
         }
-        if let Some(b) = bar {
-            if b != c.bar {
-                c.bar = b;
-                c.beat = 0;
-            }
+        if let Some(b) = bar
+            && b != c.bar
+        {
+            c.bar = b;
+            c.beat = 0;
         }
         crate::app::clamp_cursor(score, &mut c);
         self.pane_mut().cursor = c;

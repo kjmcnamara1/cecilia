@@ -1305,10 +1305,10 @@ impl Config {
         let (theme, theme_errors) = crate::theme::Theme::from_config(&file.theme);
         errors.extend(theme_errors);
         for item in &file.toolbar.items {
-            if item.trim() != "|" {
-                if let Err(e) = Command::parse(item) {
-                    errors.push(format!("toolbar.items: {e}"));
-                }
+            if item.trim() != "|"
+                && let Err(e) = Command::parse(item)
+            {
+                errors.push(format!("toolbar.items: {e}"));
             }
         }
         (

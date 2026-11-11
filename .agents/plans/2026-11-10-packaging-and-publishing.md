@@ -32,7 +32,7 @@ SmartScreen/Gatekeeper warning in the README), Flatpak/Snap/AppImage (not in TOD
 
 ### Phase 1 — GitHub Actions (CI)
 
-1. `.github/workflows/ci.yml`: on push/PR, ubuntu-latest, install `libasound2-dev pkg-config`, `dtolnay/rust-toolchain` stable + `Swatinem/rust-cache`, then `cargo fmt --check`, `cargo clippy --workspace --all-targets -- -D warnings`, `cargo test --workspace`. Add a `rust-version` (1.85) check job with `cargo check --workspace`.
+1. `.github/workflows/ci.yml`: on push/PR, ubuntu-latest, install `libasound2-dev pkg-config`, `dtolnay/rust-toolchain` stable + `Swatinem/rust-cache`, then `cargo fmt --check`, `cargo clippy --workspace --all-targets -- -D warnings`, `cargo test --workspace`. Add a `rust-version` (1.88: the dependencies need it, ratatui 0.30 and time 0.3.55 require 1.88; CI found that the earlier 1.85 was wrong) check job with `cargo check --workspace`.
 2. Make `test-corpus`-dependent tests skip cleanly when the dir is missing (find with `grep -rn test-corpus crates`); verify with `cargo test --workspace` in a worktree lacking the directory.
 3. Add a Windows and macOS `cargo check --workspace` matrix job (this is what proves the later release phases are feasible).
 4. Verify: push a branch, all jobs green.
@@ -99,7 +99,7 @@ Shared: a script/Makefile target `packaging/linux/stage.sh DESTDIR PREFIX` that 
 ## Status
 
 - [x] Phase 0 — repo metadata, release profile (done 2026-11-11 on `chore/packaging-phase-0`: `[workspace.package]` has repository/homepage/readme/keywords/categories, inherited by all 9 crates; `[profile.release]` is `lto = "thin"`, `codegen-units = 1`, `strip = true`: binary 32.5 MB -> 23.4 MB, clean release build ~2 min on this machine; runtime speed not measured. GitHub repo `kjmcnamara1/cecilia` created public 2026-11-11, `main` and all tags pushed; this branch is not merged yet)
-- [ ] Phase 1 — CI workflow
+- [x] Phase 1 — CI workflow (PR #1, all 4 jobs green on 750bd0f: Ubuntu fmt+clippy+test, MSRV 1.88, Windows and macOS `cargo check --all-targets`; Windows/macOS tests are not run in CI; the MSRV was corrected from 1.85 to 1.88; not merged yet)
 - [ ] Phase 2 — release workflow (binaries, checksums, release notes)
 - [ ] Phase 3 — crates.io
 - [ ] Phase 4 — Linux: stage script, PKGBUILD, cecilia-bin, .deb, .rpm

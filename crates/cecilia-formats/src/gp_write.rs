@@ -323,7 +323,7 @@ impl Writer {
         }
         if flags & 0x03 != 0 {
             let ts = mb.time_signature;
-            let beams = if ts.denominator == 8 && ts.numerator % 3 == 0 {
+            let beams = if ts.denominator == 8 && ts.numerator.is_multiple_of(3) {
                 [3, 3, 3, 3]
             } else {
                 [2, 2, 2, 2]

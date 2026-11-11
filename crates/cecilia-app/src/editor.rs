@@ -251,10 +251,11 @@ impl App {
             keys.push(key);
         }
         let in_insert = self.mode == Mode::Insert;
-        if in_insert && self.ed.replaying == 0 {
-            if let Some(k) = self.ed.change_keys.as_mut() {
-                k.push(key);
-            }
+        if in_insert
+            && self.ed.replaying == 0
+            && let Some(k) = self.ed.change_keys.as_mut()
+        {
+            k.push(key);
         }
         let before = (self.focused(), self.pane().buffer, self.pane().cursor);
         let visual = self.selection();
@@ -472,18 +473,17 @@ impl App {
             return;
         }
         self.ed.cmd_keys.push(key);
-        if self.pending.is_empty() {
-            if let Some(d) = key.as_char().and_then(|c| c.to_digit(10)) {
-                if d != 0 || self.count.is_some() {
-                    self.count = Some(
-                        self.count
-                            .unwrap_or(0)
-                            .saturating_mul(10)
-                            .saturating_add(d as usize),
-                    );
-                    return;
-                }
-            }
+        if self.pending.is_empty()
+            && let Some(d) = key.as_char().and_then(|c| c.to_digit(10))
+            && (d != 0 || self.count.is_some())
+        {
+            self.count = Some(
+                self.count
+                    .unwrap_or(0)
+                    .saturating_mul(10)
+                    .saturating_add(d as usize),
+            );
+            return;
         }
         self.pending.push(key);
         let kind = self.insert_kind();
@@ -681,12 +681,13 @@ impl App {
             .tracks
             .get(cursor.track)
             .is_some_and(|t| t.kind == TrackKind::Drums);
-        if drums && self.pending.is_empty() {
-            if let Some(k) = key.as_char().and_then(cecilia_core::drums::key_for_letter) {
-                let duration = self.insert_duration();
-                self.edit(|cx| edit::toggle_drum(cx, k, duration));
-                return;
-            }
+        if drums
+            && self.pending.is_empty()
+            && let Some(k) = key.as_char().and_then(cecilia_core::drums::key_for_letter)
+        {
+            let duration = self.insert_duration();
+            self.edit(|cx| edit::toggle_drum(cx, k, duration));
+            return;
         }
         self.pending.push(key);
         // The notation's own keys first, then the shared insert keys.
@@ -824,12 +825,12 @@ impl App {
         let chant_before = buffer.score.is_chant().then(|| buffer.score.clone());
         let mut cx = EditCx::new(&mut buffer.score, pane.cursor);
         let mut result = f(&mut cx);
-        if let Some(before) = &chant_before {
-            if let Err(e) = cx.guard_chant(before) {
-                cx.cursor = pane.cursor;
-                if result.is_ok() {
-                    result = Err(e);
-                }
+        if let Some(before) = &chant_before
+            && let Err(e) = cx.guard_chant(before)
+        {
+            cx.cursor = pane.cursor;
+            if result.is_ok() {
+                result = Err(e);
             }
         }
         // The note points of the audio sync follow their notes; the player's bar points are
