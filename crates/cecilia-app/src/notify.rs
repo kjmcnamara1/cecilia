@@ -77,10 +77,6 @@ pub struct Notice {
     pub icon: Option<NoticeIcon>,
     /// Seconds on screen (0: until dismissed); the severity's timeout when unset.
     pub timeout: Option<f64>,
-    /// Where the body starts in `text` (what a replayed history entry knew already).
-    pub body_at: Option<usize>,
-    /// Put it in the history (not when a history entry is shown again).
-    pub record: bool,
 }
 
 impl Notice {
@@ -88,7 +84,6 @@ impl Notice {
         Notice {
             text: text.into(),
             error,
-            record: true,
             ..Notice::default()
         }
     }
@@ -290,7 +285,7 @@ impl Notifications {
         let (subject, body_at, icon) = match n.subject {
             Some(s) => (
                 s,
-                n.body_at.unwrap_or(0),
+                0,
                 n.icon.unwrap_or(if n.error {
                     NoticeIcon::Error
                 } else {
@@ -299,7 +294,7 @@ impl Notifications {
             ),
             None => {
                 let (s, at, i) = classify(&n.text, n.error);
-                (s, n.body_at.unwrap_or(at), n.icon.unwrap_or(i))
+                (s, at, n.icon.unwrap_or(i))
             }
         };
         let timeout = match n.timeout {
@@ -343,21 +338,19 @@ impl Notifications {
                 (self.next_id, 1)
             }
         };
-        if n.record {
-            self.record(
-                HistoryEntry {
-                    key,
-                    ts: unix_now(),
-                    error: n.error,
-                    subject,
-                    text: n.text,
-                    body_at,
-                    icon,
-                    count,
-                },
-                cfg,
-            );
-        }
+        self.record(
+            HistoryEntry {
+                key,
+                ts: unix_now(),
+                error: n.error,
+                subject,
+                text: n.text,
+                body_at,
+                icon,
+                count,
+            },
+            cfg,
+        );
     }
 
     /// Shows a question that stays until [`dismiss_prompts`](Self::dismiss_prompts).
@@ -487,11 +480,12 @@ impl Notifications {
 /// Where the history lives: `$XDG_STATE_HOME/cecilia/notifications.jsonl`, else
 /// `~/.local/state/cecilia/notifications.jsonl`.
 pub fn default_history_file() -> Option<PathBuf> {
-    Some(
-        crate::default_swap_dir()?
-            .parent()?
-            .join("notifications.jsonl"),
-    )
+    state_file("notifications.jsonl")
+}
+
+/// A file in cecilia's state directory (the swap directory's parent).
+pub(crate) fn state_file(name: &str) -> Option<PathBuf> {
+    Some(crate::default_swap_dir()?.parent()?.join(name))
 }
 
 /// A time as the history shows it: how long ago ("now", "5m", "2h", "3d"), or the date and time
@@ -727,23 +721,6 @@ impl App {
                 self.notifications.keep_history(path, limit);
             }
         }
-    }
-
-    /// Shows a notification of the history again, as it was (not added to the history).
-    pub(crate) fn notify_replay(&mut self, key: u64) {
-        let Some(e) = self.notifications.history().iter().find(|e| e.key == key) else {
-            return;
-        };
-        let notice = Notice {
-            text: e.text.clone(),
-            error: e.error,
-            subject: Some(e.subject.clone()),
-            icon: Some(e.icon),
-            timeout: None,
-            body_at: Some(e.body_at),
-            record: false,
-        };
-        self.raise(notice);
     }
 
     /// Forgets every notification, for tests.
@@ -1043,13 +1020,14 @@ mod tests {
         app.run(crate::Command::parse("notify -s Hello -i file hi there").unwrap());
         app.notifications.dismiss_all();
         let key = app.notifications.history()[0].key;
-        app.run(crate::Command::NotifyReplay(key));
-        let (cards, _) = app.notifications_shown();
+        app.run(crate::Command::NotifyView(key));
+        // It opens in a popup, not as a card, and is not recorded again.
+        let v = app.viewer().unwrap();
         assert_eq!(
-            (cards[0].subject.as_str(), cards[0].body(), cards[0].icon),
+            (v.subject.as_str(), v.edit.text.as_str(), v.icon),
             ("Hello", "hi there", NoticeIcon::File)
         );
-        // It is not recorded again.
+        assert!(app.notifications_shown().0.is_empty());
         assert_eq!(app.notifications.history().len(), 1);
     }
 

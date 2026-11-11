@@ -26,12 +26,10 @@ pub(crate) enum Awaiting {
     Register,
     RecordMacro,
     PlayMacro,
-    /// `m`: the mark's letter.
+    /// `` ` ``: the mark's letter.
     Mark,
-    /// `'` / `` ` ``: the mark to jump to.
-    Jump {
-        exact: bool,
-    },
+    /// `'`: the mark to jump to.
+    Jump,
 }
 
 #[derive(Debug, Default)]
@@ -41,9 +39,9 @@ pub(crate) struct EditorState {
     pub(crate) operator: Option<(Operator, Option<usize>)>,
     pub visual_anchor: Option<Cursor>,
     pub visual_bars: bool,
-    /// Per buffer: the last Visual selection (anchor, cursor, whole bars), for `gv` and `` `< ``.
+    /// Per buffer: the last Visual selection (anchor, cursor, whole bars), for `gv`.
     last_visual: HashMap<usize, (Cursor, Cursor, bool)>,
-    /// Per buffer: where Insert mode was last left, for `gi` and `` `^ ``.
+    /// Per buffer: where Insert mode was last left, for `gi`.
     last_insert: HashMap<usize, Cursor>,
     pub(crate) registers: HashMap<char, Clip>,
     pub(crate) register: Option<char>,
@@ -572,7 +570,7 @@ impl App {
     fn awaited(&mut self, a: Awaiting, c: char) {
         match a {
             Awaiting::Mark => self.set_mark(c),
-            Awaiting::Jump { exact } => self.jump_to_mark(c, exact),
+            Awaiting::Jump => self.jump_to_mark(c),
             Awaiting::Register => {
                 self.ed.register = Some(c);
                 self.ed.cmd_keys = vec![Key::char('"'), Key::char(c)];
@@ -1210,9 +1208,9 @@ impl App {
             },
             PlayMacro => self.ed.awaiting = Some(Awaiting::PlayMacro),
             SetMark => self.ed.awaiting = Some(Awaiting::Mark),
-            GotoMark(c) => self.jump_to_mark(*c, true),
+            GotoMark(c) => self.jump_to_mark(*c),
             RunMacro(c) => self.awaited(Awaiting::PlayMacro, *c),
-            JumpMark { exact } => self.ed.awaiting = Some(Awaiting::Jump { exact: *exact }),
+            JumpMark => self.ed.awaiting = Some(Awaiting::Jump),
             Register => self.ed.awaiting = Some(Awaiting::Register),
             Visual { bars } => {
                 self.ed.visual_anchor = Some(self.pane().cursor);
@@ -3137,7 +3135,7 @@ mod tests {
         let (anchor, cursor, _) = a.selection().unwrap();
         assert!(anchor.bar < bars && cursor.bar < bars);
         // The marks jump to the ends too.
-        keys(&mut a, "<Esc>gg`>");
+        keys(&mut a, "<Esc>gg'>");
         assert_eq!(a.pane().cursor.bar, anchor.bar.max(cursor.bar));
     }
 
@@ -3156,7 +3154,7 @@ mod tests {
         keys(&mut a, "gi");
         assert_eq!(a.mode, Mode::Insert);
         assert_eq!(a.pane().cursor, left);
-        keys(&mut a, "<Esc>gg`^");
+        keys(&mut a, "<Esc>gg'^");
         assert_eq!(a.pane().cursor, left);
         // Edits that shrink the score clamp the position.
         keys(&mut a, "7}i5<Esc>gg7dd");

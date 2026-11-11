@@ -24,6 +24,25 @@ thread_local! {
 thread_local! {
     /// The popup look of the frame being built (set by [`build`]).
     static POPUPS: std::cell::RefCell<cecilia_app::config::PopupsConfig> = Default::default();
+    /// The blurred frame behind popups and its scale (logical units per image pixel), when
+    /// [`Views::set_backdrop`] gave one for the frame being built.
+    static BACKDROP: std::cell::RefCell<Option<(vello::peniko::Image, f64)>> = const { std::cell::RefCell::new(None) };
+}
+
+/// Fills `shape` with the blurred page behind it (nothing without a backdrop): the layer under a
+/// popup's translucent surface.
+fn backdrop(scene: &mut Scene, shape: &impl vello::kurbo::Shape) {
+    BACKDROP.with(|b| {
+        if let Some((image, k)) = &*b.borrow() {
+            scene.fill(
+                Fill::NonZero,
+                Affine::IDENTITY,
+                image,
+                Some(Affine::scale(*k)),
+                shape,
+            );
+        }
+    });
 }
 
 /// A popup option: opacity, shadow opacity, shadow blur, shadow offset.
@@ -153,6 +172,8 @@ const SCROLLBAR: f64 = 10.0;
 /// Per-pane view state kept between frames.
 #[derive(Default)]
 pub struct Views {
+    /// The blurred page behind popups (see [`Views::set_backdrop`]).
+    backdrop: Option<(vello::peniko::Image, f64)>,
     cache: HashMap<PaneId, Cached>,
     scroll: HashMap<PaneId, (f64, f64)>,
     geometry: Vec<Geometry>,
@@ -202,6 +223,8 @@ pub struct Views {
     props_rect: Option<Rect>,
     /// The lyrics text area as drawn, to put the caret where a click lands.
     props_text: Option<PropsText>,
+    /// The text viewer popup as drawn: its area, close button, title bar and text.
+    viewer: Option<(Rect, Rect, Rect, PropsText)>,
     /// Clickable areas of the properties pane drawn last frame.
     props: Vec<(Rect, PropHit)>,
     /// The editing palette's rows drawn last frame, and its area for the wheel.
@@ -213,6 +236,8 @@ pub struct Views {
     progress: Vec<(Rect, PaneId)>,
     /// The last click: when and where, to tell a double click.
     last_click: Option<(std::time::Instant, f64, f64)>,
+    /// How many presses in a row that click made (2: double, 3: triple).
+    click_run: u8,
     /// The waveforms drawn last frame (`None`: the window bar, else a pane's strip).
     wave_rects: Vec<(Rect, Option<PaneId>)>,
     /// Scroll and zoom of each waveform.
@@ -277,6 +302,10 @@ enum Edge {
 enum Drag {
     /// A selection in the lyrics text area.
     Text,
+    /// A selection in the text viewer popup.
+    Viewer,
+    /// The popup being moved by its title bar: where the pointer was last.
+    ViewerMove(f64, f64),
     /// A staff row of the properties pane (where it began, and the row under the mouse now).
     Prop(usize, usize, bool),
     /// A row's volume slider (row, left, right).
@@ -1040,8 +1069,10 @@ fn fill(scene: &mut Scene, r: Rect, c: Color) {
     scene.fill(Fill::NonZero, Affine::IDENTITY, c, None, &r);
 }
 
+#[allow(clippy::too_many_arguments)]
 pub fn build(
     scene: &mut Scene,
+    popups: &mut Scene,
     app: &mut App,
     views: &mut Views,
     mut playback: Option<&mut Playback>,
@@ -1051,6 +1082,7 @@ pub fn build(
 ) {
     THEME.with(|t| *t.borrow_mut() = app.config.theme.clone());
     POPUPS.with(|p| *p.borrow_mut() = app.config.file.popups.clone());
+    BACKDROP.with(|b| *b.borrow_mut() = views.backdrop.clone());
     // Panes fill the window between the tab bar and the status line; tool panes are among
     // them.
     let bottom = height - STATUS;
@@ -1224,19 +1256,20 @@ pub fn build(
         app.take_scroll_request(id);
     }
     draw_status(scene, app, views, play, width, height);
-    draw_notifications(scene, app, views, main);
+    draw_notifications(popups, app, views, main);
     // Keys that can follow the ones typed, or the marks while ' ` m wait for one.
     if let Some((title, rows)) = app.which_key() {
-        draw_which_key(scene, &title, &rows, main);
+        draw_which_key(popups, &title, &rows, main);
     }
     if app.show_help {
-        draw_help(scene, app, main);
+        draw_help(popups, app, main);
     }
+    draw_viewer(popups, app, views, main);
     if let Some((r, tip)) = views.tooltip.take() {
-        draw_tooltip(scene, r, &tip, width);
+        draw_tooltip(popups, r, &tip, width);
     }
     if let Some(p) = app.palette() {
-        draw_palette(scene, &p, &app.config.file.ui, width, height);
+        draw_palette(popups, &p, &app.config.file.ui, width, height);
     }
     views.cache.retain(|id, _| app.panes.contains_key(id));
 }
@@ -1608,6 +1641,7 @@ fn draw_tooltip(scene: &mut Scene, r: Rect, tip: &str, width: f64) {
     let w = cecilia_engrave::fonts::fonts().text_width(FontKind::Text, tip, 12.5) + 16.0;
     let x = r.x0.min(width - w - 4.0).max(4.0);
     let tr = Rect::new(x, r.y1 + 6.0, x + w, r.y1 + 30.0);
+    backdrop(scene, &tr.to_rounded_rect(5.0));
     scene.fill(
         Fill::NonZero,
         Affine::IDENTITY,
@@ -2579,42 +2613,7 @@ fn draw_pane_content(
             staff: track.map_or(0, |t| cecilia_app::staff_index(t, c.staff)),
             ..c
         };
-        let chant_layout = track.is_some_and(|t| t.chant.is_some());
-        let square = |cx: f64, y: f64, side: f64| {
-            RoundedRect::new(
-                cx - side / 2.0,
-                y - side / 2.0,
-                cx + side / 2.0,
-                y + side / 2.0,
-                3.0,
-            )
-        };
-        let whole = RoundedRect::new(x - 1.5, pos.top - 1.5, x + w + 1.5, pos.bottom + 1.5, 3.0);
-        let r = if let Some(ys) = pos.strings(c.staff) {
-            match ys.get(c.string) {
-                Some(&y) => {
-                    let gap = match ys {
-                        [a, b, ..] => (b - a).abs(),
-                        _ => 9.0,
-                    };
-                    // Centred where the engraver centres the fret number (0.4 staff spaces in
-                    // from the beat's left, plus half a notehead; a string gap is 1.5 spaces).
-                    square(x + gap * 0.66, y, (gap * 1.5).clamp(10.0, 22.0))
-                }
-                None => whole,
-            }
-        } else if let Some((y, step)) = pos.line_y(c.staff, c.line) {
-            // The square sits on the note head: chant beats are the neume glyph itself, others
-            // start 0.4 spaces before the head.
-            let cx = if chant_layout {
-                x + (pos.head - pos.x)
-            } else {
-                pos.head
-            };
-            square(cx, y, (step * 3.0).clamp(10.0, 22.0))
-        } else {
-            whole
-        };
+        let r = cursor_rect(pos, &c, track, x, w);
         scene.fill(Fill::NonZero, to_screen(pos.page), color, None, &r);
         // An outline in a contrasting color, so the cursor shows in every mode.
         let border = tc(|t| {
@@ -2622,6 +2621,62 @@ fn draw_pane_content(
                 .with_alpha(if focused { 255 } else { 130 })
         });
         scene.stroke(&Stroke::new(1.5), to_screen(pos.page), border, None, &r);
+    }
+    // While `'` waits for a mark letter: each mark's name where its jump lands (on the cursor's
+    // square) or above the staff at that beat, as `ui.mark_labels` says.
+    if focused {
+        let fonts = cecilia_engrave::fonts::fonts();
+        let above = app.config.file.ui.mark_labels == cecilia_app::config::MarkLabels::Above;
+        let placed = app
+            .jump_targets(pane.buffer)
+            .into_iter()
+            .filter_map(|(name, c)| {
+                let r = BeatRef {
+                    track: c.track,
+                    bar: c.bar,
+                    voice: c.voice,
+                    beat: c.beat,
+                };
+                let pos = cached
+                    .layout
+                    .beats
+                    .get(&r)
+                    .or_else(|| beat_fallback(&cached.layout, &r))?;
+                let track = score.tracks.get(c.track);
+                let c = cecilia_app::Cursor {
+                    staff: track.map_or(0, |t| cecilia_app::staff_index(t, c.staff)),
+                    ..c
+                };
+                let (at, y, align) = if above {
+                    (pos.x, pos.top - 3.0, Align::Left)
+                } else {
+                    let sq = cursor_rect(pos, &c, track, pos.x, pos.width).rect();
+                    (
+                        (sq.x0 + sq.x1) / 2.0,
+                        (sq.y0 + sq.y1) / 2.0 + MARK_SIZE * 0.35,
+                        Align::Center,
+                    )
+                };
+                // Marks drawn on one spot (whatever their cursors differ in) share a label.
+                Some((name, (pos.page, (at * 4.0) as i64, (y * 4.0) as i64, align)))
+            });
+        for (name, (page, at, y, align)) in cecilia_app::marks::merge_labels(placed) {
+            let path = fonts.text_path(
+                FontKind::Bold,
+                &name,
+                at as f64 / 4.0,
+                y as f64 / 4.0,
+                MARK_SIZE,
+                align,
+            );
+            scene.fill(
+                Fill::NonZero,
+                to_screen(page),
+                tc(|t| t.playhead),
+                None,
+                &path,
+            );
+        }
     }
     // Design mode: handles at the bar lines, the line ends and the cursor bar's beats.
     if page_mode && focused && app.design_active() {
@@ -3508,6 +3563,58 @@ fn follow_scroll(scroll: (f64, f64), view: (f64, f64), x: (f64, f64), y: (f64, f
     )
 }
 
+/// The rounded square the cursor `c` occupies in the beat `pos` (drawn `x` from the left, `w`
+/// wide): on its string or staff position, or the whole beat where it has none. `c.staff` is
+/// already an index into the layout's staves.
+/// The size of a mark's label on the score.
+const MARK_SIZE: f64 = 16.0;
+
+fn cursor_rect(
+    pos: &cecilia_engrave::BeatPos,
+    c: &cecilia_app::Cursor,
+    track: Option<&cecilia_core::Track>,
+    x: f64,
+    w: f64,
+) -> RoundedRect {
+    // Chant positions only match the square-notation layout (a chant track in square notation).
+    let chant_layout = track.is_some_and(|t| t.chant.is_some());
+    let square = |cx: f64, y: f64, side: f64| {
+        RoundedRect::new(
+            cx - side / 2.0,
+            y - side / 2.0,
+            cx + side / 2.0,
+            y + side / 2.0,
+            3.0,
+        )
+    };
+    let whole = RoundedRect::new(x - 1.5, pos.top - 1.5, x + w + 1.5, pos.bottom + 1.5, 3.0);
+    if let Some(ys) = pos.strings(c.staff) {
+        match ys.get(c.string) {
+            Some(&y) => {
+                let gap = match ys {
+                    [a, b, ..] => (b - a).abs(),
+                    _ => 9.0,
+                };
+                // Centred where the engraver centres the fret number (0.4 staff spaces in from
+                // the beat's left, plus half a notehead; a string gap is 1.5 spaces).
+                square(x + gap * 0.66, y, (gap * 1.5).clamp(10.0, 22.0))
+            }
+            None => whole,
+        }
+    } else if let Some((y, step)) = pos.line_y(c.staff, c.line) {
+        // The square sits on the note head: chant beats are the neume glyph itself, others
+        // start 0.4 spaces before the head.
+        let cx = if chant_layout {
+            x + (pos.head - pos.x)
+        } else {
+            pos.head
+        };
+        square(cx, y, (step * 3.0).clamp(10.0, 22.0))
+    } else {
+        whole
+    }
+}
+
 fn beat_fallback<'a>(layout: &'a Layout, r: &BeatRef) -> Option<&'a cecilia_engrave::BeatPos> {
     layout
         .beats
@@ -3550,6 +3657,16 @@ fn popover_shadow(scene: &mut Scene, r: Rect, radius: f64) {
     );
 }
 
+/// `s` split into lines at most `max` wide, at spaces where it can (always at least one line).
+fn wrap_text(s: &str, max: f64, size: f64) -> Vec<String> {
+    let fonts = cecilia_engrave::fonts::fonts();
+    let chars: Vec<char> = s.chars().collect();
+    cecilia_app::properties::wrap_ranges(s, |l| fonts.text_width(FontKind::Text, l, size) <= max)
+        .into_iter()
+        .map(|(a, b)| chars[a..b].iter().collect())
+        .collect()
+}
+
 /// The command palette: a rounded box with the typed command `ui.picker_position` percent down
 /// the window and its list (at most `ui.picker_max_items`) below it, or above it (the first
 /// item nearest the input) when `p.up`; descriptions right-aligned for commands.
@@ -3563,7 +3680,18 @@ fn draw_palette(
     let fonts = cecilia_engrave::fonts::fonts();
     let w = (width - 40.0).clamp(200.0, 680.0);
     let x0 = (width - w) / 2.0;
-    let input_h = 38.0;
+    let line = if p.prompt == ":" {
+        format!(":{}", p.input)
+    } else {
+        format!("{} {}", p.prompt, p.input)
+    };
+    // The typed text wraps onto more rows (the last few when it is very long); the box grows
+    // by a row each time.
+    let mut wrapped = wrap_text(&line, w - 28.0 - 4.0, 16.0);
+    let skip = wrapped.len().saturating_sub(6);
+    wrapped.drain(..skip);
+    const INPUT_ROW: f64 = 22.0;
+    let input_h = 38.0 + (wrapped.len() - 1) as f64 * INPUT_ROW;
     let row_h = 26.0;
     // The input's top edge; the list takes the room above or below it.
     let yi = (height * f64::from(ui.picker_position.min(100)) / 100.0)
@@ -3588,25 +3716,24 @@ fn draw_palette(
     // Shadow, frame, input.
     popover_shadow(scene, Rect::new(x0, y0, x0 + w, y0 + h), 10.0);
     let frame = RoundedRect::new(x0, y0, x0 + w, y0 + h, 10.0);
+    backdrop(scene, &frame);
     scene.fill(Fill::NonZero, Affine::IDENTITY, glass(), None, &frame);
     scene.stroke(&Stroke::new(1.0), Affine::IDENTITY, accent(), None, &frame);
-    let line = if p.prompt == ":" {
-        format!(":{}", p.input)
-    } else {
-        format!("{} {}", p.prompt, p.input)
-    };
-    let ty = yi + 25.0;
-    text(
-        scene,
-        &line,
-        x0 + 14.0,
-        ty,
-        16.0,
-        Align::Left,
-        text_on(popover()),
-        false,
-    );
-    let cx = x0 + 14.0 + fonts.text_width(FontKind::Text, &line, 16.0) + 1.0;
+    for (k, row) in wrapped.iter().enumerate() {
+        text(
+            scene,
+            row,
+            x0 + 14.0,
+            yi + 25.0 + k as f64 * INPUT_ROW,
+            16.0,
+            Align::Left,
+            text_on(popover()),
+            false,
+        );
+    }
+    let ty = yi + 25.0 + (wrapped.len() - 1) as f64 * INPUT_ROW;
+    let last = wrapped.last().map_or("", String::as_str);
+    let cx = x0 + 14.0 + fonts.text_width(FontKind::Text, last, 16.0) + 1.0;
     fill(
         scene,
         Rect::new(cx, ty - 15.0, cx + 2.0, ty + 4.0),
@@ -5930,6 +6057,7 @@ fn draw_workspace_icon(scene: &mut Scene, x: f64, cy: f64, color: Color) {
 }
 
 fn panel(scene: &mut Scene, r: Rect, title: &str) {
+    backdrop(scene, &RoundedRect::from_rect(r, 8.0));
     scene.fill(
         Fill::NonZero,
         Affine::IDENTITY,
@@ -6053,6 +6181,7 @@ fn draw_notifications(scene: &mut Scene, app: &App, views: &mut Views, window: R
     for (i, p) in placed.iter().enumerate() {
         let Some(card) = cards.get(i) else {
             let r = Rect::new(p.x, p.y, p.x + p.w, p.y + p.h);
+            backdrop(scene, &r.to_rounded_rect(11.0));
             scene.fill(
                 Fill::NonZero,
                 Affine::IDENTITY,
@@ -6088,6 +6217,7 @@ fn draw_notifications(scene: &mut Scene, app: &App, views: &mut Views, window: R
                 r.x1 - 6.0 * k,
                 r.y1 + PEEK * k,
             );
+            backdrop(scene, &b.to_rounded_rect(8.0));
             scene.fill(
                 Fill::NonZero,
                 Affine::IDENTITY,
@@ -6104,6 +6234,7 @@ fn draw_notifications(scene: &mut Scene, app: &App, views: &mut Views, window: R
             );
         }
         popover_shadow(scene, r, 8.0);
+        backdrop(scene, &r.to_rounded_rect(8.0));
         scene.fill(
             Fill::NonZero,
             Affine::IDENTITY,
@@ -6362,7 +6493,215 @@ fn draw_help(scene: &mut Scene, app: &App, main: Rect) {
     }
 }
 
+/// The text viewer: a popup in the middle of `main` with the text as a read-only text area (the
+/// caret a block in normal mode, the selection highlighted) and an "x" in the top right corner.
+fn draw_viewer(scene: &mut Scene, app: &App, views: &mut Views, main: Rect) {
+    views.viewer = None;
+    let Some(v) = app.viewer() else {
+        return;
+    };
+    const HEAD: f64 = 44.0;
+    const PAD: f64 = 18.0;
+    let th = &app.config.theme;
+    let ui = &app.config.file.ui;
+    let mono = crate::mono::font(&ui.lyrics_font, false);
+    let size = ui.lyrics_font_size.clamp(6.0, 48.0) * 96.0 / 72.0;
+    let line_h = size * 1.35;
+    let w = (main.width() - 80.0).clamp(200.0, 640.0).min(main.width());
+    let inner = w - 2.0 * PAD;
+    let chars: Vec<char> = v.edit.text.chars().collect();
+    let lines =
+        cecilia_app::properties::wrap_ranges(&v.edit.text, |l| mono.text_width(l, size) <= inner);
+    *v.lines.borrow_mut() = lines.clone();
+    let room = (main.height() - 2.0 * HEAD - PAD).max(line_h);
+    let shown = ((room / line_h).floor() as usize).min(lines.len()).max(1);
+    let h = HEAD + shown as f64 * line_h + PAD;
+    // Dragged from the middle, but never out of the window.
+    let (ox, oy) = v.offset.get();
+    let x0 = (main.x0 + (main.width() - w) / 2.0 + ox).clamp(main.x0, (main.x1 - w).max(main.x0));
+    let y0 = (main.y0 + (main.height() - h) / 2.0 + oy).clamp(main.y0, (main.y1 - h).max(main.y0));
+    v.offset.set((
+        x0 - (main.x0 + (main.width() - w) / 2.0),
+        y0 - (main.y0 + (main.height() - h) / 2.0),
+    ));
+    let area = Rect::new(x0, y0, x0 + w, y0 + h);
+    let frame = area.to_rounded_rect(10.0);
+    let color = if v.error { tc(|t| t.error) } else { accent() };
+    popover_shadow(scene, area, 10.0);
+    backdrop(scene, &frame);
+    scene.fill(Fill::NonZero, Affine::IDENTITY, glass(), None, &frame);
+    scene.stroke(&Stroke::new(1.0), Affine::IDENTITY, color, None, &frame);
+    // The heading, and the "x" that closes it.
+    draw_notice_icon(scene, v.icon, (x0 + PAD, y0 + 14.0), color);
+    text(
+        scene,
+        &v.subject,
+        x0 + PAD + 28.0,
+        y0 + 28.0,
+        15.0,
+        Align::Left,
+        text_on(popover()),
+        true,
+    );
+    // The "x" is dim; under the pointer it gets the red disc of a buffer tab's close button.
+    let c = (x0 + w - 24.0, y0 + HEAD / 2.0 - 2.0);
+    let close = Rect::new(c.0 - 10.0, c.1 - 10.0, c.0 + 10.0, c.1 + 10.0);
+    let hover = close.contains(views.hover);
+    if hover {
+        scene.fill(
+            Fill::NonZero,
+            Affine::IDENTITY,
+            tc(|t| t.error.with_alpha(120)),
+            None,
+            &Circle::new(c, 8.0),
+        );
+    }
+    let mut cross = BezPath::new();
+    cross.move_to((c.0 - 3.5, c.1 - 3.5));
+    cross.line_to((c.0 + 3.5, c.1 + 3.5));
+    cross.move_to((c.0 + 3.5, c.1 - 3.5));
+    cross.line_to((c.0 - 3.5, c.1 + 3.5));
+    let ink = if hover { chrome_text() } else { dim() };
+    scene.stroke(&Stroke::new(1.6), Affine::IDENTITY, ink, None, &cross);
+    let title = Rect::new(x0, y0, close.x0, y0 + HEAD);
+    scene.fill(
+        Fill::NonZero,
+        Affine::IDENTITY,
+        dim(),
+        None,
+        &Rect::new(x0 + 10.0, y0 + HEAD - 4.0, x0 + w - 10.0, y0 + HEAD - 3.0),
+    );
+    // The text.
+    let tx = x0 + PAD;
+    let top = y0 + HEAD;
+    let skip = v.window(lines.len(), shown);
+    let cw = |a: usize, z: usize| -> f64 {
+        let t: String = chars[a..z].iter().collect();
+        mono.text_width(&t, size)
+    };
+    if let Some((a, z)) = v.edit.selection() {
+        for (n, &(s, e)) in lines.iter().enumerate().skip(skip).take(shown) {
+            let (lo, hi) = (a.max(s), z.min(e));
+            if lo < hi || (a < s && z > e && s == e) {
+                let sx = tx + cw(s, lo.max(s));
+                // An empty line inside the selection shows a sliver.
+                let sw = cw(lo.max(s), hi.max(lo)).max(if s == e { 6.0 } else { 0.0 });
+                let ly = top + line_h * (n - skip) as f64;
+                fill(
+                    scene,
+                    Rect::new(sx, ly + 2.0, sx + sw, ly + size + 4.0),
+                    col(th.mode_normal.with_alpha(110)),
+                );
+            }
+        }
+    }
+    for (n, &(s, e)) in lines.iter().enumerate().skip(skip).take(shown) {
+        if s < e {
+            let run: String = chars[s..e].iter().collect();
+            let ly = top + line_h * (n - skip) as f64 + size;
+            let path = mono.text_path(&run, tx, ly, size);
+            scene.fill(
+                Fill::NonZero,
+                Affine::IDENTITY,
+                text_on(popover()),
+                None,
+                &path,
+            );
+        }
+    }
+    let (row, ccol) = cecilia_app::properties::caret_in(&lines, v.edit.caret);
+    if !v.edit.insert && row >= skip && row < skip + shown {
+        let s = lines[row].0;
+        let cx = tx + cw(s, s + ccol);
+        let ly = top + line_h * (row - skip) as f64;
+        let ch = chars.get(s + ccol).filter(|c| **c != '\n');
+        let wide = ch.map_or(mono.advance(' ', size), |c| mono.advance(*c, size));
+        fill(
+            scene,
+            Rect::new(cx, ly + 2.0, cx + wide, ly + size + 4.0),
+            col(th.mode_normal.with_alpha(150)),
+        );
+    }
+    let text_area = Rect::new(x0, top, x0 + w, top + shown as f64 * line_h);
+    views.viewer = Some((
+        area,
+        close,
+        title,
+        PropsText {
+            area: text_area,
+            font: mono,
+            x: tx,
+            top,
+            line_h,
+            size,
+            skip,
+            lines,
+            chars,
+        },
+    ));
+}
+
 impl Views {
+    /// A press while the text viewer is open: the "x" closes it, the text takes the caret (a
+    /// double click selects a word, a drag selects). Nothing else gets the click.
+    fn viewer_click(&mut self, app: &mut App, x: f64, y: f64) {
+        let Some((area, close, title, text)) = &self.viewer else {
+            return;
+        };
+        if close.contains((x, y)) || !area.contains((x, y)) {
+            // The "x", or a click outside, closes it as <Esc> does.
+            app.close_viewer();
+        } else if title.contains((x, y)) {
+            self.drag = Some(Drag::ViewerMove(x, y));
+        } else {
+            let at = text.at(x, y);
+            match self.click_count(x, y) {
+                1 => {
+                    app.viewer_click(at);
+                    self.drag = Some(Drag::Viewer);
+                }
+                2 => app.viewer_double_click(at),
+                _ => app.viewer_triple_click(),
+            }
+        }
+    }
+
+    /// How many presses in a row this one makes at a point (1, 2 or 3; the next starts over).
+    fn click_count(&mut self, x: f64, y: f64) -> u8 {
+        let now = std::time::Instant::now();
+        let again = self.last_click.is_some_and(|(t, x0, y0)| {
+            now.duration_since(t) < std::time::Duration::from_millis(400)
+                && (x - x0).abs() < 4.0
+                && (y - y0).abs() < 4.0
+        });
+        self.click_run = if again { self.click_run % 3 + 1 } else { 1 };
+        self.last_click = Some((now, x, y));
+        self.click_run
+    }
+
+    /// The pointer moves over the viewer's text with the button down: the selection grows
+    /// (past its top or bottom, by a line, which scrolls it).
+    fn viewer_drag(&self, app: &mut App, x: f64, y: f64) {
+        let Some((_, _, _, t)) = &self.viewer else {
+            return;
+        };
+        let shown = (t.area.height() / t.line_h).floor() as usize;
+        let at = if y < t.area.y0 {
+            t.lines.get(t.skip.saturating_sub(1)).map(|l| l.0)
+        } else if y > t.area.y1 {
+            t.lines.get(t.skip + shown).map(|l| l.1)
+        } else {
+            Some(t.at(x, y))
+        };
+        app.viewer_drag(at.unwrap_or_else(|| t.lines.last().map_or(0, |l| l.1)));
+    }
+
+    /// Gives the frames built next a blurred page behind their popups: `image` stands for the
+    /// blurred frame and is drawn `scale` logical units per image pixel.
+    pub fn set_backdrop(&mut self, backdrop: Option<(vello::peniko::Image, f64)>) {
+        self.backdrop = backdrop;
+    }
+
     /// Pane and page-space point under a window position.
     fn locate(&self, x: f64, y: f64) -> Option<(Geometry, f64, f64)> {
         let g = *self.geometry.iter().find(|g| g.content.contains((x, y)))?;
@@ -6397,6 +6736,9 @@ impl Views {
 
     /// Middle-click: closes the buffer tab under the mouse.
     pub fn middle_click(&mut self, app: &mut App, x: f64, y: f64) {
+        if app.viewer().is_some() {
+            return;
+        }
         let hit = self
             .tabline
             .iter()
@@ -6515,6 +6857,11 @@ impl Views {
     /// Mouse moved with the button down: drags a slider, a pane border or a panel's edge.
     pub fn drag_to(&mut self, app: &mut App, x: f64, y: f64) -> bool {
         match self.drag.clone() {
+            Some(Drag::Viewer) => self.viewer_drag(app, x, y),
+            Some(Drag::ViewerMove(px, py)) => {
+                app.viewer_move(x - px, y - py);
+                self.drag = Some(Drag::ViewerMove(x, y));
+            }
             Some(Drag::Text) => {
                 if let Some(pt) = &self.props_text {
                     // Past the top or bottom of the text scrolls it.
@@ -6691,6 +7038,8 @@ impl Views {
         match self.drag.take() {
             Some(Drag::Volume(..)) => app.group_edits(false),
             Some(Drag::Text) => app.text_release(),
+            Some(Drag::Viewer) => app.viewer_release(),
+            Some(Drag::ViewerMove(..)) => {}
             Some(Drag::Design(..)) => app.design_end(),
             Some(Drag::Select(..)) => app.mouse_release(),
             Some(Drag::WaveSync(key, ..)) => {
@@ -6753,6 +7102,15 @@ impl Views {
     /// pixels the view moves right and down; `zoom` for Ctrl, which zooms a waveform). False
     /// when nothing there takes it.
     pub fn wheel(&mut self, app: &App, x: f64, y: f64, dx: f64, dy: f64, zoom: bool) -> bool {
+        // The text viewer takes the wheel wherever it is.
+        if let Some(v) = app.viewer() {
+            v.scroll_by(if dy == 0.0 {
+                0
+            } else {
+                (dy / 30.0).round().max(1.0).copysign(dy) as isize
+            });
+            return true;
+        }
         if let Some(&(r, key)) = self.wave_rects.iter().find(|(r, _)| r.contains((x, y))) {
             let view = self.waves.entry(key).or_default();
             if zoom {
@@ -6808,6 +7166,9 @@ impl Views {
     }
 
     pub fn click(&mut self, app: &mut App, x: f64, y: f64) {
+        if app.viewer().is_some() {
+            return self.viewer_click(app, x, y);
+        }
         if let Some(&(_, id)) = self.notifications.iter().find(|(r, _)| r.contains((x, y))) {
             app.dismiss_notification(id);
             return;
@@ -6849,13 +7210,7 @@ impl Views {
             self.scrollbar_to(pane, horizontal, grab, x, y);
             return;
         }
-        let now = std::time::Instant::now();
-        let double = self.last_click.is_some_and(|(t, x0, y0)| {
-            now.duration_since(t) < std::time::Duration::from_millis(400)
-                && (x - x0).abs() < 4.0
-                && (y - y0).abs() < 4.0
-        });
-        self.last_click = Some((now, x, y));
+        let double = self.click_count(x, y) >= 2;
         // A click on a progress bar moves that pane's cursor to the bar there.
         if let Some(&(r, id)) = self.progress.iter().find(|(r, _)| r.contains((x, y))) {
             app.set_focus(id);

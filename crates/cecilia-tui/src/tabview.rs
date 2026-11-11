@@ -674,6 +674,13 @@ impl Widget for TabView<'_> {
             on(th.dim)
         };
         let playhead_style = on(th.playhead);
+        // While `'` waits for a mark letter: where each mark would jump to.
+        let above = self.app.config.file.ui.mark_labels == cecilia_app::config::MarkLabels::Above;
+        let jump_targets = if self.focused {
+            self.app.jump_targets(pane.buffer)
+        } else {
+            Vec::new()
+        };
 
         // Where each shown system starts (relative to the pane): stacked, with the page layout's
         // borders between pages.
@@ -904,6 +911,31 @@ impl Widget for TabView<'_> {
                                 cursor_style,
                             );
                         }
+                    }
+                    // Above: on the bar's header row; exact: on the mark's string. Marks on one
+                    // row share a label.
+                    let here = jump_targets
+                        .iter()
+                        .filter(|(_, c)| {
+                            c.track == pane.cursor.track && c.bar == bl.bar && c.beat == i
+                        })
+                        .map(|(name, c)| {
+                            let y = if above {
+                                top_y
+                            } else {
+                                y0 + 1 + c.string.min(rows - 1) as u16
+                            };
+                            (*name, y)
+                        });
+                    for (name, y) in cecilia_app::marks::merge_labels(here) {
+                        buf.set_string(
+                            bx_beat,
+                            y,
+                            name,
+                            Style::default()
+                                .fg(rc(th.playhead))
+                                .add_modifier(Modifier::BOLD),
+                        );
                     }
                     // Clicking the rhythm under the strings picks the beat too.
                     for r in 0..rhythm_rows {

@@ -511,6 +511,7 @@ impl App {
             self.show_dashboard();
         }
         self.set_workspace_file(path.clone());
+        self.used(crate::frecency::Domain::Workspaces, &workspace_label(&path));
         if created {
             if let Err(e) = self.write_workspace(&path) {
                 return self.error(format!("workspace-open: {e}"));

@@ -2,6 +2,7 @@
 //! notation from `cecilia-engrave`; all chrome (tabs, status and command lines) is drawn with the
 //! same outline fonts.
 
+mod blur;
 mod design;
 mod draw;
 mod keys;
@@ -16,7 +17,7 @@ use cecilia_app::App;
 use cecilia_app::playback::Playback;
 use vello::kurbo::Affine;
 use vello::util::{RenderContext, RenderSurface};
-use vello::{AaConfig, AaSupport, RenderParams, Renderer, RendererOptions, Scene, wgpu};
+use vello::{AaSupport, Renderer, RendererOptions, Scene, wgpu};
 use winit::application::ApplicationHandler;
 use winit::event::{ElementState, MouseButton, MouseScrollDelta, WindowEvent};
 use winit::event_loop::{ActiveEventLoop, ControlFlow, EventLoop};
@@ -29,6 +30,7 @@ struct Gpu {
     window: Arc<Window>,
     surface: RenderSurface<'static>,
     renderer: Renderer,
+    blur: blur::Blur,
 }
 
 struct Gui {
@@ -41,8 +43,9 @@ struct Gui {
     views: Views,
     playback: Playback,
     scene: Scene,
-    /// The frame in logical units, before scaling to the window's pixels.
+    /// The frame in logical units, before scaling to the window's pixels, and its popups.
     logical: Scene,
+    popups: Scene,
     mods: ModifiersState,
     mouse: (f64, f64),
     /// The pointer shape shown (resize arrows over draggable edges).
@@ -74,6 +77,7 @@ pub fn run(app: App) -> Result<()> {
         playback: Playback::default(),
         scene: Scene::new(),
         logical: Scene::new(),
+        popups: Scene::new(),
         mods: ModifiersState::empty(),
         mouse: (0.0, 0.0),
         pointer: draw::Pointer::Default,
@@ -97,9 +101,18 @@ impl Gui {
         // monitors, then scale the frame to the surface's pixels.
         let factor = gpu.window.scale_factor().max(0.1);
         self.logical.reset();
+        self.popups.reset();
         let play = self.playback.location(&self.app);
+        let blur_px = self.app.config.file.popups.blur;
+        self.views.set_backdrop((blur_px > 0.0).then(|| {
+            (
+                gpu.blur.backdrop((width, height)),
+                f64::from(blur::DOWNSCALE) / factor,
+            )
+        }));
         draw::build(
             &mut self.logical,
+            &mut self.popups,
             &mut self.app,
             &mut self.views,
             Some(&mut self.playback),
@@ -110,21 +123,20 @@ impl Gui {
         self.scene.reset();
         self.scene
             .append(&self.logical, Some(Affine::scale(factor)));
+        let mut popups = Scene::new();
+        popups.append(&self.popups, Some(Affine::scale(factor)));
         let dev = &self.cx.devices[gpu.surface.dev_id];
-        gpu.renderer
-            .render_to_texture(
-                &dev.device,
-                &dev.queue,
-                &self.scene,
-                &gpu.surface.target_view,
-                &RenderParams {
-                    base_color: draw::background(),
-                    width,
-                    height,
-                    antialiasing_method: AaConfig::Area,
-                },
-            )
-            .map_err(|e| anyhow!("render: {e}"))?;
+        gpu.blur.render(
+            &mut gpu.renderer,
+            &dev.device,
+            &dev.queue,
+            &self.scene,
+            &popups,
+            &gpu.surface.target_view,
+            draw::background(),
+            (width, height),
+            blur_px * factor,
+        )?;
         let frame = gpu
             .surface
             .surface
@@ -194,12 +206,14 @@ impl ApplicationHandler for Gui {
             ))
             .map_err(|e| anyhow!("surface: {e}"))?;
             let dev = &self.cx.devices[surface.dev_id];
+            let blur = blur::Blur::new(&dev.device);
             let renderer = Renderer::new(&dev.device, renderer_options())
                 .map_err(|e| anyhow!("renderer: {e}"))?;
             Ok(Gpu {
                 window,
                 surface,
                 renderer,
+                blur,
             })
         })();
         match result {
@@ -275,7 +289,8 @@ impl ApplicationHandler for Gui {
                     }
                 }
                 // Hover effects on the tabline (close buttons) need a redraw.
-                if was_over || self.views.over_tabline(self.mouse.1) {
+                if was_over || self.views.over_tabline(self.mouse.1) || self.app.viewer().is_some()
+                {
                     if let Some(gpu) = &self.gpu {
                         gpu.window.request_redraw();
                     }
@@ -447,6 +462,7 @@ pub fn screenshot(
     let mut renderer =
         Renderer::new(device, renderer_options()).map_err(|e| anyhow!("renderer: {e}"))?;
     let mut scene = Scene::new();
+    let mut blur = blur::Blur::new(device);
     let mut views = Views::default();
     views.hover = hover.unwrap_or((-1.0, -1.0));
     // Load the focused buffer's audio so the waveform shows.
@@ -461,11 +477,20 @@ pub fn screenshot(
         std::thread::sleep(std::time::Duration::from_millis(50));
     }
     let mut logical = Scene::new();
+    let mut popups = Scene::new();
+    let blur_px = app.config.file.popups.blur;
+    views.set_backdrop((blur_px > 0.0).then(|| {
+        (
+            blur.backdrop((width, height)),
+            f64::from(blur::DOWNSCALE) / factor,
+        )
+    }));
     // Hovering a toolbar button: draw once and wait, so its tooltip shows.
     if hover.is_some() {
         let mut first = Scene::new();
         draw::build(
             &mut first,
+            &mut Scene::new(),
             &mut app,
             &mut views,
             Some(&mut playback),
@@ -479,6 +504,7 @@ pub fn screenshot(
     }
     draw::build(
         &mut logical,
+        &mut popups,
         &mut app,
         &mut views,
         Some(&mut playback),
@@ -487,6 +513,8 @@ pub fn screenshot(
         height as f64 / factor,
     );
     scene.append(&logical, Some(Affine::scale(factor)));
+    let mut popups_dev = Scene::new();
+    popups_dev.append(&popups, Some(Affine::scale(factor)));
     let texture = device.create_texture(&wgpu::TextureDescriptor {
         label: Some("screenshot"),
         size: wgpu::Extent3d {
@@ -502,20 +530,17 @@ pub fn screenshot(
         view_formats: &[],
     });
     let view = texture.create_view(&wgpu::TextureViewDescriptor::default());
-    renderer
-        .render_to_texture(
-            device,
-            queue,
-            &scene,
-            &view,
-            &RenderParams {
-                base_color: draw::background(),
-                width,
-                height,
-                antialiasing_method: AaConfig::Area,
-            },
-        )
-        .map_err(|e| anyhow!("render: {e}"))?;
+    blur.render(
+        &mut renderer,
+        device,
+        queue,
+        &scene,
+        &popups_dev,
+        &view,
+        draw::background(),
+        (width, height),
+        blur_px * factor,
+    )?;
     let row = (width * 4).div_ceil(256) * 256;
     let buffer = device.create_buffer(&wgpu::BufferDescriptor {
         label: Some("readback"),

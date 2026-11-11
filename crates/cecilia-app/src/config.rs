@@ -89,6 +89,8 @@ impl Default for NotificationsConfig {
 pub struct PopupsConfig {
     /// How opaque their fill is, in percent: 0 (invisible) to 100.
     pub opacity: f64,
+    /// How far the page behind them is blurred (pixels; 0: not blurred).
+    pub blur: f64,
     /// How dark the shadow under them is, in percent: 0 (none) to 100.
     pub shadow_opacity: f64,
     /// How far the shadow is blurred (pixels).
@@ -100,7 +102,8 @@ pub struct PopupsConfig {
 impl Default for PopupsConfig {
     fn default() -> Self {
         Self {
-            opacity: 98.0,
+            opacity: 85.0,
+            blur: 20.0,
             shadow_opacity: 45.0,
             shadow_blur: 15.0,
             shadow_offset: 7.0,
@@ -240,10 +243,18 @@ pub struct UiConfig {
     /// Command-line completion matches the typed letters in order anywhere in a candidate.
     pub completion_fuzzy: bool,
     /// How far down the window (percent) the command palette's and pickers' input line sits;
-    /// the history and pickers' lists grow upward from it.
+    /// the pickers' lists grow down from it, the command history's up.
     pub picker_position: u8,
     /// The most candidates the command palette and pickers list at once.
     pub picker_max_items: u8,
+    /// Order command completion and the buffer, recent file and workspace pickers by how often
+    /// and how lately each was used (zoxide's way), not alphabetically or by position.
+    pub frecency: bool,
+    /// Command lines kept in the command history (0: no history).
+    pub command_history_size: usize,
+    /// How the command history shows when a line was run: "relative" (5m ago) or "absolute"
+    /// (the date and time).
+    pub command_history_time: String,
     /// No longer used (`global_tools` lists the audio pane instead); kept so old configs
     /// still load, with a warning.
     #[serde(skip_serializing)]
@@ -299,6 +310,9 @@ pub struct UiConfig {
     /// The rhythm row under a tab: `"auto"` (only when the track has no standard or slash
     /// staff), `"on"` or `"off"`.
     pub tab_rhythm: String,
+    /// While `'` waits for a mark letter: where the marks are drawn on the score, `"exact"`
+    /// (on the position a jump lands on), `"above"` (over the staff, at that beat) or `"off"`.
+    pub mark_labels: MarkLabels,
     /// Draw the staff lines of bars that don't hold their full count in red.
     pub highlight_incomplete_bars: bool,
     /// Thickness in pixels of the ring around the focused pane in the GUI (0: none; 0 to 8).
@@ -326,6 +340,16 @@ pub struct UiConfig {
     /// Sync mode: how far (milliseconds, 0 to 200) a sync point is moved to reach the strongest
     /// onset of the audio near where it was put; 0 puts it exactly there.
     pub sync_snap: f64,
+}
+
+/// Where the marks show on the score while `'` waits for a letter.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Deserialize, Serialize)]
+#[serde(rename_all = "lowercase")]
+pub enum MarkLabels {
+    #[default]
+    Exact,
+    Above,
+    Off,
 }
 
 /// Which ticks of a waveform ruler are drawn.
@@ -360,6 +384,9 @@ impl Default for UiConfig {
             completion_fuzzy: true,
             picker_position: 25,
             picker_max_items: 12,
+            frecency: true,
+            command_history_size: 500,
+            command_history_time: "relative".into(),
             global_waveform: None,
             progress_bar: true,
             scrollbar: true,
@@ -391,6 +418,7 @@ impl Default for UiConfig {
             lyrics_font: "Source Sans 3".into(),
             lyrics_font_size: 12.0,
             chant_text_font: "noto-serif".into(),
+            mark_labels: MarkLabels::Exact,
             waveform_time_ticks: Ticks::All,
             waveform_beat_ticks: Ticks::All,
             waveform_time_labels: true,
@@ -590,9 +618,9 @@ const DEFAULT_NORMAL: &[(&str, &str)] = &[
     ("H", "buffer-prev"),
     ("<leader>x", "buffer-close"),
     ("<leader>b", "pick-buffer"),
-    ("m", "set-mark"),
-    ("'", "jump-mark-bar"),
-    ("`", "jump-mark"),
+    ("<leader>'", "buffer-alternate"),
+    ("'", "jump-mark"),
+    ("`", "set-mark"),
     ("<leader>V", "pick-view"),
     ("<leader>W", "pick-workspace"),
     (":", "command-mode"),

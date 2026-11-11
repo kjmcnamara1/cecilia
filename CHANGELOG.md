@@ -18,6 +18,35 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **Breaking:** the staff kinds are `standard`, `tab` and `slash`. `tab+` is gone (use `ui.tab_rhythm`; old `.ccc` files with a `tab+` staff load as `tab`), and `treble`, `bass`, `grand` and `neutral` are no longer staff kinds: `:staff-add standard grand C4` names the clef, `:clef` changes it. A tab alone on a track now shows the rhythm row by default.
 - The Tracks pane no longer shows the track's kind.
 
+## [0.43.0] - 2026-11-10
+
+### Changed
+
+- Choosing a notification in the history opens it in a popup in the middle of the window instead of raising its card again. The popup is a read-only text area: normal mode moves the caret, `v`/`V` select, `y` (or `<C-c>`) copies, `<C-a>` selects all, `<Esc>` leaves the selection then closes it; there is no insert or replace mode. Selecting switches to Visual mode. The mouse places the caret, drags a selection, double-clicks a word, triple-clicks the whole text, scrolls with the wheel, moves the popup by its title bar, and closes it with the dim "x" in the corner (red on hover, like a buffer tab's) or a click outside.
+
+## [0.42.0] - 2026-11-10
+
+### Changed
+
+- Mark keys: `'{mark}` now jumps to the mark's exact position and `` ` `` sets a mark (`m` is unbound); the `jump-mark-bar` command is gone. While `'` waits for a letter, the marks in the file are drawn on the score in the playhead color, on the exact position the jump lands on (marks at one position run together, `a'`) or above the staff; `ui.mark_labels` = `"exact"` (default), `"above"` or `"off"`.
+- The buffer, view, workspace and recent file pickers no longer list the current buffer, view, workspace or file (the "(shown)", "(current)" and "(active)" marks go with them).
+- The track properties "Instrument" field moved from the Sound section to just below "Name" in the Info section.
+
+### Added
+
+- `:buffer-alternate` (`:balt`, `<leader>'`) switches the pane back to the buffer it showed before, like vim's alternate buffer; repeating it toggles between the two.
+- Command completion and the buffer, recent file and workspace pickers list what you use most first, ranked like zoxide ranks directories (use count weighted by how recently: ×4 within an hour, ×2 a day, ×½ a week, ×¼ after; counts age down past a cap). Typed matches still come first; use breaks ties instead of the alphabet. Kept in `frecency.json` in the state directory; `ui.frecency = false` restores the old order.
+- The command history is saved between sessions (`commands.jsonl` next to the notification history).
+- Pickers list their entries downward from the input line (`<Down>`/`<Tab>` go further); only the command history still lists upward.
+- The command history shows when each line was run on the right, like the notification history: `ui.command_history_time` (`relative` / `absolute`), and `ui.command_history_size` caps how many lines are kept (0: none).
+
+## [0.41.0] - 2026-11-10
+
+### Added
+
+- Long text in the command line or a picker's input wraps onto more rows instead of running past the box, which grows a row at a time (GUI and terminal).
+- The GUI blurs the page behind popups (pickers, the palette, notification cards, which-key, help, tooltips) on the GPU: `popups.blur` (pixels, default 20; 0 turns it off). `popups.opacity` now defaults to 85 so the blurred page shows through.
+
 ## [0.40.0] - 2026-11-10
 
 ### Added

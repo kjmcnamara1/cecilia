@@ -34,7 +34,6 @@ pub const COMMAND_SCOPES: &[(&str, Scope)] = &[
     ("marks", B),
     ("mark", B),
     ("macros", B),
-    ("jump-mark-bar", B),
     ("jump-mark", B),
     ("goto-mark", B),
     ("delmarks!", B),
@@ -70,6 +69,7 @@ pub const COMMAND_SCOPES: &[(&str, Scope)] = &[
     ("bdelete!", B),
     ("buffer", B),
     ("buffer-close", B),
+    ("buffer-alternate", B),
     ("buffer-close!", B),
     ("buffer-next", B),
     ("buffer-prev", B),
@@ -650,17 +650,19 @@ const CHANT_CLEFS: &[&str] = &[
 /// Candidates for the word being typed at the end of `line`. `score_dir` is the folder of the
 /// current score (for `:audio`).
 pub fn complete(line: &str, cwd: &Path, score_dir: Option<&Path>, m: Matcher) -> Completions {
-    complete_in(line, cwd, score_dir, m, None)
+    complete_in(line, cwd, score_dir, m, None, None)
 }
 
 /// [`complete`] for a kind of score: with `Some(chant_score)` only the commands (and the
-/// arguments) of that kind of score and of both are offered.
+/// arguments) of that kind of score and of both are offered. `order` scores command names (the
+/// highest first among equal matches; none: alphabetical).
 pub fn complete_in(
     line: &str,
     cwd: &Path,
     score_dir: Option<&Path>,
     m: Matcher,
     chant_score: Option<bool>,
+    order: Option<&dyn Fn(&str) -> f64>,
 ) -> Completions {
     let offered = |name: &str| chant_score.is_none_or(|k| scope(name).applies(k));
     let lead = line.len() - line.trim_start_matches([':', ' ']).len();
@@ -671,6 +673,9 @@ pub fn complete_in(
             .map(String::from)
             .collect();
         names.sort();
+        if let Some(order) = order {
+            names.sort_by(|a, b| order(b).total_cmp(&order(a)));
+        }
         return completions(lead, m.rank(names, body), true);
     };
     let command = &body[..space];
@@ -928,7 +933,7 @@ mod tests {
     fn commands_of_the_other_kind_error_naming_it_and_are_not_offered() {
         let cwd = std::env::temp_dir();
         let names =
-            |chant| -> Vec<String> { complete_in("", &cwd, None, PREFIX, Some(chant)).items };
+            |chant| -> Vec<String> { complete_in("", &cwd, None, PREFIX, Some(chant), None).items };
         let (modern, chant) = (names(false), names(true));
         assert!(modern.iter().any(|c| c == "capo") && !modern.iter().any(|c| c == "chant-mora"));
         assert!(chant.iter().any(|c| c == "chant-mora") && !chant.iter().any(|c| c == "capo"));
@@ -943,7 +948,7 @@ mod tests {
         );
         assert!(check_scope("capo", false).is_ok() && check_scope("write", true).is_ok());
         // Arguments follow the kind: a chant score is offered do and fa clefs.
-        let clefs = |chant| complete_in("clef ", &cwd, None, PREFIX, Some(chant)).items;
+        let clefs = |chant| complete_in("clef ", &cwd, None, PREFIX, Some(chant), None).items;
         assert!(clefs(true).contains(&"c3".to_string()) && !clefs(true).contains(&"treble".into()));
         assert!(
             clefs(false).contains(&"treble".to_string()) && !clefs(false).contains(&"c3".into())
@@ -1240,7 +1245,6 @@ pub fn describe(command: &str) -> Option<&'static str> {
         "delmarks!" => "Delete all lowercase marks of the file",
         "goto-mark" => "Jump to a mark's exact position",
         "jump-mark" => "Jump to a mark (then its letter)",
-        "jump-mark-bar" => "Jump to a mark's bar (then its letter)",
         "macros" => "Pick a recorded macro to run",
         "mark" => "Set a mark at the cursor (a-z local, A-Z global)",
         "marks" => "Pick a mark to jump to",
@@ -1381,6 +1385,7 @@ pub fn describe(command: &str) -> Option<&'static str> {
         "buffer" => "Show bufferline tab number",
         "buffer-next" => "Next buffer tab",
         "buffer-prev" => "Previous buffer tab",
+        "buffer-alternate" => "Switch to the pane's previously shown buffer",
         "view" => "Go to view number",
         "view-close" => "Close the view",
         "view-close!" => "Close the view, discarding unsaved changes",

@@ -44,6 +44,7 @@ pub struct OptionSpec {
 }
 
 const LAYOUTS: &[&str] = &["page", "vertical", "horizontal"];
+const MARK_LABELS: &[&str] = &["exact", "above", "off"];
 const TICKS: &[&str] = &["all", "major", "off"];
 const ANCHORS: &[&str] = &[
     "top_left",
@@ -118,6 +119,21 @@ pub static OPTIONS: LazyLock<Vec<OptionSpec>> = LazyLock::new(|| {
             "ui.picker_max_items",
             int(1, 50),
             "The most candidates the command palette and pickers list at once.",
+        ),
+        o(
+            "ui.frecency",
+            Bool,
+            "Order command completion and the buffer, recent file and workspace pickers by how often and how lately each was used.",
+        ),
+        o(
+            "ui.command_history_size",
+            int(0, 10000),
+            "Command lines kept in the command history (0: no history).",
+        ),
+        o(
+            "ui.command_history_time",
+            Choice(&["relative", "absolute"]),
+            "The command history shows when a line was run as how long ago, or as a date and time.",
         ),
         o(
             "ui.progress_bar",
@@ -242,6 +258,11 @@ pub static OPTIONS: LazyLock<Vec<OptionSpec>> = LazyLock::new(|| {
             "ui.chant_text_font",
             Choice(&["noto-serif", "source-sans"]),
             "The font of the lyrics of a chant score.",
+        ),
+        o(
+            "ui.mark_labels",
+            Choice(MARK_LABELS),
+            "Where the marks are drawn on the score while ' waits for a letter: on the exact position, above the staff, or not at all.",
         ),
         o(
             "ui.waveform_time_ticks",
@@ -377,6 +398,11 @@ pub static OPTIONS: LazyLock<Vec<OptionSpec>> = LazyLock::new(|| {
             "popups.opacity",
             float(0.0, 100.0),
             "GUI: how opaque (percent) pickers, the palette and notification cards are (100: solid).",
+        ),
+        o(
+            "popups.blur",
+            float(0.0, 100.0),
+            "GUI: how far the page behind pickers, the palette and notification cards is blurred, in pixels (0: not blurred).",
         ),
         o(
             "popups.shadow_opacity",

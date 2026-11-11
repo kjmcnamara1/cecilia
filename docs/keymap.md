@@ -56,8 +56,8 @@ only be used in the GUI there, and `<D-…>` bindings never fire.
 | `<A-F1>`…`<A-F4>` (also insert mode) | edit voice 1…4 of the bar (`:voice N`); a voice the bar doesn't have yet is created empty. The cursor stays at the same time position, on the beat of that voice sounding there | |
 | `]s` / `[s`         | next / previous section (`[count]` sections away; `''` goes back) |        |
 | `<leader>S`         | sections picker: every section of the file with its bars; Enter jumps there (`:sections`) | |
-| `m{a-z}` / `m{A-Z}`       | set a mark in this file / a global mark (any file)                                                                                                       |        |
-| `'{mark}` / `` `{mark} `` | jump to the mark's bar / exact position (a popup lists the marks and where they are); a global mark reopens its file if it was closed. `''` jumps back to before the last jump (also after `gg`, `G`). `` `< `` / `` `> `` (or `'<` `'>`) are the start / end of the last Visual selection, `` `^ `` where Insert mode was last left |        |
+| `` `{a-z} `` / `` `{A-Z} ``    | set a mark in this file / a global mark (any file)                                                                                                       |        |
+| `'{mark}`                 | jump to the mark's exact position (a popup lists the marks and where they are); a global mark reopens its file if it was closed. `''` jumps back to before the last jump (also after `gg`, `G`). `'<` / `'>` are the start / end of the last Visual selection, `'^` where Insert mode was last left |        |
 | `zz` / `zt` / `zb`        | scroll the view so the cursor is in the middle / at the top / at the bottom of the pane (the left / right in the horizontal layout; the cursor's own staff line when a system is taller than the pane); the cursor does not move, a count is ignored (`:scroll-center`, `:scroll-top`, `:scroll-bottom`) | |
 | `<C-d>` / `<C-u>`         | half a screen down / up: half the displayed bars in the horizontal layout, else half the displayed rows of bars (rounded up, at least one; in the page layout half the rows on a page, whatever the zoom) keeping the place in the bar and on the staff | _(M1)_ |
 
@@ -159,6 +159,7 @@ cancels. `:bdelete!` closes without asking. A new score counts as unchanged unti
 | `<leader>nh`        | notification history picker               |        |
 | `<leader>nd`        | dismiss the notification cards            |        |
 | `L` / `H`           | next / previous buffer tab                |        |
+| `<leader>'`         | alternate buffer: back to the one this pane showed before (`:buffer-alternate`) |        |
 | `<leader>x`         | close the buffer's tab                    |        |
 | `gt` / `gT`         | next / previous view                      |        |
 | `<C-w>s` / `<C-w>v` | split horizontally / vertically           | _(M1)_ |
@@ -203,7 +204,7 @@ that moves.
 ● when modified), the views (with their files) or the saved workspaces (with their view and file
 counts). Typing filters the list with the same matching as completion (fuzzy, case-insensitive
 by default) and highlights what matched; the top match, nearest the input, is selected — the
-list grows upward, so `<Up>` (or `<Tab>`, `<A-k>`, `<C-p>`) goes further up and `<Down>` (`<S-Tab>`, `<A-j>`, `<C-n>`) back; `<Enter>` switches, `<Esc>` cancels. The buffer and
+list grows down from the input, so `<Down>` (or `<Tab>`, `<A-j>`, `<C-n>`) goes further down and `<Up>` (`<S-Tab>`, `<A-k>`, `<C-p>`) back; `<Enter>` switches, `<Esc>` cancels. The buffer and
 view pickers also work while a song plays.
 
 | command                                                                                          |                                                                                                     |
@@ -723,15 +724,15 @@ As you type, the matches for the word being typed are listed below it: command n
 description on the right, then each command's arguments — file names for `:open`, `:w`,
 `:view-new` and `:audio` (folders first, only files cecilia can open or write) and the values of
 `:layout`, `:mix`, `:volume`, `:track-add`, `:tuning`, `:toggle`, `:duration`, `:clef`,
-`:interpretation`. `<Tab>` fills in a unique match (or the common part), and `<Tab>`/`<S-Tab>`
+`:interpretation`. Command names that match equally are ordered by how often and lately you ran them (zoxide's ranking, `ui.frecency`; kept in `frecency.json` in the state directory), not alphabetically, and the buffer, recent file and workspace pickers are ordered the same way. `<Tab>` fills in a unique match (or the common part), and `<Tab>`/`<S-Tab>`
 or `<Down>`/`<Up>` (`<A-j>`/`<A-k>`) move through the list, putting the selected match on the line;
 `<Up>` back to the first candidate returns to the line as you typed it. `<Up>` from there opens the
 **command history**: earlier lines, newest first, listed above the input and filtered by what you
-typed; each one you step to is put on the command line, so type to edit it, `<Enter>` to run it,
+typed, with when each was run on the right (`ui.command_history_time`: "5m ago" or a date and time; `ui.command_history_size` lines are kept, saved between sessions in the state directory's `commands.jsonl`); each one you step to is put on the command line, so type to edit it, `<Enter>` to run it,
 `<Down>` past the newest to return to the typed line (and complete again), `<Esc>` to close the
 command line as usual (`:pick history` also opens it). The box sits `ui.picker_position` percent
-(default 25) down the window and lists at most `ui.picker_max_items` (12) candidates; the history
-and the pickers below grow upward from the input, so a small position leaves little room for them. `<Enter>`
+(default 25) down the window and lists at most `ui.picker_max_items` (12) candidates; the pickers
+list downward from the input and only the command history upward, so a large position leaves little room below and a small one little above. `<Enter>`
 runs the line, `<Esc>` closes the palette, `<C-p>`/`<C-n>` recall earlier commands.
 
 Matching is **fuzzy** by default: the typed letters may appear anywhere in a candidate, in order
@@ -867,7 +868,7 @@ autosaving that file until you choose:
 | `:recover`               | restore the file from its swap file, left unsaved (`:recover!` if another cecilia owns it) |
 | `:recover swapfile`      | open a swap file as a new unnamed buffer (for scores that were never saved)      |
 | `:swap-discard`          | delete the file's swap file                                                      |
-| `:notifications`         | pick from the notification history (`:pick notification`); Enter shows that one again |
+| `:notifications`         | pick from the notification history (`:pick notification`); Enter opens that one in a read-only popup (move, `v`/`V` select, `y` copies, `<Esc>` or the "x" closes) |
 | `:notify-dismiss`        | dismiss the notification cards on screen                                         |
 | `:notify [-s SUBJECT] [-t SECONDS] [-u info\|error] [-i ICON] MESSAGE` | show a notification (only the message is needed; quote a subject with spaces; `-t 0` stays until dismissed; icons: info, error, success, command, workspace, file, option, audio) |
 

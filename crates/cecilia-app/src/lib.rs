@@ -19,6 +19,7 @@ pub mod edit;
 mod edit_tests;
 mod editor;
 mod external;
+pub mod frecency;
 pub mod history;
 pub mod icons;
 pub mod instrument;
@@ -42,6 +43,7 @@ mod textobj;
 pub mod theme;
 pub mod toolbar;
 pub mod tracks;
+pub mod viewer;
 mod wavesync;
 pub mod workspace;
 

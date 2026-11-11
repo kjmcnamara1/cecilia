@@ -56,6 +56,16 @@ pub fn run(mut app: App) -> Result<()> {
 /// and the first one shown.
 type PropsText = (u16, u16, u16, Vec<(usize, usize)>, usize);
 
+/// The text viewer popup as drawn: its close button, its text area (the lines wrapped to it and
+/// the first one shown).
+struct ViewerUi {
+    area: Rect,
+    close: Rect,
+    text: Rect,
+    lines: Vec<(usize, usize)>,
+    skip: usize,
+}
+
 /// Mouse state between frames: what was drawn where, and where the mouse is.
 #[derive(Default)]
 struct Ui {
@@ -91,6 +101,8 @@ struct Ui {
     /// The lyrics text area as drawn: its left, its first line's row and height, the wrapped
     /// lines and the first one shown.
     props_text: Option<PropsText>,
+    /// The text viewer popup, while it is open.
+    viewer: Option<ViewerUi>,
     /// A mouse drag in progress.
     drag: Option<Drag>,
     hits: Vec<Hit>,
@@ -163,6 +175,8 @@ fn page_layout<'a>(
 enum Drag {
     /// A selection in the lyrics text area.
     Text,
+    /// A selection in the text viewer popup.
+    Viewer,
     /// A staff row of the properties pane (where it began, and the row under the mouse now).
     Prop(usize, usize, bool),
     /// A track's volume (one undo step).
@@ -261,6 +275,8 @@ fn event_loop(terminal: &mut DefaultTerminal, app: &mut App) -> Result<()> {
                         app.handle_key(key);
                     }
                 }
+                // The text viewer popup takes the mouse while it is open.
+                Event::Mouse(m) if app.viewer().is_some() => viewer_mouse(app, &mut ui, m),
                 Event::Mouse(m) => match m.kind {
                     MouseEventKind::Moved => {
                         ui.hover = Some((m.column, m.row));
@@ -1026,6 +1042,7 @@ fn draw(f: &mut Frame, app: &mut App, play: Option<(usize, Location, f64, f64)>,
     if app.show_help {
         draw_help(f, app, main);
     }
+    draw_viewer(f, app, ui, main);
     if let Some(p) = app.palette() {
         draw_palette(f, app, &p, f.area());
     }
@@ -1111,6 +1128,23 @@ fn draw_dashboard(f: &mut Frame, app: &App, area: Rect, ui: &mut Ui) {
 /// (descriptions right-aligned for commands).
 fn draw_palette(f: &mut Frame, app: &App, p: &cecilia_app::Palette, screen: Rect) {
     let w = screen.width.saturating_sub(4).clamp(20, 76);
+    // The typed text wraps onto more rows (the last few when it is very long).
+    let input = if p.prompt == ":" {
+        format!(":{}", p.input)
+    } else {
+        format!("{} {}", p.prompt, p.input)
+    };
+    let chars: Vec<char> = input.chars().collect();
+    let width = usize::from(w - 2);
+    let mut shown: Vec<String> =
+        cecilia_app::properties::wrap_ranges(&input, |l| l.chars().count() < width)
+            .into_iter()
+            .map(|(a, b)| chars[a..b].iter().collect())
+            .collect();
+    // Only the last few rows when it is very long.
+    let n = shown.len().min(usize::from(screen.height / 3).max(1));
+    shown.drain(..shown.len() - n);
+    let n = n as u16;
     // The input line's row; the list takes the rows above or below it.
     let line = (u32::from(screen.height) * u32::from(app.config.file.ui.picker_position.min(100))
         / 100) as u16;
@@ -1119,14 +1153,15 @@ fn draw_palette(f: &mut Frame, app: &App, p: &cecilia_app::Palette, screen: Rect
         line.saturating_sub(2)
     } else {
         screen.height.saturating_sub(line + 3)
-    } as usize;
+    }
+    .saturating_sub(n - 1) as usize;
     let rows = p
         .items
         .len()
         .min(usize::from(app.config.file.ui.picker_max_items))
         .min(room);
     // Top border, the list and its separator, the input, bottom border.
-    let h = 3 + rows as u16 + u16::from(rows > 0);
+    let h = 2 + n + rows as u16 + u16::from(rows > 0);
     let area = Rect {
         x: screen.x + (screen.width.saturating_sub(w)) / 2,
         y: screen.y
@@ -1151,25 +1186,24 @@ fn draw_palette(f: &mut Frame, app: &App, p: &cecilia_app::Palette, screen: Rect
         .title_bottom(Line::from(more).right_aligned());
     let inner = block.inner(area);
     f.render_widget(block, area);
-    let input = if p.prompt == ":" {
-        format!(":{}", p.input)
-    } else {
-        format!("{} {}", p.prompt, p.input)
-    };
     let input_y = if p.up {
-        inner.y + inner.height.saturating_sub(1)
+        inner.y + inner.height.saturating_sub(n)
     } else {
         inner.y
     };
     f.render_widget(
-        Paragraph::new(input.clone()),
+        Paragraph::new(shown.join("\n")),
         Rect {
             y: input_y,
-            height: 1,
+            height: n,
             ..inner
         },
     );
-    f.set_cursor_position((inner.x + input.chars().count() as u16, input_y));
+    let last = shown
+        .last()
+        .map_or(0, |l| l.chars().count())
+        .min(usize::from(inner.width.saturating_sub(1)));
+    f.set_cursor_position((inner.x + last as u16, input_y + n - 1));
     if rows == 0 {
         return;
     }
@@ -1177,7 +1211,7 @@ fn draw_palette(f: &mut Frame, app: &App, p: &cecilia_app::Palette, screen: Rect
     f.render_widget(
         Paragraph::new(sep).style(Style::default().fg(Color::DarkGray)),
         Rect {
-            y: if p.up { input_y - 1 } else { input_y + 1 },
+            y: if p.up { input_y - 1 } else { input_y + n },
             height: 1,
             ..inner
         },
@@ -1195,7 +1229,7 @@ fn draw_palette(f: &mut Frame, app: &App, p: &cecilia_app::Palette, screen: Rect
             y: if p.up {
                 input_y - 2 - (k - first) as u16
             } else {
-                input_y + 2 + (k - first) as u16
+                input_y + n + 1 + (k - first) as u16
             },
             height: 1,
             ..inner
@@ -3018,6 +3052,158 @@ fn draw_notifications(f: &mut Frame, app: &App, ui: &mut Ui) {
     }
 }
 
+/// The text viewer: a bordered popup in the middle of `main` with the text as a read-only text
+/// area (the caret a block in normal mode, the selection highlighted) and an "x" in the corner.
+fn draw_viewer(f: &mut Frame, app: &App, ui: &mut Ui, main: Rect) {
+    ui.viewer = None;
+    let Some(v) = app.viewer() else {
+        return;
+    };
+    let t = &app.config.theme;
+    let w = main.width.saturating_sub(8).clamp(1, 80).min(main.width);
+    let inner_w = usize::from(w.saturating_sub(4));
+    if inner_w == 0 || main.height < 3 {
+        return;
+    }
+    let text = &v.edit.text;
+    let lines = cecilia_app::properties::wrap_ranges(text, |l| l.chars().count() <= inner_w);
+    *v.lines.borrow_mut() = lines.clone();
+    let h = (lines.len() as u16 + 2).clamp(3, main.height.saturating_sub(2).max(3));
+    let area = Rect::new(
+        main.x + (main.width - w) / 2,
+        main.y + (main.height.saturating_sub(h)) / 2,
+        w,
+        h.min(main.height),
+    );
+    let shown = usize::from(area.height - 2);
+    let skip = v.window(lines.len(), shown);
+    let color = rc(if v.error { t.error } else { t.accent });
+    let ground = Style::default()
+        .fg(rc(t.text_on(t.popover)))
+        .bg(rc(t.popover));
+    let mut title = vec![Span::styled(
+        format!(" {}", v.icon.glyph()),
+        Style::default().fg(color),
+    )];
+    if !v.subject.is_empty() {
+        title.push(Span::styled(
+            format!(" {} ", v.subject),
+            Style::default().add_modifier(ratatui::style::Modifier::BOLD),
+        ));
+    }
+    f.render_widget(Clear, area);
+    f.render_widget(
+        Block::bordered()
+            .border_style(Style::default().fg(color))
+            .style(ground)
+            .title(Line::from(title)),
+        area,
+    );
+    let close = Rect::new(
+        area.x + area.width.saturating_sub(4),
+        area.y,
+        3.min(area.width),
+        1,
+    );
+    let buf = f.buffer_mut();
+    buf.set_string(
+        close.x,
+        close.y,
+        " × ",
+        Style::default().fg(color).bg(rc(t.popover)),
+    );
+    let text_area = Rect::new(area.x + 2, area.y + 1, area.width - 4, area.height - 2);
+    let chars: Vec<char> = v.edit.text.chars().collect();
+    let selection = v.edit.selection();
+    let normal = !v.edit.insert;
+    for (n, &(s, e)) in lines.iter().enumerate().skip(skip).take(shown) {
+        let y = text_area.y + (n - skip) as u16;
+        for (i, ch) in chars.iter().enumerate().take(e).skip(s) {
+            let mut st = ground;
+            if selection.is_some_and(|(a, z)| (a..z).contains(&i)) {
+                st = st.bg(rc(t.mode_normal.with_alpha(255)));
+            }
+            buf.set_string(text_area.x + (i - s) as u16, y, ch.to_string(), st);
+        }
+    }
+    let (row, col) = cecilia_app::properties::caret_in(&lines, v.edit.caret);
+    if normal && row >= skip && row < skip + shown && col < usize::from(text_area.width) {
+        let under = chars.get(v.edit.caret).filter(|c| **c != '\n').copied();
+        buf.set_string(
+            text_area.x + col as u16,
+            text_area.y + (row - skip) as u16,
+            under.unwrap_or(' ').to_string(),
+            on(app, t.mode_normal),
+        );
+    }
+    ui.viewer = Some(ViewerUi {
+        area,
+        close,
+        text: text_area,
+        lines,
+        skip,
+    });
+}
+
+/// The character of the viewer's text at a cell (rows and columns past it go to its edges).
+fn viewer_at(v: &ViewerUi, col: u16, row: u16) -> Option<usize> {
+    let t = v.text;
+    let r = (row.clamp(t.y, t.y + t.height - 1) - t.y) as usize + v.skip;
+    let &(s, e) = v.lines.get(r.min(v.lines.len().saturating_sub(1)))?;
+    Some(s + (col.saturating_sub(t.x) as usize).min(e - s))
+}
+
+/// The mouse while the text viewer is open: the "x" closes it, a click places the caret, a drag
+/// selects, a double click selects a word, the wheel scrolls. A click outside it does nothing.
+fn viewer_mouse(app: &mut App, ui: &mut Ui, m: ratatui::crossterm::event::MouseEvent) {
+    let Some((close, area)) = ui.viewer.as_ref().map(|v| (v.close, v.area)) else {
+        return;
+    };
+    let at = || {
+        ui.viewer
+            .as_ref()
+            .and_then(|v| viewer_at(v, m.column, m.row))
+    };
+    match m.kind {
+        MouseEventKind::Down(MouseButton::Left) if contains(close, m.column, m.row) => {
+            app.close_viewer();
+        }
+        MouseEventKind::Down(MouseButton::Left) if contains(area, m.column, m.row) => {
+            let Some(at) = at() else {
+                return;
+            };
+            if is_double(ui, m.column, m.row) {
+                app.viewer_double_click(at);
+            } else {
+                app.viewer_click(at);
+                ui.drag = Some(Drag::Viewer);
+            }
+        }
+        MouseEventKind::Drag(MouseButton::Left) if ui.drag == Some(Drag::Viewer) => {
+            if let Some(at) = at() {
+                app.viewer_drag(at);
+            }
+        }
+        MouseEventKind::Up(MouseButton::Left) if ui.drag == Some(Drag::Viewer) => {
+            ui.drag = None;
+            app.viewer_release();
+        }
+        MouseEventKind::ScrollDown | MouseEventKind::ScrollUp
+            if contains(area, m.column, m.row) =>
+        {
+            let by = if m.kind == MouseEventKind::ScrollDown {
+                2
+            } else {
+                -2
+            };
+            if let Some(v) = app.viewer() {
+                v.scroll_by(by);
+            }
+        }
+        _ => {}
+    }
+}
+
 fn draw_which_key(f: &mut Frame, app: &App, title: &str, rows: &[(String, String)], main: Rect) {
     let lines: Vec<Line> = rows
         .iter()
@@ -3122,6 +3308,40 @@ mod render_tests {
                 }
             }
         }
+    }
+
+    #[test]
+    fn a_long_command_wraps_onto_more_rows_of_the_palette() {
+        let mut app = App::new(cecilia_app::Config::default(), None);
+        app.notifications.dismiss_all();
+        let palette = |input: &str| cecilia_app::Palette {
+            title: "Command".into(),
+            prompt: ":".into(),
+            input: input.into(),
+            items: Vec::new(),
+            selected: None,
+            up: false,
+        };
+        let mut terminal = Terminal::new(TestBackend::new(40, 20)).unwrap();
+        let rows_of = |terminal: &mut Terminal<TestBackend>, p: &cecilia_app::Palette| {
+            terminal
+                .draw(|f| draw_palette(f, &app, p, f.area()))
+                .unwrap();
+            let buf = terminal.backend().buffer().clone();
+            (0..20)
+                .filter(|&y| (0..40).any(|x| buf[(x, y)].symbol() != " "))
+                .count()
+        };
+        let short = rows_of(&mut terminal, &palette("w"));
+        terminal.clear().unwrap();
+        // Words wrap whole: 3 x 20 chars and spaces over a 38-wide box are two rows.
+        let words = ["a".repeat(20), "b".repeat(20), "c".repeat(20)].join(" ");
+        let long = rows_of(&mut terminal, &palette(&words));
+        assert_eq!(long, short + 2, "one word per row");
+        terminal.clear().unwrap();
+        // A word longer than the box breaks anywhere.
+        let long = rows_of(&mut terminal, &palette(&"x".repeat(100)));
+        assert_eq!(long, short + 3, "100 chars take four rows");
     }
 
     #[test]
