@@ -17,6 +17,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - **Breaking:** the staff kinds are `standard`, `tab` and `slash`. `tab+` is gone (use `ui.tab_rhythm`; old `.ccc` files with a `tab+` staff load as `tab`), and `treble`, `bass`, `grand` and `neutral` are no longer staff kinds: `:staff-add standard grand C4` names the clef, `:clef` changes it. A tab alone on a track now shows the rhythm row by default.
 - The Tracks pane no longer shows the track's kind.
+- The "Workspace Opened" notification is no longer shown when a workspace is opened at startup (the last one, or `--workspace`).
 
 ## [0.43.0] - 2026-11-10
 
