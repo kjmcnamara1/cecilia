@@ -32,8 +32,6 @@ Planned work. Finished items move to `CHANGELOG.md` under `[Unreleased]`.
 
 Left open by the pre-release code review; the rest was fixed (see `CHANGELOG.md`).
 
-- [ ] Swap files: offer to recover or clean up `unnamed-<pid>-<idx>.swp` files from crashed
-      sessions (`swap.rs`); two instances editing the same path share one swap file name.
 - [ ] Regression tests for Guitar Pro 3/4 grace notes (field order was fixed from corpus
       evidence, not a spec) and for the saturating lyric-start and channel arithmetic in `gp.rs`
       (needs a crafted GP binary).

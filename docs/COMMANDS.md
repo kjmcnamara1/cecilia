@@ -31,7 +31,7 @@ Conventions:
 | `write-quit`, `wq`, `x`, `wqall`, `wqa`, `xall`, `xa` | Write every changed file, then quit. |
 | `quit`, `q`, `quitall`, `qa` | Quit; refused while files have unsaved changes. |
 | `quit!`, `q!`, `quitall!`, `qa!` | Quit, discarding changes. |
-| `recover [SWAP]`, `recover!` | Restore the buffer from its swap file (`!`: even if another cecilia owns it). |
+| `recover [SWAP]`, `recover!` | Restore the buffer from its swap file (`!`: even if another cecilia owns it). On an unnamed buffer: open the newest swap file of a crashed unnamed score. |
 | `swap-discard` | Delete the buffer's swap file. |
 | `buffer N`, `b N` | Show the buffer of bufferline tab N. |
 | `buffer-next`, `bnext`, `bn` / `buffer-prev`, `bprevious`, `bprev`, `bp` | Next / previous buffer. |

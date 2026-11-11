@@ -9,6 +9,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- Swap files of unnamed scores left by a crashed session are announced once at startup, and `:recover` on an unnamed buffer opens the newest.
 - `tabline.icons = "auto"` (the new default) picks Nerd Font glyphs when the terminal is kitty, WezTerm or Ghostty or fontconfig lists a Nerd Font, else plain Unicode under a UTF-8 locale, else ASCII (`none`).
 
 ### Changed
