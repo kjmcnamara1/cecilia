@@ -39,15 +39,15 @@ is laid out.
 - **Chant tracks** (opened from a `.gabc` file, or made with `:modern-to-chant`) have their chant
   notation as their lyrics: the text area shows the chant's GABC body (its header, `name:` and so
   on, is kept apart). Editing it changes the chant itself, which is read again as GABC, and the
-  notes that play and that the other staves show are transcribed from it again. Chant tracks
-  don't take the `:lyrics` and `:lyrics-clear` commands.
+  notes that play and that the other staves show are transcribed from it again. `:lyrics TEXT` on a chant
+  track sets the cursor syllable's text; `:lyrics-clear` and `:lyrics-attach` are for modern tracks only.
 
 ### Chant and modern scores
 
 A score is a *modern score* (staff tracks, lyrics in the syntax below) or a *chant score* (one
 chant track, lyrics are its GABC). A chant file cannot hold other tracks. `:chant-to-modern` opens
 a new buffer with a modern score: the chant's notes as a pitched track and its syllables as lyrics
-text on the beats (`Al(fg)le(h)` becomes `Al- _ le`, a dash covering the second note of "Al"); the
+text on the beats (`Al(fg)le(h)` becomes `Al- _ le`: the `_` leaves the second note of "Al" without text); the
 chant buffer is not changed. `:modern-to-chant` goes the other way for the cursor track only. See
 [CHANT.md](CHANT.md).
 
@@ -55,7 +55,7 @@ chant buffer is not changed. `:modern-to-chant` goes the other way for the curso
 
 | format | reading | writing |
 | --- | --- | --- |
-| `.cc` (cecilia) | the text as saved, laid out again on reading; files saved before the lyrics syntax (format version 1) get their text converted once, see below; files with no text get one written from their syllables | everything: the text exactly, and the syllables |
+| `.ccc` / `.ccm` (cecilia; legacy `.cc` is read too) | the text as saved, laid out again on reading; files saved before the lyrics syntax (format version 1) get their text converted once, see below; files with no text get one written from their syllables | everything: the text exactly, and the syllables |
 | Guitar Pro 3–5 (`.gp3`, `.gp4`, `.gp5`) | the file's lyric track and its up to five lyric lines (each from a bar, in Guitar Pro's lyric syntax) are placed as Guitar Pro places them, then **translated** into the syntax of section 2, keeping the line breaks: `[comments]` become `[labels]`, notes left without a syllable `_` words, anchors where Guitar Pro's placement (bar order) differs from the sung order | GP5: the text is **translated back** to Guitar Pro's syntax, one lyric line per verse row (see below). Lyrics of other tracks are dropped |
 | Guitar Pro 6–8 (`.gpx`, `.gp`) | the syllables stored on the beats (one per lyric line) become text, one line of text per verse row | the syllables on the beats (one lyric line per verse row); a dash word and a skip word become empty beats |
 | MusicXML (`.musicxml`, `.mxl`) | `<lyric number="n">` on each note (verse row n; `begin`/`middle` syllables get a trailing hyphen) become text | `<lyric number>` per note and verse row, `begin` for a syllable with a hyphen, else `single` |
@@ -75,7 +75,7 @@ syllable per note in bar order. The track's text is translated into them:
   itself is lost**); an anchor going forward leaves that many empty notes;
 - labels become `[comments]`; markup tags and `*` are dropped (the text inside tags stays).
 
-**Old `.cc` files.** Text saved by earlier versions is converted the first time such a file is
+**Old files.** Text saved by earlier versions is converted the first time such a file is
 read (the file then saves as format version 2): `<bar:n>` anchors become `(bar:beat)` (the number
 was the beat's index in the first voice; the syllables stay on the same notes), GABC groups are
 removed (a group between two letters becomes a hyphen, a leading clef is dropped), and `_`
@@ -83,7 +83,7 @@ italics become tags (`_si-lence` is `<i>si</i>-lence`, `a-_men` is `a-<i>men</i>
 you it happened.
 
 **What gets lost.** Labels, styles and ✻ exist only in the text: Guitar Pro, MusicXML and MIDI
-have no place for them (Guitar Pro 3–5 keeps labels as comments), so they are kept by `.cc`
+have no place for them (Guitar Pro 3–5 keeps labels as comments), so they are kept by `.ccc` / `.ccm`
 alone. A beat of a GP6–8 file holding just `-` (a melisma dash) becomes part of a dash word, and
 is written back empty. Comments of Guitar Pro 3–5 lyric lines survive as labels but are lost
 again when writing GP6–8.
@@ -159,7 +159,7 @@ Text styles use GABC's markup tags, the same as in a chant score:
   GABC tags (`<v>`, `<alt>`, `<e>`, `<nlba>`, `<pr>`, `<clear>`) are text in modern lyrics.
 - `<sp>…</sp>` specials show as their characters: `<sp>V/</sp>` ℣, `<sp>R/</sp>` ℟,
   `<sp>A/</sp>` Ⱥ, `<sp>'ae</sp>` ǽ, `<sp>'oe</sp>` œ́, `<sp>ae</sp>` æ, `<sp>oe</sp>` œ,
-  `<sp>+</sp>` ✠, `<sp>*</sp>` ✱.
+  `<sp>+</sp>` †, `<sp>*</sp>` ✱.
 - Italic and bold use the text font's faces (bold wins when both are set). The terminal shows the
   text without the tags and without the styles.
 
@@ -278,7 +278,7 @@ step.
   just after the syllable. Dash words (`some -- one`) give the same single hyphen across their
   beats; no long dashes or extender lines are drawn under melismas.
 - **Labels** go just before their syllable, which stays centred on its note.
-- **Italics:** syllables marked with `_` are slanted.
+- **Styles:** syllables inside `<i>` are slanted, `<b>` bold, `<ul>` underlined, `<sc>` in small capitals, `<c>` red.
 - **✻** is drawn (six strokes) just after its syllable. A `*` that goes before a syllable (at the
   start of the text) is printed `*` with the labels.
 - Lyrics attached from another track are placed by their position in the bar and pushed apart so
@@ -423,9 +423,9 @@ or `<C-u>` in insert mode, empties it as an edit.
 
 | command | |
 | --- | --- |
-| `:lyrics TEXT` | adds lyrics from the cursor on: a line `(bar:beat) TEXT` ending in a line break, put where it belongs in the text: before the first syllable sung from the cursor on, the text after it keeping its place under an anchor of its own. When the words would run into the text after them it goes at the end instead. `\n` in `TEXT` is a line break. The anchor names the cursor's beat in the first voice (with the cursor in another voice, the first-voice beat starting at or after it). If the text already reaches past the cursor, the anchor goes back and the words go on the next verse row; otherwise they continue the row from the cursor. Reports how many syllables were placed, or how many are past the last note. Not on chant tracks |
+| `:lyrics TEXT` | adds lyrics from the cursor on: a line `(bar:beat) TEXT` ending in a line break, put where it belongs in the text: before the first syllable sung from the cursor on, the text after it keeping its place under an anchor of its own. When the words would run into the text after them it goes at the end instead. `\n` in `TEXT` is a line break. The anchor names the cursor's beat in the first voice (with the cursor in another voice, the first-voice beat starting at or after it). If the text already reaches past the cursor, the anchor goes back and the words go on the next verse row; otherwise they continue the row from the cursor. Reports how many syllables were placed, or how many are past the last note. On a chant track it instead sets the cursor syllable's text to all of `TEXT` |
 | `:lyrics-clear` | removes all the track's lyrics (the text) |
-| `:lyrics-clear N` | removes the syllables laid on verse row `N`, with their labels, the ✻ and the dashes and skips after them; later rows move up (in text order: with flowing verses, the next verse moves into the gap). Not on chant tracks |
+| `:lyrics-clear N` | removes the syllables laid on verse row `N`, with their labels, the ✻ and the dashes and skips after them; later rows move up (in text order: with flowing verses, the next verse moves into the gap). Modern tracks only |
 | `:lyrics-attach above\|below [TRACK]` | shows lyrics above or below the cursor's staff: those of track `TRACK` (number; the staff's own track by default), aligned with the staff's beats by their position in the bar. Once any staff has lyrics attached, only those staves show lyrics |
 | `:lyrics-attach none` | detaches them; without any attachment a track shows its own lyrics under its top staff |
 | `:properties-tab lyrics` | the LYRICS tab of the properties pane (`3` in the pane) |
@@ -445,7 +445,7 @@ its palette:
 | --- | --- |
 | `lyrics_text` | words in the lyrics text area |
 | `lyrics_text_dim` | the parentheses of GABC groups (chant tracks) |
-| `lyrics_gabc` | GABC groups and the clef (bold) |
+| `lyrics_gabc` | the other characters inside a GABC group (not bold) |
 | `lyrics_label` | `[labels]` (bold) |
 | `lyrics_anchor` | `(bar:beat)` anchors |
 | `lyrics_clef` `lyrics_division` `lyrics_note` `lyrics_shape` `lyrics_attach` `lyrics_space` `lyrics_markup` | the parts of GABC and markup tags (section 5) |
@@ -479,7 +479,7 @@ lyrics_anchor = "#bf616a"
 - The terminal's score views don't show labels, styles, ✻ or attached lyrics.
 - Guitar Pro 6–8 files can also keep lyric lines on the track (Guitar Pro 3–5 style); those are
   not placed on the notes: cecilia reads the syllables stored on the beats.
-- Labels, styles and ✻ are kept only by `.cc` (section 1); Guitar Pro 3–5 keeps labels as comments, and a dash word's dash is lost there.
+- Labels, styles and ✻ are kept only by `.ccc` / `.ccm` (section 1); Guitar Pro 3–5 keeps labels as comments, and a dash word's dash is lost there.
 - Playback doesn't follow D.C./D.S. jumps (the lyrics do).
 
 ## Positions
@@ -491,6 +491,6 @@ more than its count goes on counting: the sixth quarter of a 4/4 bar is `2:6.0`.
 marks, `:5:3.5` (go there), `:lyrics` and lyrics anchors use it; an anchor may leave out a zero
 fraction (`(2:6)`).
 
-In the GABC editor (insert mode of the lyrics text area) `(` also writes the closing `)` with the
+In insert mode of the lyrics text area (any track) `(` also writes the closing `)` with the
 caret between them (not before a letter), `)` before an existing `)` steps over it, and `<BS>`
 between an empty pair removes both.

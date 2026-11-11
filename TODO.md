@@ -6,7 +6,7 @@ Planned work. Finished items move to `CHANGELOG.md` under `[Unreleased]`.
 
 - [ ] Static site for documentation (Zensical)
   - [ ] Github pages
-- [x] Document the specification for the .cc file in a section in docs/SPEC.md
+- [x] Document the specification for the native file (.ccc / .ccm) in a section in docs/SPEC.md
 - [x] Rewrite README.md for audience=user
 
 ### Packaging/Publishing
@@ -54,7 +54,6 @@ This is how the # of stafflines is decided for tab notation
 - [ ] Add ability to create multitracks that are a combination of other tracks
 - [ ] Toolbar
   - hamburger icon menu
-  - Window close button?
   - Reorder/regroup icons
   - Change icons
 
@@ -89,9 +88,10 @@ This is how the # of stafflines is decided for tab notation
 
 ### File Save/Export
 
-- [ ] Converting/exporting to chant (.gabc) files
+- [x] Converting/exporting to chant (.gabc) files (`:modern-to-chant`, `cecilia convert x.gp5 x.gabc`)
+- [ ] Write ASCII tab (`.txt`); `:w x.pdf` / `.wav` export from inside the editor
 - [ ] Nothing should be lost when writing to .ccc / .ccm files
-- [ ] Some data may be lost when writing to .gp, .musexml, .gabc, or .txt
+- [ ] Some data may be lost when writing to .gp, .musicxml, .gabc (there is no .txt writer yet)
 
 ### File/Track Import
 

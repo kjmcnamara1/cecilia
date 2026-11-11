@@ -27,7 +27,7 @@ A score is one of two kinds, and a score is never both:
 |---|---|---|
 | tracks | any number of staff tracks | exactly one, with `chant` set |
 | source of truth | the bars | the `Chant` (bars are a cache) |
-| files | all formats | `.gabc` (and `.cc`) |
+| files | all formats | `.gabc` (and `.ccc` / `.ccm`) |
 
 `Score::is_chant()` is the test. `:track-add` refuses on a chant score and refuses a chant track
 on a modern one; a chant file cannot hold other tracks. The conversions open a new buffer and leave
@@ -39,12 +39,12 @@ the one you started from alone:
 - `:modern-to-chant` → `[chant] name`: the cursor track only (other tracks are left out), lossy as
   §3 describes.
 
-To add an organ to a chant: `:chant-to-modern`, clean up the bars, `:track-add organ`. A `.cc` file
+To add an organ to a chant: `:chant-to-modern`, clean up the bars, `:track-add organ`. A legacy `.cc` file
 from an older version with a chant track and other tracks loads as a modern score (the chant track
 converted in place).
 
 An ordinary track has no chant staff: `:notation chant` and `:staff-add chant` do not exist, and a
-`.cc` file that still names one drops it on load. To see a melody in square notation, convert it
+`.cc` / `.ccc` file that still names one drops it on load. To see a melody in square notation, convert it
 (`:modern-to-chant`, or `cecilia convert in.gp5 out.gabc`); the conversion uses `ChantView`, which
 builds the chant from the modern melody as described in §3. `Note.chant` (`ChantMarks`) and
 `Beat.chant_division` are still read by that conversion.
@@ -52,7 +52,7 @@ builds the chant from the modern melody as described in §3. `Note.chant` (`Chan
 ## 2. The chant pitch model
 
 Notes are staff positions, as chant is written. Position 0 is GABC `a` (below the bottom line),
-3 is `d` (bottom line), 5 `f`, 7 `h`, 9 `j` (the four lines), up to 12 `m`. A staff shows positions
+3 is `d` (bottom line), 5 `f`, 7 `h`, 9 `j` (the four lines), up to 12 `m` (letters go on to `n`, 13). A staff shows positions
 0–13. Uppercase letters are the same positions drawn as a punctum inclinatum.
 
 A clef (`ChantClef`: kind do/fa, line 1–4, optional flat) fixes what a position means:
@@ -149,17 +149,16 @@ Each run (syllable, up to a division) is cut into neumes:
    any lyric exists, the syllables decide and the flag is ignored.
 2. **Climacus.** Three or more falling plain notes (no inclinatum or other sign except moras) in a
    row become one neume drawn as a virga followed by puncta inclinata.
-3. **Contour grouping** of everything else (`group_neumes`). A neume grows note by note while:
-   - it began with a plain punctum or an initio debilis, or with a quilisma or quadratum (which
-     take just one rising note);
-   - the new note is a plain punctum (no virga, stropha, oriscus, quilisma, cavum, linea,
-     inclinatum) at a **different pitch** than the last — a repeated pitch always starts a new
-     neume;
-   - the up/down pattern so far is one of: up (pes), down (clivis), up-down (torculus),
-     down-up (porrectus), up-down-up, down-up-down — **at most four notes**;
-   - three rising notes are cut after the first (a scandicus: a punctum then a pes);
-   - the previous note is not liquescent.
-   Anything else starts a new neume.
+3. **Glyph grouping** of everything else (`group_neumes`), a port of Gregorio's glyph
+   determination (`gabc_det_glyphs_from_notes`, `add_note_to_glyph`). Notes are added one by one
+   to the glyph being built, which becomes a pes, clivis, torculus, porrectus, porrectus flexus,
+   scandicus (a single glyph), salicus, ancus, pes quadratum, puncta inclinata and so on:
+   - a repeated pitch always starts a new glyph;
+   - a note more than `MAX_AMBITUS` (5) positions from the last starts afresh;
+   - what may follow depends on the glyph so far and on how it began (a plain punctum, an initio
+     debilis, a quilisma, a quadratum, an oriscus); a punctum linea stands alone;
+   - a liquescent note ends its glyph.
+   Anything that does not fit starts a new neume.
 
 ### 3.7 Divisions and the output
 
@@ -171,7 +170,7 @@ the next beat's column.
 `:modern-to-chant` builds a `Chant` from the view — a clef item, then syllables with their text
 (escaped for GABC), `word_start` from the lyric's trailing `-`, flats, the notes, and the
 division as its own bar item — opens it as a new buffer `[chant] name`, and reports shift, rounded
-notes and reduced chords. Drum tracks and tracks without notes are refused.
+notes and reduced chords. Drum tracks are refused; a track without notes gives an empty chant (a clef and nothing to sing yet).
 
 ### 3.8 What is lost
 
@@ -244,8 +243,9 @@ transcription to the chant. Edits are operations on the `Chant`, each returning
   none; GABC parsing, `retranscribe` and `insert_note` call it). Edits keep the ids of the notes
   they move, split or join, a new note takes a fresh one, and ids are not written to GABC and do
   not count when chants are compared. A chant made again from text (the properties pane's GABC
-  text, `:gabc`) matches its notes to the old ones by longest common subsequence on pitch and
-  signs (`Chant::inherit_ids`), so notes the edit left alone keep their id and audio sync.
+  text, `:gabc`) matches its notes to the old ones (`Chant::match_ids`): note for note when the count, heads and
+  pitches agree, else by trimming the matching ends and a weighted longest common subsequence on
+  syllable text, pitch and shape, so notes the edit left alone keep their id and audio sync.
 - **Guard.** `App::edit` compares a chant track before and after every edit: an edit that
   changed the chant has its bars written again, one that changed the bars alone is undone and
   refused with "not in chant".
@@ -253,12 +253,12 @@ transcription to the chant. Edits are operations on the `Chant`, each returning
 ### Audio sync (`chant_sync.rs`, `cecilia-app/src/chantsync.rs`)
 
 A chant score's audio sync is `AudioSync.chant_points: Vec<ChantSyncPoint { note: id, frame }>`
-(saved in `.cc`). `NoteWarp` maps the notes' start ticks (`Transcription.ticks` sums a note's
+(saved in `.ccc` / `.ccm`). `NoteWarp` maps the notes' start ticks (`Transcription.ticks` sums a note's
 beats: mora, Solesmes lengthening, repeats) to frames through the points, linearly in ticks, with
 the nearest stretch's rate before the first and after the last point (the score tempo with fewer
 than two). `Score::refresh_chant_sync` drops points whose note is gone, then writes
 `AudioSync.points` (the ordinary bar points the player uses) with one point at each bar's first
-note. It runs in `retranscribe`, after every edit of a chant score and when a `.cc` is read. The
+note. It runs in `retranscribe`, after every edit of a chant score and when a native file is read. The
 bar points are derived and not saved; an older file that has only bar points gets them turned into
 note points on load (`bar_points_to_notes`, the same as `:modern-to-chant` does).
 
@@ -278,7 +278,7 @@ A sync point can be on any note, rest `()` or division of its own. A division ta
 (an eighth by default, on the sync timeline only), so its point shapes the timing like a note's and the ruler
 shows a tick for it (a rest `()` takes none and its point is only drawn); a tap snaps to the strongest onset of the audio
 within `ui.sync_snap` ms. `:sync-unit` chooses what a tap steps over: a syllable's first cell, or every cell.
-A place in a chant is written `bar:syllable.note` in the status line, on the waveform's ruler and for `:goto`
+A place in a chant is written `bar:syllable.note` in the status line, on the waveform's ruler and for going there
 (`:3:4.2`): a bar starts after every division, which is itself `3:0`; the syllables of a bar (not the divisions) are
 counted from 1 and a syllable's notes from `.1`; a missing note reads as `.1`. With `ui.bar_numbers` the bars are numbered
 above the staff, as on a modern score.

@@ -32,7 +32,7 @@ WYSIWYG editor. Free and open source, written in Rust, with a window *and* a ter
 - Guitar tablature, standard notation, slash notation, drums (standard drum notation and
   CY/HH/SN/BD drum tab) and piano grand staves; up to four voices per bar
 - Lyrics with several verses, hyphenation and repeats; markers, sections and repeats
-  (D.C./D.S.), tuplets, ties, and the full Guitar Pro technique set (bends, slides, hammer-ons,
+  (D.C./D.S.), tuplets, ties, and most Guitar Pro techniques (bends, slides, hammer-ons,
   harmonics, palm mute, …), auto-fingering and retuning
 - Gregorian chant in square notation: neumes, clefs, divisions, custodes, episemata, morae, drop
   cap initial; equalist or Solesmes rhythm
@@ -53,48 +53,28 @@ WYSIWYG editor. Free and open source, written in Rust, with a window *and* a ter
 - Command line (`:`), command palette, pickers for files, buffers and workspaces, a which-key
   hint popup, mouse support
 - Workspaces: views, pane splits and open files are remembered between sessions
-- Themes (six built-in presets, or your own) and TOML configuration with custom key bindings,
+- Themes (15 built-in presets, or your own) and TOML configuration with custom key bindings,
   reloaded as you save
 
 **Interfaces**
 - **GUI**: a GPU-rendered window (wgpu/vello) with engraved notation and click-to-place cursor
-- **TUI**: a full terminal interface with tablature view, which also works over SSH
+- **TUI**: a terminal interface with tablature view and basic editing, which also works over SSH
 
 **Files and export**
-- PDF, SVG and PNG export of engraved notation; WAV/FLAC export of the MIDI rendering mixed with
-  the recording; MIDI, MusicXML, GABC and ASCII tab output
+- From the command line (`cecilia convert`): PDF, SVG and PNG export of engraved notation; WAV/FLAC
+  export of the MIDI rendering mixed with the recording; MIDI, MusicXML and GABC output
 
-## How it compares
+## Where cecilia fits
 
-A rough guide, not a review. These are good programs and cecilia is much younger than all of
-them; the table shows where cecilia's focus differs. Details are as of writing and from public
-documentation, so check each project for its current state.
+cecilia is young and pre-1.0. Its focus is chant and tab in one keyboard-driven tool, and
+practising with a recording from a terminal or a plain window. What it does and does not do today:
 
-| | **cecilia** | Guitar Pro 8 | MuseScore 4 | TuxGuitar | Gregorio (GABC + LaTeX) |
-|---|:---:|:---:|:---:|:---:|:---:|
-| Price / licence | Free, MIT or Apache-2.0 | Paid, proprietary | Free, GPLv3 | Free, LGPL | Free, GPL |
-| Platforms | Linux (tested); macOS, Windows from source (untested) | Windows, macOS | Windows, macOS, Linux | Windows, macOS, Linux | Windows, macOS, Linux |
-| Guitar tablature | ✔ | ✔ | ✔ | ✔ | ✘ |
-| Standard notation | ✔ | ✔ | ✔ | ✔ | ✘ |
-| Gregorian chant (square notation) | ✔ WYSIWYG | ✘ | ✘ | ✘ | ✔ typesetting, not WYSIWYG |
-| Read Guitar Pro 3–5 (`.gp3`–`.gp5`) | ✔ | ✔ | ✔ | ✔ | ✘ |
-| Read Guitar Pro 6–8 (`.gpx`, `.gp`) | ✔ | ✔ | ✔ (import) | ✔ (`.gpx` import) | ✘ |
-| Write Guitar Pro | ✔ GP5, GPX, GP7/8 | ✔ | ✘ | ✔ (GP3–5) | ✘ |
-| MusicXML | ✔ read and write | ✔ | ✔ | ✔ | ✘ |
-| MIDI import / export | ✔ | ✔ | ✔ | ✔ | ✘ |
-| GABC (Gregorio) read / write | ✔ | ✘ | ✘ | ✘ | ✔ |
-| Play along with an audio recording | ✔ sync points, loops, speed, pitch | ✔ | ✔ (video / audio link) | limited | ✘ |
-| Realistic instrument sounds | SoundFont (`.sf2`) or built-in synth | ✔ own sound engine | ✔ Muse Sounds | SoundFont | ✘ |
-| Terminal (TUI) interface | ✔ | ✘ | ✘ | ✘ | command line only |
-| Keyboard-first, vim-style editing | ✔ | partial | partial | partial | n/a |
-| Plugin ecosystem, large user community | ✘ (young) | ✔ | ✔ | some | some |
-| Mature, 1.0+ | ✘ (pre-1.0) | ✔ | ✔ | ✔ | ✔ |
-
-Where the others are the better choice today: Guitar Pro and MuseScore have far larger
-communities and years of polish, MuseScore has orchestral and vocal engraving depth that cecilia
-does not try to match, and Guitar Pro's sound engine is more realistic than a SoundFont. cecilia
-is for you if you want chant and tab in one keyboard-driven tool, or want to practise with a
-recording from a terminal or a plain window.
+- Reads Guitar Pro 3-5 (`.gp3`-`.gp5`) and 6-8 (`.gpx`, `.gp`); writes GP5, GPX and GP7/8.
+- Reads and writes MusicXML, MIDI and GABC (Gregorio), plus its own `.ccc` / `.ccm` files.
+- Sounds: a SoundFont (`.sf2`) you provide, or a basic built-in synth. No SoundFont is bundled.
+- Platforms: Linux is the tested platform; macOS and Windows build from source but are untested.
+- Not there yet: binary releases, distribution packages, a plugin or scripting interface, and
+  the polish and community of older programs such as Guitar Pro, MuseScore or TuxGuitar.
 
 ## WYSIWYG chant editor
 
@@ -108,22 +88,22 @@ cecilia edits the engraved chant directly: what you see on the page is the score
   clef on line 3, `td:` for a division); a palette lists them for the mouse
 - Edits are undoable, in an undo tree, and play back straight away
 - Plain GABC stays the interchange format: open `.gabc` from GregoBase or Gregorio, and save
-  `.gabc` back (checked note-for-note against Gregorio 6.2); `:gabc` edits the raw source when
+  `.gabc` back; `:gabc` edits the raw source when
   you want it
-- Sync a chant to a recording syllable by syllable, or with automatic note detection
+- Sync a chant to a recording by tapping syllable by syllable (automatic detection for chant is not done yet)
 - Convert between modern notation and chant (`:modern-to-chant`, `:chant-to-modern`)
-- Export square notation to PDF, SVG or PNG
+- Export square notation to PDF, SVG or PNG (`cecilia convert chant.gabc chant.pdf`)
 
 In the terminal, chant is shown as a text staff (the engraved view needs the GUI). See
 [docs/CHANT.md](docs/CHANT.md).
 
 ## Installation
 
-cecilia is not packaged yet (no releases or distribution packages), so for now you build it
-from source. You need a [Rust toolchain](https://rustup.rs) (1.85 or newer) and git.
+cecilia is not packaged yet: the repository has version tags only, no binary releases or
+distribution packages, so for now you build it from source. You need a [Rust toolchain](https://rustup.rs) (1.85 or newer) and git.
 
 ```sh
-git clone <repository-url> cecilia && cd cecilia
+git clone https://github.com/kjmcnamara1/cecilia.git && cd cecilia
 ```
 
 ### Linux
@@ -212,7 +192,8 @@ To practise with a recording: open the score, attach the audio file (`:audio rec
 
 ## Configuration
 
-`~/.config/cecilia/config.toml`; see [docs/config.example.toml](docs/config.example.toml) for
+On Linux, `~/.config/cecilia/config.toml` (`$XDG_CONFIG_HOME/cecilia/`; other platforms use their
+standard config directory, or pass `--config`); see [docs/config.example.toml](docs/config.example.toml) for
 every option, and [docs/keymap.md](docs/keymap.md) for key bindings (all can be overridden). For
 realistic instrument sounds set `audio.soundfont` to a General MIDI `.sf2` file (for example
 FluidR3_GM or GeneralUser GS); otherwise the built-in synth is used.

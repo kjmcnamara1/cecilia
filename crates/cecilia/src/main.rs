@@ -201,7 +201,8 @@ fn main() -> Result<()> {
             }
             // Opening a workspace at startup is expected, not news (the notification stays in
             // the history).
-            app.notifications.dismiss_where(|c| c.text.starts_with("workspace opened"));
+            app.notifications
+                .dismiss_where(|c| c.text.starts_with("workspace opened"));
             // Files given open as buffer tabs in it; the first one is shown.
             for f in &cli.files {
                 app.run(Command::Edit(f.clone()));

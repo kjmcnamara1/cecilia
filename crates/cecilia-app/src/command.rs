@@ -496,7 +496,7 @@ pub enum Command {
     /// Chant rhythm: "equalist" or "solesmes" (None shows it).
     Interpretation(Option<String>),
     /// Clef of the cursor's staff, by its notation: `treble`, `bass`, `grand [split]` or `neutral`
-    /// (standard), `do` or `fa` (chant); a chant track also takes `c4`, `cb3`, `f3`.
+    /// (standard); a chant track takes `c1`–`c4`, `cb3` or `f1`–`f4`.
     Clef(String),
     /// Initial clef of a chant track (`c4`, `cb3`, `f3`); notes keep their staff positions.
     ChantClef(String),
