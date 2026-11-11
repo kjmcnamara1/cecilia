@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed
+
+- The "Workspace Opened" notification is no longer shown when a workspace is opened at startup (the last one, or `--workspace`).
+
 ## [0.42.0] - 2026-11-10
 
 ### Changed
