@@ -1608,7 +1608,7 @@ impl App {
 
     /// Opens a file into a buffer (reusing one already open) and returns its index.
     pub fn open(&mut self, path: &Path) -> Result<usize, String> {
-        let canonical = path.canonicalize().unwrap_or_else(|_| path.to_path_buf());
+        let canonical = crate::config::canonicalize(path).unwrap_or_else(|_| path.to_path_buf());
         if let Some(i) = self
             .buffers
             .iter()
@@ -3072,7 +3072,7 @@ impl App {
             path.set_extension(native_extension(&self.buffer().score));
         }
         let index = self.pane().buffer;
-        let canonical = path.canonicalize().ok();
+        let canonical = crate::config::canonicalize(&path).ok();
         if let Some(other) = self.buffers.iter().enumerate().position(|(i, b)| {
             i != index && b.path.is_some() && b.path.as_deref() == canonical.as_deref()
         }) {
@@ -3089,7 +3089,7 @@ impl App {
         if !self.write_buffer(index, Some(path.clone())) {
             return;
         }
-        let canonical = path.canonicalize().unwrap_or(path.clone());
+        let canonical = crate::config::canonicalize(&path).unwrap_or(path.clone());
         // The old swap file (named by the old path or slot) goes before the name changes.
         self.swap_release(index);
         let buffer = &mut self.buffers[index];
@@ -4369,7 +4369,10 @@ pub(crate) mod tests {
         }
         app.run(Command::parse(&format!("w! {}", other.display())).unwrap());
         assert_ne!(std::fs::read(&other).unwrap(), b"precious");
-        assert_eq!(app.buffers[0].path, other.canonicalize().ok());
+        assert_eq!(
+            app.buffers[0].path,
+            crate::config::canonicalize(&other).ok()
+        );
         // Saving again onto the buffer's own file needs no bang.
         app.run(Command::parse(&format!("w {}", other.display())).unwrap());
         assert!(!app.last_notification().unwrap().error);

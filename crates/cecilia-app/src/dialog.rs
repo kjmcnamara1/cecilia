@@ -112,6 +112,7 @@ mod tests {
     fn open_without_a_file_asks_for_files() {
         let dir = std::env::temp_dir().join(format!("cecilia-dialog-{}", std::process::id()));
         std::fs::create_dir_all(&dir).unwrap();
+        let dir = crate::config::canonicalize(&dir).unwrap();
         let mut app = App::new(Config::default(), None);
         app.run(Command::New);
         let (a, b) = (dir.join("a.ccm"), dir.join("b.ccm"));
@@ -181,7 +182,7 @@ mod tests {
         assert_eq!(
             app.take_effects(),
             vec![Effect::SaveDialog {
-                dir: Some(dir.canonicalize().unwrap()),
+                dir: Some(crate::config::canonicalize(&dir).unwrap()),
                 name: "a.ccm".into()
             }]
         );
@@ -218,7 +219,10 @@ mod tests {
         app.save_as(out.clone());
         assert!(out.exists());
         assert_eq!(app.buffer().name, "song.ccm");
-        assert_eq!(app.buffer().path, Some(out.canonicalize().unwrap()));
+        assert_eq!(
+            app.buffer().path,
+            Some(crate::config::canonicalize(&out).unwrap())
+        );
         assert!(!app.buffer().modified);
         // A plain :w now writes there, with no dialog.
         app.buffers.iter_mut().for_each(|b| b.modified = true);

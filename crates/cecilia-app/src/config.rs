@@ -1467,6 +1467,19 @@ pub fn home_dir() -> Option<PathBuf> {
     directories::BaseDirs::new().map(|d| d.home_dir().to_path_buf())
 }
 
+/// `fs::canonicalize` without the `\\?\` prefix Windows adds, so paths read as the user typed
+/// them (titles, recent files, comparisons).
+pub fn canonicalize(path: &std::path::Path) -> std::io::Result<PathBuf> {
+    let p = std::fs::canonicalize(path)?;
+    let s = p.to_string_lossy();
+    if let Some(rest) = s.strip_prefix(r"\\?\")
+        && rest.as_bytes().get(1) == Some(&b':')
+    {
+        return Ok(PathBuf::from(rest));
+    }
+    Ok(p)
+}
+
 /// Default config file location (`$XDG_CONFIG_HOME/cecilia/config.toml` on Linux).
 pub fn default_config_path() -> Option<PathBuf> {
     directories::ProjectDirs::from("", "", "cecilia").map(|d| d.config_dir().join("config.toml"))

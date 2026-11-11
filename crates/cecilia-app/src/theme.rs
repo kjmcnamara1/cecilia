@@ -854,8 +854,8 @@ mod tests {
         )
         .unwrap();
         let c: ThemeConfig = toml::from_str(&format!(
-            "file = \"{}\"\nchrome = \"#0a0b0c\"\n",
-            file.display()
+            "file = {}\nchrome = \"#0a0b0c\"\n",
+            toml::Value::from(file.display().to_string())
         ))
         .unwrap();
         let (t, errors) = Theme::from_config(&c);

@@ -1040,7 +1040,7 @@ mod tests {
     fn scratch(tag: &str) -> PathBuf {
         let dir = std::env::temp_dir().join(format!("cecilia-ws-{tag}-{}", std::process::id()));
         std::fs::create_dir_all(&dir).unwrap();
-        dir
+        crate::config::canonicalize(&dir).unwrap()
     }
 
     /// How many panes the first view of a saved workspace has.
