@@ -146,6 +146,13 @@ This puts `cecilia` on your `PATH` (in `~/.cargo/bin`). There is no installer, f
 or desktop entry; run `cecilia --gui song.gp5` from a terminal. Bug reports from these platforms
 are welcome. The terminal interface needs a modern terminal; on Windows use Windows Terminal.
 
+Build requirements: on Windows the Visual Studio C++ Build Tools ("Desktop development with C++")
+and LLVM (the `bindgen` build step needs `libclang`; set `LIBCLANG_PATH` to LLVM's `bin` folder if
+it is not found). On macOS the Xcode command line tools (`xcode-select --install`). The window
+(`--gui`) needs a graphics driver with working compute shaders; on Windows it crashed inside
+Windows' software renderer on a virtual machine without 3D acceleration (see `TODO.md`), so use a
+machine with a real GPU.
+
 ### Just try it
 
 ```sh
