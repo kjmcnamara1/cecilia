@@ -592,6 +592,8 @@ pub struct App {
     pub notifications: crate::notify::Notifications,
     pub(crate) swap: crate::swap::SwapState,
     pub show_help: bool,
+    /// The text viewer popup, while open: it takes every key and click.
+    pub(crate) viewer: Option<crate::viewer::Viewer>,
     /// Set by the frontend to reflect the player state.
     pub playing: bool,
     /// Buffer being played, set when playback starts.
@@ -742,6 +744,7 @@ impl App {
             confirm_close: None,
             swap: Default::default(),
             show_help: false,
+            viewer: None,
             playing: false,
             playing_buffer: None,
             play_start: None,
@@ -2046,6 +2049,9 @@ impl App {
 
     pub fn handle_key(&mut self, key: Key) {
         self.palette_follow_kind();
+        if self.viewer.is_some() {
+            return self.viewer_key(key);
+        }
         if let Some(path) = self.confirm_delete_workspace.take() {
             return self.answer_delete_workspace(path, key);
         }
@@ -2904,10 +2910,8 @@ impl App {
                 subject: a.subject,
                 icon: a.icon,
                 timeout: a.timeout,
-                body_at: None,
-                record: true,
             }),
-            NotifyReplay(key) => self.notify_replay(key),
+            NotifyView(key) => self.notify_view(key),
             Edit(path) => match self.open(&path) {
                 Ok(b) => {
                     self.show_buffer(b);
@@ -3533,7 +3537,7 @@ pub(crate) fn clamp_cursor(score: &Score, c: &mut Cursor) {
 /// Whether the cursor sits on strings on a staff: a tab, or a drum staff's lanes.
 pub(crate) fn uses_strings(track: &Track, staff: Staff) -> bool {
     match staff {
-        Staff::Tab | Staff::TabRhythm => !track.strings.is_empty(),
+        Staff::Tab => !track.strings.is_empty(),
         Staff::Standard(_) => track.kind == TrackKind::Drums,
         Staff::Slash => false,
     }
@@ -3595,7 +3599,7 @@ fn staff_rows(score: &Score, c: &Cursor, track: &Track, index: usize, staff: Sta
             lines(lo, hi).collect()
         }
         // A tab without strings is shown as a treble staff.
-        Staff::Tab | Staff::TabRhythm => {
+        Staff::Tab => {
             let (lo, hi) = range(track.written_clef(Clef::Treble, false), &|_| true);
             lines(lo, hi).collect()
         }
@@ -5278,6 +5282,23 @@ pub(crate) mod tests {
             config.theme.incomplete_bar,
             crate::theme::Rgba::rgb(0x11, 0x22, 0x33)
         );
+    }
+
+    #[test]
+    fn tab_rhythm_option() {
+        let mut app = App::new(Config::default(), None);
+        assert_eq!(app.config.file.ui.tab_rhythm, "auto");
+        for v in ["on", "off", "auto"] {
+            app.run(Command::parse(&format!("set ui.tab_rhythm {v}")).unwrap());
+            assert_eq!(app.config.file.ui.tab_rhythm, v);
+        }
+        app.run(Command::parse("set ui.tab_rhythm sometimes").unwrap());
+        assert_eq!(app.config.file.ui.tab_rhythm, "auto");
+        let (config, errors) = Config::parse("[ui]\ntab_rhythm = \"on\"\n", &[]).unwrap();
+        assert!(errors.is_empty(), "{errors:?}");
+        assert_eq!(config.file.ui.tab_rhythm, "on");
+        let (_, errors) = Config::parse("[ui]\ntab_rhythm = \"odd\"\n", &[]).unwrap();
+        assert!(errors[0].contains("ui.tab_rhythm"), "{errors:?}");
     }
 
     #[test]

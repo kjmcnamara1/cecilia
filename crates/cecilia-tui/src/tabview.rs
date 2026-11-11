@@ -2,7 +2,7 @@
 
 use crate::{barline, rc, rhythm};
 use cecilia_app::{App, Cursor};
-use cecilia_core::{Bar, Beat, DurationValue, Note, Score, Track, TrackKind, Voice};
+use cecilia_core::{Bar, Beat, DurationValue, Note, Score, TabRhythm, Track, TrackKind, Voice};
 use ratatui::buffer::Buffer;
 use ratatui::layout::Rect;
 use ratatui::style::{Modifier, Style};
@@ -95,9 +95,9 @@ pub fn scroll_bars(
     }
 }
 
-/// Rows used by a system: header + strings + tab+ rhythm rows + one row per lyric verse + spacer.
-pub fn system_height(track: &Track) -> u16 {
-    track.strings.len().max(1) as u16 + 2 + rhythm::rows(track) + verses(track)
+/// Rows used by a system: header + strings + rhythm rows + one row per lyric verse + spacer.
+pub fn system_height(track: &Track, mode: TabRhythm) -> u16 {
+    track.strings.len().max(1) as u16 + 2 + rhythm::rows(track, mode) + verses(track)
 }
 
 /// Number of lyric verses on a track's first voice.
@@ -435,6 +435,7 @@ pub fn page_scroll(
 }
 
 /// The rows of bars a pane of `area` shows from system `scroll`, for half-page movement.
+#[allow(clippy::too_many_arguments)]
 pub fn view_info(
     score: &Score,
     track: usize,
@@ -443,6 +444,7 @@ pub fn view_info(
     scroll: usize,
     horizontal: bool,
     page: Option<&[RowSpec]>,
+    mode: TabRhythm,
 ) -> cecilia_app::ViewInfo {
     let Some(t) = score.tracks.get(track) else {
         return Default::default();
@@ -455,7 +457,7 @@ pub fn view_info(
             ..Default::default()
         };
     }
-    let sh = system_height(t);
+    let sh = system_height(t, mode);
     let (systems, visible) = match page {
         Some(page) => {
             let systems = layout_rows(score, track, area.width.saturating_sub(4), scale, page);
@@ -593,9 +595,10 @@ impl Widget for TabView<'_> {
             return;
         };
         let scale = self.app.config.file.ui.tab_width.clamp(1, 8) as u16;
-        let sh = system_height(track);
+        let mode = TabRhythm::parse(&self.app.config.file.ui.tab_rhythm);
+        let sh = system_height(track, mode);
         let rows = track.strings.len().max(1);
-        let rhythm_rows = rhythm::rows(track);
+        let rhythm_rows = rhythm::rows(track, mode);
         let icons = self.app.config.file.tabline.icons.as_str();
         let visible = (area.height / sh).max(1) as usize;
         // The page layout draws each page in a box: the score sits two columns inside it.
@@ -671,6 +674,13 @@ impl Widget for TabView<'_> {
             on(th.dim)
         };
         let playhead_style = on(th.playhead);
+        // While `'` waits for a mark letter: where each mark would jump to.
+        let above = self.app.config.file.ui.mark_labels == cecilia_app::config::MarkLabels::Above;
+        let jump_targets = if self.focused {
+            self.app.jump_targets(pane.buffer)
+        } else {
+            Vec::new()
+        };
 
         // Where each shown system starts (relative to the pane): stacked, with the page layout's
         // borders between pages.
@@ -901,6 +911,31 @@ impl Widget for TabView<'_> {
                                 cursor_style,
                             );
                         }
+                    }
+                    // Above: on the bar's header row; exact: on the mark's string. Marks on one
+                    // row share a label.
+                    let here = jump_targets
+                        .iter()
+                        .filter(|(_, c)| {
+                            c.track == pane.cursor.track && c.bar == bl.bar && c.beat == i
+                        })
+                        .map(|(name, c)| {
+                            let y = if above {
+                                top_y
+                            } else {
+                                y0 + 1 + c.string.min(rows - 1) as u16
+                            };
+                            (*name, y)
+                        });
+                    for (name, y) in cecilia_app::marks::merge_labels(here) {
+                        buf.set_string(
+                            bx_beat,
+                            y,
+                            name,
+                            Style::default()
+                                .fg(rc(th.playhead))
+                                .add_modifier(Modifier::BOLD),
+                        );
                     }
                     // Clicking the rhythm under the strings picks the beat too.
                     for r in 0..rhythm_rows {
@@ -1188,7 +1223,19 @@ mod tests {
         let tail = layout_line(&score, 0, 60, 2, 7);
         assert_eq!(tail.bars.len(), 3);
         assert!(!tail.clipped);
-        assert!(view_info(&score, 0, Rect::new(0, 0, 60, 20), 2, 0, true, None).horizontal);
+        assert!(
+            view_info(
+                &score,
+                0,
+                Rect::new(0, 0, 60, 20),
+                2,
+                0,
+                true,
+                None,
+                TabRhythm::Auto
+            )
+            .horizontal
+        );
     }
 
     #[test]

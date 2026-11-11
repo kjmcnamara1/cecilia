@@ -44,6 +44,7 @@ pub struct OptionSpec {
 }
 
 const LAYOUTS: &[&str] = &["page", "vertical", "horizontal"];
+const MARK_LABELS: &[&str] = &["exact", "above", "off"];
 const TICKS: &[&str] = &["all", "major", "off"];
 const ANCHORS: &[&str] = &[
     "top_left",
@@ -224,6 +225,11 @@ pub static OPTIONS: LazyLock<Vec<OptionSpec>> = LazyLock::new(|| {
             "Bar numbers on the score: the first bar of each line, or every bar.",
         ),
         o(
+            "ui.tab_rhythm",
+            Choice(&["auto", "on", "off"]),
+            "Rhythm row under tab: always, never, or only when the track has no standard or slash staff.",
+        ),
+        o(
             "ui.highlight_incomplete_bars",
             Bool,
             "Draw the staff lines of bars that don't hold their full count in red.",
@@ -252,6 +258,11 @@ pub static OPTIONS: LazyLock<Vec<OptionSpec>> = LazyLock::new(|| {
             "ui.chant_text_font",
             Choice(&["noto-serif", "source-sans"]),
             "The font of the lyrics of a chant score.",
+        ),
+        o(
+            "ui.mark_labels",
+            Choice(MARK_LABELS),
+            "Where the marks are drawn on the score while ' waits for a letter: on the exact position, above the staff, or not at all.",
         ),
         o(
             "ui.waveform_time_ticks",

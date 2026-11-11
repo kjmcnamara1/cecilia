@@ -1,6 +1,6 @@
-//! Marks, as in Vim: `m{a-z}` marks a position in the current file, `m{A-Z}` a position in any
-//! file (jumping there opens it); `'{mark}` jumps to the mark's bar, `` `{mark} `` to its exact
-//! beat and string; `''` / ``` `` ``` jump back to where the cursor was before the last jump.
+//! Marks, as in Vim: `` `{a-z} `` marks a position in the current file, `` `{A-Z} `` a position in any
+//! file (jumping there opens it); `'{mark}` jumps to the mark's exact
+//! beat and string; `''` jumps back to where the cursor was before the last jump.
 
 use crate::app::position_text;
 use std::collections::BTreeMap;
@@ -31,6 +31,19 @@ pub struct MarkInfo {
     pub name: char,
     pub file: String,
     pub cursor: Cursor,
+}
+
+/// Labels for marks, each with the screen position `key` it is drawn at: marks sharing a
+/// position become one label, their names run together in the order given (`ac'`).
+pub fn merge_labels<K: PartialEq>(marks: impl IntoIterator<Item = (char, K)>) -> Vec<(String, K)> {
+    let mut out: Vec<(String, K)> = Vec::new();
+    for (name, at) in marks {
+        match out.iter_mut().find(|(_, k)| *k == at) {
+            Some((label, _)) => label.push(name),
+            None => out.push((name.to_string(), at)),
+        }
+    }
+    out
 }
 
 impl App {
@@ -66,9 +79,9 @@ impl App {
         self.info(format!("mark {name}: {at}"));
     }
 
-    /// Jumps to mark `name`: its bar (`exact` false) or its exact position. `'` (and `` ` ``) is
+    /// Jumps to mark `name`: its exact position. `'` (and `` ` ``) is
     /// the position before the last jump.
-    pub fn jump_to_mark(&mut self, name: char, exact: bool) {
+    pub fn jump_to_mark(&mut self, name: char) {
         let target = match name {
             '\'' | '`' => self.pane().jump_back,
             '<' | '>' | '^' => self.special_mark(name),
@@ -106,18 +119,15 @@ impl App {
         let Some((buffer, cursor)) = target else {
             return self.error(format!("mark {name} is not set"));
         };
-        self.jump(buffer, cursor, exact);
+        self.jump(buffer, cursor);
     }
 
     /// Moves the focused pane to a position (showing its buffer), remembering where it was for
     /// `''`.
-    pub(crate) fn jump(&mut self, buffer: usize, mut cursor: Cursor, exact: bool) {
+    pub(crate) fn jump(&mut self, buffer: usize, mut cursor: Cursor) {
         let here = (self.pane().buffer, self.pane().cursor);
         if buffer != here.0 {
             self.show_buffer(buffer);
-        }
-        if !exact {
-            cursor.beat = 0;
         }
         crate::app::clamp_cursor(&self.buffers[buffer].score, &mut cursor);
         let pane = self.pane_mut();
@@ -176,7 +186,38 @@ impl App {
         out
     }
 
-    /// The which-key popup: its title and rows (keys, what they do). While `'`, `` ` `` or `m`
+    /// While `'` waits for a mark letter (and `ui.mark_labels` is not off): the marks (and `'`,
+    /// the way back) that sit in buffer `buffer`, so the score can show where each jump would
+    /// land. Several can land on one drawn position: see [`merge_labels`].
+    pub fn jump_targets(&self, buffer: usize) -> Vec<(char, Cursor)> {
+        if !matches!(self.ed.awaiting, Some(crate::editor::Awaiting::Jump))
+            || self.config.file.ui.mark_labels == crate::config::MarkLabels::Off
+        {
+            return Vec::new();
+        }
+        let path = self.buffers.get(buffer).map(|b| &b.path);
+        let named = self
+            .marks
+            .local
+            .get(&buffer)
+            .into_iter()
+            .flatten()
+            .map(|(&n, &c)| (n, c));
+        let global = self
+            .marks
+            .global
+            .iter()
+            .filter(|(_, m)| m.buffer == buffer && Some(&m.path) == path)
+            .map(|(&n, m)| (n, m.cursor));
+        let back = self
+            .pane()
+            .jump_back
+            .filter(|j| j.0 == buffer)
+            .map(|j| ('\'', j.1));
+        named.chain(global).chain(back).collect()
+    }
+
+    /// The which-key popup: its title and rows (keys, what they do). While `'`, or `` ` ``
     /// waits for a mark letter, the saved marks and where they are; otherwise the keys that can
     /// follow the ones typed so far. `None` when there is nothing to show.
     pub fn which_key(&self) -> Option<(String, Vec<(String, String)>)> {
@@ -184,7 +225,7 @@ impl App {
         let place =
             |file: &str, c: &Cursor| format!("{file} · {}", position_text(&self.buffer().score, c));
         match self.ed.awaiting {
-            Some(Awaiting::Jump { exact }) => {
+            Some(Awaiting::Jump) => {
                 let mut rows = Vec::new();
                 if let Some((b, c)) = self.pane().jump_back {
                     let file = self.buffers.get(b).map_or("", |b| b.name.as_str());
@@ -196,9 +237,9 @@ impl App {
                         .map(|m| (m.name.to_string(), place(&m.file, &m.cursor))),
                 );
                 if rows.is_empty() {
-                    rows.push(("".into(), "no marks yet (m{a-z} sets one)".into()));
+                    rows.push(("".into(), "no marks yet (`{a-z} sets one)".into()));
                 }
-                Some(((if exact { "`" } else { "'" }).to_string(), rows))
+                Some(("'".to_string(), rows))
             }
             Some(Awaiting::Mark) => {
                 let mut rows: Vec<(String, String)> = self
@@ -218,7 +259,7 @@ impl App {
                         "mark here (this file / any file)".into(),
                     ),
                 );
-                Some(("m".to_string(), rows))
+                Some(("`".to_string(), rows))
             }
             Some(Awaiting::Register) => Some((
                 "\"".to_string(),
@@ -390,8 +431,8 @@ mod tests {
         let mut app = App::new(Config::default(), None);
         app.run(Command::Edit(a.clone()));
         // A local mark in a: bar 3, string 2 (beat 0 is the only beat of these bars).
-        keys(&mut app, "}}jma");
-        keys(&mut app, "}}}}mB");
+        keys(&mut app, "}}j`a");
+        keys(&mut app, "}}}}`B");
         keys(&mut app, "gg");
         keys(&mut app, "'a");
         assert_eq!((app.pane().cursor.bar, app.pane().cursor.string), (2, 1));
@@ -402,7 +443,7 @@ mod tests {
         app.run(Command::Edit(b.clone()));
         keys(&mut app, "'a");
         assert!(app.last_notification().unwrap().error);
-        keys(&mut app, "`B");
+        keys(&mut app, "'B");
         assert_eq!(app.buffer().name, "a.ccm");
         assert_eq!(app.pane().cursor.bar, 6);
         // Even after the file was closed.
@@ -437,5 +478,32 @@ mod tests {
         app.run(Command::DeleteMarks(Some("B".into())));
         assert!(app.mark_list().is_empty());
         std::fs::remove_dir_all(dir).ok();
+    }
+
+    #[test]
+    fn marks_at_one_position_share_a_label_and_it_can_be_turned_off() {
+        let mut app = App::new(Config::default(), None);
+        app.run(Command::New);
+        keys(&mut app, "}}`a}}`b`c");
+        let b = app.pane().buffer;
+        assert!(app.jump_targets(b).is_empty(), "only while ' waits");
+        keys(&mut app, "gg}'");
+        let labels: Vec<String> =
+            super::merge_labels(app.jump_targets(b).into_iter().map(|(n, c)| (n, c.bar)))
+                .into_iter()
+                .map(|t| t.0)
+                .collect();
+        // `gg` left from where b and c are, so the way back (') is there too.
+        assert_eq!(labels, ["a", "bc'"]);
+        keys(&mut app, "<Esc>");
+        app.run(Command::parse("set ui.mark_labels off").unwrap());
+        keys(&mut app, "'");
+        assert!(app.jump_targets(b).is_empty());
+    }
+
+    #[test]
+    fn labels_on_one_position_run_together_in_order() {
+        let labels = super::merge_labels([('a', 1), ('b', 2), ('c', 1), ('\'', 1)]);
+        assert_eq!(labels, [("ac'".to_string(), 1), ("b".to_string(), 2)]);
     }
 }

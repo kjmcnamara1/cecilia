@@ -256,8 +256,8 @@ pub enum Command {
     Transpose(i32),
     TrackAdd(String),
     TrackDelete,
-    /// Show the cursor's staff in another notation: `standard`, `tab`, `tab+`, `slash` or
-    /// `chant`. The notes stay the same.
+    /// Show the cursor's staff in another notation: `standard [clef]`, `tab` or `slash`. The
+    /// notes stay the same.
     Notation(String),
     /// Add a staff at the bottom of the cursor's track (standard when not given).
     StaffAdd(Option<String>),
@@ -477,12 +477,10 @@ pub enum Command {
     WorkspaceOpen(String, bool),
     /// Delete a workspace (the active one without a name); `!` skips the confirmation.
     WorkspaceDelete(Option<String>, bool),
-    /// Set a mark: await its letter (`m`).
+    /// Set a mark: await its letter (`` ` ``).
     SetMark,
-    /// Jump to a mark: await its letter (`'` to its bar, `` ` `` exactly).
-    JumpMark {
-        exact: bool,
-    },
+    /// Jump to a mark: await its letter (`'`, to its exact position).
+    JumpMark,
     /// Jump to a mark's exact position (`:goto-mark a`).
     GotoMark(char),
     /// Play the macro in a register (`:run-macro a`).
@@ -613,8 +611,8 @@ pub enum Command {
     NotifyDismiss,
     /// `:notify`: raises a notification.
     Notify(NotifyArgs),
-    /// Shows a notification of the history again (by its key).
-    NotifyReplay(u64),
+    /// Shows a notification of the history in a popup (by its key).
+    NotifyView(u64),
     Source,
     CommandMode,
     Normal,
@@ -936,7 +934,7 @@ impl Command {
             "track-delete" => TrackDelete,
             // `staff` is the old name of `notation`.
             "notation" | "staff" => Notation(
-                arg.ok_or("notation: expected standard, tab, tab+, slash or chant")?
+                arg.ok_or("notation: expected standard, tab or slash")?
                     .to_string(),
             ),
             "staff-add" => StaffAdd(arg.map(String::from)),
@@ -1151,8 +1149,7 @@ impl Command {
                 arg.and_then(|a| a.chars().next())
                     .ok_or("run-macro: expected a register")?,
             ),
-            "jump-mark" => JumpMark { exact: true },
-            "jump-mark-bar" => JumpMark { exact: false },
+            "jump-mark" => JumpMark,
             "mark" | "k" => Mark(
                 arg.and_then(|a| a.chars().next())
                     .filter(|c| c.is_ascii_alphabetic())

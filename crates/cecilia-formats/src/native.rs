@@ -150,6 +150,7 @@ fn upgrade_lyrics(score: &mut Score) {
 /// (`"Chant"`, `"ChantFa"`) among a track's staves, with a clef line (`chant_line`). The staff is
 /// dropped (with the lyrics attached to it); the track keeps its other staves, or the default
 /// ones if it had no other. Chant tracks (`chant` set) have no staves of their own to keep.
+/// A `"TabRhythm"` staff (the rhythm row is now the `ui.tab_rhythm` option) becomes a `"Tab"`.
 fn drop_chant_staves(score: &mut serde_json::Value) {
     let Some(tracks) = score.get_mut("tracks").and_then(|t| t.as_array_mut()) else {
         return;
@@ -159,6 +160,14 @@ fn drop_chant_staves(score: &mut serde_json::Value) {
             continue;
         };
         track.remove("chant_line");
+        if let Some(staves) = track.get_mut("staves").and_then(|s| s.as_array_mut()) {
+            for s in staves
+                .iter_mut()
+                .filter(|s| s.as_str() == Some("TabRhythm"))
+            {
+                *s = serde_json::json!("Tab");
+            }
+        }
         let Some(staves) = track.get("staves").and_then(|s| s.as_array()) else {
             continue;
         };
@@ -218,6 +227,24 @@ mod tests {
         let bytes = write_cecilia(&score).unwrap();
         assert!(is_cecilia(&bytes));
         assert_eq!(read_cecilia(&bytes).unwrap(), score);
+    }
+
+    #[test]
+    fn a_tab_rhythm_staff_in_an_old_file_is_a_tab() {
+        let score = Score {
+            master_bars: vec![MasterBar::default()],
+            tracks: vec![Track {
+                staves: vec![Staff::Slash, Staff::Tab],
+                bars: vec![Bar::default()],
+                ..Track::default()
+            }],
+            ..Score::default()
+        };
+        let mut json = serde_json::to_value(&score).unwrap();
+        json["tracks"][0]["staves"] = serde_json::json!(["Slash", "TabRhythm"]);
+        drop_chant_staves(&mut json);
+        let back: Score = serde_json::from_value(json).unwrap();
+        assert_eq!(back.tracks[0].staves, [Staff::Slash, Staff::Tab]);
     }
 
     #[test]

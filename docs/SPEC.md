@@ -71,7 +71,7 @@ Score
 │  ├─ name, instrument kind (Fretted | Drums | Pitched | Chant), MIDI program/channel/bank,
 │  │  volume/pan, color, mute/solo
 │  ├─ fretted: strings (tuning, MIDI pitch per string), fret count, capo
-│  ├─ staves: which views are shown (tab, tab+, standard, slash)
+│  ├─ staves: which views are shown (tab, standard, slash)
 │  ├─ lyrics_text: the track's lyrics as text (see 4.3), source of the beats' syllables
 │  └─ bars[] (one per master bar; repeat sign `simile`) → voices[] (≥4) → beats[]
 │        beat: duration (value, dots, tuplet), rest/empty, text, chord diagram ref,
@@ -149,7 +149,7 @@ bars (durations, tuplets, rests, ties, effects, bar insert / delete, paste, note
 report "not in chant" on a chant track, and the central edit path refuses any edit that changes
 the bars of a chant track without changing its chant.
 
-**Chant scores.** A score is either a *modern score* (staff tracks only: standard, tab, tab+,
+**Chant scores.** A score is either a *modern score* (staff tracks only: standard, tab,
 slash) or a *chant score*: exactly one track, with `chant` set (`Score::is_chant()`, the one test
 the app uses). A `.gabc` file reads as a chant score; a chant file cannot hold other tracks, and
 `:track-add` refuses on a chant score (and refuses a chant track on a modern one), pointing at the
@@ -333,7 +333,7 @@ and look-alikes (equal but for numbers) merge into one card with a `×N` badge; 
 after `notifications.info_timeout` / `error_timeout` seconds (0: stays), a thin bar along its
 bottom showing the time left; a click dismisses it. Questions (save, reload) are cards that stay
 until answered. Every notification is kept in a history (`notifications.history_size`, stored in
-the state directory) browsed with `:notifications` (repeats stacked as on screen, message left, when it appeared right as "5m ago" or a date and time: `notifications.history_time`; Enter shows the notification again). `:notify` raises one.
+the state directory) browsed with `:notifications` (repeats stacked as on screen, message left, when it appeared right as "5m ago" or a date and time: `notifications.history_time`; Enter opens the notification in a read-only text popup in the middle of the window: `hjkl`, `v`/`V` and `y` as in the lyrics text area but never editing, the mouse selects, `<Esc>` or the "x" in the corner closes it). `:notify` raises one.
 
 ### 8.3 Mouse
 

@@ -56,6 +56,16 @@ pub fn run(mut app: App) -> Result<()> {
 /// and the first one shown.
 type PropsText = (u16, u16, u16, Vec<(usize, usize)>, usize);
 
+/// The text viewer popup as drawn: its close button, its text area (the lines wrapped to it and
+/// the first one shown).
+struct ViewerUi {
+    area: Rect,
+    close: Rect,
+    text: Rect,
+    lines: Vec<(usize, usize)>,
+    skip: usize,
+}
+
 /// Mouse state between frames: what was drawn where, and where the mouse is.
 #[derive(Default)]
 struct Ui {
@@ -91,6 +101,8 @@ struct Ui {
     /// The lyrics text area as drawn: its left, its first line's row and height, the wrapped
     /// lines and the first one shown.
     props_text: Option<PropsText>,
+    /// The text viewer popup, while it is open.
+    viewer: Option<ViewerUi>,
     /// A mouse drag in progress.
     drag: Option<Drag>,
     hits: Vec<Hit>,
@@ -163,6 +175,8 @@ fn page_layout<'a>(
 enum Drag {
     /// A selection in the lyrics text area.
     Text,
+    /// A selection in the text viewer popup.
+    Viewer,
     /// A staff row of the properties pane (where it began, and the row under the mouse now).
     Prop(usize, usize, bool),
     /// A track's volume (one undo step).
@@ -261,6 +275,8 @@ fn event_loop(terminal: &mut DefaultTerminal, app: &mut App) -> Result<()> {
                         app.handle_key(key);
                     }
                 }
+                // The text viewer popup takes the mouse while it is open.
+                Event::Mouse(m) if app.viewer().is_some() => viewer_mouse(app, &mut ui, m),
                 Event::Mouse(m) => match m.kind {
                     MouseEventKind::Moved => {
                         ui.hover = Some((m.column, m.row));
@@ -956,7 +972,11 @@ fn draw(f: &mut Frame, app: &mut App, play: Option<(usize, Location, f64, f64)>,
             );
         }
         if let Some(track) = track {
-            app.page_bars = page_bars(inner, track);
+            app.page_bars = page_bars(
+                inner,
+                track,
+                cecilia_core::TabRhythm::parse(&app.config.file.ui.tab_rhythm),
+            );
         }
         // What the pane shows, for half-page movement (chant lines are not bars: the fallback).
         let info = (!chant && track.is_some()).then(|| {
@@ -973,6 +993,7 @@ fn draw(f: &mut Frame, app: &mut App, play: Option<(usize, Location, f64, f64)>,
                 scroll,
                 horizontal,
                 page.as_deref(),
+                cecilia_core::TabRhythm::parse(&app.config.file.ui.tab_rhythm),
             )
         });
         view_infos.push((id, info));
@@ -1021,6 +1042,7 @@ fn draw(f: &mut Frame, app: &mut App, play: Option<(usize, Location, f64, f64)>,
     if app.show_help {
         draw_help(f, app, main);
     }
+    draw_viewer(f, app, ui, main);
     if let Some(p) = app.palette() {
         draw_palette(f, app, &p, f.area());
     }
@@ -1293,10 +1315,10 @@ fn draw_palette(f: &mut Frame, app: &App, p: &cecilia_app::Palette, screen: Rect
 }
 
 /// Bars paged when a pane's view is not known (chant): two per system row.
-fn page_bars(area: Rect, track: &cecilia_core::Track) -> usize {
+fn page_bars(area: Rect, track: &cecilia_core::Track, mode: cecilia_core::TabRhythm) -> usize {
     let height = match track.chant.as_deref() {
         Some(chant) => chantview::system_height(chant),
-        None => tabview::system_height(track),
+        None => tabview::system_height(track, mode),
     };
     let rows = (area.height / height).max(1) as usize;
     rows * 2
@@ -3030,6 +3052,158 @@ fn draw_notifications(f: &mut Frame, app: &App, ui: &mut Ui) {
     }
 }
 
+/// The text viewer: a bordered popup in the middle of `main` with the text as a read-only text
+/// area (the caret a block in normal mode, the selection highlighted) and an "x" in the corner.
+fn draw_viewer(f: &mut Frame, app: &App, ui: &mut Ui, main: Rect) {
+    ui.viewer = None;
+    let Some(v) = app.viewer() else {
+        return;
+    };
+    let t = &app.config.theme;
+    let w = main.width.saturating_sub(8).clamp(1, 80).min(main.width);
+    let inner_w = usize::from(w.saturating_sub(4));
+    if inner_w == 0 || main.height < 3 {
+        return;
+    }
+    let text = &v.edit.text;
+    let lines = cecilia_app::properties::wrap_ranges(text, |l| l.chars().count() <= inner_w);
+    *v.lines.borrow_mut() = lines.clone();
+    let h = (lines.len() as u16 + 2).clamp(3, main.height.saturating_sub(2).max(3));
+    let area = Rect::new(
+        main.x + (main.width - w) / 2,
+        main.y + (main.height.saturating_sub(h)) / 2,
+        w,
+        h.min(main.height),
+    );
+    let shown = usize::from(area.height - 2);
+    let skip = v.window(lines.len(), shown);
+    let color = rc(if v.error { t.error } else { t.accent });
+    let ground = Style::default()
+        .fg(rc(t.text_on(t.popover)))
+        .bg(rc(t.popover));
+    let mut title = vec![Span::styled(
+        format!(" {}", v.icon.glyph()),
+        Style::default().fg(color),
+    )];
+    if !v.subject.is_empty() {
+        title.push(Span::styled(
+            format!(" {} ", v.subject),
+            Style::default().add_modifier(ratatui::style::Modifier::BOLD),
+        ));
+    }
+    f.render_widget(Clear, area);
+    f.render_widget(
+        Block::bordered()
+            .border_style(Style::default().fg(color))
+            .style(ground)
+            .title(Line::from(title)),
+        area,
+    );
+    let close = Rect::new(
+        area.x + area.width.saturating_sub(4),
+        area.y,
+        3.min(area.width),
+        1,
+    );
+    let buf = f.buffer_mut();
+    buf.set_string(
+        close.x,
+        close.y,
+        " × ",
+        Style::default().fg(color).bg(rc(t.popover)),
+    );
+    let text_area = Rect::new(area.x + 2, area.y + 1, area.width - 4, area.height - 2);
+    let chars: Vec<char> = v.edit.text.chars().collect();
+    let selection = v.edit.selection();
+    let normal = !v.edit.insert;
+    for (n, &(s, e)) in lines.iter().enumerate().skip(skip).take(shown) {
+        let y = text_area.y + (n - skip) as u16;
+        for (i, ch) in chars.iter().enumerate().take(e).skip(s) {
+            let mut st = ground;
+            if selection.is_some_and(|(a, z)| (a..z).contains(&i)) {
+                st = st.bg(rc(t.mode_normal.with_alpha(255)));
+            }
+            buf.set_string(text_area.x + (i - s) as u16, y, ch.to_string(), st);
+        }
+    }
+    let (row, col) = cecilia_app::properties::caret_in(&lines, v.edit.caret);
+    if normal && row >= skip && row < skip + shown && col < usize::from(text_area.width) {
+        let under = chars.get(v.edit.caret).filter(|c| **c != '\n').copied();
+        buf.set_string(
+            text_area.x + col as u16,
+            text_area.y + (row - skip) as u16,
+            under.unwrap_or(' ').to_string(),
+            on(app, t.mode_normal),
+        );
+    }
+    ui.viewer = Some(ViewerUi {
+        area,
+        close,
+        text: text_area,
+        lines,
+        skip,
+    });
+}
+
+/// The character of the viewer's text at a cell (rows and columns past it go to its edges).
+fn viewer_at(v: &ViewerUi, col: u16, row: u16) -> Option<usize> {
+    let t = v.text;
+    let r = (row.clamp(t.y, t.y + t.height - 1) - t.y) as usize + v.skip;
+    let &(s, e) = v.lines.get(r.min(v.lines.len().saturating_sub(1)))?;
+    Some(s + (col.saturating_sub(t.x) as usize).min(e - s))
+}
+
+/// The mouse while the text viewer is open: the "x" closes it, a click places the caret, a drag
+/// selects, a double click selects a word, the wheel scrolls. A click outside it does nothing.
+fn viewer_mouse(app: &mut App, ui: &mut Ui, m: ratatui::crossterm::event::MouseEvent) {
+    let Some((close, area)) = ui.viewer.as_ref().map(|v| (v.close, v.area)) else {
+        return;
+    };
+    let at = || {
+        ui.viewer
+            .as_ref()
+            .and_then(|v| viewer_at(v, m.column, m.row))
+    };
+    match m.kind {
+        MouseEventKind::Down(MouseButton::Left) if contains(close, m.column, m.row) => {
+            app.close_viewer();
+        }
+        MouseEventKind::Down(MouseButton::Left) if contains(area, m.column, m.row) => {
+            let Some(at) = at() else {
+                return;
+            };
+            if is_double(ui, m.column, m.row) {
+                app.viewer_double_click(at);
+            } else {
+                app.viewer_click(at);
+                ui.drag = Some(Drag::Viewer);
+            }
+        }
+        MouseEventKind::Drag(MouseButton::Left) if ui.drag == Some(Drag::Viewer) => {
+            if let Some(at) = at() {
+                app.viewer_drag(at);
+            }
+        }
+        MouseEventKind::Up(MouseButton::Left) if ui.drag == Some(Drag::Viewer) => {
+            ui.drag = None;
+            app.viewer_release();
+        }
+        MouseEventKind::ScrollDown | MouseEventKind::ScrollUp
+            if contains(area, m.column, m.row) =>
+        {
+            let by = if m.kind == MouseEventKind::ScrollDown {
+                2
+            } else {
+                -2
+            };
+            if let Some(v) = app.viewer() {
+                v.scroll_by(by);
+            }
+        }
+        _ => {}
+    }
+}
+
 fn draw_which_key(f: &mut Frame, app: &App, title: &str, rows: &[(String, String)], main: Rect) {
     let lines: Vec<Line> = rows
         .iter()
@@ -3695,7 +3869,7 @@ mod render_tests {
         app.buffers[0].score = score;
         let plain = render(&mut app, 60, 24);
         assert!(!plain.contains("\u{f0387}"), "{plain}");
-        app.buffers[0].score.tracks[0].staves = vec![cecilia_core::Staff::TabRhythm];
+        app.buffers[0].score.tracks[0].staves = vec![cecilia_core::Staff::Tab];
         let screen = render(&mut app, 60, 24);
         println!("{screen}");
         assert!(screen.contains("\u{f0387}"), "{screen}");

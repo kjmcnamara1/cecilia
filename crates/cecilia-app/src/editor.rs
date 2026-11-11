@@ -26,12 +26,10 @@ pub(crate) enum Awaiting {
     Register,
     RecordMacro,
     PlayMacro,
-    /// `m`: the mark's letter.
+    /// `` ` ``: the mark's letter.
     Mark,
-    /// `'` / `` ` ``: the mark to jump to.
-    Jump {
-        exact: bool,
-    },
+    /// `'`: the mark to jump to.
+    Jump,
 }
 
 #[derive(Debug, Default)]
@@ -41,9 +39,9 @@ pub(crate) struct EditorState {
     pub(crate) operator: Option<(Operator, Option<usize>)>,
     pub visual_anchor: Option<Cursor>,
     pub visual_bars: bool,
-    /// Per buffer: the last Visual selection (anchor, cursor, whole bars), for `gv` and `` `< ``.
+    /// Per buffer: the last Visual selection (anchor, cursor, whole bars), for `gv`.
     last_visual: HashMap<usize, (Cursor, Cursor, bool)>,
-    /// Per buffer: where Insert mode was last left, for `gi` and `` `^ ``.
+    /// Per buffer: where Insert mode was last left, for `gi`.
     last_insert: HashMap<usize, Cursor>,
     pub(crate) registers: HashMap<char, Clip>,
     pub(crate) register: Option<char>,
@@ -572,7 +570,7 @@ impl App {
     fn awaited(&mut self, a: Awaiting, c: char) {
         match a {
             Awaiting::Mark => self.set_mark(c),
-            Awaiting::Jump { exact } => self.jump_to_mark(c, exact),
+            Awaiting::Jump => self.jump_to_mark(c),
             Awaiting::Register => {
                 self.ed.register = Some(c);
                 self.ed.cmd_keys = vec![Key::char('"'), Key::char(c)];
@@ -1210,9 +1208,9 @@ impl App {
             },
             PlayMacro => self.ed.awaiting = Some(Awaiting::PlayMacro),
             SetMark => self.ed.awaiting = Some(Awaiting::Mark),
-            GotoMark(c) => self.jump_to_mark(*c, true),
+            GotoMark(c) => self.jump_to_mark(*c),
             RunMacro(c) => self.awaited(Awaiting::PlayMacro, *c),
-            JumpMark { exact } => self.ed.awaiting = Some(Awaiting::Jump { exact: *exact }),
+            JumpMark => self.ed.awaiting = Some(Awaiting::Jump),
             Register => self.ed.awaiting = Some(Awaiting::Register),
             Visual { bars } => {
                 self.ed.visual_anchor = Some(self.pane().cursor);
@@ -2056,7 +2054,7 @@ impl App {
         });
     }
 
-    /// The staff `arg` names (`standard grand C4`, `tab+` …), the clef of a plain `standard`
+    /// The staff `arg` names (`standard grand C4`, `tab` …), the clef of a plain `standard`
     /// being the cursor staff's, or the config's.
     fn parse_staff(&mut self, arg: &str) -> Option<Staff> {
         let (track, here) = self.cursor_staff();
@@ -2159,15 +2157,13 @@ impl App {
             Notation::Tab | Notation::Slash => {
                 self.error(format!("clef: a {} staff has no clef", here.name()));
             }
-            Notation::Standard => match Staff::parse(arg, Clef::Treble) {
-                Ok(s @ Staff::Standard(_)) => {
-                    if let Some(s) = self.fit_clef(Some(kind), s) {
+            Notation::Standard => match Clef::parse(arg) {
+                Ok(clef) => {
+                    if let Some(s) = self.fit_clef(Some(kind), Staff::Standard(clef)) {
                         self.put_staff(s);
                     }
                 }
-                _ => self.error(format!(
-                    "clef: '{arg}' is not a standard clef (treble, bass, grand [split], neutral)"
-                )),
+                Err(e) => self.error(format!("clef: {e}")),
             },
         }
     }
@@ -2780,27 +2776,35 @@ mod tests {
         assert_eq!(staves(&a), vec![Staff::Standard(Treble), Staff::Tab]);
         // Added at the bottom; the cursor goes to the new staff, which can be changed.
         a.run(Command::StaffAdd(Some("slash".into())));
-        a.run(Command::StaffAdd(Some("grand G3".into())));
+        a.run(Command::StaffAdd(Some("standard grand G3".into())));
         assert_eq!(staves(&a)[3], Staff::Standard(Grand { split: 55 }));
         assert_eq!(a.pane().cursor.staff, 3);
-        a.run(Command::Notation("tab+".into()));
+        a.run(Command::Notation("tab".into()));
         // Reordered: to the top, then two places down.
         a.run(Command::StaffMove("1".into()));
         assert_eq!(
             staves(&a),
             vec![
-                Staff::TabRhythm,
+                Staff::Tab,
                 Staff::Standard(Treble),
                 Staff::Tab,
                 Staff::Slash
             ]
         );
         a.run(Command::StaffMove("+2".into()));
-        assert_eq!(staves(&a)[2], Staff::TabRhythm);
+        assert_eq!(
+            staves(&a),
+            vec![
+                Staff::Standard(Treble),
+                Staff::Tab,
+                Staff::Tab,
+                Staff::Slash
+            ]
+        );
         assert_eq!(a.pane().cursor.staff, 2);
         // Removed down to one, which stays.
         a.run(Command::StaffRemove(Some(1)));
-        assert_eq!(staves(&a), vec![Staff::Tab, Staff::TabRhythm, Staff::Slash]);
+        assert_eq!(staves(&a), vec![Staff::Tab, Staff::Tab, Staff::Slash]);
         a.run(Command::StaffRemove(None));
         a.run(Command::StaffRemove(None));
         a.run(Command::StaffRemove(None));
@@ -2929,10 +2933,30 @@ mod tests {
     }
 
     #[test]
+    fn j_and_k_stop_at_the_first_and_last_string_of_any_string_count() {
+        for (tuning, n) in [("bass", 4), ("bass5", 5), ("7-string", 7)] {
+            let mut a = app();
+            a.run(Command::parse(&format!("tuning {tuning}")).unwrap());
+            assert_eq!(a.buffer().score.tracks[0].strings.len(), n, "{tuning}");
+            // The tab alone.
+            a.run(Command::StaffRemove(Some(1)));
+            assert_eq!(a.buffer().score.tracks[0].staves(), vec![Staff::Tab]);
+            keys(&mut a, "kkkkkkkkkk");
+            assert_eq!(a.pane().cursor.string, 0, "{tuning}");
+            keys(&mut a, "jjjjjjjjjj");
+            assert_eq!(a.pane().cursor.string, n - 1, "{tuning}");
+            // A fret typed there lands on the last string.
+            keys(&mut a, "i5<Esc>");
+            let note = &a.buffer().score.tracks[0].bars[0].voices[0].beats[0].notes[0];
+            assert_eq!((note.string as usize, note.fret), (n - 1, 5), "{tuning}");
+        }
+    }
+
+    #[test]
     fn staff_add_takes_several_staves_in_order() {
         let mut a = app();
         let before = a.buffer().score.tracks[0].staves().len();
-        a.run(Command::parse("staff-add slash grand G3 tab+").unwrap());
+        a.run(Command::parse("staff-add slash standard grand G3 tab").unwrap());
         let staves = a.buffer().score.tracks[0].staves().to_vec();
         assert_eq!(staves.len(), before + 3);
         assert_eq!(
@@ -2940,7 +2964,7 @@ mod tests {
                 .iter()
                 .map(|s| s.name())
                 .collect::<Vec<_>>(),
-            ["slash", "grand G3", "tab+"]
+            ["slash", "grand G3", "tab"]
         );
         // The cursor goes to the last one; the whole command is one undo step.
         assert_eq!(a.pane().cursor.staff, before + 2);
@@ -2950,6 +2974,11 @@ mod tests {
         a.run(Command::parse("staff-add tab bogus").unwrap());
         assert_eq!(a.buffer().score.tracks[0].staves().len(), before);
         assert!(a.last_notification().unwrap().error);
+        // Clefs and `tab+` are no staff kinds.
+        for bad in ["treble", "tab+", "grand"] {
+            a.run(Command::parse(&format!("staff-add {bad}")).unwrap());
+            assert_eq!(a.buffer().score.tracks[0].staves().len(), before, "{bad}");
+        }
     }
 
     #[test]
@@ -3106,7 +3135,7 @@ mod tests {
         let (anchor, cursor, _) = a.selection().unwrap();
         assert!(anchor.bar < bars && cursor.bar < bars);
         // The marks jump to the ends too.
-        keys(&mut a, "<Esc>gg`>");
+        keys(&mut a, "<Esc>gg'>");
         assert_eq!(a.pane().cursor.bar, anchor.bar.max(cursor.bar));
     }
 
@@ -3125,7 +3154,7 @@ mod tests {
         keys(&mut a, "gi");
         assert_eq!(a.mode, Mode::Insert);
         assert_eq!(a.pane().cursor, left);
-        keys(&mut a, "<Esc>gg`^");
+        keys(&mut a, "<Esc>gg'^");
         assert_eq!(a.pane().cursor, left);
         // Edits that shrink the score clamp the position.
         keys(&mut a, "7}i5<Esc>gg7dd");

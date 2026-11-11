@@ -12,7 +12,6 @@ pub enum Icon {
     ChantDo,
     ChantFa,
     Tab,
-    TabRhythm,
     Slash,
     Chant,
     Guitar,
@@ -28,12 +27,11 @@ pub enum Icon {
 }
 
 impl Icon {
-    /// The icon of a staff's notation: standard, tab, tab+ or slash.
+    /// The icon of a staff's notation: standard, tab or slash.
     pub fn of_notation(staff: Staff) -> Icon {
         match staff {
             Staff::Standard(_) => Icon::Standard,
             Staff::Tab => Icon::Tab,
-            Staff::TabRhythm => Icon::TabRhythm,
             Staff::Slash => Icon::Slash,
         }
     }
@@ -46,7 +44,7 @@ impl Icon {
             Staff::Standard(Clef::Bass) => Icon::Bass,
             Staff::Standard(Clef::Neutral) => Icon::Neutral,
             Staff::Standard(Clef::Grand { .. }) => Icon::Grand,
-            Staff::Tab | Staff::TabRhythm | Staff::Slash => return None,
+            Staff::Tab | Staff::Slash => return None,
         })
     }
 
@@ -95,7 +93,6 @@ impl Icon {
             Icon::ChantDo => "𝄡",
             Icon::ChantFa => "F",
             Icon::Tab => "▦",
-            Icon::TabRhythm => "▤",
             Icon::Slash => "/",
             Icon::Chant => "◆",
             Icon::Guitar => "🎸",

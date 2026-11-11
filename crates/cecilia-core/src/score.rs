@@ -461,12 +461,40 @@ pub struct Track {
 pub enum Staff {
     /// Standard notation.
     Standard(Clef),
-    /// Tablature without rhythm.
+    /// Tablature (with a rhythm row below it depending on the `ui.tab_rhythm` option).
     Tab,
-    /// Tablature with rhythm stems below it.
-    TabRhythm,
     /// Rhythm slashes.
     Slash,
+}
+
+/// Whether a tab shows a rhythm row (the `ui.tab_rhythm` option).
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub enum TabRhythm {
+    /// Only when the track has no standard or slash staff to show the rhythm.
+    #[default]
+    Auto,
+    On,
+    Off,
+}
+
+impl TabRhythm {
+    /// As typed in the option: `auto`, `on` or `off` (anything else is `auto`).
+    pub fn parse(s: &str) -> TabRhythm {
+        match s {
+            "on" => TabRhythm::On,
+            "off" => TabRhythm::Off,
+            _ => TabRhythm::Auto,
+        }
+    }
+
+    /// Whether the tab staves of `track` show the rhythm row.
+    pub fn shows(self, track: &Track) -> bool {
+        match self {
+            TabRhythm::On => true,
+            TabRhythm::Off => false,
+            TabRhythm::Auto => !track.has_notation_staff(),
+        }
+    }
 }
 
 /// The kind of notation a staff holds.
@@ -479,7 +507,7 @@ pub enum Notation {
 
 impl Notation {
     /// Every notation, as typed after `:notation`.
-    pub const NAMES: [&str; 4] = ["standard", "tab", "tab+", "slash"];
+    pub const NAMES: [&str; 3] = ["standard", "tab", "slash"];
 }
 
 /// Lyrics shown with a staff: those of any track (the staff's own by default), aligned with the
@@ -513,6 +541,26 @@ pub enum Clef {
 pub const GRAND_SPLIT: u8 = 48;
 
 impl Clef {
+    /// Parses `treble`, `bass`, `neutral` or `grand [split note]`.
+    pub fn parse(s: &str) -> Result<Clef, String> {
+        let words: Vec<&str> = s.split_whitespace().collect();
+        Ok(match words.as_slice() {
+            ["treble"] => Clef::Treble,
+            ["bass"] => Clef::Bass,
+            ["neutral"] => Clef::Neutral,
+            ["grand"] => Clef::Grand { split: GRAND_SPLIT },
+            ["grand", note] => Clef::Grand {
+                split: parse_pitch(note)
+                    .ok_or_else(|| format!("'{note}' is not a note (e.g. C4, F#3)"))?,
+            },
+            _ => {
+                return Err(format!(
+                    "'{s}' is not a clef (treble, bass, grand [split], neutral)"
+                ));
+            }
+        })
+    }
+
     pub fn name(self) -> String {
         match self {
             Clef::Treble => "treble".into(),
@@ -559,45 +607,30 @@ pub fn parse_pitch(s: &str) -> Option<u8> {
 }
 
 impl Staff {
-    /// Every kind, as typed: `standard`, `tab`, `tab+`, `slash`, `chant`.
-    pub const KINDS: [&str; 7] = ["treble", "bass", "grand", "neutral", "tab", "tab+", "slash"];
+    /// Every kind, as typed: `standard`, `tab`, `slash`.
+    pub const KINDS: [&str; 3] = ["standard", "tab", "slash"];
 
-    /// Parses `treble`, `bass`, `grand [split note]`, `tab`, `tab+` or `slash` (standard
-    /// notation is `standard [clef]`, which still works; `standard` alone takes `clef`).
+    /// Parses `standard [clef]` (`std` too; the clef of a plain `standard` is `clef`), `tab` or
+    /// `slash`. The clef is as [`Clef::parse`] reads it: `standard grand C4`.
     pub fn parse(s: &str, clef: Clef) -> Result<Staff, String> {
         let words: Vec<&str> = s.split_whitespace().collect();
-        let grand = |rest: &[&str]| -> Result<Clef, String> {
-            Ok(match rest {
-                [] => Clef::Grand { split: GRAND_SPLIT },
-                [note] => Clef::Grand {
-                    split: parse_pitch(note)
-                        .ok_or_else(|| format!("'{note}' is not a note (e.g. C4, F#3)"))?,
-                },
-                _ => return Err("grand takes a split note (e.g. C4)".into()),
-            })
-        };
         Ok(match words.as_slice() {
             ["standard" | "std"] => Staff::Standard(clef),
-            ["standard" | "std", rest @ ..] => return Staff::parse(&rest.join(" "), clef),
-            ["treble"] => Staff::Standard(Clef::Treble),
-            ["bass"] => Staff::Standard(Clef::Bass),
-            ["neutral"] => Staff::Standard(Clef::Neutral),
-            ["grand", rest @ ..] => Staff::Standard(grand(rest)?),
+            ["standard" | "std", rest @ ..] => Staff::Standard(Clef::parse(&rest.join(" "))?),
             ["tab"] => Staff::Tab,
-            ["tab+"] => Staff::TabRhythm,
             ["slash"] => Staff::Slash,
             _ => {
                 return Err(format!(
-                    "'{s}' is not a staff (treble, bass, grand [split], neutral, tab, tab+, slash)"
+                    "'{s}' is not a staff (standard [clef], tab, slash)"
                 ));
             }
         })
     }
 
-    /// Parses several staves in order, e.g. `treble tab grand C4 slash`: a staff kind starts the
-    /// next one, any other word belongs to the staff before it (the split note of `grand`).
+    /// Parses several staves in order, e.g. `standard tab standard grand C4 slash`: a staff kind
+    /// starts the next one, any other word belongs to the staff before it (its clef).
     pub fn parse_list(s: &str, clef: Clef) -> Result<Vec<Staff>, String> {
-        let starts = |w: &str| Staff::KINDS.contains(&w) || matches!(w, "standard" | "std");
+        let starts = |w: &str| Staff::KINDS.contains(&w) || w == "std";
         let mut specs: Vec<Vec<&str>> = Vec::new();
         for w in s.split_whitespace() {
             match specs.last_mut() {
@@ -615,7 +648,6 @@ impl Staff {
         match self {
             Staff::Standard(c) => c.name(),
             Staff::Tab => "tab".into(),
-            Staff::TabRhythm => "tab+".into(),
             Staff::Slash => "slash".into(),
         }
     }
@@ -623,13 +655,13 @@ impl Staff {
     pub fn notation(self) -> Notation {
         match self {
             Staff::Standard(_) => Notation::Standard,
-            Staff::Tab | Staff::TabRhythm => Notation::Tab,
+            Staff::Tab => Notation::Tab,
             Staff::Slash => Notation::Slash,
         }
     }
 
     pub fn is_tab(self) -> bool {
-        matches!(self, Staff::Tab | Staff::TabRhythm)
+        self == Staff::Tab
     }
 }
 
@@ -703,6 +735,14 @@ impl Track {
         } else {
             vec![Staff::Standard(clef)]
         }
+    }
+
+    /// Whether the track has a standard or slash staff: a tab then leaves the rhythm to it
+    /// (`ui.tab_rhythm = auto`).
+    pub fn has_notation_staff(&self) -> bool {
+        self.staves()
+            .iter()
+            .any(|s| matches!(s, Staff::Standard(_) | Staff::Slash))
     }
 
     /// The track's staves, top first (never empty).
@@ -1563,6 +1603,49 @@ impl Score {
 
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn staff_kinds_are_standard_tab_and_slash() {
+        let c = Clef::Treble;
+        assert_eq!(Staff::parse("tab", c), Ok(Staff::Tab));
+        assert_eq!(Staff::parse("slash", c), Ok(Staff::Slash));
+        assert_eq!(
+            Staff::parse("standard", Clef::Bass),
+            Ok(Staff::Standard(Clef::Bass))
+        );
+        assert_eq!(
+            Staff::parse("standard neutral", c),
+            Ok(Staff::Standard(Clef::Neutral))
+        );
+        assert_eq!(
+            Staff::parse("std grand G3", c),
+            Ok(Staff::Standard(Clef::Grand { split: 55 }))
+        );
+        for bad in ["tab+", "treble", "bass", "grand", "neutral", "standard tab"] {
+            assert!(Staff::parse(bad, c).is_err(), "{bad}");
+        }
+        assert_eq!(
+            Staff::parse_list("standard bass tab standard grand C4 slash", c),
+            Ok(vec![
+                Staff::Standard(Clef::Bass),
+                Staff::Tab,
+                Staff::Standard(Clef::Grand { split: 60 }),
+                Staff::Slash
+            ])
+        );
+        assert!(Staff::parse_list("treble tab", c).is_err());
+    }
+
+    #[test]
+    fn a_track_with_a_standard_or_slash_staff_has_a_notation_staff() {
+        let with = |staves: Vec<Staff>| Track {
+            staves,
+            ..Track::default()
+        };
+        assert!(!with(vec![Staff::Tab]).has_notation_staff());
+        assert!(with(vec![Staff::Tab, Staff::Slash]).has_notation_staff());
+        assert!(with(vec![Staff::Standard(Clef::Treble), Staff::Tab]).has_notation_staff());
+    }
+
     use super::*;
     use crate::Tuplet;
 

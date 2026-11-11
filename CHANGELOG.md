@@ -7,14 +7,29 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- `ui.tab_rhythm` (`auto` / `on` / `off`, `:set ui.tab_rhythm on`): the rhythm row under a tab. `auto`, the default, shows it only when the track has no standard or slash staff.
+
+- The tuning picker of a fretted track lists the tunings of the other string counts of its instrument too (`7-string Standard`, `5-string Standard`), and takes typed notes for any count (1 to 10), so the number of strings is chosen with the tuning. Tests for 4-, 5- and 7-string tabs: engraving, `j`/`k` over the strings, retuning, and round trips through GP5, GP7, GPX, MusicXML and `.ccc`.
+
 ### Changed
 
+- **Breaking:** the staff kinds are `standard`, `tab` and `slash`. `tab+` is gone (use `ui.tab_rhythm`; old `.ccc` files with a `tab+` staff load as `tab`), and `treble`, `bass`, `grand` and `neutral` are no longer staff kinds: `:staff-add standard grand C4` names the clef, `:clef` changes it. A tab alone on a track now shows the rhythm row by default.
+- The Tracks pane no longer shows the track's kind.
 - The "Workspace Opened" notification is no longer shown when a workspace is opened at startup (the last one, or `--workspace`).
+
+## [0.43.0] - 2026-11-10
+
+### Changed
+
+- Choosing a notification in the history opens it in a popup in the middle of the window instead of raising its card again. The popup is a read-only text area: normal mode moves the caret, `v`/`V` select, `y` (or `<C-c>`) copies, `<C-a>` selects all, `<Esc>` leaves the selection then closes it; there is no insert or replace mode. Selecting switches to Visual mode. The mouse places the caret, drags a selection, double-clicks a word, triple-clicks the whole text, scrolls with the wheel, moves the popup by its title bar, and closes it with the dim "x" in the corner (red on hover, like a buffer tab's) or a click outside.
 
 ## [0.42.0] - 2026-11-10
 
 ### Changed
 
+- Mark keys: `'{mark}` now jumps to the mark's exact position and `` ` `` sets a mark (`m` is unbound); the `jump-mark-bar` command is gone. While `'` waits for a letter, the marks in the file are drawn on the score in the playhead color, on the exact position the jump lands on (marks at one position run together, `a'`) or above the staff; `ui.mark_labels` = `"exact"` (default), `"above"` or `"off"`.
 - The buffer, view, workspace and recent file pickers no longer list the current buffer, view, workspace or file (the "(shown)", "(current)" and "(active)" marks go with them).
 - The track properties "Instrument" field moved from the Sound section to just below "Name" in the Info section.
 

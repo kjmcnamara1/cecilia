@@ -107,7 +107,6 @@ pub enum Field {
     /// The initial clef of a chant score's track.
     ChantClef,
     TrackName,
-    TrackKind,
     TrackColor,
     Tuning,
     FretCount,
@@ -200,7 +199,7 @@ pub struct PropEdit {
     /// In insert mode (else normal mode of a modal edit).
     pub insert: bool,
     /// The keys typed so far of a normal- or visual-mode command (`d`, `di`, `g` …).
-    pending: String,
+    pub(crate) pending: String,
     /// Visual mode: where the selection began, and whether it takes whole lines (`V`). The
     /// selection runs from there to the caret, both included.
     pub visual: Option<(usize, bool)>,
@@ -220,7 +219,7 @@ fn is_word(c: char) -> bool {
 }
 
 impl PropEdit {
-    fn new(field: Field, text: String) -> Self {
+    pub(crate) fn new(field: Field, text: String) -> Self {
         let caret = text.chars().count();
         Self {
             field,
@@ -257,14 +256,14 @@ impl PropEdit {
         Some((a.min(self.caret), a.max(self.caret).min(self.len())))
     }
 
-    fn select_all(&mut self) {
+    pub(crate) fn select_all(&mut self) {
         self.visual = None;
         self.anchor = Some(0);
         self.caret = self.len();
     }
 
     /// Selects the word at `at`: its letters, or the run of spaces or the sign it is on.
-    fn select_word(&mut self, at: usize) {
+    pub(crate) fn select_word(&mut self, at: usize) {
         let c = self.chars();
         if c.is_empty() {
             return;
@@ -291,7 +290,7 @@ impl PropEdit {
         self.caret = b;
     }
 
-    fn selected_text(&self) -> Option<String> {
+    pub(crate) fn selected_text(&self) -> Option<String> {
         let (a, b) = self.selection()?;
         Some(self.chars()[a..b].iter().collect())
     }
@@ -303,7 +302,7 @@ impl PropEdit {
         }
     }
 
-    fn chars(&self) -> Vec<char> {
+    pub(crate) fn chars(&self) -> Vec<char> {
         self.text.chars().collect()
     }
 
@@ -379,11 +378,11 @@ impl PropEdit {
         (line, col)
     }
 
-    fn line_start(&self) -> usize {
+    pub(crate) fn line_start(&self) -> usize {
         self.caret - self.line_col().1
     }
 
-    fn line_end(&self) -> usize {
+    pub(crate) fn line_end(&self) -> usize {
         let rest = self.text.chars().skip(self.caret);
         self.caret + rest.take_while(|&c| c != '\n').count()
     }
@@ -410,7 +409,7 @@ impl PropEdit {
     }
 
     /// In normal mode the caret rests on a character, not past the end of its line.
-    fn rest(&mut self) {
+    pub(crate) fn rest(&mut self) {
         if !self.insert && self.caret > self.line_start() && self.caret >= self.line_end() {
             self.caret -= 1;
         }
@@ -433,7 +432,7 @@ impl PropEdit {
     }
 
     /// Where a motion takes the caret (`lines`: the visual lines, for `j` and `k`).
-    fn target(&self, m: Motion, lines: &[(usize, usize)]) -> usize {
+    pub(crate) fn target(&self, m: Motion, lines: &[(usize, usize)]) -> usize {
         let c = self.chars();
         match m {
             Motion::Left => self
@@ -458,7 +457,7 @@ impl PropEdit {
 
     /// The characters an operator (`d`, `c`, `y`) takes with a motion: from, to, and whether
     /// whole lines.
-    fn motion_range(&self, op: char, m: Motion) -> Option<(usize, usize, bool)> {
+    pub(crate) fn motion_range(&self, op: char, m: Motion) -> Option<(usize, usize, bool)> {
         let c = self.chars();
         let n = c.len();
         let (ls, le) = (self.line_start(), self.line_end());
@@ -515,7 +514,7 @@ impl PropEdit {
     }
 
     /// A text object at the caret (`iw`, `ap`, `i(` …): from, to, and whether whole lines.
-    fn object_range(&self, around: bool, o: char) -> Option<(usize, usize, bool)> {
+    pub(crate) fn object_range(&self, around: bool, o: char) -> Option<(usize, usize, bool)> {
         let c = self.chars();
         let at = self.caret;
         let (a, b) = match o {
@@ -536,7 +535,7 @@ impl PropEdit {
 
 /// A motion of the lyrics text area's normal and visual modes.
 #[derive(Debug, Clone, Copy, PartialEq)]
-enum Motion {
+pub(crate) enum Motion {
     Left,
     Right,
     Up,
@@ -574,7 +573,7 @@ impl Motion {
 
 /// What an operator acts on: its line (`dd`), a motion's way, or a text object.
 #[derive(Debug, Clone, Copy, PartialEq)]
-enum Target {
+pub(crate) enum Target {
     Line,
     Move(Motion),
     /// Around (`a`) or inside (`i`), and the object's character.
@@ -583,7 +582,7 @@ enum Target {
 
 /// The keys of a normal- or visual-mode command as typed so far.
 #[derive(Debug, Clone, Copy, PartialEq)]
-enum Typed {
+pub(crate) enum Typed {
     /// More keys to come.
     More,
     /// Not a command.
@@ -599,7 +598,7 @@ enum Typed {
     Cmd(char),
 }
 
-fn parse_typed(keys: &[char], visual: bool) -> Typed {
+pub(crate) fn parse_typed(keys: &[char], visual: bool) -> Typed {
     match keys {
         [] | ['g'] => Typed::More,
         ['g', 'g'] => Typed::Move(Motion::First),
@@ -787,15 +786,6 @@ pub fn full_lyrics(score: &cecilia_core::Score, track: usize) -> String {
     }
 }
 
-fn kind_name(k: TrackKind) -> &'static str {
-    match k {
-        TrackKind::Fretted => "fretted",
-        TrackKind::Drums => "drums",
-        TrackKind::Pitched => "pitched",
-        TrackKind::Chant => "chant",
-    }
-}
-
 impl App {
     /// The rows of the shown tab, for the focused pane's file and cursor track, with folded
     /// sections' rows left out.
@@ -931,15 +921,6 @@ impl App {
                         true,
                     );
                     rows.last_mut().unwrap().icon = Some(crate::icons::Icon::of_track(t));
-                    if !chant_track {
-                        field(
-                            &mut rows,
-                            Field::TrackKind,
-                            "Kind",
-                            kind_name(t.kind).into(),
-                            false,
-                        );
-                    }
                     let shown = self.track_color(self.pane().buffer, cursor.track);
                     let custom = t.display_color.is_some();
                     let name = match (custom, crate::picker::color_name(shown)) {
@@ -2185,8 +2166,7 @@ impl App {
                 }
             }
             Field::Lyrics => self.set_lyrics(t, text, live),
-            Field::TrackKind
-            | Field::StaffAt(_)
+            Field::StaffAt(_)
             | Field::TrackColor
             | Field::Tuning
             | Field::Mute
@@ -3042,10 +3022,8 @@ mod tests {
         type_into(&mut app, Field::TrackName, "Rhythm");
         assert_eq!(app.buffer().score.tracks[1].name, "Rhythm");
         assert_eq!(app.buffer().score.tracks[0].name, "Lead");
-        // Read-only rows refuse.
-        app.props.selected = field_row(&app, Field::TrackKind);
-        app.run(Command::PropertiesEdit);
-        assert!(app.props.edit.is_none());
+        // The track's kind is not a row.
+        assert!(app.property_rows().iter().all(|r| r.label != "Kind"));
     }
 
     #[test]
@@ -3380,18 +3358,18 @@ mod tests {
         keys(&mut app, "slash<CR>");
         assert_eq!(names(&app), ["treble", "tab", "slash"]);
         // A filled row picks another kind.
-        app.props.selected = field_row(&app, Field::StaffAt(1));
+        app.props.selected = field_row(&app, Field::StaffAt(2));
         app.run(Command::PropertiesEdit);
-        keys(&mut app, "tab+<CR>");
-        assert_eq!(names(&app)[1], "tab+");
+        keys(&mut app, "tab<CR>");
+        assert_eq!(names(&app)[2], "tab");
         // Alt-j / alt-k swap with the staff below / above; the selection follows.
         keys(&mut app, "<leader>P");
         app.props.selected = field_row(&app, Field::StaffAt(0));
         keys(&mut app, "<A-j>");
-        assert_eq!(names(&app), ["tab+", "treble", "slash"]);
+        assert_eq!(names(&app), ["tab", "treble", "tab"]);
         assert_eq!(app.props.selected, field_row(&app, Field::StaffAt(1)));
         keys(&mut app, "<A-k>");
-        assert_eq!(names(&app), ["treble", "tab+", "slash"]);
+        assert_eq!(names(&app), ["treble", "tab", "tab"]);
         // Dragging a row onto another moves it.
         let (a, b) = (
             field_row(&app, Field::StaffAt(0)),
@@ -3401,7 +3379,7 @@ mod tests {
             app.property_is_staff(a) && !app.property_is_staff(field_row(&app, Field::StaffAt(3)))
         );
         app.drag_property(a, b);
-        assert_eq!(names(&app), ["tab+", "slash", "treble"]);
+        assert_eq!(names(&app), ["tab", "tab", "treble"]);
     }
 
     #[test]
@@ -3531,7 +3509,7 @@ mod tests {
         assert!(!app.property_row_selected(field_row(&app, Field::Capo)));
         // The staff kind steps too.
         keys(&mut app, "<A-l>");
-        assert_eq!(app.buffer().score.tracks[0].staves()[1].name(), "tab+");
+        assert_eq!(app.buffer().score.tracks[0].staves()[1].name(), "slash");
         assert_eq!(Icon::of_program(25), Icon::Guitar);
     }
 
@@ -3622,17 +3600,11 @@ mod tests {
         app.picker_scroll(-5);
         assert_eq!(app.picker.as_ref().unwrap().selected, 0);
         keys(&mut app, "<Esc>");
-        // The staff names: treble, bass, grand.
+        // The clef names: treble, bass, grand.
         use cecilia_core::{Clef, Staff};
-        assert_eq!(
-            Staff::parse("bass", Clef::Treble),
-            Ok(Staff::Standard(Clef::Bass))
-        );
+        assert_eq!(Clef::parse("bass"), Ok(Clef::Bass));
         assert_eq!(Staff::Standard(Clef::Treble).name(), "treble");
-        assert!(matches!(
-            Staff::parse("grand G3", Clef::Treble),
-            Ok(Staff::Standard(Clef::Grand { split: 55 }))
-        ));
+        assert_eq!(Clef::parse("grand G3"), Ok(Clef::Grand { split: 55 }));
     }
 
     #[test]
