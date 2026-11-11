@@ -675,7 +675,7 @@ fn voice_shape(s: &Score) -> Vec<(usize, u8)> {
 fn four_voices_survive_gpx_gp_and_native_and_musicxml() {
     let score = four_voices();
     let want = vec![(8, 1), (4, 2), (2, 3), (1, 4)];
-    for ext in ["gpx", "gp", "ccm", "ccc", "cc", "musicxml"] {
+    for ext in ["gpx", "gp", "ccm", "ccc", "musicxml"] {
         let bytes = cecilia_formats::write_bytes(&score, ext).unwrap();
         let name = format!("x.{ext}");
         let back = cecilia_formats::read_bytes(&bytes, Some(std::path::Path::new(&name))).unwrap();
@@ -691,7 +691,7 @@ fn gp5_keeps_two_voices_and_the_loss_is_reported() {
     assert_eq!(voice_shape(&back), vec![(8, 1), (4, 2)]);
     assert_eq!(cecilia_formats::voices_lost(&score, "gp5"), 2);
     assert_eq!(cecilia_formats::voices_lost(&score, "gpx"), 0);
-    assert_eq!(cecilia_formats::voices_lost(&score, "cc"), 0);
+    assert_eq!(cecilia_formats::voices_lost(&score, "ccc"), 0);
 }
 
 /// The syllables of every track by (bar, beat, voice 0), as Guitar Pro 3–5 files keep them.
@@ -796,6 +796,20 @@ fn gp5_writes_the_lyrics_text_back_in_guitar_pro_syntax() {
             })
             .collect::<Vec<_>>()
     );
+}
+
+#[test]
+fn legacy_cc_is_read_but_not_written() {
+    let score = four_voices();
+    let Err(cecilia_formats::Error::Unsupported(msg)) = cecilia_formats::write_bytes(&score, "cc")
+    else {
+        panic!("writing .cc must be unsupported");
+    };
+    assert!(msg.contains(".ccc"), "{msg}");
+    let bytes = cecilia_formats::write_bytes(&score, "ccc").unwrap();
+    let back =
+        cecilia_formats::read_bytes(&bytes, Some(std::path::Path::new("old.cc"))).unwrap();
+    assert_eq!(voice_shape(&back), voice_shape(&score));
 }
 
 #[test]

@@ -4337,6 +4337,19 @@ pub(crate) mod tests {
     }
 
     #[test]
+    fn writing_a_legacy_cc_file_is_refused() {
+        let dir = std::env::temp_dir().join(format!("cecilia-cc-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let mut app = test_app();
+        let out = dir.join("old.cc");
+        app.run(Command::Write(Some(out.clone())));
+        assert!(!out.exists());
+        let note = app.last_notification().unwrap();
+        assert!(note.error && note.text.contains(".ccc"), "{}", note.text);
+        std::fs::remove_dir_all(&dir).unwrap();
+    }
+
+    #[test]
     fn writing_gp_does_not_embed_audio_from_outside_the_score_folder() {
         let dir = std::env::temp_dir().join(format!("cecilia-embed-{}", std::process::id()));
         std::fs::create_dir_all(&dir).unwrap();

@@ -874,6 +874,6 @@ mod tests {
         assert!(!crate::audio_lost(&score, "gabc"));
         score.audio = Some(Default::default());
         assert!(crate::audio_lost(&score, "gabc"));
-        assert!(!crate::audio_lost(&score, "cc"));
+        assert!(!crate::audio_lost(&score, "ccc"));
     }
 }

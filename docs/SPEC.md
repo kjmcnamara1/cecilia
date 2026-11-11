@@ -212,7 +212,7 @@ tab, commands, settings, limits) is [LYRICS.md](LYRICS.md).
 | Standard MIDI File | ✔ | ✔ | done (M2); export expands repeats; import quantises to 32nd/triplet grid |
 | GABC (Gregorio) | ✔ | ✔ | done (M6); glyph rules follow Gregorio's (`gabc-glyphs-determination.c`); reading and writing are covered by the format tests. NABC (adiastematic) sections are kept verbatim |
 | ASCII tab | — | — | **Planned**: there is no `.txt` writer (the TUI draws text tab on screen only) |
-| `.ccc` / `.ccm` (native; legacy `.cc` read, and writable by name) | ✔ | ✔ | done (M2); see 5.1 |
+| `.ccc` / `.ccm` (native; legacy `.cc` read only) | ✔ | ✔ | done (M2); see 5.1 |
 
 Format detection by magic bytes first, extension second.
 Encoding for GP3–5 strings: Windows-1252, or UTF-8 when the bytes are valid UTF-8.
@@ -235,8 +235,7 @@ reproduced by anything in this repository.
 
 One serialization, two extensions: `.ccc` (cecilia chant) is what a chant score saves as by default,
 `.ccm` (cecilia modern) any other score. Both read and write the same way, and the extension typed
-is honored. Legacy `.cc` files (the earlier single extension) are still read, never written by
-default.
+is honored. Legacy `.cc` files (the earlier single extension) are still read, never written.
 
 Zip archive (`crates/cecilia-formats/src/native.rs`, `FORMAT_VERSION` 2):
 - `manifest.toml`: `format = "cecilia"`, `format_version` (a newer file than the app supports is

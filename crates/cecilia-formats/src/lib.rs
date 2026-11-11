@@ -169,7 +169,10 @@ pub fn write_bytes(score: &Score, extension: &str) -> Result<Vec<u8>> {
         "mid" | "midi" => midi::write_midi(score),
         "musicxml" | "xml" => musicxml::write_musicxml(score),
         "mxl" => musicxml::write_mxl(score),
-        "cc" | "ccc" | "ccm" => native::write_cecilia(score),
+        "ccc" | "ccm" => native::write_cecilia(score),
+        "cc" => Err(Error::Unsupported(
+            "cannot write legacy .cc files (they still open); save as .ccc or .ccm".into(),
+        )),
         "gabc" => gabc::write_gabc(score),
         other => Err(Error::Unsupported(format!("cannot write .{other} files"))),
     }
