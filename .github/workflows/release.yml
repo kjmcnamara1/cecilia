@@ -125,3 +125,19 @@ jobs:
           [ "${{ needs.meta.outputs.prerelease }}" = true ] && flags=--prerelease
           gh release create "$GITHUB_REF_NAME" dist/* $flags \
             --title "$GITHUB_REF_NAME" --notes-file notes.md --verify-tag
+
+  # crates.io versions cannot be deleted, so only final releases are published, never `-rc`.
+  # `cargo publish --workspace` packages and verifies every crate before uploading the first,
+  # then uploads them in dependency order.
+  publish:
+    needs: [meta, release]
+    if: needs.meta.outputs.prerelease == 'false'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+      - run: sudo apt-get update && sudo apt-get install -y libasound2-dev pkg-config
+      - run: cargo publish --workspace --locked
+        env:
+          CARGO_REGISTRY_TOKEN: ${{ secrets.CARGO_REGISTRY_TOKEN }}

@@ -32,6 +32,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- The bundled fonts live in `crates/cecilia-engrave/fonts/` and the dashboard lily in `crates/cecilia-gui/assets/`, so the crates can be published to crates.io; the release workflow publishes them on final tags.
 - Release builds use thin LTO, one codegen unit and stripped symbols (smaller binary); the crates carry repository, homepage, readme, keywords and categories metadata.
 - Chant clefs sit on staff lines 1 to 4: `:chant-clef`, `:clef` and GABC reading no longer accept `c5`, `f5` or line 0 (a GABC clef like that is kept as raw text).
 
