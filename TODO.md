@@ -12,25 +12,62 @@ Planned work. Finished items move to `CHANGELOG.md` under `[Unreleased]`.
   - table of each option with type, default value, description, and example
 - [ ] Document all commands in docs/COMMANDS.md
 - [x] Document the specification for the .cc file in a section in docs/SPEC.md
+- [ ] Rewrite README.md for audience=user
+
+### Packaging/Publishing
+
+- [ ] Github Actions
+- [ ] crates.io
+- [ ] Linux Releases
+  - [ ] PKGBUILD for AUR
+  - [ ] cecilia-bin for AUR
+  - [ ] .deb
+  - [ ] .rpm
+- [ ] Windows Release
+  - [ ] Scoop
+  - [ ] Winget
+  - [ ] Chocolatey
+- [ ] MacOS Release
 
 ### Refactor
-
-- [x] Split chant and modern scores into 2 file extensions:
-  - .ccc for cecilia chant
-  - .ccm for cecilia modern
 
 #### Commands
 
 - Always in lower-kebab-case
 
+#### Pickers
+
+- [ ] remove pick-* commands. just have :pick PICKER
+- [ ] Need to be able to paste into pickers and commands (and dictate w/
+      superwhisper)
+
+##### Marks
+
+- [x] Saved marks should display somewhere on the score
+- [ ] Mark picker unecessary with which-key popup?
+
+##### Tuning
+
+This is how the # of stafflines is decided for tab notation
+
+- [ ] Better interface for selecting/customizing tuning
+
 ### Tool Panes
 
-- [x] TODO: Deep dive on waveform ux and audio track syncing (auto, manual, & tapping)
 - [ ] Add ability to create multitracks that are a combination of other tracks
 - [ ] Toolbar
+  - hamburger icon menu
   - Window close button?
   - Reorder/regroup icons
   - Change icons
+
+#### Tracks
+
+- [ ] "d" should delete the track
+- [ ] "o" should add a new track
+- [ ] "r" should rename the track
+- [ ] "c" should change the instrument
+- [ ] instrument should be preceeded by its icon
 
 ### Performance
 
@@ -42,6 +79,8 @@ Planned work. Finished items move to `CHANGELOG.md` under `[Unreleased]`.
 
 ### Chant
 
+- [ ] Need to review the process of converting <-> between chant and modern and
+      the rules used
 - [ ] Automatic audio sync for chant (`:sync-detect` in a chant score): track the recording's
       pitch (YIN, `cecilia-audio/src/tuner.rs`, ~10 ms hops), align the chant's note pitches and
       lengths by DTW allowing a constant transposition, set a point at each syllable start snapped
@@ -63,7 +102,6 @@ Planned work. Finished items move to `CHANGELOG.md` under `[Unreleased]`.
 
 ### Audio
 
-- [x] Add additional more realistic instrument sounds
 - [ ] Add AI singing voice that can sing lyrics?
 
 ### Keymaps
@@ -73,7 +111,6 @@ Planned work. Finished items move to `CHANGELOG.md` under `[Unreleased]`.
 
 ### UI
 
-- [ ] Clicking in visual mode should move the cursor and go back to normal mode
 - [ ] Allow grouping scores in tabline into groups and ability to (auto)
       collapse/expand them
 - [ ] Add ability to have multiple windows in the same workspace (not just views
@@ -87,7 +124,6 @@ Planned work. Finished items move to `CHANGELOG.md` under `[Unreleased]`.
 
 ### Voices
 
-- [x] Dim the voices not being edited in the GUI engraving (the terminal tab view does)
 - [ ] Shortening or lengthening a beat in a voice should refill the rest of the bar with rests
       (or eat following rests), as Guitar Pro does; today the bar goes incomplete
 - [ ] Voice-specific copy/paste of all voices of a selection at once (copy and paste work on the
@@ -97,7 +133,9 @@ Planned work. Finished items move to `CHANGELOG.md` under `[Unreleased]`.
 
 ### GUI
 
-- [ ] Try to more closely emulate a GTK4 style
+- [ ] UI designs i like:
+  - T3 Code (glassy popup)
+  - Zed
 
 ### Scripting
 
