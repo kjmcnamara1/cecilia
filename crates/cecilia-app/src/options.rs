@@ -1007,4 +1007,92 @@ mod tests {
         assert_eq!(c.ui.focus_ring_color, "");
         assert!(validate(&mut c).is_empty());
     }
+
+    /// `docs/OPTIONS.md` lists every option with its current type, default and description.
+    /// After changing the registry, update the doc (the failure names the rows).
+    #[test]
+    fn options_doc_matches_registry() {
+        fn tick(items: &[&str]) -> String {
+            items
+                .iter()
+                .map(|i| format!("`{i}`"))
+                .collect::<Vec<_>>()
+                .join(", ")
+        }
+        fn num(n: f64) -> String {
+            n.to_string()
+        }
+        fn kind_text(k: &Kind) -> String {
+            match k {
+                Kind::Bool => "bool".into(),
+                Kind::Int { min, max } => format!("integer {min}\u{2013}{max}"),
+                Kind::Float { min, max } => format!("number {}\u{2013}{}", num(*min), num(*max)),
+                Kind::Str => "string".into(),
+                Kind::Color => "color".into(),
+                Kind::Choice(c) => format!("choice: {}", tick(c)),
+                Kind::List(ItemKind::Choice(c)) => format!("list of choices: {}", tick(c)),
+                Kind::List(ItemKind::Color) => "list of colors".into(),
+                Kind::List(ItemKind::Str) => "list of strings".into(),
+            }
+        }
+        let doc = include_str!("../../../docs/OPTIONS.md");
+        let cells = |line: &str| -> Vec<String> {
+            let inner = line.trim().trim_start_matches('|').trim_end_matches('|');
+            let mut out = vec![String::new()];
+            let mut chars = inner.chars().peekable();
+            while let Some(c) = chars.next() {
+                match c {
+                    '\\' if chars.peek() == Some(&'|') => {
+                        chars.next();
+                        out.last_mut().unwrap().push('|');
+                    }
+                    '|' => out.push(String::new()),
+                    c => out.last_mut().unwrap().push(c),
+                }
+            }
+            out.into_iter().map(|c| c.trim().to_string()).collect()
+        };
+        let rows: Vec<Vec<String>> = doc
+            .lines()
+            .filter(|l| l.starts_with("| `"))
+            .map(cells)
+            .collect();
+        let defaults = f();
+        let mut problems = Vec::new();
+        for s in OPTIONS.iter() {
+            let key = format!("`{}`", s.name);
+            let Some(row) = rows.iter().find(|r| r[0] == key) else {
+                problems.push(format!("{}: missing from docs/OPTIONS.md", s.name));
+                continue;
+            };
+            if row.len() == 2 {
+                continue; // a theme color: name and the dark preset's value
+            }
+            let value = get(&defaults, s.name).unwrap();
+            let default = match (value.is_empty(), s.name) {
+                (_, "theme.selection_opacity" | "theme.cursor_opacity") => "_preset_".to_string(),
+                (true, _) => "_unset_".to_string(),
+                _ => format!("`{value}`"),
+            };
+            for (what, want, have) in [
+                ("type", kind_text(&s.kind), &row[1]),
+                ("default", default, &row[2]),
+                ("description", s.doc.to_string(), &row[3]),
+            ] {
+                if want != *have {
+                    problems.push(format!(
+                        "{}: {what} is '{have}' in docs/OPTIONS.md, expected '{want}'",
+                        s.name
+                    ));
+                }
+            }
+        }
+        for r in &rows {
+            let name = r[0].trim_matches('`');
+            if !OPTIONS.iter().any(|s| s.name == name) {
+                problems.push(format!("{name}: in docs/OPTIONS.md but not an option"));
+            }
+        }
+        assert!(problems.is_empty(), "{}", problems.join("\n"));
+    }
 }
