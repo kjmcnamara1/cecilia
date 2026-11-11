@@ -29,6 +29,8 @@ Planned work. Finished items move to `CHANGELOG.md` under `[Unreleased]`.
 #### Commands
 
 - Always in lower-kebab-case
+- Command can have a set of aliases
+- Commands can have arguments
 
 #### Pickers
 
