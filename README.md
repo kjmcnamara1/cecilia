@@ -1,4 +1,4 @@
-<p align="center"><img src="assets/lily.svg" alt="cecilia" width="120"></p>
+<p align="center"><img src="crates/cecilia-gui/assets/lily.svg" alt="cecilia" width="120"></p>
 
 # cecilia
 
@@ -224,7 +224,7 @@ in [AGENTS.md](AGENTS.md).
 
 ## Fonts
 
-Bundled under the SIL Open Font License 1.1 (texts in `assets/fonts/`): Bravura (music symbols),
+Bundled under the SIL Open Font License 1.1 (texts in `crates/cecilia-engrave/fonts/`): Bravura (music symbols),
 Source Sans 3 (text), Noto Serif (the lyrics of chant scores by default, and the versicle,
 response, dagger and barred A in any font) and Caeciliae by the Oblates of St. Joseph (square
 chant notation).

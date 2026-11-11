@@ -9,8 +9,7 @@ use std::sync::{Mutex, OnceLock};
 use ttf_parser::{Face, GlyphId, OutlineBuilder, name_id};
 use vello::kurbo::{Affine, BezPath};
 
-static TEXT: &[u8] = include_bytes!("../../../assets/fonts/SourceSans3-Regular.otf");
-static TEXT_BOLD: &[u8] = include_bytes!("../../../assets/fonts/SourceSans3-Bold.otf");
+use cecilia_engrave::fonts::{BOLD as TEXT_BOLD, TEXT};
 
 /// One face of a font, with its glyph outlines cached.
 pub struct MonoFont {

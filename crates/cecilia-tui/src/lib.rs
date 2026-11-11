@@ -1114,7 +1114,7 @@ fn draw_dashboard(f: &mut Frame, app: &App, area: Rect, ui: &mut Ui) {
         )
     };
     let base = Style::default().bg(rc(ground));
-    // A small flower stands for the lily of assets/lily.svg, which a terminal cannot show.
+    // A small flower stands for the lily of cecilia-gui/assets/lily.svg, which a terminal cannot show.
     let rows = [
         centred("\u{273f}", 0, base.fg(rc(t.accent))),
         centred(
