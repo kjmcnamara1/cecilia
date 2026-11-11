@@ -280,6 +280,17 @@ mod tests {
     }
 
     #[test]
+    fn atomic_write_replaces_a_file_and_leaves_no_temporary() {
+        let dir = scratch("atomic-plain");
+        let file = dir.join("a.txt");
+        write_atomic(&file, b"one").unwrap();
+        write_atomic(&file, b"two").unwrap();
+        assert_eq!(std::fs::read(&file).unwrap(), b"two");
+        assert_eq!(std::fs::read_dir(&dir).unwrap().count(), 1);
+    }
+
+    #[cfg(unix)]
+    #[test]
     fn atomic_write_replaces_keeps_mode_and_follows_symlinks() {
         use std::os::unix::fs::{PermissionsExt, symlink};
         let dir = scratch("atomic");
