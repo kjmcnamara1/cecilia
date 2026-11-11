@@ -52,7 +52,7 @@ jobs:
           key: ${{ matrix.target }}
       - name: System libraries (ALSA for cpal)
         if: runner.os == 'Linux'
-        run: sudo apt-get update && sudo apt-get install -y libasound2-dev pkg-config
+        run: sudo apt-get update && sudo apt-get install -y libasound2-dev pkg-config dpkg-dev
       - run: cargo build --release --locked -p cecilia --target ${{ matrix.target }}
       - name: Smoke test
         # The Intel macOS binary is cross-built on an Apple silicon runner and not run here.
@@ -82,6 +82,14 @@ jobs:
           else
             tar czf "dist/$name.tar.gz" "$name"
           fi
+      - name: .deb and .rpm
+        if: runner.os == 'Linux'
+        run: |
+          # cargo-deb and cargo-generate-rpm package the tree stage.sh lays out.
+          packaging/linux/stage.sh target/stage /usr target/${{ matrix.target }}/release/cecilia
+          cargo install --locked cargo-deb cargo-generate-rpm
+          cargo deb -p cecilia --no-build --no-strip --output dist/
+          cargo generate-rpm -p crates/cecilia --output dist/
       - uses: actions/upload-artifact@v4
         with:
           name: ${{ matrix.target }}
@@ -100,7 +108,7 @@ jobs:
           merge-multiple: true
       - name: Checksums
         working-directory: dist
-        run: sha256sum cecilia-* > SHA256SUMS
+        run: sha256sum cecilia* > SHA256SUMS
       - name: Release notes
         run: |
           v=${{ needs.meta.outputs.version }}

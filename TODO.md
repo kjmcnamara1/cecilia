@@ -14,11 +14,9 @@ Planned work. Finished items move to `CHANGELOG.md` under `[Unreleased]`.
 - [ ] Github Actions
 - [ ] crates.io
 - [ ] Linux Releases
-  - [ ] `packaging/linux/install.sh` in the release tarball builds from source (`cargo install --path`); make it install the shipped binary
-  - [ ] PKGBUILD for AUR
-  - [ ] cecilia-bin for AUR
-  - [ ] .deb
-  - [ ] .rpm
+  - [ ] PKGBUILD for AUR: written and built with `makepkg`; run `packaging/aur/bump.sh` after the first release and push to the AUR
+  - [ ] cecilia-bin for AUR: same
+  - [ ] .deb and .rpm: built by the release workflow; install-test the CI-built files
 - [ ] Windows Release
   - [ ] Scoop
   - [ ] Winget

@@ -2,18 +2,22 @@
 # Installs cecilia with its desktop entry, icon and file types.
 #   packaging/linux/install.sh            # into ~/.local (no root needed)
 #   sudo packaging/linux/install.sh /usr/local
+# From a source checkout it builds cecilia first (needs a Rust toolchain); from a release
+# tarball it installs the `cecilia` binary shipped next to this directory.
 # PREFIX/bin must be on PATH for the desktop entry to find `cecilia`.
 set -eu
 PREFIX=${1:-$HOME/.local}
 HERE=$(cd "$(dirname "$0")" && pwd)
-ROOT=$(cd "$HERE/../.." && pwd)
+ROOT=$(cd "$HERE/.." && pwd)
 
-if [ "${CECILIA_SKIP_BUILD:-}" != 1 ]; then
-    cargo install --locked --path "$ROOT/crates/cecilia" --root "$PREFIX"
+if [ -x "$ROOT/cecilia" ]; then
+    BIN=$ROOT/cecilia
+else
+    ROOT=$(cd "$HERE/../.." && pwd)
+    cargo build --release --locked -p cecilia --manifest-path "$ROOT/Cargo.toml"
+    BIN=$ROOT/target/release/cecilia
 fi
-install -Dm644 "$HERE/cecilia.desktop" "$PREFIX/share/applications/cecilia.desktop"
-install -Dm644 "$HERE/cecilia.svg" "$PREFIX/share/icons/hicolor/scalable/apps/cecilia.svg"
-install -Dm644 "$HERE/cecilia-mime.xml" "$PREFIX/share/mime/packages/cecilia.xml"
+"$HERE/stage.sh" / "$PREFIX" "$BIN"
 
 # Refresh the desktop's caches (each is optional).
 command -v update-mime-database >/dev/null && update-mime-database "$PREFIX/share/mime" || true
