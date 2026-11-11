@@ -4095,16 +4095,21 @@ mod render_tests {
         assert!(screen.contains("— modern"), "{screen}");
     }
 
-    /// A real chant from the corpus open in an app (the Properties pane closed).
-    fn corpus_chant(file: &str) -> App {
+    /// A real chant from the corpus open in an app (the Properties pane closed). `None` when
+    /// `test-corpus/` (local, not in git) is missing, so the test is skipped.
+    fn corpus_chant(file: &str) -> Option<App> {
         let path = format!(
             "{}/../../test-corpus/gabc/{file}",
             env!("CARGO_MANIFEST_DIR")
         );
+        if !std::path::Path::new(&path).exists() {
+            eprintln!("skipped: {path} not found (test-corpus is not in git)");
+            return None;
+        }
         let mut app = App::new(cecilia_app::Config::default(), None);
         app.set_tool(PaneKind::Properties, Some(false));
         app.run(cecilia_app::Command::Edit(path.into()));
-        app
+        Some(app)
     }
 
     fn draw_buffer(app: &mut App, w: u16, h: u16, ui: &mut Ui) -> ratatui::buffer::Buffer {
@@ -4115,7 +4120,9 @@ mod render_tests {
 
     #[test]
     fn chant_wraps_to_the_pane_width_in_systems_with_clefs_and_custodes() {
-        let mut app = corpus_chant("2715.gabc");
+        let Some(mut app) = corpus_chant("2715.gabc") else {
+            return;
+        };
         let wide = render(&mut app, 160, 200);
         let narrow = render(&mut app, 60, 200);
         let count = |s: &str, p: &str| s.lines().filter(|l| l.contains(p)).count();
@@ -4135,7 +4142,9 @@ mod render_tests {
 
     #[test]
     fn chant_page_layout_boxes_pages_and_horizontal_scrolls_with_the_cursor() {
-        let mut app = corpus_chant("2715.gabc");
+        let Some(mut app) = corpus_chant("2715.gabc") else {
+            return;
+        };
         app.run(cecilia_app::Command::parse("layout page").unwrap());
         let paged = render(&mut app, 100, 200);
         assert!(
@@ -4158,7 +4167,9 @@ mod render_tests {
 
     #[test]
     fn chant_notes_are_clickable_and_the_cursor_marks_the_note() {
-        let mut app = corpus_chant("10027.gabc");
+        let Some(mut app) = corpus_chant("10027.gabc") else {
+            return;
+        };
         let mut ui = Ui::default();
         let buf = draw_buffer(&mut app, 100, 30, &mut ui);
         let notes: Vec<&tabview::Hit> = ui
