@@ -207,6 +207,7 @@ mod tests {
     fn app_with_file(name: &str) -> (App, PathBuf) {
         let dir = std::env::temp_dir().join(format!("cecilia-dash-{name}-{}", std::process::id()));
         std::fs::create_dir_all(&dir).unwrap();
+        let dir = crate::config::canonicalize(&dir).unwrap();
         let file = dir.join("song.ccm");
         let mut app = test_app();
         app.run(Command::New);
@@ -352,7 +353,7 @@ mod tests {
         assert!(!app.dashboard_visible());
         assert_eq!(
             app.buffer().path.as_deref(),
-            file.canonicalize().ok().as_deref()
+            crate::config::canonicalize(&file).ok().as_deref()
         );
     }
 

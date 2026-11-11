@@ -1,0 +1,19 @@
+# yaml-language-server: $schema=https://aka.ms/winget-manifest.defaultLocale.1.6.0.schema.json
+PackageIdentifier: kjmcnamara1.cecilia
+PackageVersion: 0.44.0
+PackageLocale: en-US
+Publisher: The cecilia contributors
+PublisherUrl: https://github.com/kjmcnamara1
+PackageName: cecilia
+PackageUrl: https://github.com/kjmcnamara1/cecilia
+License: MIT OR Apache-2.0
+LicenseUrl: https://github.com/kjmcnamara1/cecilia/blob/main/LICENSE-MIT
+ShortDescription: Keyboard-first editor and player for guitar tab, standard notation and Gregorian chant
+Tags:
+  - guitar
+  - tablature
+  - music-notation
+  - gregorian-chant
+  - midi
+ManifestType: defaultLocale
+ManifestVersion: 1.6.0

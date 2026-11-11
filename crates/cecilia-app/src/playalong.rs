@@ -524,9 +524,10 @@ impl App {
         }
         let path = match arg {
             Some(a) => {
-                let p = PathBuf::from(a.strip_prefix("~/").map_or(a.to_string(), |rest| {
-                    format!("{}/{rest}", std::env::var("HOME").unwrap_or_default())
-                }));
+                let p = match a.strip_prefix("~/") {
+                    Some(rest) => crate::config::home_dir().unwrap_or_default().join(rest),
+                    None => PathBuf::from(a),
+                };
                 if p.is_absolute() {
                     p
                 } else {

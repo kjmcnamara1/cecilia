@@ -620,9 +620,9 @@ impl Theme {
 /// Where a theme file is: `~/…`, absolute, or relative to cecilia's config folder.
 pub fn theme_path(path: &std::path::Path) -> std::path::PathBuf {
     if let Ok(rest) = path.strip_prefix("~")
-        && let Some(home) = std::env::var_os("HOME")
+        && let Some(home) = crate::config::home_dir()
     {
-        return std::path::PathBuf::from(home).join(rest);
+        return home.join(rest);
     }
     if path.is_absolute() {
         return path.to_path_buf();
@@ -854,8 +854,8 @@ mod tests {
         )
         .unwrap();
         let c: ThemeConfig = toml::from_str(&format!(
-            "file = \"{}\"\nchrome = \"#0a0b0c\"\n",
-            file.display()
+            "file = {}\nchrome = \"#0a0b0c\"\n",
+            toml::Value::from(file.display().to_string())
         ))
         .unwrap();
         let (t, errors) = Theme::from_config(&c);

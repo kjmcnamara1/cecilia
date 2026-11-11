@@ -1,0 +1,20 @@
+<?xml version="1.0" encoding="utf-8"?>
+<package xmlns="http://schemas.microsoft.com/packaging/2015/06/nuspec.xsd">
+  <metadata>
+    <id>cecilia</id>
+    <version>0.44.0</version>
+    <title>cecilia</title>
+    <authors>The cecilia contributors</authors>
+    <projectUrl>https://github.com/kjmcnamara1/cecilia</projectUrl>
+    <licenseUrl>https://github.com/kjmcnamara1/cecilia/blob/main/LICENSE-MIT</licenseUrl>
+    <requireLicenseAcceptance>false</requireLicenseAcceptance>
+    <projectSourceUrl>https://github.com/kjmcnamara1/cecilia</projectSourceUrl>
+    <bugTrackerUrl>https://github.com/kjmcnamara1/cecilia/issues</bugTrackerUrl>
+    <tags>guitar tablature music-notation gregorian-chant midi cli</tags>
+    <summary>Keyboard-first editor and player for guitar tab, standard notation and Gregorian chant</summary>
+    <description>A keyboard-first editor and player for guitar tablature, standard notation and Gregorian chant. Reads and writes Guitar Pro, MusicXML, MIDI and GABC, and plays along with audio. Run `cecilia` in a terminal, or `cecilia --gui` for a window.</description>
+  </metadata>
+  <files>
+    <file src="tools\**" target="tools" />
+  </files>
+</package>

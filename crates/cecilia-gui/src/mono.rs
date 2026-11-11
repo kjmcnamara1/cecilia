@@ -159,7 +159,7 @@ pub fn font(family: &str, bold: bool) -> &'static MonoFont {
 /// Folders fonts are installed in.
 fn font_dirs() -> Vec<PathBuf> {
     let mut dirs = Vec::new();
-    let home = std::env::var_os("HOME").map(PathBuf::from);
+    let home = cecilia_app::home_dir();
     if let Some(d) = std::env::var_os("XDG_DATA_HOME") {
         dirs.push(PathBuf::from(d).join("fonts"));
     }

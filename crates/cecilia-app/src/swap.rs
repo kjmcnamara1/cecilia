@@ -39,13 +39,19 @@ pub(crate) struct SwapInfo {
     pub history: Option<crate::history::History>,
 }
 
-/// Default swap directory: `$XDG_STATE_HOME/cecilia/swap`, else `~/.local/state/cecilia/swap`.
+/// Default swap directory: `$XDG_STATE_HOME/cecilia/swap`, else `~/.local/state/cecilia/swap`
+/// (on Windows `%LOCALAPPDATA%\cecilia\swap`).
 pub fn default_swap_dir() -> Option<PathBuf> {
     let state = std::env::var_os("XDG_STATE_HOME")
         .filter(|v| !v.is_empty())
         .map(PathBuf::from)
         .or_else(|| {
-            directories::BaseDirs::new().map(|d| d.home_dir().join(".local").join("state"))
+            let dirs = directories::BaseDirs::new()?;
+            Some(if cfg!(windows) {
+                dirs.data_local_dir().to_path_buf()
+            } else {
+                dirs.home_dir().join(".local").join("state")
+            })
         })?;
     Some(state.join("cecilia").join("swap"))
 }
@@ -58,6 +64,8 @@ pub(crate) fn swap_name(path: &Path) -> String {
         match c {
             '%' => name.push_str("%25"),
             '/' | '\\' => name.push_str("%2F"),
+            // Not allowed in Windows file names (the `:` of a drive among them).
+            ':' | '*' | '?' | '"' | '<' | '>' | '|' => name.push_str(&format!("%{:02X}", c as u8)),
             c => name.push(c),
         }
     }
@@ -74,7 +82,7 @@ pub(crate) fn swap_name(path: &Path) -> String {
     format!("{name}.swp")
 }
 
-/// Whether another process with this id exists. Where that can't be told (not Unix) it is
+/// Whether another process with this id exists. Where that can't be told (neither Unix nor Windows) it is
 /// assumed to, so a swap file is never taken from a cecilia that may still be running.
 fn pid_alive(pid: u32) -> bool {
     if pid == std::process::id() {
@@ -93,7 +101,30 @@ fn pid_alive(pid: u32) -> bool {
         // EPERM: it exists but belongs to someone else.
         std::io::Error::last_os_error().raw_os_error() == Some(libc::EPERM)
     }
-    #[cfg(not(unix))]
+    #[cfg(windows)]
+    {
+        use windows_sys::Win32::Foundation::{CloseHandle, ERROR_ACCESS_DENIED, GetLastError};
+        use windows_sys::Win32::System::Threading::{
+            GetExitCodeProcess, OpenProcess, PROCESS_QUERY_LIMITED_INFORMATION,
+        };
+        const STILL_ACTIVE: u32 = 259;
+        if pid == 0 {
+            return false;
+        }
+        // SAFETY: plain Win32 calls; the handle is closed before returning.
+        unsafe {
+            let handle = OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION, 0, pid);
+            if handle.is_null() {
+                // Access denied: it exists but belongs to someone else.
+                return GetLastError() == ERROR_ACCESS_DENIED;
+            }
+            let mut code = 0u32;
+            let ok = GetExitCodeProcess(handle, &mut code) != 0;
+            CloseHandle(handle);
+            !ok || code == STILL_ACTIVE
+        }
+    }
+    #[cfg(not(any(unix, windows)))]
     {
         true
     }

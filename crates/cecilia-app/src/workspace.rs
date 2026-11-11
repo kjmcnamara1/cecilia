@@ -247,7 +247,7 @@ pub fn workspace_path(arg: &str) -> Option<PathBuf> {
     }
     if arg.contains('/') || arg.ends_with(".toml") {
         let p = match arg.strip_prefix("~/") {
-            Some(rest) => PathBuf::from(std::env::var_os("HOME")?).join(rest),
+            Some(rest) => crate::config::home_dir()?.join(rest),
             None => PathBuf::from(arg),
         };
         return Some(p);
@@ -1040,7 +1040,7 @@ mod tests {
     fn scratch(tag: &str) -> PathBuf {
         let dir = std::env::temp_dir().join(format!("cecilia-ws-{tag}-{}", std::process::id()));
         std::fs::create_dir_all(&dir).unwrap();
-        dir
+        crate::config::canonicalize(&dir).unwrap()
     }
 
     /// How many panes the first view of a saved workspace has.
