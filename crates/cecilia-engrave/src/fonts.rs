@@ -9,12 +9,13 @@ use ttf_parser::{Face, GlyphId, OutlineBuilder};
 
 use crate::display::{Align, FontKind};
 
-static MUSIC: &[u8] = include_bytes!("../../../assets/fonts/Bravura.otf");
-static CHANT: &[u8] = include_bytes!("../../../assets/fonts/Caeciliae-Staffless.ttf");
-static TEXT: &[u8] = include_bytes!("../../../assets/fonts/SourceSans3-Regular.otf");
-static BOLD: &[u8] = include_bytes!("../../../assets/fonts/SourceSans3-Bold.otf");
-static SERIF: &[u8] = include_bytes!("../../../assets/fonts/NotoSerif-Regular.ttf");
-static SERIF_BOLD: &[u8] = include_bytes!("../../../assets/fonts/NotoSerif-Bold.ttf");
+static MUSIC: &[u8] = include_bytes!("../fonts/Bravura.otf");
+static CHANT: &[u8] = include_bytes!("../fonts/Caeciliae-Staffless.ttf");
+/// Source Sans 3, the text font; the GUI uses the same bytes for its lyrics text area.
+pub static TEXT: &[u8] = include_bytes!("../fonts/SourceSans3-Regular.otf");
+pub static BOLD: &[u8] = include_bytes!("../fonts/SourceSans3-Bold.otf");
+static SERIF: &[u8] = include_bytes!("../fonts/NotoSerif-Regular.ttf");
+static SERIF_BOLD: &[u8] = include_bytes!("../fonts/NotoSerif-Bold.ttf");
 
 pub struct Fonts {
     faces: [Face<'static>; 6],

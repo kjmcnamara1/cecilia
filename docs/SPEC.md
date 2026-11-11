@@ -357,7 +357,7 @@ select, drag pane borders, click tabs, scroll/zoom, context menus that invoke th
   bars per line and beat positions can be adjusted by hand (keys, commands, dragging handles and
   clicking line-end "+" / "-" buttons with the mouse) and are stored in the score (`Score.design`, native `.ccc` / `.ccm` format only). Notation uses SMuFL fonts (Bravura, SIL OFL), including the
   plainchant ranges; square notation is set with the Caeciliae chant font (Oblates of St. Joseph,
-  SIL OFL 1.1, bundled unmodified; see `assets/fonts/OFL-Caeciliae.txt`).
+  SIL OFL 1.1, bundled unmodified; see `crates/cecilia-engrave/fonts/OFL-Caeciliae.txt`).
 - **TUI tab bar lines** (`cecilia-tui`, `barline.rs`): every bar line is one or more columns that
   run through all string rows, with joints where the line crosses a staff line (`─`); plain
   Unicode box drawing, no Nerd Font. Columns (top / middle / bottom row): thin `┬┼┴`, heavy

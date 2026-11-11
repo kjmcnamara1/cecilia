@@ -1287,14 +1287,14 @@ pub fn build(
 const LILY_PX: u32 = 288;
 
 thread_local! {
-    /// The dashboard's lily: `assets/lily.svg` (embedded) rendered once by resvg. A vector scene
+    /// The dashboard's lily: `crates/cecilia-gui/assets/lily.svg` (embedded) rendered once by resvg. A vector scene
     /// from vello_svg drew the petals wrongly (its `<use>` transforms) and without the drop
     /// shadows, so the picture is rasterized instead.
     static LILY: Option<vello::peniko::Image> = lily_image();
 }
 
 fn lily_image() -> Option<vello::peniko::Image> {
-    let svg = include_str!("../../../assets/lily.svg");
+    let svg = include_str!("../assets/lily.svg");
     let tree = resvg::usvg::Tree::from_str(svg, &resvg::usvg::Options::default()).ok()?;
     let mut pixmap = resvg::tiny_skia::Pixmap::new(LILY_PX, LILY_PX)?;
     let k = LILY_PX as f32 / tree.size().width();
@@ -1330,7 +1330,7 @@ fn draw_dashboard(scene: &mut Scene, app: &App, views: &mut Views, main: Rect) {
     let total = header + n * h + (n - 1.0) * gap;
     let cx = main.center().x;
     let top = (main.center().y - total / 2.0).max(main.y0 + 10.0);
-    // The lily (assets/lily.svg, 512 px wide as drawn), the name and the tagline under it.
+    // The lily (cecilia-gui/assets/lily.svg, 512 px wide as drawn), the name and the tagline under it.
     LILY.with(|l| {
         if let Some(lily) = l {
             let k = icon / f64::from(LILY_PX);
