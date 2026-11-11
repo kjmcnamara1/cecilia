@@ -84,6 +84,8 @@ struct Ui {
     tooltip: Option<String>,
     /// The notification cards drawn last frame (area, id): a click dismisses one.
     notifications: Vec<(Rect, u64)>,
+    /// The buttons of a question card drawn last frame (area, choice): a click answers it.
+    prompt_buttons: Vec<(Rect, usize)>,
     /// Clickable areas of the tracks panel, and its first row and bar shown.
     tracks: Vec<(Rect, TracksHit)>,
     tracks_scroll: (usize, usize),
@@ -367,6 +369,20 @@ fn event_loop(terminal: &mut DefaultTerminal, app: &mut App) -> Result<()> {
                     {
                         if let Some(Drag::Scrollbar(pane, grab)) = ui.drag {
                             scrollbar_to(app, &mut ui, pane, grab, m.row);
+                        }
+                    }
+                    MouseEventKind::Down(MouseButton::Left)
+                        if ui
+                            .prompt_buttons
+                            .iter()
+                            .any(|(r, _)| contains(*r, m.column, m.row)) =>
+                    {
+                        if let Some(&(_, n)) = ui
+                            .prompt_buttons
+                            .iter()
+                            .find(|(r, _)| contains(*r, m.column, m.row))
+                        {
+                            app.answer_prompt(n);
                         }
                     }
                     MouseEventKind::Down(MouseButton::Left)
@@ -797,6 +813,7 @@ fn draw(f: &mut Frame, app: &mut App, play: Option<(usize, Location, f64, f64)>,
     }
     ui.toolbar.clear();
     ui.notifications.clear();
+    ui.prompt_buttons.clear();
     ui.tooltip = None;
     if app.toolbar {
         draw_toolbar(f, app, toolbar, ui);
@@ -2974,9 +2991,11 @@ fn draw_notifications(f: &mut Frame, app: &App, ui: &mut Ui) {
             } else {
                 0
             };
+            let buttons: usize = c.choices.iter().map(|(l, _)| l.chars().count() + 4).sum();
+            let body = body.max(buttons);
             (
                 (body.max(head).max(badge) as u16 + 4).min(max_w) as f64,
-                (l.len() as u16 + 3) as f64,
+                (l.len() as u16 + 3 + u16::from(!c.choices.is_empty())) as f64,
             )
         })
         .collect();
@@ -3033,6 +3052,26 @@ fn draw_notifications(f: &mut Frame, app: &App, ui: &mut Ui) {
             Paragraph::new(text).block(block.padding(ratatui::widgets::Padding::horizontal(1))),
             r,
         );
+        // A question's buttons on the row above the bottom border.
+        let mut bx = r.x + 2;
+        for (n, (label, _)) in card.choices.iter().enumerate() {
+            let w = label.chars().count() as u16 + 2;
+            let b = Rect::new(bx, r.y + r.height - 2, w, 1);
+            if b.right() > r.right().saturating_sub(1) {
+                break;
+            }
+            let mut style = Style::default().fg(color).add_modifier(if n == 0 {
+                ratatui::style::Modifier::BOLD
+            } else {
+                ratatui::style::Modifier::empty()
+            });
+            if ui.hover.is_some_and(|(hx, hy)| contains(b, hx, hy)) {
+                style = style.bg(rc(t.button_hover));
+            }
+            f.render_widget(Paragraph::new(format!("[{label}]")).style(style), b);
+            ui.prompt_buttons.push((b, n));
+            bx += w + 2;
+        }
         if let Some(left) = card.remaining_fraction(now) {
             let inner = r.width.saturating_sub(2);
             let filled = (left * f32::from(inner)).ceil() as u16;

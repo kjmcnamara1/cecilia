@@ -55,9 +55,15 @@ impl App {
                 continue;
             }
             self.confirm_reload = Some(index);
-            self.ask(format!(
-                "\"{name}\" changed on disk: load the changes? (y/n; n keeps your version)"
-            ));
+            self.ask(
+                format!(
+                    "\"{name}\" changed on disk: load the changes? (y/n; n keeps your version)"
+                ),
+                &[
+                    ("Load", KeyCode::Char('y')),
+                    ("Keep mine", KeyCode::Char('n')),
+                ],
+            );
             return;
         }
     }

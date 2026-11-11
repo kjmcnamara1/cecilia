@@ -1585,8 +1585,9 @@ impl App {
     }
 
     /// Asks a question the next key answers: a card that stays until [`Self::answered`].
-    pub(crate) fn ask(&mut self, text: String) {
-        self.notifications.prompt(text, std::time::Instant::now());
+    pub(crate) fn ask(&mut self, text: String, choices: &[(&'static str, KeyCode)]) {
+        self.notifications
+            .prompt(text, choices, std::time::Instant::now());
     }
 
     /// The question was answered: its card goes.
@@ -2088,7 +2089,14 @@ impl App {
             asking,
             skip,
         });
-        self.ask(text);
+        self.ask(
+            text,
+            &[
+                ("Save", KeyCode::Char('y')),
+                ("Discard", KeyCode::Char('n')),
+                ("Cancel", KeyCode::Esc),
+            ],
+        );
     }
 
     /// The answer to a save prompt: `y` writes the buffer, `n` leaves it unsaved, any other
