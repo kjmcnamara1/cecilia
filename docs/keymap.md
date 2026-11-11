@@ -159,6 +159,7 @@ cancels. `:bdelete!` closes without asking. A new score counts as unchanged unti
 | `<leader>nh`        | notification history picker               |        |
 | `<leader>nd`        | dismiss the notification cards            |        |
 | `L` / `H`           | next / previous buffer tab                |        |
+| `<leader>'`         | alternate buffer: back to the one this pane showed before (`:buffer-alternate`) |        |
 | `<leader>x`         | close the buffer's tab                    |        |
 | `gt` / `gT`         | next / previous view                      |        |
 | `<C-w>s` / `<C-w>v` | split horizontally / vertically           | _(M1)_ |

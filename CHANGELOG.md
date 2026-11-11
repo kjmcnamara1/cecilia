@@ -13,6 +13,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- `:buffer-alternate` (`:balt`, `<leader>'`) switches the pane back to the buffer it showed before, like vim's alternate buffer; repeating it toggles between the two.
 - Command completion and the buffer, recent file and workspace pickers list what you use most first, ranked like zoxide ranks directories (use count weighted by how recently: ×4 within an hour, ×2 a day, ×½ a week, ×¼ after; counts age down past a cap). Typed matches still come first; use breaks ties instead of the alphabet. Kept in `frecency.json` in the state directory; `ui.frecency = false` restores the old order.
 - The command history is saved between sessions (`commands.jsonl` next to the notification history).
 - Pickers list their entries downward from the input line (`<Down>`/`<Tab>` go further); only the command history still lists upward.
