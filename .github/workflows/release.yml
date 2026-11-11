@@ -1,0 +1,127 @@
+name: Release
+
+# Pushing a tag `vX.Y.Z` (or a pre-release `vX.Y.Z-rc.N`) builds the binaries and publishes a
+# GitHub release. The tag must match the workspace version in Cargo.toml.
+on:
+  push:
+    tags: ["v*"]
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  meta:
+    runs-on: ubuntu-latest
+    outputs:
+      version: ${{ steps.v.outputs.version }}
+      prerelease: ${{ steps.v.outputs.prerelease }}
+    steps:
+      - uses: actions/checkout@v4
+      - id: v
+        run: |
+          version=$(cargo metadata --no-deps --format-version 1 \
+            | jq -r '.packages[] | select(.name == "cecilia") | .version')
+          tag=${GITHUB_REF_NAME#v}
+          if [ "${tag%%-*}" != "$version" ]; then
+            echo "::error::tag $GITHUB_REF_NAME does not match the workspace version $version"
+            exit 1
+          fi
+          echo "version=$version" >> "$GITHUB_OUTPUT"
+          case "$tag" in *-*) pre=true ;; *) pre=false ;; esac
+          echo "prerelease=$pre" >> "$GITHUB_OUTPUT"
+
+  build:
+    needs: meta
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          # Built on the oldest Ubuntu runner for the oldest glibc.
+          - { target: x86_64-unknown-linux-gnu, os: ubuntu-22.04, ext: tar.gz }
+          - { target: x86_64-pc-windows-msvc, os: windows-latest, ext: zip }
+          - { target: aarch64-apple-darwin, os: macos-latest, ext: tar.gz }
+          - { target: x86_64-apple-darwin, os: macos-latest, ext: tar.gz }
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: ${{ matrix.target }}
+      - uses: Swatinem/rust-cache@v2
+        with:
+          key: ${{ matrix.target }}
+      - name: System libraries (ALSA for cpal)
+        if: runner.os == 'Linux'
+        run: sudo apt-get update && sudo apt-get install -y libasound2-dev pkg-config
+      - run: cargo build --release --locked -p cecilia --target ${{ matrix.target }}
+      - name: Smoke test
+        # The Intel macOS binary is cross-built on an Apple silicon runner and not run here.
+        if: matrix.target != 'x86_64-apple-darwin'
+        shell: bash
+        run: |
+          exe=target/${{ matrix.target }}/release/cecilia
+          [ "$RUNNER_OS" = Windows ] && exe=$exe.exe
+          "$exe" --version
+      - name: Package
+        shell: bash
+        run: |
+          name=cecilia-v${{ needs.meta.outputs.version }}-${{ matrix.target }}
+          mkdir "$name"
+          if [ "$RUNNER_OS" = Windows ]; then
+            cp target/${{ matrix.target }}/release/cecilia.exe "$name/"
+          else
+            cp target/${{ matrix.target }}/release/cecilia "$name/"
+          fi
+          cp LICENSE-APACHE LICENSE-MIT README.md CHANGELOG.md "$name/"
+          if [ "$RUNNER_OS" = Linux ]; then
+            cp -r packaging/linux "$name/"
+          fi
+          mkdir dist
+          if [ "${{ matrix.ext }}" = zip ]; then
+            7z a "dist/$name.zip" "$name"
+          else
+            tar czf "dist/$name.tar.gz" "$name"
+          fi
+      - uses: actions/upload-artifact@v4
+        with:
+          name: ${{ matrix.target }}
+          path: dist/*
+
+  release:
+    needs: [meta, build]
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/download-artifact@v4
+        with:
+          path: dist
+          merge-multiple: true
+      - name: Checksums
+        working-directory: dist
+        run: sha256sum cecilia-* > SHA256SUMS
+      - name: Release notes
+        run: |
+          v=${{ needs.meta.outputs.version }}
+          # The CHANGELOG section of this version, or [Unreleased] for a pre-release before it.
+          section() {
+            awk -v h="## [$1]" 'index($0, h) == 1 { on = 1; next } /^## \[/ { on = 0 } on' CHANGELOG.md
+          }
+          section "$v" > notes.md
+          [ -n "$(tr -d '[:space:]' < notes.md)" ] || section Unreleased > notes.md
+          [ -s notes.md ] || echo "See CHANGELOG.md." > notes.md
+          cat >> notes.md <<'NOTE'
+
+          The binaries are not signed: Windows SmartScreen and macOS Gatekeeper will warn. On
+          macOS run `xattr -d com.apple.quarantine cecilia` after unpacking. Check downloads
+          against `SHA256SUMS`.
+          NOTE
+      - name: Publish
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          flags=""
+          [ "${{ needs.meta.outputs.prerelease }}" = true ] && flags=--prerelease
+          gh release create "$GITHUB_REF_NAME" dist/* $flags \
+            --title "$GITHUB_REF_NAME" --notes-file notes.md --verify-tag

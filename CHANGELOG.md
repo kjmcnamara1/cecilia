@@ -23,6 +23,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Documentation corrected to match the code. `docs/SPEC.md`: removed or marked **Planned** what is not implemented (Fluent i18n, a `cecilia-sync` crate, linked pane cursors, `[fingering]` config, `undo.bin` and `sync.toml` in the native archive, a bundled SoundFont, an ASCII tab writer, in-editor PDF/WAV export, CI); the config sample, CLI synopsis (`play --speed`, no `--audio`, no `--tuning`, no `txt`), crate and dependency tables, pane kinds and native archive contents now describe what exists; `:w FILE` is save-as; unverifiable validation figures and the real-time-safe audio claim are gone. `README.md`: no ASCII tab output, 15 built-in themes (not six), no claims about other programs' features, no unverified Gregorio check, PDF/SVG/PNG/WAV/FLAC export is `cecilia convert`, chant sync is by tapping, repository URL and "tags only" packaging note, config path is for Linux. `TODO.md`: ticked done items, fixed a typo.
 
 ### Added
+- A release workflow (`.github/workflows/release.yml`): pushing a tag `vX.Y.Z` builds `cecilia` for Linux x86_64, Windows x86_64 and macOS (Apple silicon and Intel), and publishes a GitHub release with the archives, `SHA256SUMS` and the notes from this changelog. CI (`.github/workflows/ci.yml`) runs fmt, clippy and the tests on Linux and compiles on Windows and macOS.
 
 - Question prompts (save changes, file changed on disk, delete workspace) have clickable buttons (GUI and TUI) alongside the y/n/Esc keys (the GUI fades a highlight in under the pointer); clicking a question card elsewhere no longer dismisses it.
 - GUI: a window close "x" at the far right of the toolbar, styled like a buffer tab's close button (runs `:quit`).
@@ -39,6 +40,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [0.44.0] - 2026-11-10
 
 ### Added
+- A release workflow (`.github/workflows/release.yml`): pushing a tag `vX.Y.Z` builds `cecilia` for Linux x86_64, Windows x86_64 and macOS (Apple silicon and Intel), and publishes a GitHub release with the archives, `SHA256SUMS` and the notes from this changelog. CI (`.github/workflows/ci.yml`) runs fmt, clippy and the tests on Linux and compiles on Windows and macOS.
 
 - `ui.tab_rhythm` (`auto` / `on` / `off`, `:set ui.tab_rhythm on`): the rhythm row under a tab. `auto`, the default, shows it only when the track has no standard or slash staff.
 
@@ -65,6 +67,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - The track properties "Instrument" field moved from the Sound section to just below "Name" in the Info section.
 
 ### Added
+- A release workflow (`.github/workflows/release.yml`): pushing a tag `vX.Y.Z` builds `cecilia` for Linux x86_64, Windows x86_64 and macOS (Apple silicon and Intel), and publishes a GitHub release with the archives, `SHA256SUMS` and the notes from this changelog. CI (`.github/workflows/ci.yml`) runs fmt, clippy and the tests on Linux and compiles on Windows and macOS.
 
 - `:buffer-alternate` (`:balt`, `<leader>'`) switches the pane back to the buffer it showed before, like vim's alternate buffer; repeating it toggles between the two.
 - Command completion and the buffer, recent file and workspace pickers list what you use most first, ranked like zoxide ranks directories (use count weighted by how recently: ×4 within an hour, ×2 a day, ×½ a week, ×¼ after; counts age down past a cap). Typed matches still come first; use breaks ties instead of the alphabet. Kept in `frecency.json` in the state directory; `ui.frecency = false` restores the old order.
@@ -75,6 +78,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [0.41.0] - 2026-11-10
 
 ### Added
+- A release workflow (`.github/workflows/release.yml`): pushing a tag `vX.Y.Z` builds `cecilia` for Linux x86_64, Windows x86_64 and macOS (Apple silicon and Intel), and publishes a GitHub release with the archives, `SHA256SUMS` and the notes from this changelog. CI (`.github/workflows/ci.yml`) runs fmt, clippy and the tests on Linux and compiles on Windows and macOS.
 
 - Long text in the command line or a picker's input wraps onto more rows instead of running past the box, which grows a row at a time (GUI and terminal).
 - The GUI blurs the page behind popups (pickers, the palette, notification cards, which-key, help, tooltips) on the GPU: `popups.blur` (pixels, default 20; 0 turns it off). `popups.opacity` now defaults to 85 so the blurred page shows through.
@@ -82,6 +86,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [0.40.0] - 2026-11-10
 
 ### Added
+- A release workflow (`.github/workflows/release.yml`): pushing a tag `vX.Y.Z` builds `cecilia` for Linux x86_64, Windows x86_64 and macOS (Apple silicon and Intel), and publishes a GitHub release with the archives, `SHA256SUMS` and the notes from this changelog. CI (`.github/workflows/ci.yml`) runs fmt, clippy and the tests on Linux and compiles on Windows and macOS.
 
 - Notifications: messages and errors are cards stacked over the score panes (or the window), merged when repeated (`×N`), timed out by severity with a thin bar draining along the bottom of each card, and kept in a persistent history (`:notifications`, `<leader>nh`; `:notify-dismiss`, `<leader>nd`; click a card to dismiss it). Options `notifications.anchor` (eight corners and sides), `.area` (`scores` / `window`), `.info_timeout`, `.error_timeout`, `.max_visible`, `.history_size`, `.history_time` (`relative` / `absolute`).
 - Notification cards have an icon for what they are about (command, workspace, file, option, audio, …) colored by severity, and a bold subject line over the message; the subject comes from a `topic: ` prefix or a general one ("Error", "Notice").
@@ -98,6 +103,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [0.39.0] - 2026-11-10
 
 ### Added
+- A release workflow (`.github/workflows/release.yml`): pushing a tag `vX.Y.Z` builds `cecilia` for Linux x86_64, Windows x86_64 and macOS (Apple silicon and Intel), and publishes a GitHub release with the archives, `SHA256SUMS` and the notes from this changelog. CI (`.github/workflows/ci.yml`) runs fmt, clippy and the tests on Linux and compiles on Windows and macOS.
 
 - Your own themes: any `<name>.toml` in `~/.config/cecilia/themes/` can be a `theme.preset`. It
   has the keys of `[theme]` and starts from the theme its own `preset` names (default `dark`).
@@ -113,6 +119,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [0.38.0] - 2026-11-10
 
 ### Added
+- A release workflow (`.github/workflows/release.yml`): pushing a tag `vX.Y.Z` builds `cecilia` for Linux x86_64, Windows x86_64 and macOS (Apple silicon and Intel), and publishes a GitHub release with the archives, `SHA256SUMS` and the notes from this changelog. CI (`.github/workflows/ci.yml`) runs fmt, clippy and the tests on Linux and compiles on Windows and macOS.
 
 - Command history: `<Up>`/`<A-k>` on the command line (typed text filters it) lists earlier lines above the input, and each one you step to appears on the command line to edit or run; `<Down>` past the newest returns to the line as typed. `<Down>`/`<A-j>` complete as `<Tab>` does and `<Up>` steps back to the line as typed. `:pick history` too.
 - `ui.picker_position` (default 25) sets how far down the window the command palette and pickers sit; `ui.picker_max_items` (default 12) how many candidates they list.
@@ -131,6 +138,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [0.37.0] - 2026-11-10
 
 ### Added
+- A release workflow (`.github/workflows/release.yml`): pushing a tag `vX.Y.Z` builds `cecilia` for Linux x86_64, Windows x86_64 and macOS (Apple silicon and Intel), and publishes a GitHub release with the archives, `SHA256SUMS` and the notes from this changelog. CI (`.github/workflows/ci.yml`) runs fmt, clippy and the tests on Linux and compiles on Windows and macOS.
 
 - `theme.selection_opacity` (0 to 100, percent) sets how opaque the Visual-mode selection is, for themes where it is hard to see.
 - `theme.cursor_opacity` (0 to 100, percent) sets how opaque the edit cursor's shade is in the GUI. The nord theme's selection is 40% opaque.
@@ -142,6 +150,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [0.36.0] - 2026-11-10
 
 ### Added
+- A release workflow (`.github/workflows/release.yml`): pushing a tag `vX.Y.Z` builds `cecilia` for Linux x86_64, Windows x86_64 and macOS (Apple silicon and Intel), and publishes a GitHub release with the archives, `SHA256SUMS` and the notes from this changelog. CI (`.github/workflows/ci.yml`) runs fmt, clippy and the tests on Linux and compiles on Windows and macOS.
 
 - `:set NAME [VALUE]` changes any option for the session (`toggle`, `default`, relative numbers) and survives config reloads; `:get NAME` shows it.
 - `-o` / `--option NAME=VALUE ...` sets options from the command line (an invalid one exits before the UI starts); `--` ends the options, so what follows is file names.
@@ -164,6 +173,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [0.35.0] - 2026-11-09
 
 ### Added
+- A release workflow (`.github/workflows/release.yml`): pushing a tag `vX.Y.Z` builds `cecilia` for Linux x86_64, Windows x86_64 and macOS (Apple silicon and Intel), and publishes a GitHub release with the archives, `SHA256SUMS` and the notes from this changelog. CI (`.github/workflows/ci.yml`) runs fmt, clippy and the tests on Linux and compiles on Windows and macOS.
 
 - The voice being edited is marked in the editing palette's voice buttons in its own color (blue, orange, green, purple for voices 1-4), in the GUI and the terminal UI; `theme.voice_colors` sets them.
 
@@ -176,6 +186,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [0.33.0] - 2026-11-09
 
 ### Added
+- A release workflow (`.github/workflows/release.yml`): pushing a tag `vX.Y.Z` builds `cecilia` for Linux x86_64, Windows x86_64 and macOS (Apple silicon and Intel), and publishes a GitHub release with the archives, `SHA256SUMS` and the notes from this changelog. CI (`.github/workflows/ci.yml`) runs fmt, clippy and the tests on Linux and compiles on Windows and macOS.
 
 - Built-in themes `cecilia-dark` (dark UI and page, light engraving), `cecilia-hybrid` (dark UI, light page, black engraving) and `cecilia-light` (light UI and page, black engraving), in the gold and cream of the logo on neutral charcoal: `[theme] preset = "cecilia-dark"`.
 - Built-in Catppuccin themes `catppuccin-latte`, `catppuccin-frappe`, `catppuccin-macchiato` and `catppuccin-mocha`; the page takes the flavor's base and text, so the dark flavors engrave light on dark.
@@ -395,6 +406,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   word's dash is lost in Guitar Pro 3–5.
 
 ### Added
+- A release workflow (`.github/workflows/release.yml`): pushing a tag `vX.Y.Z` builds `cecilia` for Linux x86_64, Windows x86_64 and macOS (Apple silicon and Intel), and publishes a GitHub release with the archives, `SHA256SUMS` and the notes from this changelog. CI (`.github/workflows/ci.yml`) runs fmt, clippy and the tests on Linux and compiles on Windows and macOS.
 
 - Positions are `bar:beat.fraction` everywhere (status line, marks, `:lyrics` and gabc+
   anchors): the eighth on the upbeat of beat 3 of bar 5 is `5:3.5`; a bar holding more than its
@@ -473,10 +485,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [0.32.0] - 2026-11-06
 
 ### Added
+- A release workflow (`.github/workflows/release.yml`): pushing a tag `vX.Y.Z` builds `cecilia` for Linux x86_64, Windows x86_64 and macOS (Apple silicon and Intel), and publishes a GitHub release with the archives, `SHA256SUMS` and the notes from this changelog. CI (`.github/workflows/ci.yml`) runs fmt, clippy and the tests on Linux and compiles on Windows and macOS.
 
 - `<CR>` (`:chant-syllable`) on a chant staff of an ordinary track enters a plain punctum at the cursor's position with the insert duration (when the beat has no note) and moves on to the next beat, as on a standard staff (it used to be refused). Each such punctum is its own neume until the track has lyrics; then the syllables condense the notes into pes, clivis, torculus etc.
 
 ### Added
+- A release workflow (`.github/workflows/release.yml`): pushing a tag `vX.Y.Z` builds `cecilia` for Linux x86_64, Windows x86_64 and macOS (Apple silicon and Intel), and publishes a GitHub release with the archives, `SHA256SUMS` and the notes from this changelog. CI (`.github/workflows/ci.yml`) runs fmt, clippy and the tests on Linux and compiles on Windows and macOS.
 
 - `:reflow` redraws the barlines of the cursor's voice to match the time signatures: beats that run over a bar move to the start of the next, bars that come up short are filled from the next, and a beat that straddles a barline is split and tied (durations and pitches never change). It works over every bar, or in Visual mode over just the selection, whose last bar keeps whatever is left over. Other voices are not touched; bars with repeat signs are refused.
 
@@ -498,6 +512,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [0.31.0] - 2026-11-05
 
 ### Added
+- A release workflow (`.github/workflows/release.yml`): pushing a tag `vX.Y.Z` builds `cecilia` for Linux x86_64, Windows x86_64 and macOS (Apple silicon and Intel), and publishes a GitHub release with the archives, `SHA256SUMS` and the notes from this changelog. CI (`.github/workflows/ci.yml`) runs fmt, clippy and the tests on Linux and compiles on Windows and macOS.
 
 - Voices (Guitar Pro's up to four independent rhythmic streams per track): `:voice-next` / `:voice-prev` (`]v` `[v`, `<A-v>` `<A-V>`) and `<A-F1>`…`<A-F4>` (`:voice N`) switch the voice being edited; a voice the bar doesn't have yet is created empty (no rest, 0/4 filled) and the cursor keeps its time position. The status line shows `V2` … when the bar has several voices or voice 2–4 is being edited. `cc` clears only the cursor's voice, deleting a voice's last beats leaves it empty again, and typing into an empty voice fills it.
 - The editing palette starts with four voice buttons (1–4), centred and without a title, that switch the voice being edited (`:voice N`) and show which one is in force. Not offered on chant staves or over a selection.
@@ -512,6 +527,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [0.30.0] - 2026-11-05
 
 ### Added
+- A release workflow (`.github/workflows/release.yml`): pushing a tag `vX.Y.Z` builds `cecilia` for Linux x86_64, Windows x86_64 and macOS (Apple silicon and Intel), and publishes a GitHub release with the archives, `SHA256SUMS` and the notes from this changelog. CI (`.github/workflows/ci.yml`) runs fmt, clippy and the tests on Linux and compiles on Windows and macOS.
 
 - `:save-as [file]` saves the buffer under a new name: with no file it opens the system save dialog (filters for the formats cecilia writes, `.cc` first); with a file it writes there. The buffer is renamed, so later `:w` writes to it; `:w file` is the same as `:save-as file`. The dialog suggests the buffer's file name, else the kebab-case score title. A plain `:w` on a buffer with no file now runs `:save-as` instead of failing.
 - A file open in a buffer that is changed outside the app flags the buffer modified and asks whether to load the changes (`y` reloads, `n` keeps your version); a deleted file flags the buffer modified (`:w` recreates it).
@@ -520,6 +536,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [0.29.0] - 2026-11-05
 
 ### Added
+- A release workflow (`.github/workflows/release.yml`): pushing a tag `vX.Y.Z` builds `cecilia` for Linux x86_64, Windows x86_64 and macOS (Apple silicon and Intel), and publishes a GitHub release with the archives, `SHA256SUMS` and the notes from this changelog. CI (`.github/workflows/ci.yml`) runs fmt, clippy and the tests on Linux and compiles on Windows and macOS.
 
 - Workspaces are managed explicitly: `:workspace-open [name]` saves the current workspace and switches to `name` (created, empty, if new; no name opens the picker), `:workspace-open!` does the same without saving it (and discards unsaved changes in files). `:workspace-save [name]` saves under a new name, leaving the old file as it was (a copy), and refuses to overwrite another workspace unless `:workspace-save!`. `:workspace-delete [name]` deletes a workspace file after asking (no name: the active one, leaving no workspace); `:workspace-delete!` doesn't ask.
 - Settings `ui.workspace_autosave_on_quit` (default on: quitting saves the active workspace; `:quit!` never does) and `ui.workspace_restore_last` (default on: `cecilia` with no arguments loads the last workspace or creates `default`; off: the dashboard, with no workspace).
@@ -542,6 +559,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [0.28.0] - 2026-11-04
 
 ### Added
+- A release workflow (`.github/workflows/release.yml`): pushing a tag `vX.Y.Z` builds `cecilia` for Linux x86_64, Windows x86_64 and macOS (Apple silicon and Intel), and publishes a GitHub release with the archives, `SHA256SUMS` and the notes from this changelog. CI (`.github/workflows/ci.yml`) runs fmt, clippy and the tests on Linux and compiles on Windows and macOS.
 
 - Chant notation in the terminal UI: a four-line text staff with the clef, neumes as note glyphs (punctum, virga, inclinatum, quilisma, oriscus, stropha, cavum, liquescents; `tabline.icons = "none"` uses ASCII), ligatures joined by a stroke, ledger lines, flats, naturals and sharps, divisions (virgula, minima, minor, maior, finalis) crossing the staff lines, custodes at the line ends, and the lyrics under their neumes with hyphens and extenders through melismas. It follows the pane's layout like tab does: wrapped systems (spread to the full width, each with its clef), page boxes of A4 proportions, or one horizontal line scrolled by syllable; the cursor, selection, playhead and `zz`/`zt`/`zb` work on it, and clicking a note or a syllable's text puts the cursor there. A staff set to chant with `:notation chant` on an ordinary (e.g. Guitar Pro) track shows the same way: the track's melody as chant, as the GUI's chant staff builds it (clef and shift fitted to the scale, neumes, divisions at rests, syllables from the track's lyrics). A track whose staves are all chant uses the chant layouts above; a chant staff among other staves is drawn above or below the tab in each system, on the beat columns of the tab, with its own cursor, clicks, selection and playhead, and switching the notation back changes the rendering at once.
 
@@ -553,6 +571,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [0.27.0] - 2026-11-04
 
 ### Added
+- A release workflow (`.github/workflows/release.yml`): pushing a tag `vX.Y.Z` builds `cecilia` for Linux x86_64, Windows x86_64 and macOS (Apple silicon and Intel), and publishes a GitHub release with the archives, `SHA256SUMS` and the notes from this changelog. CI (`.github/workflows/ci.yml`) runs fmt, clippy and the tests on Linux and compiles on Windows and macOS.
 
 - The terminal UI shows the rhythm of `tab+` staves as one row under the strings, a music note or
   rest glyph per beat (Nerd Font glyphs; `tabline.icons` `unicode`/`none` give symbols or letters).
@@ -562,6 +581,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [0.26.0] - 2026-11-04
 
 ### Added
+- A release workflow (`.github/workflows/release.yml`): pushing a tag `vX.Y.Z` builds `cecilia` for Linux x86_64, Windows x86_64 and macOS (Apple silicon and Intel), and publishes a GitHub release with the archives, `SHA256SUMS` and the notes from this changelog. CI (`.github/workflows/ci.yml`) runs fmt, clippy and the tests on Linux and compiles on Windows and macOS.
 
 - Dashboard: when no buffer is open (the last one closed, the only view closed, or a new, empty
   workspace) the window shows buttons Open Recent, Select Workspace, New Score and Open Score, in
@@ -598,6 +618,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [0.24.0] - 2026-11-04
 
 ### Added
+- A release workflow (`.github/workflows/release.yml`): pushing a tag `vX.Y.Z` builds `cecilia` for Linux x86_64, Windows x86_64 and macOS (Apple silicon and Intel), and publishes a GitHub release with the archives, `SHA256SUMS` and the notes from this changelog. CI (`.github/workflows/ci.yml`) runs fmt, clippy and the tests on Linux and compiles on Windows and macOS.
 
 - `ui.focus_ring_width` (0 to 8, default 4) and `ui.focus_ring_color` (default: the mode's color) set the ring around the focused pane; the terminal UI takes the color, and a thick border above width 4.
 - `:focus-ring-width`, `:focus-ring-color` and `:tabline-wrap` change these settings for the session (no argument shows the value; `:tabline-wrap` toggles); the width clamps like on config load.
@@ -606,12 +627,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [0.23.0] - 2026-11-04
 
 ### Added
+- A release workflow (`.github/workflows/release.yml`): pushing a tag `vX.Y.Z` builds `cecilia` for Linux x86_64, Windows x86_64 and macOS (Apple silicon and Intel), and publishes a GitHub release with the archives, `SHA256SUMS` and the notes from this changelog. CI (`.github/workflows/ci.yml`) runs fmt, clippy and the tests on Linux and compiles on Windows and macOS.
 
 - `ui.equalize_on_close` (`:equalize-on-close [on|off]` toggles it) (default on): closing a pane gives the split it was in equal weights again, so the remaining panes share the space equally; other splits keep their sizes. Off: the neighbour takes the closed pane's space as before.
 
 ## [0.22.0] - 2026-11-04
 
 ### Added
+- A release workflow (`.github/workflows/release.yml`): pushing a tag `vX.Y.Z` builds `cecilia` for Linux x86_64, Windows x86_64 and macOS (Apple silicon and Intel), and publishes a GitHub release with the archives, `SHA256SUMS` and the notes from this changelog. CI (`.github/workflows/ci.yml`) runs fmt, clippy and the tests on Linux and compiles on Windows and macOS.
 
 - `gg` / `G` in the focused properties pane select its first / last property (`:properties-first`, `:properties-last`). `zz` scrolls the pane so the selected property is in the middle (`:properties-center`).
 
@@ -637,6 +660,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [0.20.0] - 2026-11-04
 
 ### Added
+- A release workflow (`.github/workflows/release.yml`): pushing a tag `vX.Y.Z` builds `cecilia` for Linux x86_64, Windows x86_64 and macOS (Apple silicon and Intel), and publishes a GitHub release with the archives, `SHA256SUMS` and the notes from this changelog. CI (`.github/workflows/ci.yml`) runs fmt, clippy and the tests on Linux and compiles on Windows and macOS.
 
 - `gg` / `G` in the focused palette select its first / last row (`:palette-first`, `:palette-last`), in every mode including Visual; the view scrolls to it.
 - The palette's keyboard motions wrap around at its edges: `j` / `k` / `Tab` / `S-Tab` from the last line to the first and back, `l` / `h` from the end of a line of buttons to the next / previous line and around the ends of the grid. Counts wrap step by step. Only the visible (filtered, unfolded) tools count. `ui.palette_wrap = false` stops at the edges as before; the mouse is unchanged.
@@ -650,6 +674,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [0.19.0] - 2026-11-04
 
 ### Added
+- A release workflow (`.github/workflows/release.yml`): pushing a tag `vX.Y.Z` builds `cecilia` for Linux x86_64, Windows x86_64 and macOS (Apple silicon and Intel), and publishes a GitHub release with the archives, `SHA256SUMS` and the notes from this changelog. CI (`.github/workflows/ci.yml`) runs fmt, clippy and the tests on Linux and compiles on Windows and macOS.
 
 - Palette tools: double dot, fermata, double sharp / flat, crescendo / decrescendo, fade in / out and volume swell, artificial harmonic, left-hand tapping, grace notes before / on the beat, the six slides (shift, legato, in from above / below, out downwards / upwards), arpeggio down / up, rasgueado, pickstroke down / up, beams (automatic, force, break, break secondary) and stems (automatic, up, down), and the bar tools: clef, key and time signature, free time, double bar line, repeat one / two bars, repeat open / close, alternate endings, directions and section. Tools that need an argument open the command line with the command typed. Commands: `:double-dot`, `:free-time`, `:double-bar`, `:bar-repeat 1|2|off`, `:ending`, `:direction`, `:beams`, `:stems`, `:accidental double-sharp|double-flat`, more `:toggle` techniques; `:key` also takes names (`Bb`, `F#m`).
 - The palette searches like the properties pane: `/` opens a field, the selection jumps to the first matching tool or section as you type (name, tooltip, command or section title), `<Esc>` goes back, `<CR>` keeps the jump, `n` / `N` repeat (`:palette-search`, `:palette-search-next`, `:palette-search-prev`); only the tools shown for the staff and mode are searched.
@@ -673,6 +698,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [0.18.0] - 2026-11-04
 
 ### Added
+- A release workflow (`.github/workflows/release.yml`): pushing a tag `vX.Y.Z` builds `cecilia` for Linux x86_64, Windows x86_64 and macOS (Apple silicon and Intel), and publishes a GitHub release with the archives, `SHA256SUMS` and the notes from this changelog. CI (`.github/workflows/ci.yml`) runs fmt, clippy and the tests on Linux and compiles on Windows and macOS.
 
 - `gv` (`:visual-reselect`) reselects the last Visual selection of the file (same anchor, cursor and beat / bar kind; clamped if the score shrank); in Visual mode it swaps with the current selection. `gi` (`:insert-last`) starts Insert mode where Insert mode was last left. The marks `` `< `` `` `> `` `` `^ `` jump to the selection's ends and that insert position.
 
@@ -691,6 +717,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [0.17.0] - 2026-11-04
 
 ### Added
+- A release workflow (`.github/workflows/release.yml`): pushing a tag `vX.Y.Z` builds `cecilia` for Linux x86_64, Windows x86_64 and macOS (Apple silicon and Intel), and publishes a GitHub release with the archives, `SHA256SUMS` and the notes from this changelog. CI (`.github/workflows/ci.yml`) runs fmt, clippy and the tests on Linux and compiles on Windows and macOS.
 
 - Design mode for the page layout (`:design`, `<leader>d`): fix clashes by hand. Bar widths (`:bar-width`), bars per line (`:bars-per-line`, `:line-break`, `:line-join`) and beat positions (`:beat-nudge`) can be set with commands and the keys of the new `[keymap.design]`, or in the GUI by dragging bar lines and the dots under the cursor bar's beats (live re-flow) and clicking the "+" / "-" buttons at the end of each line to add or remove a bar on it. Every change is an undo step (one drag is one); `:design-reset` returns to the automatic layout. The adjustments are stored in `.muse` files and follow bars through inserting, deleting and pasting.
 
@@ -706,6 +733,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - On a chant staff the status line shows the solfège syllable of the cursor's position (`do` `re` `mi` `fa` `sol` `la` `ti`, read from the clef in force there) instead of the GABC letter.
 
 ### Added
+- A release workflow (`.github/workflows/release.yml`): pushing a tag `vX.Y.Z` builds `cecilia` for Linux x86_64, Windows x86_64 and macOS (Apple silicon and Intel), and publishes a GitHub release with the archives, `SHA256SUMS` and the notes from this changelog. CI (`.github/workflows/ci.yml`) runs fmt, clippy and the tests on Linux and compiles on Windows and macOS.
 
 - The status line shows, in every mode, how full the cursor's bar is, as quarter-note beats of the voice under the cursor over the time signature's length (`3.0/4.0`, `4.5/4.0`; 6/8 is `3.0`, 7/8 `3.5`), in the error color unless the bar is complete. Free-time bars and a pickup bar show nothing.
 - `ui.highlight_incomplete_bars = true` (and `:incomplete-bars on|off|toggle`) draws the staff lines of bars that are too short or too long in red, on every kind of staff in the GUI and on the dashed staff lines of the terminal tab view. The color is the new theme color `incomplete_bar`.
@@ -713,6 +741,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [0.15.0] - 2026-11-03
 
 ### Added
+- A release workflow (`.github/workflows/release.yml`): pushing a tag `vX.Y.Z` builds `cecilia` for Linux x86_64, Windows x86_64 and macOS (Apple silicon and Intel), and publishes a GitHub release with the archives, `SHA256SUMS` and the notes from this changelog. CI (`.github/workflows/ci.yml`) runs fmt, clippy and the tests on Linux and compiles on Windows and macOS.
 
 - Vim-style editing workflow. Normal mode: `w` / `e` / `b` move along the cursor's string (tab) or line / space (standard) by notes and ties (`:note-row-next`, `:note-row-end`, `:note-row-prev`); `^` / `gh` and `$` / `gl` go to the first / last beat of the bar with a note (`:bar-first-note`, `:bar-last-note`); `I` / `A` insert a beat at the start / end of the bar and start typing (`:insert-bar-start`, `:append-bar-end`); `dl` `dh` `cl` `ch` `yl` `yh` act on the beat under / before the cursor, also on the last beat of the score.
 - Visual mode: `i` / `a` insert a beat before / after the selection (a bar selection: at the start of its first bar / the end of its last) and start typing (`:visual-insert`, `:visual-append`).
@@ -731,6 +760,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [0.14.0] - 2026-11-03
 
 ### Added
+- A release workflow (`.github/workflows/release.yml`): pushing a tag `vX.Y.Z` builds `cecilia` for Linux x86_64, Windows x86_64 and macOS (Apple silicon and Intel), and publishes a GitHub release with the archives, `SHA256SUMS` and the notes from this changelog. CI (`.github/workflows/ci.yml`) runs fmt, clippy and the tests on Linux and compiles on Windows and macOS.
 
 - `:clef` picks the clef of the cursor's staff by its notation: `treble`, `bass`, `grand [split]` or `neutral` (the percussion clef, now the clef of drum staves) for standard notation, `c1`–`c4` or `f1`–`f4` for chant. Tab and slash staves have no clef. On a chant track it still takes `c1`–`c4`, `f1`–`f4` and `cb3`.
 - `:lyrics-attach above|below [TRACK]` (or `none`) attaches lyrics to the cursor's staff, above or below it, taken from any track (the staff's own by default) and aligned with the staff's beats by position in the bar. Lyrics above a staff sit just over the highest notation, stem, mark or chord name over them, and under a section marker. Lyrics below a staff (the track's own or attached) are placed under whatever hangs below it, including dynamics and hairpins, which now sit closest to the staff; syllables that fall on the same place or too close are set one after another, never overlapping.
@@ -751,12 +781,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [0.13.0] - 2026-11-03
 
 ### Added
+- A release workflow (`.github/workflows/release.yml`): pushing a tag `vX.Y.Z` builds `cecilia` for Linux x86_64, Windows x86_64 and macOS (Apple silicon and Intel), and publishes a GitHub release with the archives, `SHA256SUMS` and the notes from this changelog. CI (`.github/workflows/ci.yml`) runs fmt, clippy and the tests on Linux and compiles on Windows and macOS.
 
 - `<F1>` shows the key bindings of the current mode in every mode (insert, visual, command line, picker and tool panes included), from the effective keymaps; `<F1>` or `<Esc>` hides it.
 
 ## [0.12.0] - 2026-11-03
 
 ### Added
+- A release workflow (`.github/workflows/release.yml`): pushing a tag `vX.Y.Z` builds `cecilia` for Linux x86_64, Windows x86_64 and macOS (Apple silicon and Intel), and publishes a GitHub release with the archives, `SHA256SUMS` and the notes from this changelog. CI (`.github/workflows/ci.yml`) runs fmt, clippy and the tests on Linux and compiles on Windows and macOS.
 
 - The GUI edit cursor has a rounded outline (theme color `cursor_border`, default contrasting with the page) so it shows in every mode.
 
@@ -769,6 +801,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [0.11.0] - 2026-11-03
 
 ### Added
+- A release workflow (`.github/workflows/release.yml`): pushing a tag `vX.Y.Z` builds `cecilia` for Linux x86_64, Windows x86_64 and macOS (Apple silicon and Intel), and publishes a GitHub release with the archives, `SHA256SUMS` and the notes from this changelog. CI (`.github/workflows/ci.yml`) runs fmt, clippy and the tests on Linux and compiles on Windows and macOS.
 
 - `ui.chant_chords` (`top` default, `bottom`, `error`): which note of a chord the chant staff of
   an ordinary track shows, since chant is monophonic. With `error` no chant staff is drawn: it
@@ -817,6 +850,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [0.10.0] - 2026-10-31
 
 ### Added
+- A release workflow (`.github/workflows/release.yml`): pushing a tag `vX.Y.Z` builds `cecilia` for Linux x86_64, Windows x86_64 and macOS (Apple silicon and Intel), and publishes a GitHub release with the archives, `SHA256SUMS` and the notes from this changelog. CI (`.github/workflows/ci.yml`) runs fmt, clippy and the tests on Linux and compiles on Windows and macOS.
 
 - `:staff-next` / `:staff-prev` (`<A-j>` / `<A-k>`) move the cursor between the staves of a track.
 - `<A-j>` / `<A-k>` select the next / previous item in pickers and in command-line completion,
@@ -849,6 +883,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [0.8.0] - 2026-10-31
 
 ### Added
+- A release workflow (`.github/workflows/release.yml`): pushing a tag `vX.Y.Z` builds `cecilia` for Linux x86_64, Windows x86_64 and macOS (Apple silicon and Intel), and publishes a GitHub release with the archives, `SHA256SUMS` and the notes from this changelog. CI (`.github/workflows/ci.yml`) runs fmt, clippy and the tests on Linux and compiles on Windows and macOS.
 
 - Shift and Super (Windows/Cmd) in key notation: `<C-S-q>` is distinct from `<C-q>`, `<S-F5>`,
   `<S-Up>`, `<D-q>` (aliases `Super-`, `Win-`, `Cmd-`). Shift on a plain character still folds
@@ -858,6 +893,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [0.7.0] - 2026-10-31
 
 ### Added
+- A release workflow (`.github/workflows/release.yml`): pushing a tag `vX.Y.Z` builds `cecilia` for Linux x86_64, Windows x86_64 and macOS (Apple silicon and Intel), and publishes a GitHub release with the archives, `SHA256SUMS` and the notes from this changelog. CI (`.github/workflows/ci.yml`) runs fmt, clippy and the tests on Linux and compiles on Windows and macOS.
 - Swap files: with `[swap] auto_recover` (default on) opening a file with a newer swap file restores it as unsaved changes. buffers with unsaved changes are autosaved to a recovery copy in the swap directory (`[swap]` `enabled`, `interval`, `dir`; default `$XDG_STATE_HOME/muse/swap`, else `~/.local/state/muse/swap`), removed on save, close and quit. Opening a file with a newer swap file offers `:recover` (`:recover!`, `:recover swapfile`) and `:swap-discard`.
 
 ## [0.6.1] - 2026-10-31
@@ -870,6 +906,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [0.6.0] - 2026-10-31
 
 ### Added
+- A release workflow (`.github/workflows/release.yml`): pushing a tag `vX.Y.Z` builds `cecilia` for Linux x86_64, Windows x86_64 and macOS (Apple silicon and Intel), and publishes a GitHub release with the archives, `SHA256SUMS` and the notes from this changelog. CI (`.github/workflows/ci.yml`) runs fmt, clippy and the tests on Linux and compiles on Windows and macOS.
 
 - Editing palette along the left of the window, above the bottom tool panes, which keep the full width, also in restored workspaces (`<leader>e` shows it, `<leader>E` focuses it, `ui.palette` (off by default), `:palette`, `[keymap.palette]`): a grid of icon buttons in collapsible sections (durations, dotted/triplet, rest, accidentals, ties, dynamics, articulations, effects) that apply to the score pane worked on, like Guitar Pro's editing panel. Buttons in force at the cursor are tinted and follow it; one gray highlight is shared by the mouse and the keyboard selection, and its button's name, with its insert-mode keys, shows at the bottom of the pane (and as a tooltip on hover; the terminal draws short labels). `h`/`j`/`k`/`l` move through the grid, `<CR>` applies, `za` folds. Buttons that can't take effect at the cursor (a note-level edit on a rest, an accidental on a tab) are dimmed, and applying one only says why. New `:dynamic ppp|pp|p|mp|mf|f|ff|fff` sets the note's velocity.
 - `:staff-add` takes several staves, added in the order given (`:staff-add treble tab grand G3`).
@@ -877,6 +914,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [0.5.0] - 2026-10-31
 
 ### Added
+- A release workflow (`.github/workflows/release.yml`): pushing a tag `vX.Y.Z` builds `cecilia` for Linux x86_64, Windows x86_64 and macOS (Apple silicon and Intel), and publishes a GitHub release with the archives, `SHA256SUMS` and the notes from this changelog. CI (`.github/workflows/ci.yml`) runs fmt, clippy and the tests on Linux and compiles on Windows and macOS.
 - With the cursor on a note on any staff, the same note on the track's other staves is drawn in the current mode's color: the notehead, slash or square note on treble, bass, grand, slash and chant staves, and the fret number (in bold) on other tab staves.
 
 ### Fixed
@@ -888,6 +926,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [0.4.0] - 2026-10-30
 
 ### Added
+- A release workflow (`.github/workflows/release.yml`): pushing a tag `vX.Y.Z` builds `cecilia` for Linux x86_64, Windows x86_64 and macOS (Apple silicon and Intel), and publishes a GitHub release with the archives, `SHA256SUMS` and the notes from this changelog. CI (`.github/workflows/ci.yml`) runs fmt, clippy and the tests on Linux and compiles on Windows and macOS.
 - Toolbar buttons for the properties pane, waveform, piano, fretboard and tuner, in the group with the tracks button (they show whether their pane is on).
 - Properties pane along the right of the window (`<leader>p` shows it, `<leader>P` focuses it, `ui.properties` (off by default), `:properties`) with three tabs: SCORE (metadata, page setup), TRACK (name, kind, color, tuning, frets, capo, staves, instrument, channel, bank, volume, pan, mute, solo) and LYRICS (a text area in Guitar Pro lyric syntax, laid onto the notes). Each property is a label over a full-width value box, in sections that fold (`za`, `zc`, `zo`). Editing a value is insert mode, applied to the score as you type as one undo step (`<Esc>` cancels; the lyrics text area is edited like vim, with its modes in the status line). Color opens a picker of named colors with swatches and hex codes (type `#rrggbb` or `rgb(r,g,b)` for a custom one); tuning opens a picker of common tunings for the track's instrument (type notes for a custom one). Edits are undoable. Staves are rows (a picker of staff kinds, an empty row to add one, drag or `<A-j>`/`<A-k>` to reorder), mute and solo are switches, `H`/`L` change tab, `c` clears and edits, `d` clears. `h`/`l` set switches and step through choices (no wrapping), icons show staves and instruments, only a double click edits, and a line shows where a dragged staff lands. Standard staves are named `treble`, `bass` and `grand` (`:staff grand G3`); `standard …` still parses. The wheel scrolls the pane and pickers; numbers step with `h`/`l`; arrows and `<Tab>` follow `hjkl`. `/` searches the pane (and the lyrics text) with `n`/`N`. Slash staves draw a single line with their stems always up. A Guitar Pro file's lyric line breaks show in the pane. The wheel scrolls the lyrics text, and a click there places the caret, a drag selects, a double click selects a word (or enters insert mode from normal mode), `<C-a>` selects all, and `<C-c>`/`<C-x>`/`<C-v>`, `y`, `yy`, `p` and `P` use the system clipboard.
 - Scores keep their page setup, read and written by Guitar Pro 5 files.
@@ -901,6 +940,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [0.3.0] - 2026-10-30
 
 ### Added
+- A release workflow (`.github/workflows/release.yml`): pushing a tag `vX.Y.Z` builds `cecilia` for Linux x86_64, Windows x86_64 and macOS (Apple silicon and Intel), and publishes a GitHub release with the archives, `SHA256SUMS` and the notes from this changelog. CI (`.github/workflows/ci.yml`) runs fmt, clippy and the tests on Linux and compiles on Windows and macOS.
 
 - Scrollbars on score panes (`:scrollbar`, `ui.scrollbar`): pill-shaped thumbs in a light tint of
   the background, in their own gutter so they never overlap the notation. Click or drag to
@@ -917,6 +957,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [0.2.0] - 2026-10-30
 
 ### Added
+- A release workflow (`.github/workflows/release.yml`): pushing a tag `vX.Y.Z` builds `cecilia` for Linux x86_64, Windows x86_64 and macOS (Apple silicon and Intel), and publishes a GitHub release with the archives, `SHA256SUMS` and the notes from this changelog. CI (`.github/workflows/ci.yml`) runs fmt, clippy and the tests on Linux and compiles on Windows and macOS.
 
 - Waveform tool: `:waveform` toggles the pane and `:global-tool waveform` toggles its global status.
 - Tracks pane refits its height when the buffer of a pane changes.
