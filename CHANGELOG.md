@@ -9,6 +9,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- Choosing a notification in the history opens it in a popup in the middle of the window instead of raising its card again. The popup is a read-only text area: normal mode moves the caret, `v`/`V` select, `y` (or `<C-c>`) copies, `<C-a>` selects all, `<Esc>` leaves the selection then closes it; there is no insert or replace mode. Selecting switches to Visual mode. The mouse places the caret, drags a selection, double-clicks a word, triple-clicks the whole text, scrolls with the wheel, moves the popup by its title bar, and closes it with the dim "x" in the corner (red on hover, like a buffer tab's) or a click outside.
 - The buffer, view, workspace and recent file pickers no longer list the current buffer, view, workspace or file (the "(shown)", "(current)" and "(active)" marks go with them).
 
 ### Added
