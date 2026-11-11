@@ -225,6 +225,11 @@ pub static OPTIONS: LazyLock<Vec<OptionSpec>> = LazyLock::new(|| {
             "Bar numbers on the score: the first bar of each line, or every bar.",
         ),
         o(
+            "ui.tab_rhythm",
+            Choice(&["auto", "on", "off"]),
+            "Rhythm row under tab: always, never, or only when the track has no standard or slash staff.",
+        ),
+        o(
             "ui.highlight_incomplete_bars",
             Bool,
             "Draw the staff lines of bars that don't hold their full count in red.",

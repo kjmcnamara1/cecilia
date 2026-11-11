@@ -382,11 +382,9 @@ fn values(command: &str) -> Option<&'static [&'static str]> {
         "new" | "enew" => &["modern", "chant"],
         "clef" => &["treble", "bass", "grand", "neutral"],
         "track-add" => &["bass", "drums", "guitar", "piano", "voice"],
-        "notation" => &["standard", "tab", "tab+", "slash", "chant"],
+        "notation" => &["standard", "tab", "slash"],
         "lyrics-attach" => &["above", "below", "none"],
-        "staff-add" => &[
-            "chant", "slash", "bass", "grand", "neutral", "treble", "tab", "tab+",
-        ],
+        "staff-add" => &["standard", "tab", "slash"],
         "accidental" => &["double-flat", "double-sharp", "flat", "natural", "sharp"],
         "bar-repeat" => &["1", "2", "off"],
         "dynamic-step" => &["+1", "-1"],
@@ -1220,7 +1218,7 @@ pub fn describe(command: &str) -> Option<&'static str> {
             "Lyrics from the cursor on (lyrics; \\n a line break); on chant all of it is the cursor syllable's text"
         }
         "lyrics-attach" => "Attach lyrics to the cursor staff: above|below [track], or none",
-        "notation" => "Notation of the cursor's staff (standard, tab, tab+, slash, chant)",
+        "notation" => "Notation of the cursor's staff (standard, tab, slash)",
         "lyrics-clear" => "Remove the lyrics, or one verse row of them",
         "metronome" => "Toggle the metronome",
         "mix" => "Mix: both, audio or midi",

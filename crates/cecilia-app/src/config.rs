@@ -307,6 +307,9 @@ pub struct UiConfig {
     pub chant_chords: String,
     /// Bar numbers on the score: `"system"` (the first bar of each line) or `"every"` bar.
     pub bar_numbers: String,
+    /// The rhythm row under a tab: `"auto"` (only when the track has no standard or slash
+    /// staff), `"on"` or `"off"`.
+    pub tab_rhythm: String,
     /// While `'` waits for a mark letter: where the marks are drawn on the score, `"exact"`
     /// (on the position a jump lands on), `"above"` (over the staff, at that beat) or `"off"`.
     pub mark_labels: MarkLabels,
@@ -407,6 +410,7 @@ impl Default for UiConfig {
             layout: "vertical".into(),
             chant_chords: "top".into(),
             bar_numbers: "system".into(),
+            tab_rhythm: "auto".into(),
             highlight_incomplete_bars: false,
             focus_ring_width: 4.0,
             focus_ring_color: String::new(),

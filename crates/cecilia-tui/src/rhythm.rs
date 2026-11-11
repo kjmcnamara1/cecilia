@@ -1,17 +1,13 @@
-//! The rhythm of a tab+ staff in terminal characters: one glyph per beat, in a row under the
+//! The rhythm row of a tab in terminal characters: one glyph per beat, in a row under the
 //! strings and aligned with the beat's fret column, chosen only from the beat's value, dots and
 //! whether it is a rest, and below it a row of beams joining eighths and shorter notes.
 
-use cecilia_core::{Beat, DurationValue, Staff, TICKS_PER_QUARTER, Track};
+use cecilia_core::{Beat, DurationValue, TICKS_PER_QUARTER, TabRhythm, Track};
 
-/// Rows below the strings for the track's rhythm: the glyph row and the beam row with a tab+
-/// staff, else none.
-pub fn rows(track: &Track) -> u16 {
-    if track.staves().contains(&Staff::TabRhythm) {
-        2
-    } else {
-        0
-    }
+/// Rows below the strings for the track's rhythm: the glyph row and the beam row when the
+/// `ui.tab_rhythm` option shows it for the track, else none.
+pub fn rows(track: &Track, mode: TabRhythm) -> u16 {
+    if mode.shows(track) { 2 } else { 0 }
 }
 
 /// The beam row of one bar, `width` characters: under runs of eighths and shorter notes in one
@@ -144,14 +140,19 @@ mod tests {
     }
 
     #[test]
-    fn rows_need_a_tab_rhythm_staff() {
+    fn rows_follow_the_tab_rhythm_option() {
+        use cecilia_core::Staff;
         let mut t = Track {
             strings: vec![64; 6],
+            staves: vec![Staff::Tab],
             ..Track::default()
         };
-        assert_eq!(rows(&t), 0);
-        t.staves = vec![Staff::Tab, Staff::TabRhythm];
-        assert_eq!(rows(&t), 2);
+        assert_eq!(rows(&t, TabRhythm::Auto), 2);
+        t.staves = vec![Staff::Standard(cecilia_core::Clef::Treble), Staff::Tab];
+        assert_eq!(rows(&t, TabRhythm::Auto), 0);
+        assert_eq!(rows(&t, TabRhythm::On), 2);
+        t.staves = vec![Staff::Tab];
+        assert_eq!(rows(&t, TabRhythm::Off), 0);
     }
 
     #[test]

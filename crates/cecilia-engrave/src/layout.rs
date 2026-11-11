@@ -43,6 +43,8 @@ pub struct Options {
     pub incomplete_bars: Option<Color>,
     /// The font of a chant score's lyrics.
     pub chant_font: crate::display::TextFamily,
+    /// Whether tab staves show a rhythm row.
+    pub tab_rhythm: cecilia_core::TabRhythm,
 }
 
 /// Points in a millimetre count of the page setup.
@@ -105,6 +107,7 @@ impl Default for Options {
             every_bar_number: false,
             incomplete_bars: None,
             chant_font: Default::default(),
+            tab_rhythm: Default::default(),
         }
     }
 }
@@ -660,10 +663,10 @@ pub fn engrave(score: &Score, track_index: usize, options: &Options) -> Layout {
                     Some((split, false)),
                 ));
             }
-            Staff::Tab | Staff::TabRhythm if fretted => specs.push(spec(
+            Staff::Tab if fretted => specs.push(spec(
                 false,
                 true,
-                *staff == Staff::TabRhythm,
+                options.tab_rhythm.shows(track),
                 false,
                 None,
                 None,
@@ -3366,11 +3369,7 @@ impl Ctx<'_> {
     fn track_has_tab(&self) -> bool {
         self.track.kind == TrackKind::Fretted
             && !self.track.strings.is_empty()
-            && self
-                .track
-                .staves()
-                .iter()
-                .any(|s| matches!(s, Staff::Tab | Staff::TabRhythm))
+            && self.track.staves().iter().any(|s| matches!(s, Staff::Tab))
     }
 
     /// Whether the beat carries the effect on any of its notes.
@@ -4731,17 +4730,32 @@ mod tests {
         assert!(!tab.contains(&G_CLEF_8VB) && tab.contains(&TAB_CLEF));
         let layout = engrave(&score, 0, &Options::default());
         assert!(layout.beats.values().all(|p| p.line_y(0, 30).is_none()));
-        let lines = |score: &Score| -> usize {
-            engrave(score, 0, &Options::default()).pages[0]
+        let lines = |score: &Score, tab_rhythm: cecilia_core::TabRhythm| -> usize {
+            engrave(
+                score,
+                0,
+                &Options {
+                    tab_rhythm,
+                    ..Options::default()
+                },
+            )
+            .pages[0]
                 .items
                 .iter()
                 .filter(|i| matches!(i, Item::Line { .. }))
                 .count()
         };
-        let plain = lines(&score);
-        // Tab+: the same with a stem per beat.
-        score.tracks[0].staves = vec![Staff::TabRhythm];
-        assert_eq!(lines(&score), plain + 4);
+        use cecilia_core::TabRhythm;
+        let plain = lines(&score, TabRhythm::Off);
+        // With the rhythm row: the same with a stem per beat.
+        assert_eq!(lines(&score, TabRhythm::On), plain + 4);
+        // Auto: a tab alone shows it, one beside a standard staff leaves it to that staff.
+        assert_eq!(lines(&score, TabRhythm::Auto), plain + 4);
+        score.tracks[0].staves = vec![Staff::Standard(cecilia_core::Clef::Treble), Staff::Tab];
+        let with_standard = lines(&score, TabRhythm::Auto);
+        assert_eq!(lines(&score, TabRhythm::Off), with_standard);
+        assert_eq!(lines(&score, TabRhythm::On), with_standard + 4);
+        score.tracks[0].staves = vec![Staff::Tab];
         // Slashes: one per beat, no clef and no tab.
         score.tracks[0].staves = vec![Staff::Slash];
         let slash = glyphs(&score);
@@ -4809,6 +4823,54 @@ mod tests {
     }
 
     #[test]
+    fn tab_has_a_line_per_string_for_any_string_count() {
+        let sp = Options::default().sp;
+        // Bass, five-string bass, six-string guitar, seven-string guitar.
+        for n in [4usize, 5, 6, 7] {
+            let strings: Vec<u8> = (0..n).map(|i| 64 - 5 * i as u8).collect();
+            let score = Score {
+                tempo: 100,
+                master_bars: vec![MasterBar::default()],
+                tracks: vec![Track {
+                    kind: TrackKind::Fretted,
+                    strings,
+                    staves: vec![Staff::Tab],
+                    bars: vec![Bar {
+                        voices: vec![Voice {
+                            beats: vec![Beat {
+                                duration: Duration::new(DurationValue::Whole),
+                                notes: vec![Note::new(n as u8 - 1, 3)],
+                                ..Beat::default()
+                            }],
+                        }],
+                        ..Default::default()
+                    }],
+                    ..Track::default()
+                }],
+                ..Score::default()
+            };
+            let options = Options {
+                tab_rhythm: cecilia_core::TabRhythm::Off,
+                ..Options::default()
+            };
+            let layout = engrave(&score, 0, &options);
+            let pos = layout.beats.values().next().unwrap();
+            let ys = pos.strings(0).unwrap();
+            assert_eq!(ys.len(), n);
+            assert!(ys.windows(2).all(|w| (w[1] - w[0] - 1.5 * sp).abs() < 1e-6));
+            let lines = layout.pages[0]
+                .items
+                .iter()
+                .filter(|i| {
+                    matches!(i, Item::Line { from, to, .. }
+                        if from.y == to.y && to.x - from.x > 3.0 * sp)
+                })
+                .count();
+            assert_eq!(lines, n, "{n} strings");
+        }
+    }
+
+    #[test]
     fn tab_rests_and_time_signature() {
         let sp = Options::default().sp;
         let rest = |dots| {
@@ -4843,8 +4905,12 @@ mod tests {
                 ..Score::default()
             }
         };
-        let glyphs = |score: &Score| -> Vec<(char, Point, f64)> {
-            let page = &engrave(score, 0, &Options::default()).pages[0];
+        let opts = |tab_rhythm| Options {
+            tab_rhythm,
+            ..Options::default()
+        };
+        let glyphs = |score: &Score, rhythm| -> Vec<(char, Point, f64)> {
+            let page = &engrave(score, 0, &opts(rhythm)).pages[0];
             let mut g = Vec::new();
             for i in &page.items {
                 if let Item::Glyph { ch, at, size, .. } = i {
@@ -4853,8 +4919,8 @@ mod tests {
             }
             g
         };
-        let lines = |score: &Score| -> (f64, f64) {
-            let page = &engrave(score, 0, &Options::default()).pages[0];
+        let lines = |score: &Score, rhythm| -> (f64, f64) {
+            let page = &engrave(score, 0, &opts(rhythm)).pages[0];
             let ys: Vec<f64> = page
                 .items
                 .iter()
@@ -4870,11 +4936,12 @@ mod tests {
                 ys.iter().cloned().fold(f64::MIN, f64::max),
             )
         };
-        for staff in [Staff::TabRhythm, Staff::Tab] {
-            let score = make(staff, (6, 8));
-            let (top, bottom) = lines(&score);
+        use cecilia_core::TabRhythm;
+        for staff in [TabRhythm::On, TabRhythm::Off] {
+            let score = make(Staff::Tab, (6, 8));
+            let (top, bottom) = lines(&score, staff);
             let mid = (top + bottom) / 2.0;
-            let g = glyphs(&score);
+            let g = glyphs(&score, staff);
             // The time signature: standard-size digits just above and below the middle line.
             let six = g.iter().find(|x| x.0 == time_digit(6)).unwrap();
             let eight = g.iter().find(|x| x.0 == time_digit(8)).unwrap();
@@ -4885,12 +4952,12 @@ mod tests {
                 six.1.y
             );
             assert!((eight.1.y - (mid + sp)).abs() < 0.01, "{staff:?}");
-            // Only tab+ draws the rest, centred on the strings.
+            // Only the rhythm row draws the rest, centred on the strings.
             let rests: Vec<_> = g
                 .iter()
                 .filter(|x| x.0 == rest_glyph(DurationValue::Quarter))
                 .collect();
-            if staff == Staff::TabRhythm {
+            if staff == TabRhythm::On {
                 assert_eq!(rests.len(), 1);
                 let b = fonts().bbox(FontKind::Music, rests[0].0, rests[0].2);
                 let centre = rests[0].1.y + (b.y0 + b.y1) / 2.0;
@@ -4901,7 +4968,7 @@ mod tests {
             }
         }
         // Four-four as well.
-        let g = glyphs(&make(Staff::TabRhythm, (4, 4)));
+        let g = glyphs(&make(Staff::Tab, (4, 4)), TabRhythm::On);
         assert_eq!(g.iter().filter(|x| x.0 == time_digit(4)).count(), 2);
     }
 
@@ -5334,7 +5401,7 @@ mod tests {
             tracks: vec![Track {
                 kind: TrackKind::Fretted,
                 strings: vec![64, 59, 55, 50, 45, 40],
-                staves: vec![Staff::TabRhythm],
+                staves: vec![Staff::Tab],
                 bars: vec![Bar {
                     voices: vec![Voice {
                         beats: vec![
@@ -5878,7 +5945,7 @@ mod tests {
         let (top, lyric, high) = measure(&score(treble, 5, 0, 1));
         assert!(lyric < top && lyric + 0.2 * sp <= high && lyric > high - 1.0 * sp);
         // Rhythm stems and slashes: the same.
-        for staff in [Staff::TabRhythm, Staff::Slash] {
+        for staff in [Staff::Tab, Staff::Slash] {
             let (top, lyric, high) = measure(&score(staff, 0, 3, 1));
             assert!(lyric < top && lyric + 0.2 * sp <= high);
         }
@@ -6058,7 +6125,6 @@ mod tests {
         };
         for staff in [
             Staff::Tab,
-            Staff::TabRhythm,
             Staff::Standard(cecilia_core::Clef::Treble),
             Staff::Slash,
         ] {
@@ -6451,7 +6517,6 @@ mod tests {
             Staff::Standard(cecilia_core::Clef::Treble),
             Staff::Slash,
             Staff::Tab,
-            Staff::TabRhythm,
         ] {
             let score = mark_score(staff, vec![beats.clone()]);
             let layout = engrave(&score, 0, &options());
@@ -6552,11 +6617,7 @@ mod tests {
             }]
                 .head
         };
-        for staff in [
-            Staff::Tab,
-            Staff::TabRhythm,
-            Staff::Standard(cecilia_core::Clef::Treble),
-        ] {
+        for staff in [Staff::Tab, Staff::Standard(cecilia_core::Clef::Treble)] {
             // A run of four: one label, one line from the first to the last beat, one hook.
             let score = mark_score(staff, vec![vec![plain(), pm(), pm(), pm(), pm(), plain()]]);
             let layout = engrave(&score, 0, &options());

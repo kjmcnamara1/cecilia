@@ -107,7 +107,6 @@ pub enum Field {
     /// The initial clef of a chant score's track.
     ChantClef,
     TrackName,
-    TrackKind,
     TrackColor,
     Tuning,
     FretCount,
@@ -787,15 +786,6 @@ pub fn full_lyrics(score: &cecilia_core::Score, track: usize) -> String {
     }
 }
 
-fn kind_name(k: TrackKind) -> &'static str {
-    match k {
-        TrackKind::Fretted => "fretted",
-        TrackKind::Drums => "drums",
-        TrackKind::Pitched => "pitched",
-        TrackKind::Chant => "chant",
-    }
-}
-
 impl App {
     /// The rows of the shown tab, for the focused pane's file and cursor track, with folded
     /// sections' rows left out.
@@ -931,15 +921,6 @@ impl App {
                         true,
                     );
                     rows.last_mut().unwrap().icon = Some(crate::icons::Icon::of_track(t));
-                    if !chant_track {
-                        field(
-                            &mut rows,
-                            Field::TrackKind,
-                            "Kind",
-                            kind_name(t.kind).into(),
-                            false,
-                        );
-                    }
                     let shown = self.track_color(self.pane().buffer, cursor.track);
                     let custom = t.display_color.is_some();
                     let name = match (custom, crate::picker::color_name(shown)) {
@@ -2185,8 +2166,7 @@ impl App {
                 }
             }
             Field::Lyrics => self.set_lyrics(t, text, live),
-            Field::TrackKind
-            | Field::StaffAt(_)
+            Field::StaffAt(_)
             | Field::TrackColor
             | Field::Tuning
             | Field::Mute
@@ -3042,10 +3022,8 @@ mod tests {
         type_into(&mut app, Field::TrackName, "Rhythm");
         assert_eq!(app.buffer().score.tracks[1].name, "Rhythm");
         assert_eq!(app.buffer().score.tracks[0].name, "Lead");
-        // Read-only rows refuse.
-        app.props.selected = field_row(&app, Field::TrackKind);
-        app.run(Command::PropertiesEdit);
-        assert!(app.props.edit.is_none());
+        // The track's kind is not a row.
+        assert!(app.property_rows().iter().all(|r| r.label != "Kind"));
     }
 
     #[test]
@@ -3380,18 +3358,18 @@ mod tests {
         keys(&mut app, "slash<CR>");
         assert_eq!(names(&app), ["treble", "tab", "slash"]);
         // A filled row picks another kind.
-        app.props.selected = field_row(&app, Field::StaffAt(1));
+        app.props.selected = field_row(&app, Field::StaffAt(2));
         app.run(Command::PropertiesEdit);
-        keys(&mut app, "tab+<CR>");
-        assert_eq!(names(&app)[1], "tab+");
+        keys(&mut app, "tab<CR>");
+        assert_eq!(names(&app)[2], "tab");
         // Alt-j / alt-k swap with the staff below / above; the selection follows.
         keys(&mut app, "<leader>P");
         app.props.selected = field_row(&app, Field::StaffAt(0));
         keys(&mut app, "<A-j>");
-        assert_eq!(names(&app), ["tab+", "treble", "slash"]);
+        assert_eq!(names(&app), ["tab", "treble", "tab"]);
         assert_eq!(app.props.selected, field_row(&app, Field::StaffAt(1)));
         keys(&mut app, "<A-k>");
-        assert_eq!(names(&app), ["treble", "tab+", "slash"]);
+        assert_eq!(names(&app), ["treble", "tab", "tab"]);
         // Dragging a row onto another moves it.
         let (a, b) = (
             field_row(&app, Field::StaffAt(0)),
@@ -3401,7 +3379,7 @@ mod tests {
             app.property_is_staff(a) && !app.property_is_staff(field_row(&app, Field::StaffAt(3)))
         );
         app.drag_property(a, b);
-        assert_eq!(names(&app), ["tab+", "slash", "treble"]);
+        assert_eq!(names(&app), ["tab", "tab", "treble"]);
     }
 
     #[test]
@@ -3531,7 +3509,7 @@ mod tests {
         assert!(!app.property_row_selected(field_row(&app, Field::Capo)));
         // The staff kind steps too.
         keys(&mut app, "<A-l>");
-        assert_eq!(app.buffer().score.tracks[0].staves()[1].name(), "tab+");
+        assert_eq!(app.buffer().score.tracks[0].staves()[1].name(), "slash");
         assert_eq!(Icon::of_program(25), Icon::Guitar);
     }
 
@@ -3622,17 +3600,11 @@ mod tests {
         app.picker_scroll(-5);
         assert_eq!(app.picker.as_ref().unwrap().selected, 0);
         keys(&mut app, "<Esc>");
-        // The staff names: treble, bass, grand.
+        // The clef names: treble, bass, grand.
         use cecilia_core::{Clef, Staff};
-        assert_eq!(
-            Staff::parse("bass", Clef::Treble),
-            Ok(Staff::Standard(Clef::Bass))
-        );
+        assert_eq!(Clef::parse("bass"), Ok(Clef::Bass));
         assert_eq!(Staff::Standard(Clef::Treble).name(), "treble");
-        assert!(matches!(
-            Staff::parse("grand G3", Clef::Treble),
-            Ok(Staff::Standard(Clef::Grand { split: 55 }))
-        ));
+        assert_eq!(Clef::parse("grand G3"), Ok(Clef::Grand { split: 55 }));
     }
 
     #[test]

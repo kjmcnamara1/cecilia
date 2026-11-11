@@ -256,8 +256,8 @@ pub enum Command {
     Transpose(i32),
     TrackAdd(String),
     TrackDelete,
-    /// Show the cursor's staff in another notation: `standard`, `tab`, `tab+`, `slash` or
-    /// `chant`. The notes stay the same.
+    /// Show the cursor's staff in another notation: `standard [clef]`, `tab` or `slash`. The
+    /// notes stay the same.
     Notation(String),
     /// Add a staff at the bottom of the cursor's track (standard when not given).
     StaffAdd(Option<String>),
@@ -934,7 +934,7 @@ impl Command {
             "track-delete" => TrackDelete,
             // `staff` is the old name of `notation`.
             "notation" | "staff" => Notation(
-                arg.ok_or("notation: expected standard, tab, tab+, slash or chant")?
+                arg.ok_or("notation: expected standard, tab or slash")?
                     .to_string(),
             ),
             "staff-add" => StaffAdd(arg.map(String::from)),

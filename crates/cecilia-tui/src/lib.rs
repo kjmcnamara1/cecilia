@@ -972,7 +972,11 @@ fn draw(f: &mut Frame, app: &mut App, play: Option<(usize, Location, f64, f64)>,
             );
         }
         if let Some(track) = track {
-            app.page_bars = page_bars(inner, track);
+            app.page_bars = page_bars(
+                inner,
+                track,
+                cecilia_core::TabRhythm::parse(&app.config.file.ui.tab_rhythm),
+            );
         }
         // What the pane shows, for half-page movement (chant lines are not bars: the fallback).
         let info = (!chant && track.is_some()).then(|| {
@@ -989,6 +993,7 @@ fn draw(f: &mut Frame, app: &mut App, play: Option<(usize, Location, f64, f64)>,
                 scroll,
                 horizontal,
                 page.as_deref(),
+                cecilia_core::TabRhythm::parse(&app.config.file.ui.tab_rhythm),
             )
         });
         view_infos.push((id, info));
@@ -1310,10 +1315,10 @@ fn draw_palette(f: &mut Frame, app: &App, p: &cecilia_app::Palette, screen: Rect
 }
 
 /// Bars paged when a pane's view is not known (chant): two per system row.
-fn page_bars(area: Rect, track: &cecilia_core::Track) -> usize {
+fn page_bars(area: Rect, track: &cecilia_core::Track, mode: cecilia_core::TabRhythm) -> usize {
     let height = match track.chant.as_deref() {
         Some(chant) => chantview::system_height(chant),
-        None => tabview::system_height(track),
+        None => tabview::system_height(track, mode),
     };
     let rows = (area.height / height).max(1) as usize;
     rows * 2
@@ -3864,7 +3869,7 @@ mod render_tests {
         app.buffers[0].score = score;
         let plain = render(&mut app, 60, 24);
         assert!(!plain.contains("\u{f0387}"), "{plain}");
-        app.buffers[0].score.tracks[0].staves = vec![cecilia_core::Staff::TabRhythm];
+        app.buffers[0].score.tracks[0].staves = vec![cecilia_core::Staff::Tab];
         let screen = render(&mut app, 60, 24);
         println!("{screen}");
         assert!(screen.contains("\u{f0387}"), "{screen}");

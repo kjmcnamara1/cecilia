@@ -124,6 +124,8 @@ type CacheKey = (
     [u8; 8],
     &'static str,
     bool,
+    // The `ui.tab_rhythm` option.
+    String,
     // The font of chant lyrics.
     String,
     // The incomplete-bar color, while highlighted.
@@ -2284,6 +2286,7 @@ fn draw_pane_content(
         },
         app.chord_policy().name(),
         app.config.file.ui.bar_numbers == "every",
+        app.config.file.ui.tab_rhythm.clone(),
         app.config.file.ui.chant_text_font.clone(),
         app.config.file.ui.highlight_incomplete_bars.then(|| {
             let c = app.config.theme.incomplete_bar;
@@ -2310,6 +2313,7 @@ fn draw_pane_content(
             chant: true,
             chords: app.chord_policy(),
             every_bar_number: app.config.file.ui.bar_numbers == "every",
+            tab_rhythm: cecilia_core::TabRhythm::parse(&app.config.file.ui.tab_rhythm),
             chant_font: cecilia_engrave::display::TextFamily::parse(
                 &app.config.file.ui.chant_text_font,
             )
@@ -4139,13 +4143,9 @@ fn draw_icon(scene: &mut Scene, icon: cecilia_app::icons::Icon, x: f64, y: f64, 
             };
             letter(scene, s, cx, cy + size * 0.36, size);
         }
-        Icon::Tab | Icon::TabRhythm => {
+        Icon::Tab => {
             for (i, l) in ["T", "A", "B"].into_iter().enumerate() {
                 letter(scene, l, cx - 2.0, y + 6.0 + i as f64 * 5.5, 6.5);
-            }
-            if icon == Icon::TabRhythm {
-                line(scene, (x + 14.0, y + 3.0), (x + 14.0, y + 15.0), 1.2);
-                line(scene, (x + 14.0, y + 15.0), (x + 17.0, y + 12.0), 1.2);
             }
         }
         Icon::Slash => line(scene, (x + 4.0, y + 15.0), (x + 14.0, y + 3.0), 2.4),

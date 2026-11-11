@@ -7,6 +7,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- `ui.tab_rhythm` (`auto` / `on` / `off`, `:set ui.tab_rhythm on`): the rhythm row under a tab. `auto`, the default, shows it only when the track has no standard or slash staff.
+
+- The tuning picker of a fretted track lists the tunings of the other string counts of its instrument too (`7-string Standard`, `5-string Standard`), and takes typed notes for any count (1 to 10), so the number of strings is chosen with the tuning. Tests for 4-, 5- and 7-string tabs: engraving, `j`/`k` over the strings, retuning, and round trips through GP5, GP7, GPX, MusicXML and `.ccc`.
+
+### Changed
+
+- **Breaking:** the staff kinds are `standard`, `tab` and `slash`. `tab+` is gone (use `ui.tab_rhythm`; old `.ccc` files with a `tab+` staff load as `tab`), and `treble`, `bass`, `grand` and `neutral` are no longer staff kinds: `:staff-add standard grand C4` names the clef, `:clef` changes it. A tab alone on a track now shows the rhythm row by default.
+- The Tracks pane no longer shows the track's kind.
+
 ## [0.43.0] - 2026-11-10
 
 ### Changed

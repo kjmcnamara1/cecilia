@@ -3537,7 +3537,7 @@ pub(crate) fn clamp_cursor(score: &Score, c: &mut Cursor) {
 /// Whether the cursor sits on strings on a staff: a tab, or a drum staff's lanes.
 pub(crate) fn uses_strings(track: &Track, staff: Staff) -> bool {
     match staff {
-        Staff::Tab | Staff::TabRhythm => !track.strings.is_empty(),
+        Staff::Tab => !track.strings.is_empty(),
         Staff::Standard(_) => track.kind == TrackKind::Drums,
         Staff::Slash => false,
     }
@@ -3599,7 +3599,7 @@ fn staff_rows(score: &Score, c: &Cursor, track: &Track, index: usize, staff: Sta
             lines(lo, hi).collect()
         }
         // A tab without strings is shown as a treble staff.
-        Staff::Tab | Staff::TabRhythm => {
+        Staff::Tab => {
             let (lo, hi) = range(track.written_clef(Clef::Treble, false), &|_| true);
             lines(lo, hi).collect()
         }
@@ -5282,6 +5282,23 @@ pub(crate) mod tests {
             config.theme.incomplete_bar,
             crate::theme::Rgba::rgb(0x11, 0x22, 0x33)
         );
+    }
+
+    #[test]
+    fn tab_rhythm_option() {
+        let mut app = App::new(Config::default(), None);
+        assert_eq!(app.config.file.ui.tab_rhythm, "auto");
+        for v in ["on", "off", "auto"] {
+            app.run(Command::parse(&format!("set ui.tab_rhythm {v}")).unwrap());
+            assert_eq!(app.config.file.ui.tab_rhythm, v);
+        }
+        app.run(Command::parse("set ui.tab_rhythm sometimes").unwrap());
+        assert_eq!(app.config.file.ui.tab_rhythm, "auto");
+        let (config, errors) = Config::parse("[ui]\ntab_rhythm = \"on\"\n", &[]).unwrap();
+        assert!(errors.is_empty(), "{errors:?}");
+        assert_eq!(config.file.ui.tab_rhythm, "on");
+        let (_, errors) = Config::parse("[ui]\ntab_rhythm = \"odd\"\n", &[]).unwrap();
+        assert!(errors[0].contains("ui.tab_rhythm"), "{errors:?}");
     }
 
     #[test]
