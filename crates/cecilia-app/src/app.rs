@@ -3210,6 +3210,7 @@ impl App {
         let lost = cecilia_formats::voices_lost(score, &ext);
         let rows_lost = cecilia_formats::lyric_rows_lost(score, &ext);
         let audio_lost = cecilia_formats::audio_lost(score, &ext);
+        let ts_lost = cecilia_formats::time_signatures_lost(score, &ext);
         let native = native_extension(score);
         match cecilia_formats::write_file(score, &target) {
             Ok(()) => {
@@ -3232,6 +3233,13 @@ impl App {
                     note.push_str(&format!(
                         " (warning: {rows_lost} verse row{} beyond the five lyric lines .{ext} stores left out)",
                         if rows_lost == 1 { "" } else { "s" }
+                    ));
+                }
+                if ts_lost > 0 {
+                    note.push_str(&format!(
+                        " (warning: {ts_lost} time signature{} .{ext} cannot store written with the \
+                         denominator rounded down to a power of two)",
+                        if ts_lost == 1 { "" } else { "s" }
                     ));
                 }
                 if audio_lost {
@@ -4333,6 +4341,25 @@ pub(crate) mod tests {
         assert_eq!(app.last_notification().unwrap().text, "no changes to write");
         app.run(Command::Write(Some(dir.join("out.unknown"))));
         assert!(app.last_notification().unwrap().error);
+        std::fs::remove_dir_all(&dir).unwrap();
+    }
+
+    #[test]
+    fn writing_midi_warns_about_a_time_signature_it_cannot_store() {
+        let dir = std::env::temp_dir().join(format!("cecilia-ts-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let mut app = test_app();
+        app.buffers[0].score.master_bars[0].time_signature = cecilia_core::TimeSignature {
+            numerator: 5,
+            denominator: 12,
+        };
+        app.run(Command::Write(Some(dir.join("odd.mid"))));
+        let note = app.last_notification().unwrap();
+        assert!(
+            !note.error && note.text.contains("time signature"),
+            "{}",
+            note.text
+        );
         std::fs::remove_dir_all(&dir).unwrap();
     }
 

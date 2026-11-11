@@ -36,7 +36,6 @@ Left open by the pre-release code review; the rest was fixed (see `CHANGELOG.md`
       sessions (`swap.rs`); two instances editing the same path share one swap file name.
 - [ ] Audio callback (`cecilia-audio/src/player.rs`): dropped clips and sequences go to a reaper
       thread over `std::sync::mpsc`, which can still allocate; use a lock-free queue.
-- [ ] MIDI writer: a time signature whose denominator is not a power of two is floored to a power of two; MIDI cannot store it.
 - [ ] Regression tests for Guitar Pro 3/4 grace notes (field order was fixed from corpus
       evidence, not a spec) and for the saturating lyric-start and channel arithmetic in `gp.rs`
       (needs a crafted GP binary).

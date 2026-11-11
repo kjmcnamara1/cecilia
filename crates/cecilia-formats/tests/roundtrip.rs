@@ -799,6 +799,25 @@ fn gp5_writes_the_lyrics_text_back_in_guitar_pro_syntax() {
 }
 
 #[test]
+fn midi_time_signatures_it_cannot_store_are_counted() {
+    use cecilia_core::TimeSignature;
+    let mut score = four_voices();
+    assert_eq!(cecilia_formats::time_signatures_lost(&score, "mid"), 0);
+    score.master_bars[0].time_signature = TimeSignature {
+        numerator: 6,
+        denominator: 8,
+    };
+    assert_eq!(cecilia_formats::time_signatures_lost(&score, "mid"), 0);
+    score.master_bars[0].time_signature = TimeSignature {
+        numerator: 5,
+        denominator: 12,
+    };
+    assert_eq!(cecilia_formats::time_signatures_lost(&score, "mid"), 1);
+    assert_eq!(cecilia_formats::time_signatures_lost(&score, "midi"), 1);
+    assert_eq!(cecilia_formats::time_signatures_lost(&score, "gp5"), 0);
+}
+
+#[test]
 fn legacy_cc_is_read_but_not_written() {
     let score = four_voices();
     let Err(cecilia_formats::Error::Unsupported(msg)) = cecilia_formats::write_bytes(&score, "cc")
@@ -807,8 +826,7 @@ fn legacy_cc_is_read_but_not_written() {
     };
     assert!(msg.contains(".ccc"), "{msg}");
     let bytes = cecilia_formats::write_bytes(&score, "ccc").unwrap();
-    let back =
-        cecilia_formats::read_bytes(&bytes, Some(std::path::Path::new("old.cc"))).unwrap();
+    let back = cecilia_formats::read_bytes(&bytes, Some(std::path::Path::new("old.cc"))).unwrap();
     assert_eq!(voice_shape(&back), voice_shape(&score));
 }
 

@@ -13,6 +13,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- Writing a `.mid` warns when a time signature has a denominator that is not a power of two (MIDI cannot store it; it is written rounded down).
 - Writing the legacy `.cc` format is refused (`:w x.cc`, `cecilia convert`): it still opens; save as `.ccc` or `.ccm`.
 
 ### Security

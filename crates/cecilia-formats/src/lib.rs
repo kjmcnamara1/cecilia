@@ -196,6 +196,24 @@ pub fn voices_lost(score: &Score, extension: &str) -> usize {
         .count()
 }
 
+/// Time signature changes that a file of this extension cannot store: MIDI keeps the denominator
+/// as a power of two, so another one (`5/12`) is written floored to one. Callers can warn.
+pub fn time_signatures_lost(score: &Score, extension: &str) -> usize {
+    if !matches!(extension.to_ascii_lowercase().as_str(), "mid" | "midi") {
+        return 0;
+    }
+    let mut prev = None;
+    score
+        .master_bars
+        .iter()
+        .filter(|mb| {
+            let changed = prev != Some(mb.time_signature);
+            prev = Some(mb.time_signature);
+            changed && !mb.time_signature.denominator.max(1).is_power_of_two()
+        })
+        .count()
+}
+
 /// Verse rows of lyrics that a file of this extension cannot store: `.gp5` keeps five lyric
 /// lines. Writing drops the extra rows, so callers can warn.
 pub fn lyric_rows_lost(score: &Score, extension: &str) -> usize {

@@ -87,6 +87,7 @@ pub fn write_midi(score: &Score) -> Result<Vec<u8>> {
         let mb = &score.master_bars[pb.bar];
         if prev.is_none_or(|p| p.time_signature != mb.time_signature) {
             let ts = mb.time_signature;
+            // Floored to a power of two; `time_signatures_lost` lets callers warn about it.
             let den = ts.denominator.max(1).ilog2() as u8;
             conductor.push((pb.start, 2, meta(0x58, &[ts.numerator, den, 24, 8])));
         }
