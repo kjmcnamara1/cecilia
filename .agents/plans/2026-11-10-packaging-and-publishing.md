@@ -107,3 +107,4 @@ Shared: a script/Makefile target `packaging/linux/stage.sh DESTDIR PREFIX` that 
 - [ ] Phase 6 — macOS: build, tarball/.app/.dmg
 
 Notes / blockers: none yet. Open questions are under "Decisions to settle with the user".
+- [~] Phase 6 — macOS, partly tested (2026-11-11, Intel macOS VM, built from source): the TUI renders in Terminal.app (wrong colors: no 24-bit support, now fixed with a 256-color fallback, confirmed correct in iTerm2 by the author) and iTerm2; Nerd Font icons show as boxes without a Nerd Font (`:set tabline.icons unicode`). Ghostty could not start and playback failed (CoreAudio unknown error): the VM has no Metal and no sound device. Not verified: GUI, screenshot, audio, tuner, Apple Silicon. Not done: `.app` bundle / `.dmg`, `NSMicrophoneUsageDescription`, quarantine docs, Homebrew tap.

@@ -2,6 +2,7 @@
 
 mod barline;
 mod chantview;
+mod color;
 mod rhythm;
 mod tabview;
 
@@ -270,6 +271,7 @@ fn event_loop(terminal: &mut DefaultTerminal, app: &mut App) -> Result<()> {
     let mut playback = Playback::default();
     let mut ui = Ui::default();
     let mut last_config_check = Instant::now();
+    let indexed_colors = color::needs_256();
     while !app.quit {
         playback.sync(app);
         let play_loc = playback.location(app);
@@ -283,7 +285,12 @@ fn event_loop(terminal: &mut DefaultTerminal, app: &mut App) -> Result<()> {
         } else {
             None
         };
-        terminal.draw(|f| draw(f, app, play_loc, &mut ui))?;
+        terminal.draw(|f| {
+            draw(f, app, play_loc, &mut ui);
+            if indexed_colors {
+                color::downgrade(f.buffer_mut());
+            }
+        })?;
 
         let timeout = if app.playing || app.has_tool(PaneKind::Tuner) {
             Duration::from_millis(16)

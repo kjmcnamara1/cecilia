@@ -13,6 +13,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - A score's `audio.file` must stay inside the score's folder (no absolute paths, `..` or `:`); saving a `.gp` no longer embeds files from elsewhere. `:audio FILE` follows the same rule.
 
 ### Fixed
+
+- The terminal interface draws in the 256-color palette in Apple's Terminal.app (`TERM_PROGRAM=Apple_Terminal`), which misdraws 24-bit colors; `CECILIA_COLORS=256` or `truecolor` forces either.
 - The minimum supported Rust version is 1.88, not 1.85: ratatui 0.30 and time 0.3 need it, so 1.85 never built. CI now checks it.
 
 - A workspace switch or closing the last view no longer plays the previous file's music or audio from stale caches.
