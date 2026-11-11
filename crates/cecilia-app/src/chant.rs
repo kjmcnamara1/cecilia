@@ -1149,7 +1149,7 @@ impl App {
                 }
                 let Some(clef) = chant::ChantClef::parse(spec.trim()) else {
                     self.error(format!(
-                        "clef: '{spec}' is not a chant clef (c1–c4, f1–f4, cb3)"
+                        "clef: '{spec}' is not a chant clef (c1–c4, f1–f4, with b for a flat: cb3)"
                     ));
                     return true;
                 };

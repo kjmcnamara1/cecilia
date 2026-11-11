@@ -267,7 +267,7 @@ Commands marked _(chant)_ only work on a chant score. See [CHANT.md](CHANT.md).
 | `chant-mora`, `chant-episema`, `chant-ictus` | Mora, horizontal episema, ictus. |
 | `chant-markup i\|b\|ul\|sc\|c\|tt\|e\|alt` | Toggle `<tag>` markup around the syllable text. |
 | `chant-symbol SYMBOL` | Add `*`, `+`, `†`, `℣`, `℟`, `Ⱥ` to the syllable text. |
-| `chant-clef c1-c4\|cb3\|f1-f4` | Initial clef of the track. |
+| `chant-clef c1-c4\|cb1-cb4\|f1-f4\|fb1-fb4` | Initial clef of the track (`b`: flat clef). |
 | `chant-to-modern` | Turn the chant track into an ordinary staff track. |
 | `lyrics-delete` | Delete the text of the syllable(s); the notes stay. |
 | `lyrics-shift N` | Move the notes N syllables on (back when negative), the text staying. |

@@ -369,10 +369,9 @@ const SCORE_EXTENSIONS: &[&str] = &[
     "gp3", "gp4", "gp5", "gpx", "gp", "mid", "midi", "musicxml", "xml", "mxl", "gabc", "ccc",
     "ccm", "cc",
 ];
-/// Extensions `:w` writes (scores, engravings, audio).
+/// Extensions `:w` writes (scores).
 const WRITE_EXTENSIONS: &[&str] = &[
-    "gp5", "gpx", "gp", "mid", "musicxml", "mxl", "gabc", "ccc", "ccm", "pdf", "svg", "png", "wav",
-    "flac",
+    "gp5", "gpx", "gp", "mid", "musicxml", "mxl", "gabc", "ccc", "ccm",
 ];
 
 /// Fixed argument values per command.
@@ -427,7 +426,7 @@ fn values(command: &str) -> Option<&'static [&'static str]> {
         "chant-division" => &[
             ",", ";", ":", "::", ",?", ";1", ";2", ";3", ";4", ";5", ";6", "`", "``",
         ],
-        "chant-clef" => &["c1", "c2", "c3", "c4", "cb3", "f1", "f2", "f3", "f4"],
+        "chant-clef" => CHANT_CLEFS,
         "chant-shape" => &[
             "punctum",
             "inclinatum",
@@ -646,7 +645,8 @@ fn completions(start: usize, ranked: Vec<(String, Vec<usize>)>, commands: bool) 
 
 /// The clefs `:clef` takes on a chant score.
 const CHANT_CLEFS: &[&str] = &[
-    "c1", "c2", "c3", "c4", "cb2", "cb3", "cb4", "f1", "f2", "f3", "f4",
+    "c1", "c2", "c3", "c4", "cb1", "cb2", "cb3", "cb4", "f1", "f2", "f3", "f4", "fb1", "fb2",
+    "fb3", "fb4",
 ];
 
 /// Candidates for the word being typed at the end of `line`. `score_dir` is the folder of the
@@ -866,6 +866,36 @@ mod tests {
         ignore_case: true,
         fuzzy: true,
     };
+
+    #[test]
+    fn write_completion_offers_only_writable_extensions() {
+        let dir = std::env::temp_dir().join(format!("cecilia-wc-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        for f in ["x.gp5", "x.pdf", "x.svg", "x.png", "x.wav", "x.flac"] {
+            std::fs::write(dir.join(f), "").unwrap();
+        }
+        let c = complete(":w x", &dir, None, PREFIX);
+        std::fs::remove_dir_all(&dir).ok();
+        assert_eq!(c.items, ["x.gp5"]);
+    }
+
+    #[test]
+    fn chant_clef_completion_matches_the_parser() {
+        let dir = std::env::temp_dir();
+        for command in ["chant-clef", "clef"] {
+            let items = if command == "clef" {
+                CHANT_CLEFS.iter().map(|s| s.to_string()).collect()
+            } else {
+                complete(&format!(":{command} "), &dir, None, PREFIX).items
+            };
+            for want in ["c1", "cb1", "cb4", "f4", "fb1", "fb4"] {
+                assert!(items.iter().any(|i| i == want), "{command} lacks {want}");
+            }
+            for i in &items {
+                assert!(cecilia_core::chant::ChantClef::parse(i).is_some(), "{i}");
+            }
+        }
+    }
 
     #[test]
     fn fuzzy_matching_ranks_and_marks_characters() {
@@ -1489,7 +1519,7 @@ pub fn describe(command: &str) -> Option<&'static str> {
         "chant-syllable" => "Chant: a new syllable after the cursor syllable",
         "chant-shape" => "Give the cursor chant note a head (punctum, virga, quilisma, oriscus …)",
         "chant-division" => "Toggle a division after the cursor syllable (, ; : :: and variants)",
-        "chant-clef" => "Set the chant's first clef (c1–c4, f1–f4, cb3)",
+        "chant-clef" => "Set the chant's first clef (c1–c4, f1–f4, with b for a flat)",
         "chant-mora" => "Toggle the mora (lengthening dot) of the cursor chant note",
         "chant-episema" => "Toggle the horizontal episema of the cursor chant note",
         "chant-ictus" => "Toggle the ictus of the cursor chant note",

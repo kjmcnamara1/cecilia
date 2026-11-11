@@ -496,9 +496,9 @@ pub enum Command {
     /// Chant rhythm: "equalist" or "solesmes" (None shows it).
     Interpretation(Option<String>),
     /// Clef of the cursor's staff, by its notation: `treble`, `bass`, `grand [split]` or `neutral`
-    /// (standard); a chant track takes `c1`–`c4`, `cb3` or `f1`–`f4`.
+    /// (standard); a chant track takes `c1`–`c4`, `f1`–`f4` or those with a `b` (`cb3`, `fb2`).
     Clef(String),
-    /// Initial clef of a chant track (`c4`, `cb3`, `f3`); notes keep their staff positions.
+    /// Initial clef of a chant track (`c4`, `cb3`, `f3`; line 1–4, optional flat `b`); notes keep their staff positions.
     ChantClef(String),
     /// Attach lyrics to the cursor's staff: `above` or `below`, optionally `TRACK`; `none`
     /// detaches them.
@@ -1042,7 +1042,7 @@ impl Command {
                     .to_string(),
             ),
             "chant-clef" => ChantClef(
-                arg.ok_or("chant-clef: expected c1–c4, cb3 or f1–f4")?
+                arg.ok_or("chant-clef: expected c1–c4, f1–f4 (cb3: with a flat)")?
                     .to_string(),
             ),
             "score-kind" => ScoreKind,

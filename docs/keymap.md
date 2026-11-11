@@ -943,7 +943,7 @@ chant keys, and which modern-track keys answer "not in chant").
 | `:clef c3`                                   | change the chant clef (`c1`–`c4`, `f1`–`f4`, `cb3` for a flat clef); notes keep their staff positions |
 | `:chant-shape NAME`                          | the cursor note's head: `punctum`, `inclinatum`, `virga`, `virga-reversa`, `bivirga`, `trivirga`, `stropha`, `bistropha`, `tristropha`, `quilisma`, `oriscus`, `oriscus-stem`, `quadratum` (again takes it off) |
 | `:chant-division TOKEN`                      | a division after the cursor syllable: `,` `;` `:` `::`, `;1`…`;6` (the same again takes it off, another replaces it) |
-| `:chant-clef NAME`                           | the chant's first clef (`:clef` does the same)                                                        |
+| `:chant-clef NAME`                           | the chant's first clef: `c1`–`c4`, `f1`–`f4`, `cb1`–`cb4`, `fb1`–`fb4` (`:clef` does the same) |
 | `:chant-mora` `:chant-episema` `:chant-ictus` | toggle the mora, the horizontal episema or the ictus of the cursor note                              |
 | `:chant-alter flat\|natural`                 | the flat or natural before the cursor note                                                            |
 | `:chant-liquescence deminutus\|ascendens\|descendens` | toggle a liquescence of the cursor note                                                     |

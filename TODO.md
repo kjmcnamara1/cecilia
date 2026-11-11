@@ -42,17 +42,11 @@ Left open by the pre-release code review; the rest was fixed (see `CHANGELOG.md`
 - [ ] Regression tests for Guitar Pro 3/4 grace notes (field order was fixed from corpus
       evidence, not a spec) and for the saturating lyric-start and channel arithmetic in `gp.rs`
       (needs a crafted GP binary).
-- [ ] `chant-clef` accepts `cb`/`fb` on any line 1–4; the docs list only `cb3`.
 - [ ] Not tested on real Windows or macOS: AltGr handling (`cecilia-gui/src/keys.rs`),
       `%WINDIR%` fonts, macOS SoundFont paths, the macOS bundle's microphone permission
       (`NSMicrophoneUsageDescription`, needed for the tuner).
 - [ ] `docs/SPEC.md` §4.1/§4.2 still say "parity" and "As built" for features nobody re-checked;
       lines 306–345 (bufferline, notification history) were not traced through the GUI code.
-- [ ] `docs/config.example.toml` has no `[keymap.visual]` or `insert-tab`/`insert-slash`/
-      `insert-chant` sections; the TODO "Tracks" list below calls `c` "change instrument" but `c`
-      is track colour and `i` is instrument.
-- [ ] `write` completion offers `pdf`, `svg`, `png`, `wav`, `flac` (`complete.rs` `WRITE_EXTENSIONS`)
-      though `:w` cannot write them.
 
 ### Refactor
 
@@ -91,8 +85,7 @@ This is how the # of stafflines is decided for tab notation
 
 - [ ] "d" should delete the track
 - [ ] "o" should add a new track
-- [ ] "r" should rename the track
-- [ ] "c" should change the instrument
+- [ ] "r" should rename the track (today `t`; `c` is the track colour, `i` the instrument)
 - [ ] instrument should be preceeded by its icon
 
 ### Performance
