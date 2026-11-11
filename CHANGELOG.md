@@ -19,6 +19,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - `:w FILE` and `:save-as FILE` refuse to overwrite another existing file (use `:w! FILE`); file and workspace writes are atomic (temp file, then rename); `:workspace-delete` only deletes workspace files; workspace files that fail to open stay in the workspace.
 - Guitar Pro 3/4 grace notes read transition and duration in the right order; the GP5 writer refuses what it cannot store (more than 128 tracks, 10,000 bars or 7 strings) instead of dropping notes.
 - Windows AltGr characters are typed as the character, the GUI reconfigures a lost surface, SoundFont search paths cover macOS, the terminal is restored (mouse capture off) after a panic, and swap files are checked against live processes on Unix.
+- Documentation corrected to match the code. `docs/SPEC.md`: removed or marked **Planned** what is not implemented (Fluent i18n, a `cecilia-sync` crate, linked pane cursors, `[fingering]` config, `undo.bin` and `sync.toml` in the native archive, a bundled SoundFont, an ASCII tab writer, in-editor PDF/WAV export, CI); the config sample, CLI synopsis (`play --speed`, no `--audio`, no `--tuning`, no `txt`), crate and dependency tables, pane kinds and native archive contents now describe what exists; `:w FILE` is save-as; unverifiable validation figures and the real-time-safe audio claim are gone. `README.md`: no ASCII tab output, 15 built-in themes (not six), no claims about other programs' features, no unverified Gregorio check, PDF/SVG/PNG/WAV/FLAC export is `cecilia convert`, chant sync is by tapping, repository URL and "tags only" packaging note, config path is for Linux. `TODO.md`: ticked done items, fixed a typo.
 
 ### Added
 
@@ -26,10 +27,6 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - GUI: a window close "x" at the far right of the toolbar, styled like a buffer tab's close button (runs `:quit`).
 - `docs/COMMANDS.md`: reference of every command, with aliases, arguments and scope. A test in `complete.rs` fails when it drifts from the parser.
 - `docs/OPTIONS.md`: the option types, how to set and get options (config file, `-o`, `:set` / `:get`), and a table of every option with its type, default, description and an example.
-
-### Fixed
-
-- Documentation corrected to match the code. `docs/SPEC.md`: removed or marked **Planned** what is not implemented (Fluent i18n, a `cecilia-sync` crate, linked pane cursors, `[fingering]` config, `undo.bin` and `sync.toml` in the native archive, a bundled SoundFont, an ASCII tab writer, in-editor PDF/WAV export, CI); the config sample, CLI synopsis (`play --speed`, no `--audio`, no `--tuning`, no `txt`), crate and dependency tables, pane kinds and native archive contents now describe what exists; `:w FILE` is save-as; unverifiable validation figures and the real-time-safe audio claim are gone. `README.md`: no ASCII tab output, 15 built-in themes (not six), no claims about other programs' features, no unverified Gregorio check, PDF/SVG/PNG/WAV/FLAC export is `cecilia convert`, chant sync is by tapping, repository URL and "tags only" packaging note, config path is for Linux. `TODO.md`: ticked done items, fixed a typo.
 
 ### Changed
 
