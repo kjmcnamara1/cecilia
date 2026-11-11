@@ -10,6 +10,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Changed
 
 - The buffer, view, workspace and recent file pickers no longer list the current buffer, view, workspace or file (the "(shown)", "(current)" and "(active)" marks go with them).
+- The track properties "Instrument" field moved from the Sound section to just below "Name" in the Info section.
 
 ### Added
 

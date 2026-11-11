@@ -923,6 +923,14 @@ impl App {
                 rows.push(note(&format!("Track {} of {n}", cursor.track + 1)));
                 if section(&mut rows, Section::TrackInfo) {
                     field(&mut rows, Field::TrackName, "Name", t.name.clone(), true);
+                    field(
+                        &mut rows,
+                        Field::Program,
+                        "Instrument",
+                        crate::tracks::instrument_name(t),
+                        true,
+                    );
+                    rows.last_mut().unwrap().icon = Some(crate::icons::Icon::of_track(t));
                     if !chant_track {
                         field(
                             &mut rows,
@@ -1007,14 +1015,6 @@ impl App {
                     }
                 }
                 if section(&mut rows, Section::TrackSound) {
-                    field(
-                        &mut rows,
-                        Field::Program,
-                        "Instrument",
-                        crate::tracks::instrument_name(t),
-                        true,
-                    );
-                    rows.last_mut().unwrap().icon = Some(crate::icons::Icon::of_track(t));
                     if !chant_track {
                         field(
                             &mut rows,
