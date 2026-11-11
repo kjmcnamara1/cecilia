@@ -23,3 +23,33 @@ cecilia-gui.workspace = true
 anyhow.workspace = true
 clap.workspace = true
 serde_json.workspace = true
+
+# Distribution packages. CI stages the files with `packaging/linux/stage.sh target/stage /usr
+# target/release/cecilia`, then runs `cargo deb --no-build` and `cargo generate-rpm`; both
+# package that staged tree so they match the PKGBUILDs.
+[package.metadata.deb]
+maintainer = "Kevin McNamara <kjmcnamara1@users.noreply.github.com>"
+section = "sound"
+priority = "optional"
+copyright = "2026, The cecilia contributors"
+depends = "$auto, libasound2"
+recommends = "libvulkan1, libxkbcommon0"
+extended-description = "A keyboard-first editor and player for guitar tablature, standard notation and Gregorian chant. Reads and writes Guitar Pro, MusicXML, MIDI and GABC, and plays along with audio."
+assets = [
+    ["../../target/stage/usr/bin/cecilia", "usr/bin/", "755"],
+    ["../../target/stage/usr/share/**/*", "usr/share/", "644"],
+]
+
+[package.metadata.generate-rpm]
+assets = [
+    { source = "../../target/stage/usr/bin/cecilia", dest = "/usr/bin/cecilia", mode = "755" },
+    { source = "../../target/stage/usr/share/applications/cecilia.desktop", dest = "/usr/share/applications/cecilia.desktop", mode = "644" },
+    { source = "../../target/stage/usr/share/icons/hicolor/scalable/apps/cecilia.svg", dest = "/usr/share/icons/hicolor/scalable/apps/cecilia.svg", mode = "644" },
+    { source = "../../target/stage/usr/share/mime/packages/cecilia.xml", dest = "/usr/share/mime/packages/cecilia.xml", mode = "644" },
+    { source = "../../target/stage/usr/share/licenses/cecilia/LICENSE-MIT", dest = "/usr/share/licenses/cecilia/LICENSE-MIT", mode = "644" },
+    { source = "../../target/stage/usr/share/licenses/cecilia/LICENSE-APACHE", dest = "/usr/share/licenses/cecilia/LICENSE-APACHE", mode = "644" },
+    { source = "../../target/stage/usr/share/doc/cecilia/README.md", dest = "/usr/share/doc/cecilia/README.md", mode = "644", doc = true },
+    { source = "../../target/stage/usr/share/doc/cecilia/CHANGELOG.md", dest = "/usr/share/doc/cecilia/CHANGELOG.md", mode = "644", doc = true },
+]
+[package.metadata.generate-rpm.requires]
+alsa-lib = "*"

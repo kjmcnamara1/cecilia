@@ -121,8 +121,9 @@ Building needs a C compiler, `pkg-config` and the ALSA development files (the wi
 | Fedora          | `sudo dnf install gcc pkgconf-pkg-config alsa-lib-devel`     |
 | Arch            | `sudo pacman -S base-devel alsa-lib`                         |
 
-Then run the installer, which builds cecilia and adds a desktop entry, icon and file types so
-file managers offer it for Guitar Pro, GABC and cecilia files:
+Then run the installer, which builds cecilia (in a release archive it installs the `cecilia` binary
+next to it instead) and adds a desktop entry, icon, licences and file types so file managers offer it
+for Guitar Pro, GABC and cecilia files:
 
 ```sh
 packaging/linux/install.sh                   # into ~/.local (make sure ~/.local/bin is on PATH)
