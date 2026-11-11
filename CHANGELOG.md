@@ -9,6 +9,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- Mark keys: `'{mark}` now jumps to the mark's exact position and `` ` `` sets a mark (`m` is unbound); the `jump-mark-bar` command is gone. While `'` waits for a letter, the marks in the file are drawn on the score in the playhead color, on the exact position the jump lands on (marks at one position run together, `a'`) or above the staff; `ui.mark_labels` = `"exact"` (default), `"above"` or `"off"`.
 - The buffer, view, workspace and recent file pickers no longer list the current buffer, view, workspace or file (the "(shown)", "(current)" and "(active)" marks go with them).
 
 ### Added

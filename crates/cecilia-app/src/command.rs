@@ -477,12 +477,10 @@ pub enum Command {
     WorkspaceOpen(String, bool),
     /// Delete a workspace (the active one without a name); `!` skips the confirmation.
     WorkspaceDelete(Option<String>, bool),
-    /// Set a mark: await its letter (`m`).
+    /// Set a mark: await its letter (`` ` ``).
     SetMark,
-    /// Jump to a mark: await its letter (`'` to its bar, `` ` `` exactly).
-    JumpMark {
-        exact: bool,
-    },
+    /// Jump to a mark: await its letter (`'`, to its exact position).
+    JumpMark,
     /// Jump to a mark's exact position (`:goto-mark a`).
     GotoMark(char),
     /// Play the macro in a register (`:run-macro a`).
@@ -1148,8 +1146,7 @@ impl Command {
                 arg.and_then(|a| a.chars().next())
                     .ok_or("run-macro: expected a register")?,
             ),
-            "jump-mark" => JumpMark { exact: true },
-            "jump-mark-bar" => JumpMark { exact: false },
+            "jump-mark" => JumpMark,
             "mark" | "k" => Mark(
                 arg.and_then(|a| a.chars().next())
                     .filter(|c| c.is_ascii_alphabetic())

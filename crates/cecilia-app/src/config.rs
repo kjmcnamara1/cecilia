@@ -307,6 +307,9 @@ pub struct UiConfig {
     pub chant_chords: String,
     /// Bar numbers on the score: `"system"` (the first bar of each line) or `"every"` bar.
     pub bar_numbers: String,
+    /// While `'` waits for a mark letter: where the marks are drawn on the score, `"exact"`
+    /// (on the position a jump lands on), `"above"` (over the staff, at that beat) or `"off"`.
+    pub mark_labels: MarkLabels,
     /// Draw the staff lines of bars that don't hold their full count in red.
     pub highlight_incomplete_bars: bool,
     /// Thickness in pixels of the ring around the focused pane in the GUI (0: none; 0 to 8).
@@ -334,6 +337,16 @@ pub struct UiConfig {
     /// Sync mode: how far (milliseconds, 0 to 200) a sync point is moved to reach the strongest
     /// onset of the audio near where it was put; 0 puts it exactly there.
     pub sync_snap: f64,
+}
+
+/// Where the marks show on the score while `'` waits for a letter.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Deserialize, Serialize)]
+#[serde(rename_all = "lowercase")]
+pub enum MarkLabels {
+    #[default]
+    Exact,
+    Above,
+    Off,
 }
 
 /// Which ticks of a waveform ruler are drawn.
@@ -401,6 +414,7 @@ impl Default for UiConfig {
             lyrics_font: "Source Sans 3".into(),
             lyrics_font_size: 12.0,
             chant_text_font: "noto-serif".into(),
+            mark_labels: MarkLabels::Exact,
             waveform_time_ticks: Ticks::All,
             waveform_beat_ticks: Ticks::All,
             waveform_time_labels: true,
@@ -600,9 +614,8 @@ const DEFAULT_NORMAL: &[(&str, &str)] = &[
     ("H", "buffer-prev"),
     ("<leader>x", "buffer-close"),
     ("<leader>b", "pick-buffer"),
-    ("m", "set-mark"),
-    ("'", "jump-mark-bar"),
-    ("`", "jump-mark"),
+    ("'", "jump-mark"),
+    ("`", "set-mark"),
     ("<leader>V", "pick-view"),
     ("<leader>W", "pick-workspace"),
     (":", "command-mode"),

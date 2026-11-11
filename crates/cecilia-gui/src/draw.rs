@@ -2600,42 +2600,7 @@ fn draw_pane_content(
             staff: track.map_or(0, |t| cecilia_app::staff_index(t, c.staff)),
             ..c
         };
-        let chant_layout = track.is_some_and(|t| t.chant.is_some());
-        let square = |cx: f64, y: f64, side: f64| {
-            RoundedRect::new(
-                cx - side / 2.0,
-                y - side / 2.0,
-                cx + side / 2.0,
-                y + side / 2.0,
-                3.0,
-            )
-        };
-        let whole = RoundedRect::new(x - 1.5, pos.top - 1.5, x + w + 1.5, pos.bottom + 1.5, 3.0);
-        let r = if let Some(ys) = pos.strings(c.staff) {
-            match ys.get(c.string) {
-                Some(&y) => {
-                    let gap = match ys {
-                        [a, b, ..] => (b - a).abs(),
-                        _ => 9.0,
-                    };
-                    // Centred where the engraver centres the fret number (0.4 staff spaces in
-                    // from the beat's left, plus half a notehead; a string gap is 1.5 spaces).
-                    square(x + gap * 0.66, y, (gap * 1.5).clamp(10.0, 22.0))
-                }
-                None => whole,
-            }
-        } else if let Some((y, step)) = pos.line_y(c.staff, c.line) {
-            // The square sits on the note head: chant beats are the neume glyph itself, others
-            // start 0.4 spaces before the head.
-            let cx = if chant_layout {
-                x + (pos.head - pos.x)
-            } else {
-                pos.head
-            };
-            square(cx, y, (step * 3.0).clamp(10.0, 22.0))
-        } else {
-            whole
-        };
+        let r = cursor_rect(pos, &c, track, x, w);
         scene.fill(Fill::NonZero, to_screen(pos.page), color, None, &r);
         // An outline in a contrasting color, so the cursor shows in every mode.
         let border = tc(|t| {
@@ -2643,6 +2608,62 @@ fn draw_pane_content(
                 .with_alpha(if focused { 255 } else { 130 })
         });
         scene.stroke(&Stroke::new(1.5), to_screen(pos.page), border, None, &r);
+    }
+    // While `'` waits for a mark letter: each mark's name where its jump lands (on the cursor's
+    // square) or above the staff at that beat, as `ui.mark_labels` says.
+    if focused {
+        let fonts = cecilia_engrave::fonts::fonts();
+        let above = app.config.file.ui.mark_labels == cecilia_app::config::MarkLabels::Above;
+        let placed = app
+            .jump_targets(pane.buffer)
+            .into_iter()
+            .filter_map(|(name, c)| {
+                let r = BeatRef {
+                    track: c.track,
+                    bar: c.bar,
+                    voice: c.voice,
+                    beat: c.beat,
+                };
+                let pos = cached
+                    .layout
+                    .beats
+                    .get(&r)
+                    .or_else(|| beat_fallback(&cached.layout, &r))?;
+                let track = score.tracks.get(c.track);
+                let c = cecilia_app::Cursor {
+                    staff: track.map_or(0, |t| cecilia_app::staff_index(t, c.staff)),
+                    ..c
+                };
+                let (at, y, align) = if above {
+                    (pos.x, pos.top - 3.0, Align::Left)
+                } else {
+                    let sq = cursor_rect(pos, &c, track, pos.x, pos.width).rect();
+                    (
+                        (sq.x0 + sq.x1) / 2.0,
+                        (sq.y0 + sq.y1) / 2.0 + MARK_SIZE * 0.35,
+                        Align::Center,
+                    )
+                };
+                // Marks drawn on one spot (whatever their cursors differ in) share a label.
+                Some((name, (pos.page, (at * 4.0) as i64, (y * 4.0) as i64, align)))
+            });
+        for (name, (page, at, y, align)) in cecilia_app::marks::merge_labels(placed) {
+            let path = fonts.text_path(
+                FontKind::Bold,
+                &name,
+                at as f64 / 4.0,
+                y as f64 / 4.0,
+                MARK_SIZE,
+                align,
+            );
+            scene.fill(
+                Fill::NonZero,
+                to_screen(page),
+                tc(|t| t.playhead),
+                None,
+                &path,
+            );
+        }
     }
     // Design mode: handles at the bar lines, the line ends and the cursor bar's beats.
     if page_mode && focused && app.design_active() {
@@ -3527,6 +3548,58 @@ fn follow_scroll(scroll: (f64, f64), view: (f64, f64), x: (f64, f64), y: (f64, f
         axis(scroll.0, view.0, x, 0.3),
         axis(scroll.1, view.1, y, 0.25),
     )
+}
+
+/// The rounded square the cursor `c` occupies in the beat `pos` (drawn `x` from the left, `w`
+/// wide): on its string or staff position, or the whole beat where it has none. `c.staff` is
+/// already an index into the layout's staves.
+/// The size of a mark's label on the score.
+const MARK_SIZE: f64 = 16.0;
+
+fn cursor_rect(
+    pos: &cecilia_engrave::BeatPos,
+    c: &cecilia_app::Cursor,
+    track: Option<&cecilia_core::Track>,
+    x: f64,
+    w: f64,
+) -> RoundedRect {
+    // Chant positions only match the square-notation layout (a chant track in square notation).
+    let chant_layout = track.is_some_and(|t| t.chant.is_some());
+    let square = |cx: f64, y: f64, side: f64| {
+        RoundedRect::new(
+            cx - side / 2.0,
+            y - side / 2.0,
+            cx + side / 2.0,
+            y + side / 2.0,
+            3.0,
+        )
+    };
+    let whole = RoundedRect::new(x - 1.5, pos.top - 1.5, x + w + 1.5, pos.bottom + 1.5, 3.0);
+    if let Some(ys) = pos.strings(c.staff) {
+        match ys.get(c.string) {
+            Some(&y) => {
+                let gap = match ys {
+                    [a, b, ..] => (b - a).abs(),
+                    _ => 9.0,
+                };
+                // Centred where the engraver centres the fret number (0.4 staff spaces in from
+                // the beat's left, plus half a notehead; a string gap is 1.5 spaces).
+                square(x + gap * 0.66, y, (gap * 1.5).clamp(10.0, 22.0))
+            }
+            None => whole,
+        }
+    } else if let Some((y, step)) = pos.line_y(c.staff, c.line) {
+        // The square sits on the note head: chant beats are the neume glyph itself, others
+        // start 0.4 spaces before the head.
+        let cx = if chant_layout {
+            x + (pos.head - pos.x)
+        } else {
+            pos.head
+        };
+        square(cx, y, (step * 3.0).clamp(10.0, 22.0))
+    } else {
+        whole
+    }
 }
 
 fn beat_fallback<'a>(layout: &'a Layout, r: &BeatRef) -> Option<&'a cecilia_engrave::BeatPos> {
