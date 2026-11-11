@@ -199,6 +199,8 @@ pub struct Views {
     status: Vec<(Rect, cecilia_app::Command)>,
     /// The toolbar's buttons drawn last frame (area, index into `App::toolbar_items`).
     toolbar: Vec<(Rect, usize)>,
+    /// The toolbar's window close button drawn last frame.
+    window_close: Option<Rect>,
     /// The button under the mouse and since when (its tooltip shows after a moment).
     toolbar_hover: Option<(usize, std::time::Instant)>,
     /// The editing palette's button under the mouse and since when (its name shows after a
@@ -1130,6 +1132,7 @@ pub fn build(
     });
     // The toolbar at the very top, the tabline under it (drawn at the origin, then moved).
     views.toolbar.clear();
+    views.window_close = None;
     if app.toolbar {
         draw_toolbar(scene, app, views, width);
     }
@@ -1592,7 +1595,7 @@ fn draw_toolbar(scene: &mut Scene, app: &App, views: &mut Views, width: f64) {
         };
         let r = Rect::new(x, y0 + 4.0, x + 30.0, y0 + TOOLBAR - 4.0);
         x += 32.0;
-        if r.x1 > width - 4.0 {
+        if r.x1 > width - 4.0 - 32.0 {
             break;
         }
         let over = r.contains((hx, hy));
@@ -1624,6 +1627,32 @@ fn draw_toolbar(scene: &mut Scene, app: &App, views: &mut Views, width: f64) {
         }
         views.toolbar.push((r, i));
     }
+    // The window close button, all the way right, styled as a buffer tab's close button.
+    let close = Rect::new(width - 28.0, y0 + 4.0, width - 4.0, y0 + TOOLBAR - 4.0);
+    let c = close.center();
+    if close.contains((hx, hy)) {
+        let disc = tc(|t| t.error.with_alpha(120));
+        scene.fill(
+            Fill::NonZero,
+            Affine::IDENTITY,
+            disc,
+            None,
+            &Circle::new(c, 8.0),
+        );
+    }
+    let mut cross = BezPath::new();
+    cross.move_to((c.x - 3.5, c.y - 3.5));
+    cross.line_to((c.x + 3.5, c.y + 3.5));
+    cross.move_to((c.x + 3.5, c.y - 3.5));
+    cross.line_to((c.x - 3.5, c.y + 3.5));
+    scene.stroke(
+        &Stroke::new(1.6),
+        Affine::IDENTITY,
+        chrome_text(),
+        None,
+        &cross,
+    );
+    views.window_close = Some(close);
     // The tooltip of the button the mouse rests on, after a moment.
     match (hovered, views.toolbar_hover) {
         (Some(i), Some((j, _))) if i == j => {}
@@ -7179,6 +7208,10 @@ impl Views {
         }
         if let Some(&(_, i)) = self.toolbar.iter().find(|(r, _)| r.contains((x, y))) {
             app.run_toolbar(i);
+            return;
+        }
+        if self.window_close.is_some_and(|r| r.contains((x, y))) {
+            app.run(cecilia_app::Command::Quit { force: false });
             return;
         }
         if let Some((_, cmd)) = self.status.iter().find(|(r, _)| r.contains((x, y))) {
