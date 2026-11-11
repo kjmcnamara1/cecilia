@@ -162,12 +162,11 @@ fn parse_color_query(q: &str) -> Option<Rgba> {
     }
 }
 
-/// The notation of a staff as the properties pane shows it: `standard`, `tab`, `tab+` …
+/// The notation of a staff as the properties pane shows it: `standard`, `tab` …
 pub(crate) fn notation_label(staff: cecilia_core::Staff) -> &'static str {
     match staff {
         cecilia_core::Staff::Standard(_) => "standard",
         cecilia_core::Staff::Tab => "tab",
-        cecilia_core::Staff::TabRhythm => "tab+",
         cecilia_core::Staff::Slash => "slash",
     }
 }
@@ -223,7 +222,36 @@ fn tuning_family(strings: &[u8]) -> Family {
     }
 }
 
-/// Common tunings of a family: name, description and the open strings (highest first).
+/// Every tuning of a track's family, whatever its string count (a tuning is how the count
+/// changes): those of the current count first under their plain names, then the others as
+/// "7-string Standard". Name, description and the open strings (highest first).
+fn family_tunings(strings: &[u8]) -> Vec<(String, &'static str, Vec<u8>)> {
+    let family = tuning_family(strings);
+    let counts: &[usize] = match family {
+        Family::Guitar => &[6, 7, 8],
+        Family::Bass => &[4, 5, 6],
+        Family::Ukulele => &[4],
+        Family::Other => &[],
+    };
+    let here = strings.len();
+    let others = counts.iter().copied().filter(|&n| n != here);
+    std::iter::once(here)
+        .chain(others)
+        .flat_map(|n| {
+            tunings(family, n).into_iter().map(move |(name, about, s)| {
+                let name = if n == here {
+                    name.to_string()
+                } else {
+                    format!("{n}-string {name}")
+                };
+                (name, about, s)
+            })
+        })
+        .collect()
+}
+
+/// Common tunings of a family with `strings` strings: name, description and the open strings
+/// (highest first).
 fn tunings(family: Family, strings: usize) -> Vec<(&'static str, &'static str, Vec<u8>)> {
     let t = |n, d, p: &[u8]| (n, d, p.to_vec());
     match (family, strings) {
@@ -730,8 +758,7 @@ impl App {
                 let Some(track) = self.buffer().score.tracks.get(t) else {
                     return Vec::new();
                 };
-                let family = tuning_family(&track.strings);
-                tunings(family, track.strings.len())
+                family_tunings(&track.strings)
                     .into_iter()
                     .map(|(name, about, strings)| {
                         // The notes are listed apart: leave them out of the text.
@@ -741,7 +768,7 @@ impl App {
                             .map_or(about, |(_, rest)| rest);
                         let here = strings == track.strings;
                         Entry {
-                            label: name.into(),
+                            label: name,
                             description: format!(
                                 "{}  {about}{}",
                                 tuning_notes(&strings),
@@ -769,7 +796,6 @@ impl App {
                 let kinds = [
                     ("standard", "Standard notation"),
                     ("tab", "Tablature"),
-                    ("tab+", "Tablature with rhythm"),
                     ("slash", "Rhythm slashes"),
                 ];
                 let mut out: Vec<Entry> = kinds
@@ -1184,14 +1210,14 @@ impl App {
                 })
             }
             PickerKind::Tuning(t) => {
-                let track = self.buffer().score.tracks.get(t)?;
+                self.buffer().score.tracks.get(t)?;
                 let notes: Vec<&str> = p.query.split_whitespace().collect();
                 let named = notes
                     .iter()
                     .all(|n| n.starts_with(|c: char| c.is_ascii_alphabetic()));
                 let pitches: Option<Vec<u8>> =
                     notes.iter().map(|n| cecilia_core::parse_pitch(n)).collect();
-                let pitches = pitches.filter(|p| named && p.len() == track.strings.len())?;
+                let pitches = pitches.filter(|p| named && (1..=10).contains(&p.len()))?;
                 let strings: Vec<u8> = pitches.into_iter().rev().collect();
                 Some(Entry {
                     label: "Custom".into(),
@@ -1337,6 +1363,50 @@ mod tests {
         for k in parse_keys(s, &[Key::char(' ')]).unwrap() {
             app.handle_key(k);
         }
+    }
+
+    #[test]
+    fn the_tuning_picker_offers_every_string_count_of_the_family() {
+        let mut app = App::new(Config::default(), None);
+        app.run(Command::New);
+        let entries = app.picker_entries(PickerKind::Tuning(0));
+        // This count first, under plain names; the others after, named by their count.
+        assert_eq!(entries[0].label, "Standard");
+        assert!(entries[0].current);
+        let labels: Vec<&str> = entries.iter().map(|e| e.label.as_str()).collect();
+        let seven = labels
+            .iter()
+            .position(|l| *l == "7-string Standard")
+            .unwrap();
+        let six = labels.iter().rposition(|l| !l.contains("-string")).unwrap();
+        assert!(six < seven, "{labels:?}");
+        // Picking one changes the string count and keeps the notes' pitches.
+        let pitches = |a: &App| {
+            let t = &a.buffer().score.tracks[0];
+            t.bars
+                .iter()
+                .flat_map(|b| &b.voices)
+                .flat_map(|v| &v.beats)
+                .flat_map(|b| &b.notes)
+                .map(|n| t.pitch_of(n))
+                .collect::<Vec<_>>()
+        };
+        keys(&mut app, "i3<Space>l5<Esc>");
+        let before = pitches(&app);
+        assert!(!before.is_empty());
+        app.run(entries[seven].action.clone());
+        assert_eq!(app.buffer().score.tracks[0].strings.len(), 7);
+        assert_eq!(pitches(&app), before);
+        // A 4-string bass reaches the 5-string ones, and back.
+        app.run(Command::TrackAdd("bass".into()));
+        let bass = app.buffer().score.tracks.len() - 1;
+        let entries = app.picker_entries(PickerKind::Tuning(bass));
+        let five = entries
+            .iter()
+            .find(|e| e.label == "5-string Standard")
+            .unwrap();
+        app.run(five.action.clone());
+        assert_eq!(app.buffer().score.tracks[bass].strings.len(), 5);
     }
 
     #[test]

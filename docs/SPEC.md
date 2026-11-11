@@ -71,7 +71,7 @@ Score
 │  ├─ name, instrument kind (Fretted | Drums | Pitched | Chant), MIDI program/channel/bank,
 │  │  volume/pan, color, mute/solo
 │  ├─ fretted: strings (tuning, MIDI pitch per string), fret count, capo
-│  ├─ staves: which views are shown (tab, tab+, standard, slash)
+│  ├─ staves: which views are shown (tab, standard, slash)
 │  ├─ lyrics_text: the track's lyrics as text (see 4.3), source of the beats' syllables
 │  └─ bars[] (one per master bar; repeat sign `simile`) → voices[] (≥4) → beats[]
 │        beat: duration (value, dots, tuplet), rest/empty, text, chord diagram ref,
@@ -149,7 +149,7 @@ bars (durations, tuplets, rests, ties, effects, bar insert / delete, paste, note
 report "not in chant" on a chant track, and the central edit path refuses any edit that changes
 the bars of a chant track without changing its chant.
 
-**Chant scores.** A score is either a *modern score* (staff tracks only: standard, tab, tab+,
+**Chant scores.** A score is either a *modern score* (staff tracks only: standard, tab,
 slash) or a *chant score*: exactly one track, with `chant` set (`Score::is_chant()`, the one test
 the app uses). A `.gabc` file reads as a chant score; a chant file cannot hold other tracks, and
 `:track-add` refuses on a chant score (and refuses a chant track on a modern one), pointing at the

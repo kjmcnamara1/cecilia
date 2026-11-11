@@ -510,4 +510,42 @@ mod sequence_tests {
             (5, 2)
         );
     }
+
+    #[test]
+    fn retune_between_string_counts() {
+        let beat = |s, f| Beat {
+            notes: vec![Note::new(s, f)],
+            ..Beat::default()
+        };
+        let mut track = Track {
+            strings: vec![64, 59, 55, 50, 45, 40],
+            bars: vec![Bar {
+                voices: vec![Voice {
+                    beats: vec![beat(5, 0), beat(4, 2), beat(0, 3), beat(0, 22)],
+                }],
+                ..Default::default()
+            }],
+            ..Track::default()
+        };
+        let pitches = |t: &Track| -> Vec<u8> {
+            t.bars[0].voices[0]
+                .beats
+                .iter()
+                .map(|b| t.pitch_of(&b.notes[0]))
+                .collect()
+        };
+        let before = pitches(&track);
+        // More strings: nothing moves, and a note on the new low string is possible.
+        let (shifted, dropped) = retune(&mut track, tuning_preset("7-string").unwrap(), 0);
+        assert_eq!((shifted, dropped), (0, 0));
+        assert_eq!((track.strings.len(), pitches(&track)), (7, before.clone()));
+        // Fewer strings: a note above the four strings' range moves down an octave (reported),
+        // and every note is still on a string of the track.
+        let (shifted, dropped) = retune(&mut track, tuning_preset("bass").unwrap(), 0);
+        assert_eq!(track.strings.len(), 4);
+        assert!(shifted > 0 && dropped == 0, "{shifted} {dropped}");
+        for b in &track.bars[0].voices[0].beats {
+            assert!((b.notes[0].string as usize) < 4);
+        }
+    }
 }

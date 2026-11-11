@@ -14,6 +14,7 @@ follow_playback = true   # the cursor and view move with the playhead (red bar) 
 jk_moves_between_staves = false   # true: j/k go on from a staff's last row into the next staff (default: they stay on the staff, with ledger-line rows above and below; <A-j>/<A-k> change staff)
 lyrics_select_cursor = true   # going from a chant score to its lyrics text area puts the caret (Normal mode) on the pitch letter of the note the cursor is on; :lyrics-select (<leader>g) always does
 bar_numbers = "system"   # "system": a bar number at the start of each line; "every": every bar is numbered (GUI)
+tab_rhythm = "auto"   # rhythm row under tab: "auto" (only when the track has no standard or slash staff), "on" or "off" (:set ui.tab_rhythm on)
 highlight_incomplete_bars = false   # draw the staff lines of bars whose beats don't fill the time signature in red (:set ui.highlight_incomplete_bars toggle)
 chant_chords = "top"   # chant is monophonic: which note of a chord `:modern-to-chant` and `cecilia convert … .gabc` keep — "top", "bottom", or "error" (refuse the conversion; a message names the chord)
 hide_cursor_while_following = true   # …and only the red bar shows then (the edit cursor hides)
