@@ -23,6 +23,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- Replaced sequences and clips leave the audio callback through a wait-free queue (`rtrb`) to the reaper thread instead of an `mpsc` channel, which could allocate.
 - `:chant-clef` and `:clef` documentation and completion list every clef the parser accepts (`c1`–`c4`, `cb1`–`cb4`, `f1`–`f4`, `fb1`–`fb4`); `:w` completion no longer offers `pdf`, `svg`, `png`, `wav` or `flac`, which it cannot write.
 - Undoing back to the saved state no longer clears "modified" on a buffer whose file was deleted on disk.
 - The terminal interface draws in the 256-color palette in Apple's Terminal.app (`TERM_PROGRAM=Apple_Terminal`), which misdraws 24-bit colors; `CECILIA_COLORS=256` or `truecolor` forces either.

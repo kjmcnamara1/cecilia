@@ -297,7 +297,9 @@ rewritten.
   (from a Visual-mode selection), count-in, metronome, speed trainer (increase speed each loop).
 - Mixer: per-track volume/mute/solo, audio-track volume and metronome volume, as commands and the
   tracks pane (per-track pan and a master volume are not exposed yet). The audio thread is fed
-  through `std::sync::mpsc` channels; it is not audited to be allocation- or lock-free.
+  through `std::sync::mpsc` channels (a send can allocate; not audited to be allocation- or
+  lock-free). What it replaces (sequences, clips) leaves through a wait-free `rtrb` queue to a
+  reaper thread that frees it.
 - Export: WAV/FLAC rendering of MIDI (and optionally the mixed audio).
 
 ## 8. User interface

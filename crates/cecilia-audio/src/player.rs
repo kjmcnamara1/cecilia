@@ -54,6 +54,9 @@ enum Trash {
     Clip(Arc<AudioClip>),
 }
 
+/// Replaced sequences and clips the reaper can hold at once.
+const REAPER_QUEUE: usize = 64;
+
 enum Command {
     Load(Arc<Sequence>),
     Audio(Option<Arc<AudioClip>>),
@@ -111,7 +114,7 @@ pub struct Renderer {
     count_spare: Vec<f64>,
     clicks: Vec<Click>,
     /// Where replaced sequences and clips go to be freed off the audio thread.
-    trash: Option<Sender<Trash>>,
+    trash: Option<rtrb::Producer<Trash>>,
     left: [f32; BLOCK],
     right: [f32; BLOCK],
     audio_buf: [f32; BLOCK * 2],
@@ -150,31 +153,50 @@ impl Renderer {
 
     pub fn load(&mut self, seq: Arc<Sequence>) {
         let old = std::mem::replace(&mut self.seq, seq);
-        if let Some(t) = &self.trash {
-            let _ = t.send(Trash::Seq(old));
-        }
+        self.discard(Trash::Seq(old));
         self.seek(self.time);
     }
 
     pub fn set_audio(&mut self, clip: Option<Arc<AudioClip>>) {
         let old = std::mem::replace(&mut self.audio, clip);
-        if let (Some(t), Some(old)) = (&self.trash, old) {
-            let _ = t.send(Trash::Clip(old));
+        if let Some(old) = old {
+            self.discard(Trash::Clip(old));
         }
         self.seek(self.time);
     }
 
-    /// Frees replaced sequences and clips on a helper thread instead of the audio thread.
+    /// Frees replaced sequences and clips on a helper thread instead of the audio thread,
+    /// through a wait-free queue (nothing on this path allocates or locks).
     fn with_reaper(mut self) -> Self {
-        let (tx, rx) = channel::<Trash>();
+        let (tx, mut rx) = rtrb::RingBuffer::<Trash>::new(REAPER_QUEUE);
         if std::thread::Builder::new()
             .name("cecilia-reaper".into())
-            .spawn(move || while rx.recv().is_ok() {})
+            .spawn(move || {
+                while !rx.is_abandoned() {
+                    while rx.pop().is_ok() {}
+                    std::thread::sleep(std::time::Duration::from_millis(50));
+                }
+                while rx.pop().is_ok() {}
+            })
             .is_ok()
         {
             self.trash = Some(tx);
         }
         self
+    }
+
+    /// Hands a replaced value to the reaper. Without one (or with its queue full, which needs
+    /// more than [`REAPER_QUEUE`] swaps within a reaper sleep) the value is leaked rather than
+    /// freed here: a leaked clip is better than a glitch.
+    fn discard(&mut self, value: Trash) {
+        match self.trash.as_mut() {
+            Some(queue) => {
+                if let Err(rtrb::PushError::Full(value)) = queue.push(value) {
+                    std::mem::forget(value);
+                }
+            }
+            None => std::mem::drop(value),
+        }
     }
 
     fn end_time(&self) -> f64 {
@@ -740,6 +762,41 @@ mod tests {
             beats: vec![(0.0, true), (0.5, false)],
             ..Sequence::default()
         })
+    }
+
+    #[test]
+    fn replaced_sequences_are_freed_by_the_reaper_thread() {
+        let mut r = Renderer::new(Box::new(PluckSynth::new(48_000)), 48_000).with_reaper();
+        let first = note_seq();
+        let weak = Arc::downgrade(&first);
+        r.load(first);
+        r.load(note_seq());
+        for _ in 0..100 {
+            if weak.upgrade().is_none() {
+                return;
+            }
+            std::thread::sleep(std::time::Duration::from_millis(20));
+        }
+        panic!("the replaced sequence was never freed");
+    }
+
+    #[test]
+    fn a_full_reaper_queue_leaks_instead_of_freeing_on_the_audio_thread() {
+        let mut r = Renderer::new(Box::new(PluckSynth::new(48_000)), 48_000);
+        // A queue of one that nobody drains.
+        let (tx, _rx) = rtrb::RingBuffer::<Trash>::new(1);
+        r.trash = Some(tx);
+        let weaks: Vec<_> = (0..4)
+            .map(|_| {
+                let s = note_seq();
+                let w = Arc::downgrade(&s);
+                r.load(s);
+                w
+            })
+            .collect();
+        // Loads 1..3 replaced the sequences 0..2: the first filled the queue, the others
+        // overflowed. None may have been freed here.
+        assert!(weaks[..3].iter().all(|w| w.upgrade().is_some()));
     }
 
     #[test]
