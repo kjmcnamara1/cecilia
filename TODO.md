@@ -24,6 +24,35 @@ Planned work. Finished items move to `CHANGELOG.md` under `[Unreleased]`.
   - [ ] Chocolatey
 - [ ] MacOS Release
 
+### Code review follow-ups (2026-11-10)
+
+Left open by the pre-release code review; the rest was fixed (see `CHANGELOG.md`).
+
+- [ ] Swap files: offer to recover or clean up `unnamed-<pid>-<idx>.swp` files from crashed
+      sessions (`swap.rs`); two instances editing the same path share one swap file name.
+- [ ] Audio callback (`cecilia-audio/src/player.rs`): dropped clips and sequences go to a reaper
+      thread over `std::sync::mpsc`, which can still allocate; use a lock-free queue.
+- [ ] `write_bytes` (`cecilia-formats/src/lib.rs`) still writes the legacy `.cc` format; make it
+      read-only by default, as AGENTS.md says, and fix what depends on it in `cecilia-app`.
+- [ ] MIDI writer: a time signature whose denominator is not a power of two (6/8 is fine, 3/6 is
+      not) is floored to a power of two; MIDI cannot store it.
+- [ ] Undoing back to the saved state should not clear "modified" on a buffer whose file was
+      deleted on disk.
+- [ ] Regression tests for Guitar Pro 3/4 grace notes (field order was fixed from corpus
+      evidence, not a spec) and for the saturating lyric-start and channel arithmetic in `gp.rs`
+      (needs a crafted GP binary).
+- [ ] `chant-clef` accepts `cb`/`fb` on any line 1–4; the docs list only `cb3`.
+- [ ] Not tested on real Windows or macOS: AltGr handling (`cecilia-gui/src/keys.rs`),
+      `%WINDIR%` fonts, macOS SoundFont paths, the macOS bundle's microphone permission
+      (`NSMicrophoneUsageDescription`, needed for the tuner).
+- [ ] `docs/SPEC.md` §4.1/§4.2 still say "parity" and "As built" for features nobody re-checked;
+      lines 306–345 (bufferline, notification history) were not traced through the GUI code.
+- [ ] `docs/config.example.toml` has no `[keymap.visual]` or `insert-tab`/`insert-slash`/
+      `insert-chant` sections; the TODO "Tracks" list below calls `c` "change instrument" but `c`
+      is track colour and `i` is instrument.
+- [ ] `write` completion offers `pdf`, `svg`, `png`, `wav`, `flac` (`complete.rs` `WRITE_EXTENSIONS`)
+      though `:w` cannot write them.
+
 ### Refactor
 
 #### Commands
@@ -83,7 +112,7 @@ This is how the # of stafflines is decided for tab notation
       to onsets, marked as detected (phase 3c step 8).
 - [ ] Note ids through GABC text editing, properly (phase 4 / plan step 5): the properties pane's
       text edit and `:gabc` already match reparsed notes to the old ones by longest common
-      subsequence on pitch and signs (`Chant::inherit_ids`); phase 4's splice edits should keep
+      subsequence on pitch and signs (`Chant::match_ids`); phase 4's splice edits should keep
       ids exactly, and the match could use the syllable text and shape too.
 
 ### File Save/Export
