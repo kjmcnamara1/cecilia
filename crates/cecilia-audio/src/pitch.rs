@@ -43,14 +43,14 @@ pub fn segments(clip: &AudioClip) -> Vec<Segment> {
     let mut cur: Option<(f32, usize, f64)> = None;
     let mut at = 0;
     let close = |cur: &mut Option<(f32, usize, f64)>, end: f64, out: &mut Vec<Segment>| {
-        if let Some((mean, n, start)) = cur.take() {
-            if n >= MIN_READINGS {
-                out.push(Segment {
-                    start,
-                    end,
-                    midi: mean,
-                });
-            }
+        if let Some((mean, n, start)) = cur.take()
+            && n >= MIN_READINGS
+        {
+            out.push(Segment {
+                start,
+                end,
+                midi: mean,
+            });
         }
     };
     while at + WINDOW <= mono.len() {

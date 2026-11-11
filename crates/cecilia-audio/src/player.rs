@@ -390,13 +390,13 @@ impl Renderer {
                 }
                 self.render_audio(frames);
                 self.time = end;
-                if let Some((a, b)) = self.loop_range {
-                    if self.time >= b {
-                        if let Some(tr) = self.trainer {
-                            self.set_speed((self.speed + tr.step).min(tr.target));
-                        }
-                        self.seek(a);
+                if let Some((a, b)) = self.loop_range
+                    && self.time >= b
+                {
+                    if let Some(tr) = self.trainer {
+                        self.set_speed((self.speed + tr.step).min(tr.target));
                     }
+                    self.seek(a);
                 }
                 if self.time >= self.end_time() {
                     self.time = self.end_time();

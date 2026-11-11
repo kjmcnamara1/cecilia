@@ -2721,21 +2721,21 @@ impl App {
                 self.paused = false;
                 self.paused_at = None;
                 let follow = self.config.file.ui.follow_playback;
-                if let Some((pane_id, cursor)) = self.play_start.take() {
-                    if let Some(p) = self.panes.get_mut(&pane_id) {
-                        // A cursor that followed the playhead goes back with it; one moved
-                        // independently stays where it is.
-                        if follow {
-                            p.cursor = cursor;
-                        }
-                        let tick = cursor_tick(&self.buffers[p.buffer].score, &cursor);
-                        self.effects.push(Effect::Stop {
-                            buffer: p.buffer,
-                            bar: cursor.bar,
-                            tick,
-                        });
-                        return;
+                if let Some((pane_id, cursor)) = self.play_start.take()
+                    && let Some(p) = self.panes.get_mut(&pane_id)
+                {
+                    // A cursor that followed the playhead goes back with it; one moved
+                    // independently stays where it is.
+                    if follow {
+                        p.cursor = cursor;
                     }
+                    let tick = cursor_tick(&self.buffers[p.buffer].score, &cursor);
+                    self.effects.push(Effect::Stop {
+                        buffer: p.buffer,
+                        bar: cursor.bar,
+                        tick,
+                    });
+                    return;
                 }
                 self.effects.push(Effect::Pause);
             }
@@ -3256,10 +3256,10 @@ impl App {
     /// Puts a pane's cursor back in range after a frontend set its fields directly (a click).
     /// On a slash staff this puts it on the staff's one line, wherever the click fell.
     pub fn normalize_cursor(&mut self, pane: PaneId) {
-        if let Some(p) = self.panes.get_mut(&pane) {
-            if let Some(b) = self.buffers.get(p.buffer) {
-                clamp_cursor(&b.score, &mut p.cursor);
-            }
+        if let Some(p) = self.panes.get_mut(&pane)
+            && let Some(b) = self.buffers.get(p.buffer)
+        {
+            clamp_cursor(&b.score, &mut p.cursor);
         }
     }
 
@@ -3279,12 +3279,13 @@ impl App {
         let c = &mut pane.cursor;
         // (In Insert mode the cursor just moves along: its staff line is the pitch of the next
         // note entered.)
-        if !insert && (c.track, c.bar, c.beat) != before {
-            if let Some(chant) = cursor_chant(score, c) {
-                let t = cecilia_core::chant::transcribe(chant);
-                if let Some(note) = t.note_at(c.bar, c.beat).and_then(|n| chant.note(n)) {
-                    c.line = note.pitch as i32;
-                }
+        if !insert
+            && (c.track, c.bar, c.beat) != before
+            && let Some(chant) = cursor_chant(score, c)
+        {
+            let t = cecilia_core::chant::transcribe(chant);
+            if let Some(note) = t.note_at(c.bar, c.beat).and_then(|n| chant.note(n)) {
+                c.line = note.pitch as i32;
             }
         }
     }
@@ -3482,14 +3483,13 @@ impl App {
         }
         let score = &self.buffers[buffer].score;
         let focused = self.focused();
-        if let Some(p) = self.panes.get_mut(&focused).filter(|p| p.buffer == buffer) {
-            if p.cursor.bar != bar
+        if let Some(p) = self.panes.get_mut(&focused).filter(|p| p.buffer == buffer)
+            && (p.cursor.bar != bar
                 || cursor_tick(score, &p.cursor) > tick
-                || beat_end(score, &p.cursor) <= tick
-            {
-                p.cursor.bar = bar;
-                p.cursor.beat = beat_at_tick(score, p.cursor.track, bar, tick);
-            }
+                || beat_end(score, &p.cursor) <= tick)
+        {
+            p.cursor.bar = bar;
+            p.cursor.beat = beat_at_tick(score, p.cursor.track, bar, tick);
         }
     }
 }
@@ -3711,17 +3711,17 @@ fn own_rows(score: &Score, c: &Cursor) -> Vec<Row> {
     let index = staff_index(track, c.staff);
     let staff = staves[index];
     let mut rows = staff_rows(score, c, track, index, staff);
-    if !(track.chant.is_some() || staff == Staff::Slash) && !uses_strings(track, staff) {
-        if let (Some(&Row::Line(_, top)), Some(&Row::Line(_, bottom))) = (rows.first(), rows.last())
-        {
-            let above = (top + 1..=top + LEDGER_ROWS)
-                .rev()
-                .map(|p| Row::Line(index, p));
-            let below = (bottom - LEDGER_ROWS..bottom)
-                .rev()
-                .map(|p| Row::Line(index, p));
-            rows = above.chain(rows).chain(below).collect();
-        }
+    if !(track.chant.is_some() || staff == Staff::Slash)
+        && !uses_strings(track, staff)
+        && let (Some(&Row::Line(_, top)), Some(&Row::Line(_, bottom))) = (rows.first(), rows.last())
+    {
+        let above = (top + 1..=top + LEDGER_ROWS)
+            .rev()
+            .map(|p| Row::Line(index, p));
+        let below = (bottom - LEDGER_ROWS..bottom)
+            .rev()
+            .map(|p| Row::Line(index, p));
+        rows = above.chain(rows).chain(below).collect();
     }
     rows
 }

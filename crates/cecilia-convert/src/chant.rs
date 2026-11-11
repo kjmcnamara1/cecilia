@@ -28,10 +28,10 @@ impl ToChant {
     pub fn note_points(&self, points: &[cecilia_core::SyncPoint]) -> Vec<(usize, i64)> {
         let mut out: Vec<(usize, i64)> = Vec::new();
         for p in points.iter().filter(|p| p.occurrence == 0) {
-            if let Some(Some(k)) = self.bar_notes.get(p.bar) {
-                if !out.iter().any(|o| o.0 == *k) {
-                    out.push((*k, p.frame));
-                }
+            if let Some(Some(k)) = self.bar_notes.get(p.bar)
+                && !out.iter().any(|o| o.0 == *k)
+            {
+                out.push((*k, p.frame));
             }
         }
         out

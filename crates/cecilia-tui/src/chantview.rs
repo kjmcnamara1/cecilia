@@ -257,11 +257,11 @@ pub fn layout(chant: &Chant, ascii: bool) -> Vec<Syl> {
         let mut marks = Vec::new();
         let mut col: u16 = 0;
         let mut gap = false;
-        if s.is_slot() {
-            if let Some(&at) = cells.get(&(si, 0)) {
-                marks.push((0, Mark::Slot(at)));
-                col = 1;
-            }
+        if s.is_slot()
+            && let Some(&at) = cells.get(&(si, 0))
+        {
+            marks.push((0, Mark::Slot(at)));
+            col = 1;
         }
         for (ii, item) in s.items.iter().enumerate() {
             match item {

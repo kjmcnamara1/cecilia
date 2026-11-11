@@ -472,15 +472,14 @@ pub fn tokens(text: &str) -> Vec<Token> {
     finish_word(&mut out, &mut word);
     // A dash word joins the syllable before it to the next one.
     for k in 1..out.len() {
-        if matches!(out[k].kind, TokenKind::Dash(_)) {
-            if let Some(TokenKind::Syllable { hyphen, .. }) = out[..k]
+        if matches!(out[k].kind, TokenKind::Dash(_))
+            && let Some(TokenKind::Syllable { hyphen, .. }) = out[..k]
                 .iter_mut()
                 .rev()
                 .map(|t| &mut t.kind)
                 .find(|t| !matches!(t, TokenKind::Label(_) | TokenKind::Star))
-            {
-                *hyphen = true;
-            }
+        {
+            *hyphen = true;
         }
     }
     out

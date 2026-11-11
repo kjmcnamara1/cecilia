@@ -433,18 +433,19 @@ impl Ctx<'_> {
             let annotation = li == 0 && initial.is_some();
             let extra_top = if annotation { 1.8 * sp } else { 0.0 };
             let line_h = extra_top + above + staff_h + below + 2.6 * sp + self.text_size;
-            if let Mode::Page { height, .. } = self.o.mode {
-                if y + line_h > height - margin_b && y > margin_t + 1.0 {
-                    layout.pages.push(std::mem::replace(
-                        &mut page,
-                        Page {
-                            width,
-                            height,
-                            ..Page::default()
-                        },
-                    ));
-                    y = margin_t;
-                }
+            if let Mode::Page { height, .. } = self.o.mode
+                && y + line_h > height - margin_b
+                && y > margin_t + 1.0
+            {
+                layout.pages.push(std::mem::replace(
+                    &mut page,
+                    Page {
+                        width,
+                        height,
+                        ..Page::default()
+                    },
+                ));
+                y = margin_t;
             }
             let bottom_line = y + extra_top + above + staff_h;
             let ymap = move |p: i32| bottom_line - (p - 3) as f64 * sp / 2.0;
@@ -460,72 +461,72 @@ impl Ctx<'_> {
                 });
             }
             self.draw_clef(&mut page, staff_x0 + 0.4 * sp, clef, &ymap);
-            if li == 0 {
-                if let Some((_, c)) = &initial {
-                    page.items.push(Item::Text {
-                        font: self.o.chant_font.kind(false, false),
-                        text: c.clone(),
-                        at: Point::new(margin, text_y),
-                        size: initial_size,
-                        align: Align::Left,
-                        color: Color::RED,
-                    });
-                    let annotation: Vec<String> = {
-                        let a: Vec<String> = self
+            if li == 0
+                && let Some((_, c)) = &initial
+            {
+                page.items.push(Item::Text {
+                    font: self.o.chant_font.kind(false, false),
+                    text: c.clone(),
+                    at: Point::new(margin, text_y),
+                    size: initial_size,
+                    align: Align::Left,
+                    color: Color::RED,
+                });
+                let annotation: Vec<String> = {
+                    let a: Vec<String> = self
+                        .chant
+                        .headers
+                        .iter()
+                        .filter(|(k, _)| k == "annotation")
+                        .map(|(_, v)| v.clone())
+                        .collect();
+                    if a.is_empty() {
+                        // As printed in chant books: the office part, abbreviated, then
+                        // the mode.
+                        let office = self.chant.header("office-part").unwrap_or_default();
+                        let abbreviation = match office.trim().to_lowercase().as_str() {
+                            "" => String::new(),
+                            "antiphona" => "Ant.".into(),
+                            "hymnus" => "Hymn.".into(),
+                            "introitus" => "Intr.".into(),
+                            "graduale" => "Grad.".into(),
+                            "offertorium" => "Offert.".into(),
+                            "communio" => "Comm.".into(),
+                            "alleluia" => "Allel.".into(),
+                            "responsorium" | "responsorium breve" => "Resp.".into(),
+                            "sequentia" => "Seq.".into(),
+                            "tractus" => "Tract.".into(),
+                            "kyriale" | "kyrie" => "Kyrie".into(),
+                            other => other.chars().take(5).collect::<String>() + ".",
+                        };
+                        let mode = self
                             .chant
-                            .headers
-                            .iter()
-                            .filter(|(k, _)| k == "annotation")
-                            .map(|(_, v)| v.clone())
-                            .collect();
-                        if a.is_empty() {
-                            // As printed in chant books: the office part, abbreviated, then
-                            // the mode.
-                            let office = self.chant.header("office-part").unwrap_or_default();
-                            let abbreviation = match office.trim().to_lowercase().as_str() {
-                                "" => String::new(),
-                                "antiphona" => "Ant.".into(),
-                                "hymnus" => "Hymn.".into(),
-                                "introitus" => "Intr.".into(),
-                                "graduale" => "Grad.".into(),
-                                "offertorium" => "Offert.".into(),
-                                "communio" => "Comm.".into(),
-                                "alleluia" => "Allel.".into(),
-                                "responsorium" | "responsorium breve" => "Resp.".into(),
-                                "sequentia" => "Seq.".into(),
-                                "tractus" => "Tract.".into(),
-                                "kyriale" | "kyrie" => "Kyrie".into(),
-                                other => other.chars().take(5).collect::<String>() + ".",
-                            };
-                            let mode = self
-                                .chant
-                                .header("mode")
-                                .map(str::trim)
-                                .filter(|m| !m.is_empty())
-                                .map(|m| match m.parse::<u32>() {
-                                    Ok(n) => format!("{n}."),
-                                    Err(_) => m.to_string(),
-                                });
-                            [Some(abbreviation).filter(|a| !a.is_empty()), mode]
-                                .into_iter()
-                                .flatten()
-                                .collect()
-                        } else {
-                            a
-                        }
-                    };
-                    for (k, a) in annotation.iter().enumerate() {
-                        page.text(
-                            FontKind::Bold,
-                            a.clone(),
-                            (
-                                margin + (initial_w - 0.6 * sp) / 2.0,
-                                y + 0.6 * sp + k as f64 * 1.35 * sp,
-                            ),
-                            1.3 * sp,
-                            Align::Center,
-                        );
+                            .header("mode")
+                            .map(str::trim)
+                            .filter(|m| !m.is_empty())
+                            .map(|m| match m.parse::<u32>() {
+                                Ok(n) => format!("{n}."),
+                                Err(_) => m.to_string(),
+                            });
+                        [Some(abbreviation).filter(|a| !a.is_empty()), mode]
+                            .into_iter()
+                            .flatten()
+                            .collect()
+                    } else {
+                        a
                     }
+                };
+                for (k, a) in annotation.iter().enumerate() {
+                    page.text(
+                        FontKind::Bold,
+                        a.clone(),
+                        (
+                            margin + (initial_w - 0.6 * sp) / 2.0,
+                            y + 0.6 * sp + k as f64 * 1.35 * sp,
+                        ),
+                        1.3 * sp,
+                        Align::Center,
+                    );
                 }
             }
             let page_index = layout.pages.len();
@@ -698,10 +699,10 @@ impl Ctx<'_> {
                 }
             }
             // Custos: the first note of the next line.
-            if let Some(next) = lines.get(li + 1) {
-                if let Some(pitch) = next.iter().find_map(|p| measures[p.index].first_pitch) {
-                    self.draw_custos(&mut page, staff_x1 - 0.1 * sp, pitch as i32, &ymap);
-                }
+            if let Some(next) = lines.get(li + 1)
+                && let Some(pitch) = next.iter().find_map(|p| measures[p.index].first_pitch)
+            {
+                self.draw_custos(&mut page, staff_x1 - 0.1 * sp, pitch as i32, &ymap);
             }
             y += line_h;
         }

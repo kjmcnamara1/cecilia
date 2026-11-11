@@ -71,12 +71,11 @@ impl App {
     /// them; just the cursor's bar when it didn't.
     pub fn design_line(&self) -> std::ops::Range<usize> {
         let bar = self.pane().cursor.bar;
-        if self.pane().layout == "page" {
-            if let Some(info) = self.view_info.get(&self.focused()) {
-                if let Some(row) = info.rows.iter().find(|r| r.contains(&bar)) {
-                    return row.clone();
-                }
-            }
+        if self.pane().layout == "page"
+            && let Some(info) = self.view_info.get(&self.focused())
+            && let Some(row) = info.rows.iter().find(|r| r.contains(&bar))
+        {
+            return row.clone();
         }
         bar..bar + 1
     }

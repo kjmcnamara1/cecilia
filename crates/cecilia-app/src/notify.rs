@@ -744,13 +744,13 @@ impl App {
     /// Starts keeping the history between sessions (the frontends call this once).
     pub fn keep_notification_history(&mut self) {
         let limit = self.config.file.notifications.history_size;
-        if limit > 0 {
-            if let Some(path) = default_history_file() {
-                if let Some(dir) = path.parent() {
-                    let _ = std::fs::create_dir_all(dir);
-                }
-                self.notifications.keep_history(path, limit);
+        if limit > 0
+            && let Some(path) = default_history_file()
+        {
+            if let Some(dir) = path.parent() {
+                let _ = std::fs::create_dir_all(dir);
             }
+            self.notifications.keep_history(path, limit);
         }
     }
 

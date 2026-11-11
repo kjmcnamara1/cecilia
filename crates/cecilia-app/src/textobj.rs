@@ -291,7 +291,9 @@ pub fn quote_object(c: &[char], i: usize, q: char, around: bool) -> Option<(usiz
     let (s, e) = line_bounds(c, i);
     let at: Vec<usize> = (s..e).filter(|&k| c[k] == q).collect();
     let pair = at
-        .chunks_exact(2)
+        .as_chunks::<2>()
+        .0
+        .iter()
         .map(|p| (p[0], p[1]))
         .find(|&(a, b)| i <= b && (i >= a || a > i))?;
     Some(if around {

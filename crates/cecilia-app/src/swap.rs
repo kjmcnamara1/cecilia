@@ -279,10 +279,10 @@ impl App {
 
     /// A buffer was saved: its swap file (and any unresolved one for the same path) goes.
     pub(crate) fn swap_release(&mut self, index: usize) {
-        if let Some(file) = self.swap_file(index) {
-            if self.swap.held.remove(&file) || self.swap.written.contains_key(&index) {
-                std::fs::remove_file(&file).ok();
-            }
+        if let Some(file) = self.swap_file(index)
+            && (self.swap.held.remove(&file) || self.swap.written.contains_key(&index))
+        {
+            std::fs::remove_file(&file).ok();
         }
         self.swap.written.remove(&index);
         self.swap.dirty.remove(&index);

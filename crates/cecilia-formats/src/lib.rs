@@ -124,10 +124,8 @@ pub fn read_bytes(bytes: &[u8], path: Option<&Path>) -> Result<Score> {
 /// the syllables the file put on the beats.
 pub fn lyrics_to_text(score: &mut Score, lines: bool) {
     use cecilia_core::gabcplus;
-    if lines {
-        if let Some((t, text)) = gabcplus::text_from_lines(score) {
-            score.tracks[t].lyrics_text = text;
-        }
+    if lines && let Some((t, text)) = gabcplus::text_from_lines(score) {
+        score.tracks[t].lyrics_text = text;
     }
     gabcplus::ensure_text(score);
     for t in 0..score.tracks.len() {
@@ -281,6 +279,17 @@ mod tests {
         assert!(read_entry(&[1u8; 11][..], &mut budget, "x").is_err());
     }
 
+    #[test]
+    fn atomic_write_replaces_a_file_and_leaves_no_temporary() {
+        let dir = scratch("atomic-plain");
+        let file = dir.join("a.txt");
+        write_atomic(&file, b"one").unwrap();
+        write_atomic(&file, b"two").unwrap();
+        assert_eq!(std::fs::read(&file).unwrap(), b"two");
+        assert_eq!(std::fs::read_dir(&dir).unwrap().count(), 1);
+    }
+
+    #[cfg(unix)]
     #[test]
     fn atomic_write_replaces_keeps_mode_and_follows_symlinks() {
         use std::os::unix::fs::{PermissionsExt, symlink};

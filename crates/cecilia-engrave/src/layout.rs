@@ -1095,19 +1095,20 @@ fn run_part(ctxs: &[Ctx]) -> Layout {
         }
         let heights: Vec<f64> = ctxs.iter().map(|c| c.metrics().2).collect();
         let system_height: f64 = heights.iter().sum();
-        if let Mode::Page { height, .. } = main.o.mode {
-            if y + system_height > height - margin_b && y > margin_t + 1.0 {
-                main.draw_page_number(&mut page, layout.pages.len());
-                layout.pages.push(std::mem::replace(
-                    &mut page,
-                    Page {
-                        width,
-                        height,
-                        ..Page::default()
-                    },
-                ));
-                y = margin_t;
-            }
+        if let Mode::Page { height, .. } = main.o.mode
+            && y + system_height > height - margin_b
+            && y > margin_t + 1.0
+        {
+            main.draw_page_number(&mut page, layout.pages.len());
+            layout.pages.push(std::mem::replace(
+                &mut page,
+                Page {
+                    width,
+                    height,
+                    ..Page::default()
+                },
+            ));
+            y = margin_t;
         }
         let page_index = layout.pages.len();
         let mut x_end = left;
@@ -2195,10 +2196,10 @@ impl Ctx<'_> {
                 );
             }
             layout.bars[bi] = (page_index, x, x + w);
-            if let Some(color) = self.o.incomplete_bars {
-                if self.score.bar_incomplete(self.track_index, bi) {
-                    self.redraw_staff_lines(page, color, x, x + w, std_bottom, tab_top);
-                }
+            if let Some(color) = self.o.incomplete_bars
+                && self.score.bar_incomplete(self.track_index, bi)
+            {
+                self.redraw_staff_lines(page, color, x, x + w, std_bottom, tab_top);
             }
             self.draw_measure(
                 page,
@@ -2910,16 +2911,16 @@ impl Ctx<'_> {
                         let gx = bx + self.nh_width / 2.0 - (r.x0 + r.x1) / 2.0;
                         page.glyph(FERMATA, (gx, marks_y - slot - r.y1 + 0.2 * sp), 4.0 * sp);
                     }
-                    if let Some(c) = &beat.chord {
-                        if !c.name.is_empty() {
-                            page.text(
-                                FontKind::Bold,
-                                c.name.clone(),
-                                (bx, top - 5.2 * sp),
-                                2.0 * sp,
-                                Align::Left,
-                            );
-                        }
+                    if let Some(c) = &beat.chord
+                        && !c.name.is_empty()
+                    {
+                        page.text(
+                            FontKind::Bold,
+                            c.name.clone(),
+                            (bx, top - 5.2 * sp),
+                            2.0 * sp,
+                            Align::Left,
+                        );
                     }
                     if self.lyrics > 0 && self.lyric_source.is_none() {
                         self.draw_syllables(
@@ -3088,7 +3089,7 @@ impl Ctx<'_> {
     /// Length of the beats that beams group, in ticks.
     fn beam_unit(&self, mb: &MasterBar) -> u32 {
         let ts = mb.time_signature;
-        if ts.denominator == 8 && ts.numerator % 3 == 0 {
+        if ts.denominator == 8 && ts.numerator.is_multiple_of(3) {
             1440
         } else if ts.denominator == 2 {
             1920
@@ -3705,9 +3706,9 @@ impl Ctx<'_> {
                         // value's length (as after a dotted note), otherwise forward.
                         let pair = 2 * group[i].2.ticks() as usize;
                         let back = i > 0
-                            && group
-                                .get(i + 1)
-                                .is_none_or(|next| next.0 % pair == 0 || group[i].0 % pair != 0);
+                            && group.get(i + 1).is_none_or(|next| {
+                                next.0 % pair == 0 || !group[i].0.is_multiple_of(pair)
+                            });
                         if back {
                             xa -= 1.2 * sp;
                         } else {
@@ -3845,9 +3846,9 @@ impl Ctx<'_> {
                         // value's length (as after a dotted note), otherwise forward.
                         let pair = 2 * group[i].3.ticks() as usize;
                         let back = i > 0
-                            && group
-                                .get(i + 1)
-                                .is_none_or(|next| next.0 % pair == 0 || group[i].0 % pair != 0);
+                            && group.get(i + 1).is_none_or(|next| {
+                                next.0 % pair == 0 || !group[i].0.is_multiple_of(pair)
+                            });
                         if back {
                             xa -= 1.2 * sp
                         } else {
@@ -4113,24 +4114,24 @@ impl Ctx<'_> {
                 );
             }
             // Tremolo picking: the slashes over the fret.
-            if let Some(speed) = n.effects.tremolo_picking {
-                if n.string == beat.notes.iter().map(|b| b.string).min().unwrap_or(0) {
-                    let slashes = match speed {
-                        DurationValue::Eighth | DurationValue::Quarter => 1,
-                        DurationValue::Sixteenth => 2,
-                        _ => 3,
-                    };
-                    let glyph = TREMOLO[slashes - 1];
-                    let r = fonts().bbox(FontKind::Music, glyph, 4.0 * sp);
-                    page.glyph(
-                        glyph,
-                        (
-                            cx - (r.x0 + r.x1) / 2.0,
-                            tab_top - 2.4 * sp - (r.y0 + r.y1) / 2.0,
-                        ),
-                        4.0 * sp,
-                    );
-                }
+            if let Some(speed) = n.effects.tremolo_picking
+                && n.string == beat.notes.iter().map(|b| b.string).min().unwrap_or(0)
+            {
+                let slashes = match speed {
+                    DurationValue::Eighth | DurationValue::Quarter => 1,
+                    DurationValue::Sixteenth => 2,
+                    _ => 3,
+                };
+                let glyph = TREMOLO[slashes - 1];
+                let r = fonts().bbox(FontKind::Music, glyph, 4.0 * sp);
+                page.glyph(
+                    glyph,
+                    (
+                        cx - (r.x0 + r.x1) / 2.0,
+                        tab_top - 2.4 * sp - (r.y0 + r.y1) / 2.0,
+                    ),
+                    4.0 * sp,
+                );
             }
         }
         if let Some(st) = beat.effects.stroke {

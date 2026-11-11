@@ -13,6 +13,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - A score's `audio.file` must stay inside the score's folder (no absolute paths, `..` or `:`); saving a `.gp` no longer embeds files from elsewhere. `:audio FILE` follows the same rule.
 
 ### Fixed
+- The minimum supported Rust version is 1.88, not 1.85: ratatui 0.30 and time 0.3 need it, so 1.85 never built. CI now checks it.
 
 - A workspace switch or closing the last view no longer plays the previous file's music or audio from stale caches.
 - The audio track stays in step when speed or transpose changes during playback; pre-roll notes use their track's instrument.
@@ -123,6 +124,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [0.37.1] - 2026-11-10
 
 ### Fixed
+- The minimum supported Rust version is 1.88, not 1.85: ratatui 0.30 and time 0.3 need it, so 1.85 never built. CI now checks it.
 
 - The voices not being edited are dimmed in every bar, also in bars that lack the voice being edited (GUI and terminal tab view).
 
@@ -155,6 +157,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - `-o` must come after the subcommand, or the files must follow `--`: `cecilia -o a=b info f` fails, `cecilia info -o a=b -- f` works.
 
 ### Fixed
+- The minimum supported Rust version is 1.88, not 1.85: ratatui 0.30 and time 0.3 need it, so 1.85 never built. CI now checks it.
 
 - Changing `audio.speed` applies to a paused player.
 
@@ -323,6 +326,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   yet.
 
 ### Fixed
+- The minimum supported Rust version is 1.88, not 1.85: ratatui 0.30 and time 0.3 need it, so 1.85 never built. CI now checks it.
 
 - The focus ring is red in Replace mode (it was the Insert color there), as the status line is.
 - Visual mode: `o` moves the cursor to the other end of the selection (`:visual-other-end`).
@@ -477,6 +481,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - `:reflow` redraws the barlines of the cursor's voice to match the time signatures: beats that run over a bar move to the start of the next, bars that come up short are filled from the next, and a beat that straddles a barline is split and tied (durations and pitches never change). It works over every bar, or in Visual mode over just the selection, whose last bar keeps whatever is left over. Other voices are not touched; bars with repeat signs are refused.
 
 ### Fixed
+- The minimum supported Rust version is 1.88, not 1.85: ratatui 0.30 and time 0.3 need it, so 1.85 never built. CI now checks it.
 
 - Lyrics follow the notes: after an edit the text is laid out on the notes again, one syllable to a note and never two on one. Deleting a note hands its syllable (and the rest of the text) on to the following notes, new notes take the next syllables, and syllables past the last note are kept in the score's lyric text but not shown. Setting lyrics with more syllables than notes keeps the rest instead of reporting an error. Bars whose notes don't match their text (changed some other way, chant tracks) are left alone.
 
@@ -530,6 +535,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - `:workspace-close` (use `:workspace-open default`, or `:workspace-delete` to leave a workspace).
 
 ### Fixed
+- The minimum supported Rust version is 1.88, not 1.85: ratatui 0.30 and time 0.3 need it, so 1.85 never built. CI now checks it.
 
 - The GUI's command palette and pickers cast a soft, blurred shadow instead of a hard-edged one.
 
@@ -540,6 +546,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Chant notation in the terminal UI: a four-line text staff with the clef, neumes as note glyphs (punctum, virga, inclinatum, quilisma, oriscus, stropha, cavum, liquescents; `tabline.icons = "none"` uses ASCII), ligatures joined by a stroke, ledger lines, flats, naturals and sharps, divisions (virgula, minima, minor, maior, finalis) crossing the staff lines, custodes at the line ends, and the lyrics under their neumes with hyphens and extenders through melismas. It follows the pane's layout like tab does: wrapped systems (spread to the full width, each with its clef), page boxes of A4 proportions, or one horizontal line scrolled by syllable; the cursor, selection, playhead and `zz`/`zt`/`zb` work on it, and clicking a note or a syllable's text puts the cursor there. A staff set to chant with `:notation chant` on an ordinary (e.g. Guitar Pro) track shows the same way: the track's melody as chant, as the GUI's chant staff builds it (clef and shift fitted to the scale, neumes, divisions at rests, syllables from the track's lyrics). A track whose staves are all chant uses the chant layouts above; a chant staff among other staves is drawn above or below the tab in each system, on the beat columns of the tab, with its own cursor, clicks, selection and playhead, and switching the notation back changes the rendering at once.
 
 ### Fixed
+- The minimum supported Rust version is 1.88, not 1.85: ratatui 0.30 and time 0.3 need it, so 1.85 never built. CI now checks it.
 
 - The terminal UI's progress bar is dark like the tabline and status line, with light text, and its sections are told apart by gray vertical bars instead of shaded cells.
 
@@ -568,6 +575,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Terminal UI page layout: lines and pages break where the GUI's page layout puts them (taken from the engraver, so manual line breaks and bar widths count), each page is drawn in a box with a "Page N" title, and design mode works there: the same keys, `+` / `-` buttons and draggable bar lines at each line, `↵` marking manual breaks. The engraver's design handle geometry (`Handle`, `Grab`) moved from `cecilia-gui` to `cecilia-engrave::design`.
 
 ### Fixed
+- The minimum supported Rust version is 1.88, not 1.85: ratatui 0.30 and time 0.3 need it, so 1.85 never built. CI now checks it.
 
 - The terminal UI honours the horizontal layout: one line of bars that scrolls sideways, following the cursor, instead of wrapped systems scrolling vertically.
 
@@ -615,6 +623,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [0.21.1] - 2026-11-04
 
 ### Fixed
+- The minimum supported Rust version is 1.88, not 1.85: ratatui 0.30 and time 0.3 need it, so 1.85 never built. CI now checks it.
 
 - The whole-note circle of a tab+ staff sits level with the feet of the stems.
 - The cursor follows the note to its new staff position after `:pitch-up`/`:pitch-down`/`<C-a>`/`<C-x>` on standard notation.
@@ -651,6 +660,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - New score data, kept in `.muse` files (older files still open): bar repeat signs, per-beat beam and stem overrides, fermatas, fade out and volume swell, left-hand taps, and the written double sharp / flat of a note. The engraving honours the beam and stem overrides and shows fermatas, pick strokes, fades, repeat signs and double accidentals; directions print as "D.C. al Coda" and the like. Guitar Pro 7 files keep fades, left-hand taps and repeat signs; MusicXML keeps stems, fermatas and double accidentals.
 
 ### Fixed
+- The minimum supported Rust version is 1.88, not 1.85: ratatui 0.30 and time 0.3 need it, so 1.85 never built. CI now checks it.
 
 - Engraving: tremolo picking (one to three slashes through the stem, or above the fret on tab), tap / slap / pop (`T` `S` `P` above the staff), grace notes (small head, slashed before the beat; the fret in small digits on tab), slides into and out of a note (a short diagonal at the note instead of "sl."), fade in / fade out / volume swell (labelled swell wedges), left-hand tapping (a `+` above the note), and harmonics (a diamond head on standard staves, `<fret>` on tab with "A.H." for artificial ones, also "P.H." "T.H." "S.H.").
 - With the palette focused in Visual mode, `h` `j` `k` `l` and the arrows move in the palette's grid instead of the score selection; the selection stays for the tools, and `<Esc>` back to the score keeps it.
@@ -672,6 +682,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - `gi` is now vim's `gi` (`:insert-last`); the old `gi`, Insert mode on the cursor beat adding nothing (`:insert-here`), is on `<CR>`.
 
 ### Fixed
+- The minimum supported Rust version is 1.88, not 1.85: ratatui 0.30 and time 0.3 need it, so 1.85 never built. CI now checks it.
 
 - Accents (`>`), heavy accents (marcato `^`) and staccato dots are engraved. They were stored and played back but never drawn. On standard and slash staves they stand on the side of the heads away from the stem (the dot nearest, the accent outside it); on tab and tab+ staves, when the track shows no standard staff, above the strings. Tied notes and rests show none, and lyrics above the staff clear them.
 - Select with the mouse: press on a beat and drag across others to highlight them as a Visual selection (anchor at the pressed beat, the cursor end follows the pointer, bars and systems included; in the GUI the view scrolls when the pointer is held near or beyond the pane's edge). The selection stays after the release for `d` `y` `c`, the palette and the other keys. `Shift`+click extends the selection, `Ctrl`/`Alt` selects whole bars (as `V`), a double click selects the bar. A plain click is unchanged. Works in the terminal too. The logic lives in `muse-app` (`App::mouse_press`, `mouse_drag`, `mouse_release`).
@@ -686,6 +697,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [0.16.0] - 2026-11-04
 
 ### Fixed
+- The minimum supported Rust version is 1.88, not 1.85: ratatui 0.30 and time 0.3 need it, so 1.85 never built. CI now checks it.
 
 - On a slash staff the cursor always sits on the staff's single line: clicking above or below the line selects the beat only, and the cursor's line is normalised whenever it lands on a slash staff (click, `<A-j>` / `<A-k>`, `j` / `k`, loading a score).
 
@@ -732,6 +744,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [0.13.1] - 2026-11-03
 
 ### Fixed
+- The minimum supported Rust version is 1.88, not 1.85: ratatui 0.30 and time 0.3 need it, so 1.85 never built. CI now checks it.
 
 - GUI: scrolling to keep the edit cursor in view now targets the cursor itself (its string or staff position) instead of the whole beat's height, so a zoomed view no longer snaps to the top staff; moving between staves or strings in the same beat also scrolls. The cursor is always scrolled fully into view, horizontally too, at any zoom (including a bar wider than the pane and the centred page layout).
 
@@ -794,6 +807,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [0.10.1] - 2026-10-31
 
 ### Fixed
+- The minimum supported Rust version is 1.88, not 1.85: ratatui 0.30 and time 0.3 need it, so 1.85 never built. CI now checks it.
 
 - `<C-d>` / `<C-u>` (and `<PageDown>` / `<PageUp>`) move the cursor half a screen: half the
   displayed bars in the horizontal layout; in the vertical layout half the displayed rows of
@@ -827,6 +841,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - A new score is not marked as changed until it is edited, so an empty one closes without a prompt.
 
 ### Fixed
+- The minimum supported Rust version is 1.88, not 1.85: ratatui 0.30 and time 0.3 need it, so 1.85 never built. CI now checks it.
 
 - Directional pane focus (`focus-left` etc.) goes to the most recently focused of the panes
   touching the current one, instead of the one nearest its centre.
@@ -848,6 +863,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [0.6.1] - 2026-10-31
 
 ### Fixed
+- The minimum supported Rust version is 1.88, not 1.85: ratatui 0.30 and time 0.3 need it, so 1.85 never built. CI now checks it.
 
 - The edit cursor now shows on empty bars, e.g. after inserting a bar with `o`.
 
@@ -864,6 +880,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - With the cursor on a note on any staff, the same note on the track's other staves is drawn in the current mode's color: the notehead, slash or square note on treble, bass, grand, slash and chant staves, and the fret number (in bold) on other tab staves.
 
 ### Fixed
+- The minimum supported Rust version is 1.88, not 1.85: ratatui 0.30 and time 0.3 need it, so 1.85 never built. CI now checks it.
 
 - Opening a workspace with a pane kind this build doesn't know drops that pane instead of showing it as a score pane.
 - The progress bar no longer panics in a pane narrower than a pixel.
@@ -876,6 +893,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Scores keep their page setup, read and written by Guitar Pro 5 files.
 
 ### Fixed
+- The minimum supported Rust version is 1.88, not 1.85: ratatui 0.30 and time 0.3 need it, so 1.85 never built. CI now checks it.
 
 - `j`/`k` stop at the last/first row of a track instead of jumping into the neighbouring track.
 
@@ -892,6 +910,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   vertical wheel scrolls down and the horizontal wheel (or Shift) across, in every layout.
 
 ### Fixed
+- The minimum supported Rust version is 1.88, not 1.85: ratatui 0.30 and time 0.3 need it, so 1.85 never built. CI now checks it.
 
 - GUI: the vertical layout fits panes narrower than 300pt instead of cutting off the bars.
 
@@ -910,5 +929,6 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - The pane _maximized_ indicator in the titlebar is an icon instead of "Z".
 
 ### Fixed
+- The minimum supported Rust version is 1.88, not 1.85: ratatui 0.30 and time 0.3 need it, so 1.85 never built. CI now checks it.
 
 - Progress bar's red position indicator is half as wide in the GUI.

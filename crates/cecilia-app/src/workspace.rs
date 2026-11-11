@@ -465,11 +465,11 @@ impl App {
     }
 
     fn set_workspace_file(&mut self, path: PathBuf) {
-        if self.remember_workspace {
-            if let Some(marker) = last_workspace_marker() {
-                let abs = std::path::absolute(&path).unwrap_or_else(|_| path.clone());
-                std::fs::write(marker, abs.display().to_string()).ok();
-            }
+        if self.remember_workspace
+            && let Some(marker) = last_workspace_marker()
+        {
+            let abs = std::path::absolute(&path).unwrap_or_else(|_| path.clone());
+            std::fs::write(marker, abs.display().to_string()).ok();
         }
         self.workspace_file = Some(path);
     }
@@ -484,13 +484,11 @@ impl App {
         let Some(path) = workspace_path(name) else {
             return self.error("workspace-open: give a name or path");
         };
-        if !discard {
-            if let Some(b) = self.buffers.iter().find(|b| b.modified) {
-                return self.error(format!(
-                    "workspace-open: \"{}\" has unsaved changes (:w, or :workspace-open! to discard)",
-                    b.name
-                ));
-            }
+        if !discard && let Some(b) = self.buffers.iter().find(|b| b.modified) {
+            return self.error(format!(
+                "workspace-open: \"{}\" has unsaved changes (:w, or :workspace-open! to discard)",
+                b.name
+            ));
         }
         let ws: Option<Workspace> = if path.exists() {
             match std::fs::read_to_string(&path)
