@@ -891,6 +891,79 @@ mod tests {
         );
     }
 
+    /// The names of each top-level match arm of `Command::parse` (a command and its aliases).
+    fn parser_arms() -> Vec<Vec<String>> {
+        let src = include_str!("command.rs");
+        let parse = &src[src.find("pub fn parse(input").expect("Command::parse")..];
+        let parse = &parse[..parse.find("pub fn repeatable").expect("end of parse")];
+        let (mut arms, mut cur) = (Vec::new(), String::new());
+        // Arms sit at one indent; an arm's names can run over several lines before its `=>`.
+        for line in parse
+            .lines()
+            .filter(|l| l.starts_with("            ") && !l.starts_with("             "))
+        {
+            let line = line.trim_start();
+            if !(line.starts_with('"') || line.starts_with("| \"") || !cur.is_empty()) {
+                continue;
+            }
+            cur.push_str(line.split(" =>").next().unwrap());
+            if line.contains(" =>") {
+                arms.push(
+                    cur.split('|')
+                        .map(|n| n.trim().trim_matches('"').to_string())
+                        .collect::<Vec<_>>(),
+                );
+                cur.clear();
+            }
+        }
+        arms
+    }
+
+    /// docs/COMMANDS.md documents exactly the commands the parser accepts: each name (or alias)
+    /// has a backticked entry, and each table row's names are real commands.
+    #[test]
+    fn commands_md_matches_the_parser() {
+        let doc = include_str!("../../../docs/COMMANDS.md");
+        // The command a backticked span starts with: `buffer-close [N]` -> buffer-close.
+        let word = |span: &str| span.split_whitespace().next().unwrap_or("").to_string();
+        let spans =
+            |line: &str| -> Vec<String> { line.split('`').skip(1).step_by(2).map(word).collect() };
+        let documented: std::collections::HashSet<String> = doc.lines().flat_map(spans).collect();
+        let known: std::collections::HashSet<String> =
+            parser_arms().into_iter().flatten().collect();
+
+        let mut undocumented: Vec<&String> = known
+            .iter()
+            .filter(|n| n.len() > 1 && !documented.contains(*n))
+            .collect();
+        undocumented.sort();
+        assert!(
+            undocumented.is_empty(),
+            "commands missing from docs/COMMANDS.md: {undocumented:?}"
+        );
+
+        // A table row's first cell lists a command and its aliases.
+        let mut stale = Vec::new();
+        for line in doc.lines().filter(|l| l.starts_with("| `")) {
+            let cell = line.trim_start_matches('|').split('|').next().unwrap_or("");
+            // `|` inside a span is an argument choice (`a|b`), so cut at the closing `| ` only.
+            for name in spans(
+                line.trim_start_matches("| ")
+                    .split(" | ")
+                    .next()
+                    .unwrap_or(cell),
+            ) {
+                if !known.contains(&name) {
+                    stale.push(name);
+                }
+            }
+        }
+        assert!(
+            stale.is_empty(),
+            "docs/COMMANDS.md lists unknown commands: {stale:?}"
+        );
+    }
+
     #[test]
     fn every_command_has_one_scope() {
         let mut seen = std::collections::HashSet::new();
@@ -898,18 +971,8 @@ mod tests {
             assert!(seen.insert(*name), "{name} is listed twice");
         }
         // Every name the parser matches is in the table (or is the alias of one that is).
-        let src = include_str!("command.rs");
-        let parse = &src[src.find("pub fn parse(").expect("Command::parse")..];
         let mut missing = Vec::new();
-        for line in parse.lines() {
-            let line = line.trim_start();
-            if !line.starts_with('"') {
-                continue;
-            }
-            let Some(arm) = line.split(" =>").next().filter(|_| line.contains(" =>")) else {
-                continue;
-            };
-            let names: Vec<&str> = arm.split('|').map(|n| n.trim().trim_matches('"')).collect();
+        for names in parser_arms() {
             // Commands for keymaps only (the pane commands) are not listed and apply to both.
             let internal = |n: &str| {
                 n.len() <= 1
@@ -923,7 +986,7 @@ mod tests {
                     .iter()
                     .any(|n| COMMAND_SCOPES.iter().any(|(c, _)| c == n))
             {
-                missing.push(names[0].to_string());
+                missing.push(names[0].clone());
             }
         }
         assert!(missing.is_empty(), "commands with no scope: {missing:?}");

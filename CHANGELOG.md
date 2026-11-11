@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- `docs/COMMANDS.md`: reference of every command, with aliases, arguments and scope.
+
 ## [0.44.0] - 2026-11-10
 
 ### Added
