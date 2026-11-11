@@ -98,7 +98,7 @@ Shared: a script/Makefile target `packaging/linux/stage.sh DESTDIR PREFIX` that 
 
 ## Status
 
-- [ ] Phase 0 — repo metadata, release profile
+- [x] Phase 0 — repo metadata, release profile (done 2026-11-11 on `chore/packaging-phase-0`: `[workspace.package]` has repository/homepage/readme/keywords/categories, inherited by all 9 crates; `[profile.release]` is `lto = "thin"`, `codegen-units = 1`, `strip = true`: binary 32.5 MB -> 23.4 MB, clean release build ~2 min on this machine; runtime speed not measured. GitHub repo `kjmcnamara1/cecilia` created public 2026-11-11, `main` and all tags pushed; this branch is not merged yet)
 - [ ] Phase 1 — CI workflow
 - [ ] Phase 2 — release workflow (binaries, checksums, release notes)
 - [ ] Phase 3 — crates.io

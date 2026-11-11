@@ -7,6 +7,11 @@ version = "0.44.0"
 edition = "2024"
 license = "MIT OR Apache-2.0"
 rust-version = "1.85"
+repository = "https://github.com/kjmcnamara1/cecilia"
+homepage = "https://github.com/kjmcnamara1/cecilia"
+readme = "README.md"
+keywords = ["guitar", "tablature", "music-notation", "gregorian-chant", "midi"]
+categories = ["multimedia::audio", "text-editors"]
 
 [workspace.dependencies]
 cecilia-core = { path = "crates/cecilia-core" }
@@ -35,3 +40,8 @@ opt-level = 1
 
 [profile.dev.package."*"]
 opt-level = 2
+
+[profile.release]
+lto = "thin"
+codegen-units = 1
+strip = true
