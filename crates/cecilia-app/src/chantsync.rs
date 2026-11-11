@@ -427,6 +427,14 @@ impl App {
             }
         }
         let melody: Vec<f32> = runs.iter().map(|&i| notes[i].midi as f32).collect();
+        if cecilia_audio::pitch::align_too_large(melody.len(), sung.len()) {
+            return self.error(format!(
+                "sync-detect: too many notes to match at once ({} in the chant, {} sung); \
+                 sync a part of it, or by syllable with taps",
+                melody.len(),
+                sung.len()
+            ));
+        }
         let found = cecilia_audio::pitch::align(&melody, sung);
         let first_of_syllable = |i: usize| i == 0 || notes[i - 1].syllable != notes[i].syllable;
         let by_syllable = self.pa.sync_unit == SyncUnit::Syllable;
@@ -745,6 +753,31 @@ mod tests {
         a.chant_sync_detected(&sung, 0.5);
         assert_eq!(points(&a).len(), 5);
         assert_eq!(points(&a)[1], (2, secs(2.5)));
+    }
+
+    #[test]
+    fn detecting_refuses_a_melody_too_big_to_match_with_a_clear_error() {
+        let mut a = App::new(Config::default(), None);
+        let text: String = (0..1600).map(|_| "a(f) ").collect();
+        let chant =
+            cecilia_formats::gabc::parse(&format!("name: t;\n%%\n(c4) {text}(::)\n")).unwrap();
+        a.buffers[0].score = cecilia_formats::gabc::chant_score(chant);
+        a.buffers[0].score.audio = Some(AudioSync {
+            file: Some("x.mp3".into()),
+            ..Default::default()
+        });
+        let sung: Vec<Segment> = (0..25_000)
+            .map(|k| Segment {
+                start: k as f64,
+                end: k as f64 + 0.5,
+                midi: 60.0,
+            })
+            .collect();
+        a.chant_sync_detected(&sung, 0.0);
+        let m = message(&a);
+        assert!(m.contains("too many notes"), "{m}");
+        assert!(!m.contains("found none"), "{m}");
+        assert!(points(&a).is_empty());
     }
 
     fn press(a: &mut App, keys: &str) {

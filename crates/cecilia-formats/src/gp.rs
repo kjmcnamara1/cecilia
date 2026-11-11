@@ -211,7 +211,7 @@ impl<'a> GpReader<'a> {
             let text = self.int_size_string()?;
             if !text.is_empty() {
                 lyrics.lines.push(LyricLine {
-                    start_bar: (start - 1).max(0) as u32,
+                    start_bar: start.saturating_sub(1).max(0) as u32,
                     text,
                 });
             }
@@ -394,8 +394,8 @@ impl<'a> GpReader<'a> {
             }
         }
         let port = self.r.i32()?.max(1) as u32;
-        let channel_index = self.r.i32()? - 1;
-        let effect_channel = self.r.i32()? - 1;
+        let channel_index = self.r.i32()?.saturating_sub(1);
+        let effect_channel = self.r.i32()?.saturating_sub(1);
         track.fret_count = self.r.i32()?.clamp(0, 99) as u8;
         track.capo = self.r.i32()?.clamp(0, 99) as u8;
         track.color = self.read_color()?;
@@ -924,8 +924,10 @@ impl<'a> GpReader<'a> {
             let d = self.r.u8()?;
             (t as i8, d, self.r.u8()?)
         } else {
-            let d = self.r.u8()?;
-            (self.r.i8()?, d, 0)
+            // Transition, then duration (as in GP5): across the GP3/4 corpus the first byte
+            // takes 0..=3 (0 = none) and the second only 1..=3.
+            let t = self.r.i8()?;
+            (t, self.r.u8()?, 0)
         };
         Ok(Grace {
             fret: fret.max(0) as u8,

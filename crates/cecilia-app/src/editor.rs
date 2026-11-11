@@ -2292,16 +2292,14 @@ impl App {
                 .strip_prefix('+')
                 .or_else(|| to.starts_with('-').then_some(to))
             {
-                Some(d) => {
-                    from as i64
-                        + d.parse::<i64>()
-                            .map_err(|_| "staff-move: expected N, +N or -N")?
-                }
-                None => {
-                    to.parse::<i64>()
-                        .map_err(|_| "staff-move: expected N, +N or -N")?
-                        - 1
-                }
+                Some(d) => (from as i64).saturating_add(
+                    d.parse::<i64>()
+                        .map_err(|_| "staff-move: expected N, +N or -N")?,
+                ),
+                None => to
+                    .parse::<i64>()
+                    .map_err(|_| "staff-move: expected N, +N or -N")?
+                    .saturating_sub(1),
             };
             let target = target.clamp(0, n - 1) as usize;
             let from = from.min(staves.len() - 1);
@@ -2801,7 +2799,18 @@ mod tests {
                 Staff::Slash
             ]
         );
-        assert_eq!(a.pane().cursor.staff, 2);
+        // Huge distances saturate rather than overflow: to the bottom, then to the top.
+        a.run(Command::StaffMove("+9223372036854775807".into()));
+        assert_eq!(a.pane().cursor.staff, 3);
+        a.run(Command::StaffMove("-9223372036854775808".into()));
+        assert_eq!(a.pane().cursor.staff, 0);
+        a.run(Command::StaffMove("-9223372036854775808".into()));
+        a.run(Command::StaffMove("99999999999999999999".into()));
+        assert!(
+            a.last_notification().unwrap().error,
+            "out of range numbers are refused"
+        );
+        a.run(Command::StaffMove("3".into()));
         // Removed down to one, which stays.
         a.run(Command::StaffRemove(Some(1)));
         assert_eq!(staves(&a), vec![Staff::Tab, Staff::Tab, Staff::Slash]);
@@ -2813,7 +2822,7 @@ mod tests {
         assert_eq!(staves(&a).len(), 1);
         // The notes never changed; undo brings the staves back.
         assert_eq!(a.buffer().score.tracks[0].bars, bars);
-        keys(&mut a, "uuuuuuuu");
+        keys(&mut a, "uuuuuuuuuuuuuuuu");
         assert_eq!(staves(&a), vec![Staff::Standard(Treble), Staff::Tab]);
 
         // A piano is one track on a grand staff; a tab for it puts the same pitches on strings.

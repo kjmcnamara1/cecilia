@@ -1,6 +1,6 @@
 # Options
 
-Every setting of `config.toml` except the keymaps is an *option*: a value with a type, a default
+Every setting of `config.toml` except the keymaps and `theme.cursor_border` is an *option*: a value with a type, a default
 and a dotted name (`ui.tab_width` is the key `tab_width` in the `[ui]` table). Keymaps are not
 options; see [keymap.md](keymap.md). [config.example.toml](config.example.toml) is a commented
 config file to copy.
@@ -260,3 +260,7 @@ the `dark` preset's. Setting one overrides the preset (e.g. `:set theme.accent #
 | `theme.icon_chant` | `#b46ed2` |
 | `theme.icon_cecilia` | `#3cbebe` |
 | `theme.score_modern` | `#d68c50` |
+
+`theme.cursor_border` (the outline of the edit cursor; default: near-black `#141418`, or a color that
+contrasts with the page) is a config-file-only key of `[theme]` or a theme file. It is not an
+option, so `:set`, `:get` and `-o` do not know it.

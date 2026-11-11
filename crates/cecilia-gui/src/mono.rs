@@ -45,9 +45,9 @@ impl OutlineBuilder for Builder {
 }
 
 impl MonoFont {
-    fn new(data: &'static [u8], fallback: Option<&'static MonoFont>) -> Option<Self> {
+    fn new(data: &'static [u8], index: u32, fallback: Option<&'static MonoFont>) -> Option<Self> {
         Some(Self {
-            face: Face::parse(data, 0).ok()?,
+            face: Face::parse(data, index).ok()?,
             cache: Mutex::new(HashMap::new()),
             fallback,
         })
@@ -124,8 +124,8 @@ fn bundled(bold: bool) -> &'static MonoFont {
     static FONTS: OnceLock<[MonoFont; 2]> = OnceLock::new();
     let f = FONTS.get_or_init(|| {
         [
-            MonoFont::new(TEXT, None).expect("bundled text font"),
-            MonoFont::new(TEXT_BOLD, None).expect("bundled bold text font"),
+            MonoFont::new(TEXT, 0, None).expect("bundled text font"),
+            MonoFont::new(TEXT_BOLD, 0, None).expect("bundled bold text font"),
         ]
     });
     &f[usize::from(bold)]
@@ -144,7 +144,13 @@ pub fn font(family: &str, bold: bool) -> &'static MonoFont {
         return f;
     }
     let found = find(&k, bold)
-        .and_then(|data| MonoFont::new(Box::leak(data.into_boxed_slice()), Some(bundled(bold))))
+        .and_then(|(index, data)| {
+            MonoFont::new(
+                Box::leak(data.into_boxed_slice()),
+                index,
+                Some(bundled(bold)),
+            )
+        })
         .map(|f| &*Box::leak(Box::new(f)))
         .unwrap_or_else(|| bundled(bold));
     loaded.lock().unwrap().insert((k, bold), found);
@@ -168,10 +174,15 @@ fn font_dirs() -> Vec<PathBuf> {
         "/usr/local/share/fonts",
         "/Library/Fonts",
         "/System/Library/Fonts",
-        "C:\\Windows\\Fonts",
     ] {
         dirs.push(PathBuf::from(d));
     }
+    // The Windows folder is wherever the system says (not always C:).
+    let windir = std::env::var_os("WINDIR").or_else(|| std::env::var_os("SystemRoot"));
+    dirs.push(windir.map_or_else(
+        || PathBuf::from("C:\\Windows\\Fonts"),
+        |w| PathBuf::from(w).join("Fonts"),
+    ));
     if let Some(d) = std::env::var_os("LOCALAPPDATA") {
         dirs.push(PathBuf::from(d).join("Microsoft\\Windows\\Fonts"));
     }
@@ -180,7 +191,7 @@ fn font_dirs() -> Vec<PathBuf> {
 
 /// The bytes of an installed font of family `k` ([`key`] form): files whose name starts with the
 /// family are read, and the one whose name table gives the family and the weight wins.
-fn find(k: &str, bold: bool) -> Option<Vec<u8>> {
+fn find(k: &str, bold: bool) -> Option<(u32, Vec<u8>)> {
     let mut files = Vec::new();
     let mut stack = font_dirs();
     while let Some(dir) = stack.pop() {
@@ -197,36 +208,43 @@ fn find(k: &str, bold: bool) -> Option<Vec<u8>> {
         }
     }
     files.sort();
-    let mut best: Option<(u32, Vec<u8>)> = None;
+    // (distance from the wanted weight, face index in the file, file bytes)
+    let mut best: Option<(u32, u32, Vec<u8>)> = None;
     for p in files {
         let Ok(data) = std::fs::read(&p) else {
             continue;
         };
-        let Ok(face) = Face::parse(&data, 0) else {
-            continue;
-        };
-        let family = face
-            .names()
-            .into_iter()
-            .filter(|n| n.name_id == name_id::TYPOGRAPHIC_FAMILY || n.name_id == name_id::FAMILY)
-            .filter_map(|n| n.to_string())
-            .any(|n| key(&n) == k);
-        if !family || face.is_italic() {
-            continue;
-        }
-        let want = if bold { 700 } else { 400 };
-        let off = (face.weight().to_number() as i32 - want).unsigned_abs();
-        if best.as_ref().is_none_or(|(b, _)| off < *b) {
-            best = Some((off, data));
+        // A .ttc holds several faces (often regular, bold, italic ...).
+        let faces = ttf_parser::fonts_in_collection(&data).unwrap_or(1);
+        for index in 0..faces {
+            let Ok(face) = Face::parse(&data, index) else {
+                continue;
+            };
+            let family = face
+                .names()
+                .into_iter()
+                .filter(|n| {
+                    n.name_id == name_id::TYPOGRAPHIC_FAMILY || n.name_id == name_id::FAMILY
+                })
+                .filter_map(|n| n.to_string())
+                .any(|n| key(&n) == k);
+            if !family || face.is_italic() {
+                continue;
+            }
+            let want = if bold { 700 } else { 400 };
+            let off = (face.weight().to_number() as i32 - want).unsigned_abs();
+            if best.as_ref().is_none_or(|(b, _, _)| off < *b) {
+                best = Some((off, index, data.clone()));
+            }
         }
     }
-    best.map(|(_, d)| d)
+    best.map(|(_, i, d)| (i, d))
 }
 
 fn is_font(p: &Path) -> bool {
     p.extension()
         .and_then(|e| e.to_str())
-        .is_some_and(|e| matches!(e.to_ascii_lowercase().as_str(), "ttf" | "otf"))
+        .is_some_and(|e| matches!(e.to_ascii_lowercase().as_str(), "ttf" | "otf" | "ttc"))
 }
 
 fn file_key(p: &Path) -> String {

@@ -496,7 +496,7 @@ pub enum Command {
     /// Chant rhythm: "equalist" or "solesmes" (None shows it).
     Interpretation(Option<String>),
     /// Clef of the cursor's staff, by its notation: `treble`, `bass`, `grand [split]` or `neutral`
-    /// (standard), `do` or `fa` (chant); a chant track also takes `c4`, `cb3`, `f3`.
+    /// (standard); a chant track takes `c1`–`c4`, `cb3` or `f1`–`f4`.
     Clef(String),
     /// Initial clef of a chant track (`c4`, `cb3`, `f3`); notes keep their staff positions.
     ChantClef(String),
@@ -592,6 +592,8 @@ pub enum Command {
     OpenDialog,
     /// Write the buffer, to its own file or (exporting) to another path.
     Write(Option<PathBuf>),
+    /// `:write! FILE` / `:save-as! FILE`: save as FILE even if that file already exists.
+    WriteOver(PathBuf),
     /// Write the buffer to a new file and make that its file (`:save-as`); without a path, ask
     /// in the system file dialog.
     SaveAs(Option<PathBuf>),
@@ -770,6 +772,14 @@ impl Command {
             "open-dialog" => OpenDialog,
             "write" | "w" => Write(arg.map(expand_tilde)),
             "save-as" | "saveas" => SaveAs(arg.map(expand_tilde)),
+            "write!" | "w!" => match arg {
+                Some(_) => WriteOver(path()?),
+                None => Write(None),
+            },
+            "save-as!" | "saveas!" => match arg {
+                Some(_) => WriteOver(path()?),
+                None => SaveAs(None),
+            },
             "wall" | "wa" => WriteAll,
             "write-quit" | "wq" | "x" | "wqall" | "wqa" | "xall" | "xa" => WriteQuit,
             "quit" | "q" | "quitall" | "qa" => Quit { force: false },

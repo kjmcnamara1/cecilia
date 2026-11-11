@@ -108,6 +108,13 @@ impl Sequence {
         }
         let perf = &seq.perf;
         let mut events = Vec::with_capacity(perf.notes.len() * 2 + perf.tracks.len() * 3);
+        // Track setup comes before the first note, which is before 0 when audio sync shifts the
+        // timeline back by the recording's padding.
+        let setup_time = perf
+            .notes
+            .iter()
+            .map(|n| seq.time_at_tick(n.start))
+            .fold(0.0, f64::min);
         for t in perf.tracks.iter().filter(|t| !t.muted) {
             let channel = t.channel;
             for event in [
@@ -127,7 +134,10 @@ impl Sequence {
                     value: t.pan,
                 },
             ] {
-                events.push(TimedEvent { time: 0.0, event });
+                events.push(TimedEvent {
+                    time: setup_time,
+                    event,
+                });
             }
         }
         for n in &perf.notes {
@@ -327,6 +337,57 @@ mod tests {
         assert!((seq.time_of(Location { bar: 2, tick: 0 }).unwrap() - 7.0).abs() < 1e-9);
         assert_eq!(seq.location_at(5.0), Some(Location { bar: 1, tick: 1920 }));
         assert_eq!(seq.beats.len(), 12);
+    }
+
+    #[test]
+    fn setup_events_precede_notes_shifted_before_zero() {
+        let beat = Beat {
+            duration: Duration::new(DurationValue::Whole),
+            notes: vec![Note::new(0, 0)],
+            ..Beat::default()
+        };
+        let track = Track {
+            strings: vec![64],
+            bars: vec![
+                Bar {
+                    voices: vec![Voice { beats: vec![beat] }],
+                    ..Default::default()
+                };
+                2
+            ],
+            ..Track::default()
+        };
+        let mut score = Score {
+            tempo: 120,
+            master_bars: vec![MasterBar::default(); 2],
+            tracks: vec![track],
+            ..Score::default()
+        };
+        // The recording starts 1 s before the score.
+        score.audio = Some(AudioSync {
+            file: None,
+            frame_padding: 44_100,
+            ..AudioSync::default()
+        });
+        let seq = Sequence::build(
+            &score,
+            &SequenceOptions {
+                audio_sync: true,
+                ..Default::default()
+            },
+        );
+        let first_note = seq
+            .events
+            .iter()
+            .position(|e| matches!(e.event, MidiEvent::NoteOn { .. }))
+            .unwrap();
+        assert!(seq.events[first_note].time < 0.0);
+        let program = seq
+            .events
+            .iter()
+            .position(|e| matches!(e.event, MidiEvent::Program { .. }))
+            .unwrap();
+        assert!(program < first_note, "program change after the first note");
     }
 
     #[test]

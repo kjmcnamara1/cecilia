@@ -87,7 +87,7 @@ pub fn write_midi(score: &Score) -> Result<Vec<u8>> {
         let mb = &score.master_bars[pb.bar];
         if prev.is_none_or(|p| p.time_signature != mb.time_signature) {
             let ts = mb.time_signature;
-            let den = (ts.denominator.max(1) as f32).log2() as u8;
+            let den = ts.denominator.max(1).ilog2() as u8;
             conductor.push((pb.start, 2, meta(0x58, &[ts.numerator, den, 24, 8])));
         }
         if prev.is_none_or(|p| p.key_signature != mb.key_signature) {
@@ -558,8 +558,7 @@ fn build_bars(
         };
         if !carried.is_empty() {
             let next_onset = times
-                .iter()
-                .find(|&&x| x >= bar_start)
+                .get(times.partition_point(|&x| x < bar_start))
                 .copied()
                 .unwrap_or(u64::MAX);
             let end = carried
@@ -584,8 +583,7 @@ fn build_bars(
                 push_span(&mut beats, onset - t, &[], false, &mut position);
             }
             let next = times
-                .iter()
-                .find(|&&x| x > onset)
+                .get(times.partition_point(|&x| x <= onset))
                 .copied()
                 .unwrap_or(u64::MAX);
             let longest = chord.iter().map(|c| c.0).max().unwrap();

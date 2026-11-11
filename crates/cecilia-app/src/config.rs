@@ -1467,21 +1467,32 @@ pub fn default_config_path() -> Option<PathBuf> {
     directories::ProjectDirs::from("", "", "cecilia").map(|d| d.config_dir().join("config.toml"))
 }
 
-/// Looks for a SoundFont in conventional system locations.
-pub fn find_system_soundfont() -> Option<PathBuf> {
+/// Folders searched for a SoundFont (`.sf2`; the synth reads no other kind), best first:
+/// cecilia's own data directory, then the conventional ones of the platform.
+fn soundfont_dirs() -> Vec<PathBuf> {
     let mut dirs: Vec<PathBuf> = Vec::new();
     if let Some(d) = directories::ProjectDirs::from("", "", "cecilia") {
         dirs.push(d.data_dir().join("soundfonts"));
     }
-    dirs.extend(
-        [
-            "/usr/share/soundfonts",
-            "/usr/share/sounds/sf2",
-            "/usr/share/sounds/sf3",
-        ]
-        .into_iter()
-        .map(PathBuf::from),
-    );
+    if cfg!(target_os = "macos") {
+        dirs.push("/opt/homebrew/share/soundfonts".into());
+        dirs.push("/usr/local/share/soundfonts".into());
+        if let Some(b) = directories::BaseDirs::new() {
+            dirs.push(b.home_dir().join("Library/Audio/Sounds/Banks"));
+        }
+    } else if cfg!(all(unix, not(target_os = "macos"))) {
+        dirs.extend(
+            ["/usr/share/soundfonts", "/usr/share/sounds/sf2"]
+                .into_iter()
+                .map(PathBuf::from),
+        );
+    }
+    dirs
+}
+
+/// Looks for a SoundFont (`.sf2`) in conventional locations.
+pub fn find_system_soundfont() -> Option<PathBuf> {
+    let dirs = soundfont_dirs();
     for preferred in ["default.sf2", "FluidR3_GM.sf2", "GeneralUser-GS.sf2"] {
         for d in &dirs {
             let p = d.join(preferred);
@@ -1501,6 +1512,26 @@ pub fn find_system_soundfont() -> Option<PathBuf> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn soundfont_folders_fit_the_platform() {
+        let dirs = soundfont_dirs();
+        assert!(
+            dirs.iter().any(|d| d.ends_with("soundfonts")),
+            "own data dir first"
+        );
+        assert!(
+            !dirs.iter().any(|d| d.ends_with("sf3")),
+            "only .sf2 is read"
+        );
+        if cfg!(target_os = "macos") {
+            assert!(dirs.contains(&PathBuf::from("/opt/homebrew/share/soundfonts")));
+            assert!(!dirs.contains(&PathBuf::from("/usr/share/soundfonts")));
+        }
+        if cfg!(windows) {
+            assert_eq!(dirs.len(), 1);
+        }
+    }
 
     #[test]
     fn user_bindings_override_and_unbind() {

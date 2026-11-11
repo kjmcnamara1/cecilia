@@ -22,16 +22,16 @@ pub fn read_gp7(bytes: &[u8]) -> Result<Score> {
     let mut file = zip
         .by_name("Content/score.gpif")
         .map_err(|e| err(e.to_string()))?;
-    let mut xml = String::new();
-    std::io::Read::read_to_string(&mut file, &mut xml)?;
+    let mut budget = crate::MAX_ARCHIVE_BYTES;
+    let xml = String::from_utf8_lossy(&crate::read_entry(&mut file, &mut budget, "score.gpif")?)
+        .into_owned();
     drop(file);
     let mut score = read_gpif(&xml)?;
     // The backing track lives in the archive (Content/Assets/...).
     if let Some(audio) = score.audio.as_mut() {
         if let Some(name) = audio.file.clone() {
             if let Ok(mut entry) = zip.by_name(&name) {
-                let mut data = Vec::new();
-                std::io::Read::read_to_end(&mut entry, &mut data)?;
+                let data = crate::read_entry(&mut entry, &mut budget, "backing track")?;
                 audio.embedded = Some(std::sync::Arc::new(data));
             }
         }
@@ -996,7 +996,9 @@ fn read_automations(root: Node, score: &mut Score) {
         match text(a, "Type") {
             Some("Tempo") => {
                 let mut parts = text(a, "Value").unwrap_or("120").split_whitespace();
-                let bpm: f64 = num(parts.next()).unwrap_or(120.0);
+                let bpm: f64 = num(parts.next())
+                    .filter(|b: &f64| b.is_finite() && *b > 0.0)
+                    .unwrap_or(120.0);
                 let factor = match parts.next() {
                     Some("1") => 0.5,
                     Some("3") => 1.5,

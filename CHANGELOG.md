@@ -7,6 +7,20 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Security
+
+- Reading untrusted files is bounded: GPX, zip (`.ccc`, `.gp`, `.mxl`) and decoded audio have size caps, and a huge GABC `nabc-lines`, MusicXML `<forward>`, NaN tempo or oversized chord no longer panics or exhausts memory or time.
+- A score's `audio.file` must stay inside the score's folder (no absolute paths, `..` or `:`); saving a `.gp` no longer embeds files from elsewhere. `:audio FILE` follows the same rule.
+
+### Fixed
+
+- A workspace switch or closing the last view no longer plays the previous file's music or audio from stale caches.
+- The audio track stays in step when speed or transpose changes during playback; pre-roll notes use their track's instrument.
+- `:w FILE` and `:save-as FILE` refuse to overwrite another existing file (use `:w! FILE`); file and workspace writes are atomic (temp file, then rename); `:workspace-delete` only deletes workspace files; workspace files that fail to open stay in the workspace.
+- Guitar Pro 3/4 grace notes read transition and duration in the right order; the GP5 writer refuses what it cannot store (more than 128 tracks, 10,000 bars or 7 strings) instead of dropping notes.
+- Windows AltGr characters are typed as the character, the GUI reconfigures a lost surface, SoundFont search paths cover macOS, the terminal is restored (mouse capture off) after a panic, and swap files are checked against live processes on Unix.
+- Documentation corrected to match the code. `docs/SPEC.md`: removed or marked **Planned** what is not implemented (Fluent i18n, a `cecilia-sync` crate, linked pane cursors, `[fingering]` config, `undo.bin` and `sync.toml` in the native archive, a bundled SoundFont, an ASCII tab writer, in-editor PDF/WAV export, CI); the config sample, CLI synopsis (`play --speed`, no `--audio`, no `--tuning`, no `txt`), crate and dependency tables, pane kinds and native archive contents now describe what exists; `:w FILE` is save-as; unverifiable validation figures and the real-time-safe audio claim are gone. `README.md`: no ASCII tab output, 15 built-in themes (not six), no claims about other programs' features, no unverified Gregorio check, PDF/SVG/PNG/WAV/FLAC export is `cecilia convert`, chant sync is by tapping, repository URL and "tags only" packaging note, config path is for Linux. `TODO.md`: ticked done items, fixed a typo.
+
 ### Added
 
 - Question prompts (save changes, file changed on disk, delete workspace) have clickable buttons (GUI and TUI) alongside the y/n/Esc keys (the GUI fades a highlight in under the pointer); clicking a question card elsewhere no longer dismisses it.
@@ -15,6 +29,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - `docs/OPTIONS.md`: the option types, how to set and get options (config file, `-o`, `:set` / `:get`), and a table of every option with its type, default, description and an example.
 
 ### Changed
+
+- Chant clefs sit on staff lines 1 to 4: `:chant-clef`, `:clef` and GABC reading no longer accept `c5`, `f5` or line 0 (a GABC clef like that is kept as raw text).
 
 - README rewritten for users: features, a comparison with Guitar Pro, MuseScore and others, the WYSIWYG chant editor, pre-1.0 notice, installation per platform, usage; added a demo GIF.
 

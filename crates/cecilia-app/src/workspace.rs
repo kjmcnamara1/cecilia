@@ -382,6 +382,12 @@ impl App {
             mark(*name, g.buffer, &g.cursor, &mut files, &mut marks);
         }
         marks.sort_by(|a, b| a.name.cmp(&b.name).then(a.file.cmp(&b.file)));
+        // Files that could not be opened stay in the workspace (nothing refers to them).
+        for (path, _) in &self.unopened_files {
+            if !files.contains(path) {
+                files.push(path.clone());
+            }
+        }
         let macros = self
             .ed
             .macros
@@ -446,7 +452,8 @@ impl App {
         if let Some(dir) = path.parent() {
             std::fs::create_dir_all(dir).map_err(|e| format!("{}: {e}", dir.display()))?;
         }
-        std::fs::write(path, &text).map_err(|e| format!("{}: {e}", path.display()))
+        crate::swap::write_atomic(path, text.as_bytes())
+            .map_err(|e| format!("{}: {e}", path.display()))
     }
 
     /// Saves the active workspace before the app quits (`ui.workspace_autosave_on_quit`); does
@@ -519,7 +526,15 @@ impl App {
             return self.info(format!("workspace created: {}", workspace_label(&path)));
         }
         let missing = ws.files.iter().filter(|f| !f.exists()).count();
-        if missing > 0 {
+        if !self.unopened_files.is_empty() {
+            let list: Vec<String> = self.unopened_files.iter().map(|(_, e)| e.clone()).collect();
+            self.error(format!(
+                "workspace {}: {} file(s) could not be opened (kept in the workspace): {}",
+                workspace_label(&path),
+                list.len(),
+                list.join("; ")
+            ));
+        } else if missing > 0 {
             self.error(format!(
                 "workspace {}: {missing} file(s) no longer exist",
                 workspace_label(&path)
@@ -544,6 +559,18 @@ impl App {
                 None => return,
             },
         };
+        // Only workspace files go: a path argument could name any file.
+        let in_dir = workspace_dir().is_some_and(|d| path.parent() == Some(d.as_path()));
+        if self.workspace_file.as_ref() != Some(&path)
+            && !in_dir
+            && path.exists()
+            && !is_workspace_file(&path)
+        {
+            return self.error(format!(
+                "workspace-delete: {} is not a workspace file",
+                path.display()
+            ));
+        }
         if force {
             return self.remove_workspace(&path);
         }
@@ -580,14 +607,25 @@ impl App {
     }
 
     pub(crate) fn restore(&mut self, ws: &Workspace) {
+        // Every index is about to mean something else.
+        for b in 0..self.buffers.len().max(1) {
+            self.buffer_replaced(b);
+        }
         self.buffers = vec![Buffer::empty()];
         self.panes.clear();
         self.views.clear();
         // Open the files; the first replaces the empty buffer.
         let mut buffer_of = HashMap::new();
+        self.unopened_files.clear();
         for (i, f) in ws.files.iter().enumerate() {
-            if let Ok(b) = self.open(f) {
-                buffer_of.insert(i, b);
+            match self.open(f) {
+                Ok(b) => {
+                    buffer_of.insert(i, b);
+                }
+                // A file that is gone is dropped (and reported); one that exists but won't open
+                // stays in the workspace.
+                Err(e) if f.exists() => self.unopened_files.push((f.clone(), e)),
+                Err(_) => {}
             }
         }
         let empty = |app: &mut App| -> usize {
@@ -812,6 +850,12 @@ fn valid_workspace_name(name: &str) -> bool {
         && !name.starts_with('.')
         && !name.contains(['/', '\\'])
         && !name.ends_with(".toml")
+}
+
+/// Whether a file is a workspace: a `.toml` that parses as one.
+fn is_workspace_file(path: &Path) -> bool {
+    path.extension().is_some_and(|e| e == "toml")
+        && std::fs::read_to_string(path).is_ok_and(|t| toml::from_str::<Workspace>(&t).is_ok())
 }
 
 /// Whether a workspace argument is a path rather than a name.
@@ -1208,5 +1252,118 @@ waveform = true
         app.restore(&ws);
         assert_eq!(app.views.len(), 1);
         assert_eq!(app.view().buffers.len(), 1);
+    }
+
+    #[test]
+    fn a_workspace_switch_drops_what_was_cached_for_the_old_buffers() {
+        let dir = scratch("stale");
+        let mut app = App::new(Config::default(), None);
+        app.run(Command::New);
+        let (a, b) = (dir.join("a.ccm"), dir.join("b.ccm"));
+        app.run(Command::Write(Some(a.clone())));
+        app.run(Command::New);
+        app.run(Command::Write(Some(b.clone())));
+        let ws_a = Workspace {
+            files: vec![a.clone()],
+            ..workspace_of(&a)
+        };
+        let ws_b = workspace_of(&b);
+        let mut app = App::new(Config::default(), None);
+        app.restore(&ws_a);
+        let mut playback = crate::playback::Playback::default();
+        let old = playback.sequence(&app, 0);
+        app.playing = true;
+        app.playing_buffer = Some(0);
+        app.restore(&ws_b);
+        assert!(
+            !app.playing && app.playing_buffer.is_none(),
+            "playback stops"
+        );
+        for e in app.take_effects() {
+            if matches!(e, crate::Effect::BufferReplaced { .. }) {
+                playback.apply(&mut app, e);
+            }
+        }
+        let new = playback.sequence(&app, 0);
+        assert!(
+            !std::sync::Arc::ptr_eq(&old, &new),
+            "the old sequence was reused"
+        );
+        std::fs::remove_dir_all(dir).ok();
+    }
+
+    /// A workspace holding just `file`.
+    fn workspace_of(file: &Path) -> Workspace {
+        let mut app = App::new(Config::default(), None);
+        app.open(file).unwrap();
+        app.workspace()
+    }
+
+    #[test]
+    fn workspace_delete_refuses_files_that_are_not_workspaces() {
+        let dir = scratch("delete");
+        let song = dir.join("song.ccm");
+        std::fs::write(&song, "not a workspace").unwrap();
+        let other = dir.join("notes.toml");
+        std::fs::write(&other, "x = 1\n").unwrap();
+        let mut app = App::new(Config::default(), None);
+        for f in [&song, &other] {
+            app.delete_workspace(Some(&f.display().to_string()), true);
+            assert!(f.exists(), "{} was deleted", f.display());
+            assert!(app.last_notification().unwrap().error);
+        }
+        // A real workspace file goes.
+        let ws = dir.join("mine.toml");
+        std::fs::write(
+            &ws,
+            toml::to_string_pretty(&App::new(Config::default(), None).workspace()).unwrap(),
+        )
+        .unwrap();
+        app.delete_workspace(Some(&ws.display().to_string()), true);
+        assert!(!ws.exists());
+        std::fs::remove_dir_all(dir).ok();
+    }
+
+    #[test]
+    fn files_that_exist_but_cannot_open_stay_in_the_workspace() {
+        let dir = scratch("unopened");
+        let good = dir.join("good.ccm");
+        let bad = dir.join("bad.ccm");
+        let gone = dir.join("gone.ccm");
+        let mut app = App::new(Config::default(), None);
+        app.run(Command::New);
+        app.run(Command::Write(Some(good.clone())));
+        let mut ws = workspace_of(&good);
+        ws.files = vec![good.clone(), bad.clone(), gone.clone()];
+        std::fs::write(&bad, "garbage, not a score").unwrap();
+        let mut app = App::new(Config::default(), None);
+        app.restore(&ws);
+        assert_eq!(app.unopened_files.len(), 1);
+        let saved = app.workspace().files;
+        assert!(saved.contains(&good) && saved.contains(&bad), "{saved:?}");
+        assert!(!saved.contains(&gone), "a file that is gone is dropped");
+        // Opening reports it.
+        let path = dir.join("ws.toml");
+        std::fs::write(&path, toml::to_string_pretty(&ws).unwrap()).unwrap();
+        let mut app = App::new(Config::default(), None);
+        app.open_workspace(&path.display().to_string(), true);
+        let n = app.last_notification().unwrap();
+        assert!(
+            n.error && n.text.contains("could not be opened"),
+            "{}",
+            n.text
+        );
+        std::fs::remove_dir_all(dir).ok();
+    }
+
+    #[test]
+    fn a_workspace_is_written_atomically() {
+        let dir = scratch("atomic");
+        let path = dir.join("w.toml");
+        let mut app = App::new(Config::default(), None);
+        app.write_workspace(&path).unwrap();
+        assert!(path.exists());
+        assert!(!dir.join("w.toml.tmp").exists(), "temp file left behind");
+        std::fs::remove_dir_all(dir).ok();
     }
 }

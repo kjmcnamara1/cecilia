@@ -1,6 +1,7 @@
 # cecilia — Specification
 
-Status: draft v0.1 (2026-10-23). Decisions recorded from the initial requirements session.
+Status: living document. Written from the initial requirements session (2026-10-23) and kept in step
+with the code (version 0.44.0, pre-1.0). Sections and items marked **Planned** are not implemented.
 
 ## 1. Purpose
 
@@ -20,7 +21,8 @@ neovim (modal keyboard control, buffers/windows/tabs, TOML-configurable keymaps)
 ## 2. Licensing & platforms
 
 - License: dual **MIT / Apache-2.0**. No GPL dependencies (keeps App Store distribution possible).
-- Bundled assets must be permissively licensed (fonts: SIL OFL; SoundFont: MIT or equivalent).
+- Bundled assets must be permissively licensed (fonts: SIL OFL). Planned: a bundled SoundFont (MIT or
+  equivalent); none is bundled today.
 - Platform order: **Linux → Windows/macOS → Android → iOS**. Core crates must be platform-neutral
   from day one (no direct filesystem/audio/windowing calls outside frontend/platform crates).
 
@@ -34,14 +36,13 @@ Cargo workspace; frontends are thin shells over a headless application core.
 | `cecilia-formats` | Import/export of all file formats. |
 | `cecilia-convert` | Staff↔tab linkage, auto-fingering, retuning, chant↔modern transcription. |
 | `cecilia-engrave` | Layout engine → backend-agnostic display list + hit-test map. |
-| `cecilia-audio` | Audio output, decoding, MIDI synthesis, time-stretch/pitch-shift, mixer. |
-| `cecilia-sync` | Audio↔score sync map and beat-detection assist. |
-| `cecilia-app` | Headless app state: buffers, panes/tabs/workspaces, modes, commands, keymaps, undo, config, i18n. |
+| `cecilia-audio` | Audio output, decoding, MIDI synthesis, time-stretch/pitch-shift, beat detection, tuner. |
+| `cecilia-app` | Headless app state: buffers, panes/views/workspaces, modes, commands, keymaps, undo, config; playback and play-along control. The audio↔score sync map (`AudioSync`) is in `cecilia-core`. |
 | `cecilia-tui` | ratatui frontend. |
-| `cecilia-gui` | winit + wgpu + vello + parley frontend (desktop, later mobile). |
+| `cecilia-gui` | winit + vello (wgpu) frontend (desktop; mobile is planned). |
 | `cecilia` | Binary: CLI entry point, launches GUI/TUI/headless commands. |
 
-Dependency direction: `core ← formats/convert/engrave/sync ← audio ← app ← tui/gui ← cecilia`.
+Dependency direction: `core ← formats/convert/engrave/audio ← app ← tui/gui ← cecilia`.
 `cecilia-app` never depends on a frontend; both frontends drive the same command registry, keymaps and config.
 
 ### 3.1 Key third-party choices
@@ -52,13 +53,12 @@ Dependency direction: `core ← formats/convert/engrave/sync ← audio ← app �
 | audio decode | `symphonia` (mp3, flac, ogg/vorbis, wav, aac/m4a) |
 | MIDI synth | `rustysynth` (SoundFont 2) |
 | time-stretch / pitch-shift | `signalsmith-stretch` (MIT) |
-| TUI | `ratatui` + `crossterm` |
-| GUI | `winit`, `wgpu`, `vello`, `parley` |
+| TUI | `ratatui` |
+| GUI | `winit`, `vello` (which renders through `wgpu`) |
 | config | `toml`, `serde`, `directories` |
 | CLI | `clap` |
-| i18n | `fluent` |
 | zip containers | `zip` |
-| XML (GP7/GPX/MusicXML) | `quick-xml` |
+| XML (GP7/GPX/MusicXML) | `roxmltree` (reading; the writers build the XML as text) |
 
 ## 4. Data model (`cecilia-core`)
 
@@ -73,7 +73,7 @@ Score
 │  ├─ fretted: strings (tuning, MIDI pitch per string), fret count, capo
 │  ├─ staves: which views are shown (tab, standard, slash)
 │  ├─ lyrics_text: the track's lyrics as text (see 4.3), source of the beats' syllables
-│  └─ bars[] (one per master bar; repeat sign `simile`) → voices[] (≥4) → beats[]
+│  └─ bars[] (one per master bar; repeat sign `simile`) → voices[] (up to 4) → beats[]
 │        beat: duration (value, dots, tuplet), rest/empty, text, chord diagram ref,
 │              lyrics, stroke/brush, pick stroke, tremolo/whammy bar, slap/pop/tap, fade in/out,
 │              volume swell, fermata, hairpin, octave sign, beam and stem overrides,
@@ -98,7 +98,7 @@ trill, whammy/tremolo bar (dive, dip, release, return, custom), slap/pop, rasgue
 arpeggio strokes, pick strokes, fingering (left/right hand), dynamics, fade in/out, volume swell,
 let-ring/palm-mute ranges, chord diagrams (barres, fingerings), free time, multiple voices,
 tuplets (incl. nested), lyrics, repeats, alternate endings, directions.
-Anything not yet editable must still round-trip through `extras`.
+The goal is that anything not yet editable still round-trips through `extras`.
 
 The editing palette (`cecilia-app`, `palette.rs`) exposes these as tools: durations, accidentals
 (down to double sharp / flat), dynamics and hairpins, articulations, effects, the six slides,
@@ -162,11 +162,11 @@ conversions. Moving between the kinds is explicit and never changes the buffer y
   out.gp5` (any modern format) does the same.
 - `:modern-to-chant` opens a **new buffer** `[chant] name` from the cursor track only; other
   tracks are left out (the message says so).
-- A `.cc` file from an older version that holds a chant track beside other tracks loads as a modern
-  score, the chant track converted in place as `:chant-to-modern` does (there is no message).
+- A legacy `.cc` file (from before the `.ccc` / `.ccm` split) that holds a chant track beside other
+  tracks loads as a modern score, the chant track converted in place as `:chant-to-modern` does (there is no message).
 
 To accompany a chant: `:chant-to-modern`, clean up the bars, `:track-add organ`. There are no chant
-staves on ordinary tracks (`:notation chant` and `:staff-add chant` are gone; a `.cc` file that
+staves on ordinary tracks (`:notation chant` and `:staff-add chant` are gone; a legacy `.cc` file that
 still names a chant staff on an ordinary track loses it on load). To see a hymn in square
 notation, convert it with `:modern-to-chant` or `cecilia convert in.gp5 out.gabc`. The conversion
 is built in
@@ -210,9 +210,9 @@ tab, commands, settings, limits) is [LYRICS.md](LYRICS.md).
 | GP (GP7/8) | ✔ | ✔ | done (M2); zip with `Content/score.gpif`. Backing track, frame padding and sync points are read and written (M5); an attached external recording is embedded on save |
 | MusicXML (partwise, .musicxml/.mxl) | ✔ | ✔ | done (M2); tuning and string/fret kept for tab; D.S./coda directions and chord diagrams not exported yet |
 | Standard MIDI File | ✔ | ✔ | done (M2); export expands repeats; import quantises to 32nd/triplet grid |
-| GABC (Gregorio) | ✔ | ✔ | done (M6); checked note-for-note against Gregorio 6.2 on its 480-file test suite and on GregoBase chants; written files re-read identically. NABC (adiastematic) sections are kept verbatim |
-| ASCII tab | — | ✔ | shared with TUI rendering |
-| `.ccc` / `.ccm` (native) | ✔ | ✔ | done (M2); see 5.1 |
+| GABC (Gregorio) | ✔ | ✔ | done (M6); glyph rules follow Gregorio's (`gabc-glyphs-determination.c`); reading and writing are covered by the format tests. NABC (adiastematic) sections are kept verbatim |
+| ASCII tab | — | — | **Planned**: there is no `.txt` writer (the TUI draws text tab on screen only) |
+| `.ccc` / `.ccm` (native; legacy `.cc` read, and writable by name) | ✔ | ✔ | done (M2); see 5.1 |
 
 Format detection by magic bytes first, extension second.
 Encoding for GP3–5 strings: Windows-1252, or UTF-8 when the bytes are valid UTF-8.
@@ -221,19 +221,15 @@ Multi-staff parts (a piano grand staff in GPIF or MusicXML) are one model track 
 further staves flagged `extra_staff`; they are engraved together (brace, joined barlines) and
 written back as one multi-staff instrument to GP7, GPX and MusicXML (GP5, which has no staves,
 gets one track per staff). Lyrics: GP3–5 lyric lines are put on the beats with Guitar Pro's
-rules (checked against alphaTab: identical on 8 of 10 corpus files; the other two differ only at
-grace notes, which alphaTab treats as separate beats) and rebuilt from the beats on export when
+rules and rebuilt from the beats on export when
 they were edited. All lyrics read then become the tracks' lyrics text (4.3, [LYRICS.md](LYRICS.md#files)).
 
-**Validation.** Every reader and writer is checked against a local corpus (`test-corpus/`,
-163 Guitar Pro files of all versions):
-- GP3/4/5 → GP5, and every file → GP7, GPX and `.cc`, round-trip through cecilia's own readers
-  without loss (beyond each format's documented limits);
-- PyGuitarPro and alphaTab read the exported GP5/GP7/GPX files with the same note counts as the
-  originals, and cecilia's readers agree with alphaTab's note counts on every original;
-- MIDI export/import keeps 99.99% of sounding notes; `mido` reads every exported file;
-- MusicXML export validates against the MusicXML 4.0 XSD and MuseScore 4 opens 157 of 163
-  files (the rest contain incomplete tuplet groups, which MuseScore rejects).
+**Validation.** Reader and writer tests (`cargo test --workspace`) include a local corpus
+(`test-corpus/`, gitignored: 163 Guitar Pro files and 47 GABC files on the author's machine) when it
+is present, and committed fixtures. Round trips through cecilia's own readers (GP3/4/5 to GP5, files
+to GP7, GPX and `.ccc` / `.ccm`) are tested within each format's limits. Agreement with external
+tools (alphaTab, PyGuitarPro, MuseScore, a MusicXML XSD, `mido`) has been reported by the author but is not
+reproduced by anything in this repository.
 
 ### 5.1 Native `.ccc` / `.ccm` format
 
@@ -242,32 +238,43 @@ One serialization, two extensions: `.ccc` (cecilia chant) is what a chant score 
 is honored. Legacy `.cc` files (the earlier single extension) are still read, never written by
 default.
 
-Zip archive:
-- `manifest.toml`: format version, app version, created/modified.
+Zip archive (`crates/cecilia-formats/src/native.rs`, `FORMAT_VERSION` 2):
+- `manifest.toml`: `format = "cecilia"`, `format_version` (a newer file than the app supports is
+  refused) and `app_version`.
 - `score.json`: versioned serde serialization of `Score` (migrations by version), including
   the audio sync points.
-- `undo.bin`: persisted undo tree (optional).
-- `audio/<file>`: embedded audio (optional; otherwise a relative/absolute path in `sync.toml`).
+- `audio/<file>`: the embedded audio, when the score has some embedded (otherwise the score keeps
+  a path to the audio file in `score.json`).
 
-`:w file.ext` exports to any writable format (by extension); `:w file.ccc` / `:w file.ccm` saves everything.
-A plain `:w` writes back to the buffer's own file only when the buffer has been modified, so an
-untouched original (which may contain data cecilia does not model) is never rewritten.
+**Planned**, not written today: a persisted undo tree (`undo.bin`; undo history is lost on close)
+and any separate `sync.toml` (sync points live in `score.json`). Not everything in a score is
+guaranteed to survive a save as `.ccc` / `.ccm` yet (see `TODO.md`).
+
+`:w file.ext` is save-as (`:save-as`): it writes the buffer to `file.ext` in the format of its
+extension (any writable score format, see section 5) and the buffer then takes the new file
+(`app.rs`, `save_as`). Engravings (PDF, SVG, PNG) and audio (WAV, FLAC) are written by
+`cecilia convert` only. A plain `:w` writes back to the buffer's own file only when the buffer has been
+modified, so an untouched original (which may contain data cecilia does not model) is never
+rewritten.
 
 ## 6. Conversion (`cecilia-convert`)
 
 - **Linked staff/tab**: editing pitch in standard view picks a string/fret; editing tab updates pitch.
 - **Auto-fingering** (staff→tab): dynamic programming over candidate (string, fret) positions per
   beat, minimising cost (fret span within a chord, position shifts, string changes, high frets).
-  Weights, max span and open-string preference come from config (`[fingering]`).
+  The weights, maximum span and open-string preference are fixed in the code; a `[fingering]`
+  config section is **Planned**.
 - **Retune / re-instrument**: change tuning, string count or instrument (guitar→bass, drop D, capo);
   notes are kept by pitch and re-fingered; out-of-range notes are octave-shifted and flagged.
 - **Chant ↔ modern**: neumes → notes using a rhythm interpretation (`equalist` default, `solesmes`
   for episema/mora lengthening); modern → chant groups notes per syllable using neume heuristics,
   always flagged as lossy.
 
-## 7. Playback (`cecilia-audio`, `cecilia-sync`)
+## 7. Playback (`cecilia-audio`, `cecilia-app`)
 
-- MIDI playback through `rustysynth` with a bundled permissive GM SoundFont; user `.sf2/.sf3` in config.
+- MIDI playback through `rustysynth` with a SoundFont (`.sf2`) set as `audio.soundfont`; without one a
+  basic built-in plucked-string synth plays. **Planned**: a bundled General MIDI SoundFont (none is
+  bundled today).
 - Effects rendered: bends/whammy (pitch bend), slides, vibrato, palm mute, dead notes, harmonics,
   let ring, tremolo picking, grace notes, strokes, swing/triplet feel, repeats and directions.
 - Audio track: load mp3/flac/ogg/wav/m4a per score; play alone or mixed with MIDI.
@@ -282,14 +289,16 @@ untouched original (which may contain data cecilia does not model) is never rewr
   Solesmes lengthening); outside them the nearest stretch's rate, and the score tempo with no
   point. After every change `Score::refresh_chant_sync` derives ordinary bar `SyncPoint`s (one at
   each bar's first note) so the player, seeking, waveform, progress bar and loops are unchanged;
-  those are not saved for chant scores (`.cc` writes the note points). Saving as `.gabc` warns that
+  those are not saved for chant scores (`.ccc` writes the note points). Saving as `.gabc` warns that
   audio and sync are not stored. Tapping (`:sync`, `:sync-tap`), `:sync-undo`, `:sync-here` and
   `:sync-nudge` are the ways to set points; the tapped time snaps to the nearest audio onset
   within 70 ms. Automatic sync for chant (pitch tracking and alignment) is not done yet.
-- Practice: speed 25–200% without pitch change, pitch shift ±12 semitones (with cents), A–B loop
+- Practice: speed without pitch change (`<leader>-` / `<leader>=` step ±5% within 25–200%; `:speed N`
+  and `audio.speed` accept 10–400%), pitch shift ±12 semitones (`:pitch`, fractions allowed), A–B loop
   (from a Visual-mode selection), count-in, metronome, speed trainer (increase speed each loop).
-- Mixer: per-track volume/pan/mute/solo, audio-track volume, metronome volume, master volume.
-- Audio thread is real-time safe: no allocation or locks; communication via lock-free queues/atomics.
+- Mixer: per-track volume/mute/solo, audio-track volume and metronome volume, as commands and the
+  tracks pane (per-track pan and a master volume are not exposed yet). The audio thread is fed
+  through `std::sync::mpsc` channels; it is not audited to be allocation- or lock-free.
 - Export: WAV/FLAC rendering of MIDI (and optionally the mixed audio).
 
 ## 8. User interface
@@ -297,9 +306,10 @@ untouched original (which may contain data cecilia does not model) is never rewr
 ### 8.1 Layout model (neovim-like)
 
 - **Buffer**: one open score.
-- **Pane** (window): a view of a buffer. Pane kinds: `tab`, `staff`, `staff+tab`, `chant`,
-  `waveform` (sync editor), `mixer`, `tracks`, `files`, `help`. Panes viewing the same buffer can be
-  cursor-linked or independent (`:set linkcursor`).
+- **Pane** (window): a view of a buffer. Pane kinds (`PaneKind`): a score pane, and the tool
+  panes `tracks`, `waveform` (audio), `piano`, `fretboard`, `tuner`, `properties` and `palette`. A
+  score pane shows its track's staves (standard, tab, slash or chant); each pane has its own
+  cursor. **Planned**: linking the cursors of panes on the same buffer.
 - **View**: an arrangement of panes (split tree) with its own set of loaded buffers, shown as
   bufferline tabs (bufferline.nvim style: file-type icon, middle-truncated name, hover close
   button, modified dot) on the left of the tabline; the views are listed on the right. A file
@@ -337,15 +347,15 @@ the state directory) browsed with `:notifications` (repeats stacked as on screen
 
 ### 8.3 Mouse
 
-Everything reachable by keyboard is also reachable by mouse: click to place the cursor, drag to
+Goal: everything reachable by keyboard is also reachable by mouse: click to place the cursor, drag to
 select, drag pane borders, click tabs, scroll/zoom, context menus that invoke the same commands.
 
 ### 8.4 Frontends
 
-- **GUI** (`cecilia-gui`): full functionality. Score views support three layouts: page, continuous
+- **GUI** (`cecilia-gui`): the complete interface. Score views support three layouts: page, continuous
   horizontal, continuous vertical. The page layout has a design mode (`:design`): bar widths,
   bars per line and beat positions can be adjusted by hand (keys, commands, dragging handles and
-  clicking line-end "+" / "-" buttons with the mouse) and are stored in the score (`Score.design`, native `.cc` format only). Notation uses SMuFL fonts (Bravura, SIL OFL), including the
+  clicking line-end "+" / "-" buttons with the mouse) and are stored in the score (`Score.design`, native `.ccc` / `.ccm` format only). Notation uses SMuFL fonts (Bravura, SIL OFL), including the
   plainchant ranges; square notation is set with the Caeciliae chant font (Oblates of St. Joseph,
   SIL OFL 1.1, bundled unmodified; see `assets/fonts/OFL-Caeciliae.txt`).
 - **TUI tab bar lines** (`cecilia-tui`, `barline.rs`): every bar line is one or more columns that
@@ -378,40 +388,38 @@ select, drag pane borders, click tabs, scroll/zoom, context menus that invoke th
 
 ### 8.5 Output
 
-PDF, SVG, PNG (from the engraving display list), ASCII tab, WAV/FLAC.
+PDF, SVG, PNG (from the engraving display list) and WAV/FLAC, written by `cecilia convert`. **Planned**:
+ASCII tab (`.txt`) output, and PDF/SVG/PNG/WAV/FLAC export from inside the editor.
 
 ## 9. Configuration
 
 File: `$XDG_CONFIG_HOME/cecilia/config.toml` on Linux (via `directories` on other platforms;
-override with `--config`). Reloaded automatically when it changes, and on `:source`.
+override with `--config`). Reloaded automatically when it changes, and on `:source`. Every option
+is a dotted name (`ui.tab_width`) that can also be set with `-o NAME=VALUE` or `:set`. The full list,
+with types and defaults, is in [OPTIONS.md](OPTIONS.md), and `config.example.toml` is a commented
+sample.
 
 ```toml
 [general]
 leader = "<Space>"
-encoding = "cp1252"          # legacy GP string encoding
 
 [ui]
-theme = "dark"
-default_layout = "continuous-vertical"
-tab_width = 3                # TUI: characters per sixteenth
+layout = "vertical"          # page, vertical or horizontal
+tab_width = 2                # TUI: characters per sixteenth
+
+[theme]
+preset = "dark"
 
 [audio]
-device = "default"
-buffer_size = 512
 soundfont = "~/sf/GeneralUser.sf2"
-count_in = true
-
-[fingering]
-max_span = 4
-prefer_open_strings = true
+speed = 1.0
 
 [keymap.normal]
 "<C-s>" = "write"
-"<leader>p" = "play-toggle"
 "gp" = ["goto-bar 1", "play"] # sequences of commands
 
 [keymap.insert]
-"<C-b>" = "toggle-technique bend"
+"<C-b>" = "toggle bend"
 ```
 
 Keymap values are command names (with arguments) or lists of commands. Unknown commands or keys are
@@ -422,15 +430,19 @@ reported at load time without aborting (the previous valid config stays active).
 ```
 cecilia [FILE...]                 open in the TUI
 cecilia --gui [FILE...]           open in the GUI (cecilia.desktop launches this)
-cecilia play FILE [--audio A]     headless playback
-cecilia convert IN OUT            convert by output extension (gp5, gp, gpx, musicxml, mid, gabc, txt,
-                               pdf, svg, png, wav, flac, cecilia); --track, --tuning options
+cecilia play FILE [--speed X]     headless playback
+cecilia convert IN OUT            convert by output extension (gp5, gp, gpx, musicxml, mxl, mid, gabc,
+                                  ccc, ccm, pdf, svg, png, wav, flac);
+                                  --track N, --layout page|vertical|horizontal, --scale S
 cecilia info FILE [--json]        tracks, tunings, tempo, bar count, metadata; --json dumps the model
 ```
 
+Global options: `-W/--workspace NAME`, `--config FILE`, `-o/--option NAME=VALUE ...`.
+
 ## 11. Internationalisation
 
-English only in v1, but every user-facing string goes through Fluent (`.ftl` resources).
+English only. **Planned**: translations, with user-facing strings moved to Fluent (`.ftl`)
+resources. Strings are plain Rust strings today.
 
 ## 12. Out of scope for v1
 
@@ -441,11 +453,11 @@ Lua/plugin API, external MIDI output, MIDI input (step entry / recording), adias
 
 1. **M1 MVP** (done): workspace, `cecilia-core` (fretted subset), GP3/4/5 reader, `cecilia-app` (modes, keymap,
    config, pane tree), TUI tab reader with vim navigation, MIDI playback with moving cursor, `cecilia info`.
-2. **M2 Formats** (done): GP7/8 + GPX read, GP5/GP7 write, MIDI + MusicXML I/O, `.cc`, `cecilia convert`,
+2. **M2 Formats** (done): GP7/8 + GPX read, GP5/GP7 write, MIDI + MusicXML I/O, `.cc` (now `.ccc` / `.ccm`), `cecilia convert`,
    round-trip tests.
 3. **M3 GUI viewer** (done): `cecilia-engrave` (tab + standard staff, 3 layouts), `cecilia-gui` panes/tabs/
    workspaces, PDF/SVG/PNG export.
-4. **M4 Editing** (done; undo history is not yet saved in `.cc`): Insert/Visual/operators, undo tree, macros, full technique set, linked staff↔tab,
+4. **M4 Editing** (done; undo history is not yet saved in `.ccc` / `.ccm`): Insert/Visual/operators, undo tree, macros, the technique set (4.1), linked staff↔tab,
    auto-fingering, retune; TUI basic editing.
 5. **M5 Playalong** (done; the mixer is commands plus the status line rather than a dedicated pane,
    and per-track pan/master volume are not exposed yet): audio loading, waveform/sync pane, manual
@@ -460,7 +472,8 @@ Lua/plugin API, external MIDI output, MIDI input (step entry / recording), adias
 
 - `cargo test --workspace`; parser tests against a local corpus in `test-corpus/` (gitignored,
   may contain copyrighted files) plus small committed fixtures authored for the project.
-- Round-trip property: `read(write(score)) == score` for every writable format, within that
+- Round-trip goal: `read(write(score)) == score` for every writable format, within that
   format's capabilities.
-- `cargo clippy -- -D warnings` and `cargo fmt --check` in CI.
-- Readers never panic on malformed input; they return errors with a location (track/bar/beat).
+- `cargo clippy --workspace --all-targets` and `cargo fmt` are kept clean by hand. **Planned**: CI
+  (GitHub Actions; see `TODO.md`).
+- Goal: readers never panic on malformed input; they return errors with a location (track/bar/beat).

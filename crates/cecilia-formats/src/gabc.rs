@@ -127,7 +127,7 @@ pub fn parse_with_map(text: &str) -> Result<(Chant, SourceMap)> {
         .header("nabc-lines")
         .and_then(|v| v.parse().ok())
         .unwrap_or(1usize)
-        .max(1);
+        .clamp(1, 16);
     let start = body_start(text);
     let (syllables, map) = parse_body(body, nabc_lines).map_err(|e| match e {
         Error::Parse {
@@ -330,7 +330,7 @@ pub fn parse_notes_spanned(s: &str, nabc_lines: usize) -> (Vec<NeumeItem>, Vec<R
     let mut offset = 0;
     for (k, part) in s.split('|').enumerate() {
         let len = part.chars().count();
-        if k % (nabc_lines + 1) != 0 {
+        if k % nabc_lines.saturating_add(1) != 0 {
             items.push(NeumeItem::Raw(format!("|{part}")));
             spans.push(offset - 1..offset + len);
         } else {
@@ -782,6 +782,12 @@ mod tests {
         vé(hi)ni(ig//ih)et(h.) (,) ad(iv./hig) sal(fe~)ván(ghg)das(fg) gen(e_f_e_)tes(e.) :(:) \
         et(e) au(eh)dí(hhi)tam(i) fá(kjki)ci(i)et(i) Dó(ij)mi(ihi)nus(iv./hiHF.) (,) \
         <i>Ps.</i>(::) Gló(ixi)ri(h'_[oh:h])a(gsss)(::)\n";
+
+    #[test]
+    fn huge_nabc_lines_do_not_panic() {
+        let text = "nabc-lines: 18446744073709551615;\n%%\n(c4|x|y) a(f|z)\n";
+        assert!(parse(text).is_ok());
+    }
 
     #[test]
     fn parses_headers_syllables_and_neumes() {

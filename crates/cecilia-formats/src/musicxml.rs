@@ -930,11 +930,11 @@ fn num<T: std::str::FromStr>(s: Option<&str>) -> Option<T> {
 pub fn read_mxl(bytes: &[u8]) -> Result<Score> {
     let mut zip =
         zip::ZipArchive::new(std::io::Cursor::new(bytes)).map_err(|e| err(e.to_string()))?;
+    let mut budget = crate::MAX_ARCHIVE_BYTES;
     let mut read = |name: &str| -> Result<String> {
-        let mut f = zip.by_name(name).map_err(|e| err(format!("{name}: {e}")))?;
-        let mut s = String::new();
-        std::io::Read::read_to_string(&mut f, &mut s)?;
-        Ok(s)
+        let f = zip.by_name(name).map_err(|e| err(format!("{name}: {e}")))?;
+        let data = crate::read_entry(f, &mut budget, name)?;
+        Ok(String::from_utf8_lossy(&data).into_owned())
     };
     let container = read("META-INF/container.xml")?;
     let doc = Document::parse(&container).map_err(|e| err(e.to_string()))?;
@@ -946,6 +946,11 @@ pub fn read_mxl(bytes: &[u8]) -> Result<Score> {
         .to_string();
     read_musicxml(read(&root)?.as_bytes())
 }
+
+/// Longest tick value read from a duration (about 4300 whole notes).
+const MAX_TICKS: u64 = 1 << 24;
+/// Longest gap of rests inserted before a note (64 whole notes).
+const MAX_GAP: u32 = 64 * 3840;
 
 /// One note as read, before beats are assembled.
 #[derive(Clone)]
@@ -1106,7 +1111,7 @@ fn read_part(score: &mut Score, part: Node, index: usize, info: PartInfo) {
             mb.alternate_endings |= mask;
         }
         let scale = |d: u32, divisions: u32| {
-            (d as u64 * TICKS_PER_QUARTER as u64 / divisions.max(1) as u64) as u32
+            (d as u64 * TICKS_PER_QUARTER as u64 / divisions.max(1) as u64).min(MAX_TICKS) as u32
         };
         for el in measure.children().filter(|c| c.is_element()) {
             match el.tag_name().name() {
@@ -1155,7 +1160,8 @@ fn read_part(score: &mut Score, part: Node, index: usize, info: PartInfo) {
                                 let line: u32 = num(st.attribute("line"))?;
                                 let step = text(st, "tuning-step")?;
                                 let alter: i32 = num(text(st, "tuning-alter")).unwrap_or(0);
-                                let octave: i32 = num(text(st, "tuning-octave"))?;
+                                let octave: i32 =
+                                    num::<i32>(text(st, "tuning-octave"))?.clamp(-1, 10);
                                 let pc =
                                     STEPS.iter().position(|(s, a)| *s == step && *a == 0)? as i32;
                                 Some((line, ((octave + 1) * 12 + pc + alter).clamp(0, 127) as u8))
@@ -1182,8 +1188,9 @@ fn read_part(score: &mut Score, part: Node, index: usize, info: PartInfo) {
                             pending_text = Some(w.text().unwrap_or_default().to_string());
                         }
                     }
-                    if let Some(tempo) =
-                        child(el, "sound").and_then(|s| num::<f64>(s.attribute("tempo")))
+                    if let Some(tempo) = child(el, "sound")
+                        .and_then(|s| num::<f64>(s.attribute("tempo")))
+                        .filter(|t| t.is_finite() && *t > 0.0)
                     {
                         let offset: i64 = num(text(el, "offset")).unwrap_or(0);
                         let tick = scale((pos as i64 + offset).max(0) as u32, divisions);
@@ -1232,7 +1239,9 @@ fn read_part(score: &mut Score, part: Node, index: usize, info: PartInfo) {
                     }
                 }
                 "backup" => pos = pos.saturating_sub(num(text(el, "duration")).unwrap_or(0)),
-                "forward" => pos += num::<u32>(text(el, "duration")).unwrap_or(0),
+                "forward" => {
+                    pos = pos.saturating_add(num::<u32>(text(el, "duration")).unwrap_or(0))
+                }
                 "note" => {
                     let duration: u32 = num(text(el, "duration")).unwrap_or(0);
                     let chord = child(el, "chord").is_some();
@@ -1263,7 +1272,7 @@ fn read_part(score: &mut Score, part: Node, index: usize, info: PartInfo) {
                     let pitch = child(el, "pitch").and_then(|p| {
                         let step = text(p, "step")?;
                         let alter: f32 = num(text(p, "alter")).unwrap_or(0.0);
-                        let octave: i32 = num(text(p, "octave"))?;
+                        let octave: i32 = num::<i32>(text(p, "octave"))?.clamp(-1, 10);
                         let pc = STEPS.iter().position(|(s, a)| *s == step && *a == 0)? as i32;
                         u8::try_from((octave + 1) * 12 + pc + alter.round() as i32).ok()
                     });
@@ -1284,8 +1293,11 @@ fn read_part(score: &mut Score, part: Node, index: usize, info: PartInfo) {
                                 .iter()
                                 .position(|(s, a)| Some(*s) == text(u, "display-step") && *a == 0)?
                                 as i32;
-                            u8::try_from((num::<i32>(text(u, "display-octave"))? + 1) * 12 + pc)
-                                .ok()
+                            u8::try_from(
+                                (num::<i32>(text(u, "display-octave"))?.clamp(-1, 10) + 1) * 12
+                                    + pc,
+                            )
+                            .ok()
                         });
                     let technical = child(el, "notations").and_then(|n| child(n, "technical"));
                     let string_fret = technical.and_then(|t| {
@@ -1403,7 +1415,7 @@ fn read_part(score: &mut Score, part: Node, index: usize, info: PartInfo) {
                     voices.entry((staff, voice)).or_default().push(xml);
                     if grace.is_none() && !chord {
                         last_start = pos;
-                        pos += duration;
+                        pos = pos.saturating_add(duration);
                     }
                 }
                 _ => {}
@@ -1515,7 +1527,8 @@ fn build_beats(track: &Track, notes: &[XmlNote], position: &mut i32) -> Vec<Beat
         }
         i = j;
         if first.start > t {
-            for d in crate::midi::durations_for(first.start - t) {
+            // A bogus `<forward>` must not become millions of rests.
+            for d in crate::midi::durations_for((first.start - t).min(MAX_GAP)) {
                 beats.push(Beat::rest(d));
             }
         }
@@ -1577,7 +1590,7 @@ fn build_beats(track: &Track, notes: &[XmlNote], position: &mut i32) -> Vec<Beat
                 });
             }
         }
-        t = first.start + beat.duration.ticks().max(1);
+        t = first.start.saturating_add(beat.duration.ticks().max(1));
         beats.push(beat);
     }
     if beats.is_empty() {
@@ -1622,5 +1635,49 @@ fn place_notes(track: &Track, notes: &[&XmlNote], position: &mut i32) -> Vec<Not
             })
             .collect(),
         _ => notes.iter().map(|n| with(n, 0, n.pitch.unwrap())).collect(),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn doc(body: &str) -> String {
+        format!(
+            "<score-partwise><part-list><score-part id=\"P1\"><part-name>x</part-name></score-part>\
+             </part-list><part id=\"P1\"><measure number=\"1\"><attributes><divisions>1</divisions>\
+             </attributes>{body}</measure></part></score-partwise>"
+        )
+    }
+
+    const NOTE: &str = "<note><pitch><step>C</step><octave>4</octave></pitch><duration>1</duration>\
+                        <type>quarter</type></note>";
+
+    #[test]
+    fn huge_forward_is_bounded() {
+        let xml = doc(&format!(
+            "<forward><duration>4000000000</duration></forward>{NOTE}\
+             <forward><duration>4000000000</duration></forward>{NOTE}"
+        ));
+        let score = read_musicxml(xml.as_bytes()).unwrap();
+        let beats: usize = score.tracks[0]
+            .bars
+            .iter()
+            .map(|b| b.voices[0].beats.len())
+            .sum();
+        assert!(beats < 1000, "{beats} beats");
+    }
+
+    #[test]
+    fn bad_tempo_and_octave_are_ignored() {
+        let xml = doc(&format!(
+            "<direction><direction-type><words>x</words></direction-type>\
+             <sound tempo=\"NaN\"/></direction>\
+             <note><pitch><step>C</step><octave>2147483647</octave></pitch><duration>1</duration>\
+             <type>quarter</type></note>{NOTE}"
+        ));
+        let score = read_musicxml(xml.as_bytes()).unwrap();
+        assert_eq!(score.tempo, 120);
+        assert!(score.master_bars[0].tempo_changes.is_empty());
     }
 }

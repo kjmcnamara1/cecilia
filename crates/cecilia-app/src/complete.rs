@@ -158,6 +158,7 @@ pub const COMMAND_SCOPES: &[(&str, Scope)] = &[
     ("pick-keymap", B),
     ("pick-section", B),
     ("save-as", B),
+    ("save-as!", B),
     ("sections", B),
     ("section-next", B),
     ("section-prev", B),
@@ -314,6 +315,7 @@ pub const COMMAND_SCOPES: &[(&str, Scope)] = &[
     ("workspace-save!", B),
     ("wq", B),
     ("write", B),
+    ("write!", B),
     ("write-quit", B),
     ("yank", B),
     ("scroll-bottom", B),
@@ -685,7 +687,9 @@ pub fn complete_in(
     let ranked = match command {
         "recover" | "recover!" => paths(arg, cwd, None, m),
         "open" | "view-new" => paths(arg, cwd, Some(SCORE_EXTENSIONS), m),
-        "w" | "write" | "save-as" | "saveas" => paths(arg, cwd, Some(WRITE_EXTENSIONS), m),
+        "w" | "w!" | "write" | "write!" | "save-as" | "save-as!" | "saveas" | "saveas!" => {
+            paths(arg, cwd, Some(WRITE_EXTENSIONS), m)
+        }
         "workspace-open" | "workspace-open!" | "workspace-save" | "workspace-save!"
         | "workspace-delete" | "workspace-delete!" => {
             m.rank(crate::workspace::workspace_names(), arg)
@@ -1301,6 +1305,7 @@ pub fn describe(command: &str) -> Option<&'static str> {
         "save-as" => {
             "Write to a new file and make it the buffer's file (no file: the system dialog)"
         }
+        "save-as!" => "Like save-as, overwriting an existing file",
         "open-dialog" => "Choose files to open in the system file picker",
         "page-down" => "Move the cursor half a screen forward",
         "page-up" => "Move the cursor half a screen back",
@@ -1528,7 +1533,8 @@ pub fn describe(command: &str) -> Option<&'static str> {
         "voice-prev" => "Edit the previous voice of the bar",
         "volume" => "Level of midi, audio or metronome",
         "vsplit" => "Split the pane vertically",
-        "w" | "write" => "Save (or save as / export by extension)",
+        "w" | "write" => "Save (or save as a new file; format by extension)",
+        "w!" | "write!" => "Like write FILE, overwriting an existing file",
         "waveform-strip" => "Toggle this pane's waveform strip",
         "waveform" => "Show or hide the waveform tool pane",
         "design" => "Design mode: adjust the page layout by hand (on, off or toggle)",

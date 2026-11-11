@@ -1950,7 +1950,11 @@ impl Ctx<'_> {
     fn draw_hyphens(&self, layout: &mut Layout) {
         let sp = self.sp;
         let mut syl = self.syllables.borrow().clone();
-        syl.sort_by(|a, b| (a.0, a.1, a.2).partial_cmp(&(b.0, b.1, b.2)).unwrap());
+        syl.sort_by(|a, b| {
+            a.0.cmp(&b.0)
+                .then(a.1.total_cmp(&b.1))
+                .then(a.2.total_cmp(&b.2))
+        });
         let size = 1.9 * sp;
         let hyphen = fonts().text_width(FontKind::Text, "-", size);
         for (k, &(page, y, _, right, continues, stars, underline)) in syl.iter().enumerate() {
@@ -3810,7 +3814,8 @@ impl Ctx<'_> {
                 .zip(group.iter())
                 .map(|(e, g)| (*e, g.1))
                 .find(|(e, _)| (*e - extreme).abs() < 1e-6)
-                .unwrap();
+                // (None only if a coordinate is NaN.)
+                .unwrap_or((ends[0], group[0].1));
             let beam_y = |x: f64| anchor.0 + slope * (x - anchor.1);
             for (_, x, ys, _, _) in group.iter() {
                 self.draw_stem(page, *x, ys, up, Some(beam_y(*x)));

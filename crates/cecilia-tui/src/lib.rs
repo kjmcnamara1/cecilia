@@ -28,28 +28,50 @@ use tabview::{Hit, TabView};
 /// Runs the TUI until the user quits.
 pub fn run(mut app: App) -> Result<()> {
     let mut terminal = ratatui::try_init()?;
+    // From here on the terminal is put back however this function ends: normally, by an
+    // error (`?`) or by a panic (the hook runs before the message is printed, so that shows
+    // on the normal screen).
+    let _restore = RestoreTerminal;
+    let previous = std::panic::take_hook();
+    std::panic::set_hook(Box::new(move |info| {
+        restore_terminal();
+        previous(info);
+    }));
     execute!(std::io::stdout(), EnableMouseCapture)?;
     // The kitty keyboard protocol tells Ctrl+Shift+Q from Ctrl+Q and reports Super; terminals
     // without it are skipped silently.
-    let enhanced = ratatui::crossterm::terminal::supports_keyboard_enhancement().unwrap_or(false);
-    if enhanced {
-        let _ = execute!(
+    if ratatui::crossterm::terminal::supports_keyboard_enhancement().unwrap_or(false)
+        && execute!(
             std::io::stdout(),
             PushKeyboardEnhancementFlags(KeyboardEnhancementFlags::DISAMBIGUATE_ESCAPE_CODES)
-        );
-        let hook = std::panic::take_hook();
-        std::panic::set_hook(Box::new(move |info| {
-            let _ = execute!(std::io::stdout(), PopKeyboardEnhancementFlags);
-            hook(info);
-        }));
+        )
+        .is_ok()
+    {
+        KEYBOARD_ENHANCED.store(true, std::sync::atomic::Ordering::Relaxed);
     }
-    let result = event_loop(&mut terminal, &mut app);
-    if enhanced {
+    event_loop(&mut terminal, &mut app)
+}
+
+/// Whether the kitty keyboard flags were pushed (and so must be popped).
+static KEYBOARD_ENHANCED: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
+
+/// Undoes what [`run`] set up on the terminal: keyboard flags, mouse capture, raw mode and the
+/// alternate screen. Safe to call more than once.
+fn restore_terminal() {
+    if KEYBOARD_ENHANCED.swap(false, std::sync::atomic::Ordering::Relaxed) {
         let _ = execute!(std::io::stdout(), PopKeyboardEnhancementFlags);
     }
     let _ = execute!(std::io::stdout(), DisableMouseCapture);
     ratatui::restore();
-    result
+}
+
+/// Restores the terminal when dropped.
+struct RestoreTerminal;
+
+impl Drop for RestoreTerminal {
+    fn drop(&mut self) {
+        restore_terminal();
+    }
 }
 
 /// The lyrics text area as drawn: its left, its first line's row, its height, the wrapped lines

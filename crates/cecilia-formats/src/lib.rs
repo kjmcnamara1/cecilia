@@ -11,6 +11,7 @@ pub mod midi;
 pub mod musicxml;
 pub mod native;
 
+use std::io::Read;
 use std::path::Path;
 
 use cecilia_core::Score;
@@ -30,6 +31,28 @@ pub enum Error {
 }
 
 pub type Result<T> = std::result::Result<T, Error>;
+
+/// Most bytes read from the entries of one archive (a guard against zip bombs).
+pub(crate) const MAX_ARCHIVE_BYTES: u64 = 256 << 20;
+
+/// Reads an archive entry to its end, charging `budget` (bytes left for the whole archive);
+/// an entry that would overrun it is an error rather than an allocation.
+pub(crate) fn read_entry(
+    entry: impl std::io::Read,
+    budget: &mut u64,
+    what: &str,
+) -> Result<Vec<u8>> {
+    let mut data = Vec::new();
+    entry.take(*budget + 1).read_to_end(&mut data)?;
+    if data.len() as u64 > *budget {
+        return Err(Error::Unsupported(format!(
+            "{what} is too large (archives are limited to {} MiB)",
+            MAX_ARCHIVE_BYTES >> 20
+        )));
+    }
+    *budget -= data.len() as u64;
+    Ok(data)
+}
 
 /// Formats cecilia can identify.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -194,6 +217,102 @@ pub fn write_file(score: &Score, path: &Path) -> Result<()> {
         .and_then(|e| e.to_str())
         .unwrap_or_default();
     let bytes = write_bytes(score, ext)?;
-    std::fs::write(path, bytes)?;
+    write_atomic(path, &bytes)
+}
+
+/// Writes `bytes` to `path` through a sibling temporary file renamed over it, so a failed or
+/// interrupted write never leaves a truncated file. A symlink is followed (the file it points
+/// to is replaced) and an existing file keeps its permissions.
+pub fn write_atomic(path: &Path, bytes: &[u8]) -> Result<()> {
+    use std::io::Write;
+    // Follow symlinks to the real target; a missing file is created at `path` itself.
+    let target = match std::fs::canonicalize(path) {
+        Ok(real) => real,
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => path.to_path_buf(),
+        Err(e) => return Err(e.into()),
+    };
+    let name = target.file_name().ok_or_else(|| {
+        Error::Io(std::io::Error::new(
+            std::io::ErrorKind::InvalidInput,
+            "path has no file name",
+        ))
+    })?;
+    let mut tmp_name = std::ffi::OsString::from(".");
+    tmp_name.push(name);
+    tmp_name.push(format!(".{}.tmp", std::process::id()));
+    let tmp = target.with_file_name(tmp_name);
+    let result = (|| -> std::io::Result<()> {
+        let mut file = std::fs::File::create(&tmp)?;
+        file.write_all(bytes)?;
+        if let Ok(meta) = std::fs::metadata(&target) {
+            file.set_permissions(meta.permissions())?;
+        }
+        file.sync_all()?;
+        drop(file);
+        std::fs::rename(&tmp, &target)
+    })();
+    if let Err(e) = result {
+        let _ = std::fs::remove_file(&tmp);
+        return Err(e.into());
+    }
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn scratch(name: &str) -> std::path::PathBuf {
+        let dir = std::env::temp_dir().join(format!("cecilia-{name}-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+        dir
+    }
+
+    #[test]
+    fn read_entry_stops_at_the_budget() {
+        let mut budget = 10;
+        assert_eq!(
+            read_entry(&[1u8; 10][..], &mut budget, "x").unwrap().len(),
+            10
+        );
+        assert_eq!(budget, 0);
+        let mut budget = 10;
+        assert!(read_entry(&[1u8; 11][..], &mut budget, "x").is_err());
+    }
+
+    #[test]
+    fn atomic_write_replaces_keeps_mode_and_follows_symlinks() {
+        use std::os::unix::fs::{PermissionsExt, symlink};
+        let dir = scratch("atomic");
+        let real = dir.join("real.txt");
+        std::fs::write(&real, b"old").unwrap();
+        std::fs::set_permissions(&real, std::fs::Permissions::from_mode(0o640)).unwrap();
+        let link = dir.join("link.txt");
+        symlink(&real, &link).unwrap();
+        write_atomic(&link, b"new").unwrap();
+        assert!(std::fs::symlink_metadata(&link).unwrap().is_symlink());
+        assert_eq!(std::fs::read(&real).unwrap(), b"new");
+        let mode = std::fs::metadata(&real).unwrap().permissions().mode() & 0o777;
+        assert_eq!(mode, 0o640);
+        // No temporary file is left behind, and a new file is created.
+        let fresh = dir.join("fresh.txt");
+        write_atomic(&fresh, b"x").unwrap();
+        let names: Vec<_> = std::fs::read_dir(&dir).unwrap().flatten().collect();
+        assert_eq!(names.len(), 3);
+        std::fs::remove_dir_all(&dir).unwrap();
+    }
+
+    #[test]
+    fn failed_write_leaves_no_temp_file() {
+        let dir = scratch("atomic-fail");
+        // The target is a directory: the rename fails and the temp file is removed.
+        let target = dir.join("d");
+        std::fs::create_dir(&target).unwrap();
+        std::fs::write(target.join("keep"), b"1").unwrap();
+        assert!(write_atomic(&target, b"x").is_err());
+        let names: Vec<_> = std::fs::read_dir(&dir).unwrap().flatten().collect();
+        assert_eq!(names.len(), 1);
+        std::fs::remove_dir_all(&dir).unwrap();
+    }
 }

@@ -97,6 +97,10 @@ enum Cmd {
 
 fn main() -> Result<()> {
     let cli = Cli::parse();
+    // `info` needs no settings, so a broken config file does not stop it.
+    if let Some(Cmd::Info { file, json }) = &cli.command {
+        return info(file, *json);
+    }
     let config_path = cli
         .config
         .clone()
@@ -106,7 +110,7 @@ fn main() -> Result<()> {
         None => Config::parse("", &cli.options).map_err(anyhow::Error::msg)?,
     };
     match cli.command {
-        Some(Cmd::Info { file, json }) => info(&file, json),
+        Some(Cmd::Info { .. }) => unreachable!("handled above"),
         Some(Cmd::Play { file, speed }) => play(&file, &config, speed),
         Some(Cmd::Convert {
             input,
@@ -201,7 +205,8 @@ fn main() -> Result<()> {
             }
             // Opening a workspace at startup is expected, not news (the notification stays in
             // the history).
-            app.notifications.dismiss_where(|c| c.text.starts_with("workspace opened"));
+            app.notifications
+                .dismiss_where(|c| c.text.starts_with("workspace opened"));
             // Files given open as buffer tabs in it; the first one is shown.
             for f in &cli.files {
                 app.run(Command::Edit(f.clone()));
@@ -317,15 +322,36 @@ fn export_engraving(
     Ok(())
 }
 
+/// The audio file a score names, if it is inside the score's folder: an absolute path or one
+/// climbing out with `..` (which a downloaded score could use to read any file) is refused.
+/// Windows-style separators in the stored name are accepted.
+fn audio_path(score_path: &Path, name: &str) -> Option<PathBuf> {
+    use std::path::Component;
+    let rel: PathBuf = name.split(['/', '\\']).filter(|p| !p.is_empty()).collect();
+    if name.starts_with(['/', '\\'])
+        || name.contains(':')
+        || rel
+            .components()
+            .any(|c| !matches!(c, Component::Normal(_) | Component::CurDir))
+    {
+        return None;
+    }
+    Some(score_path.parent().unwrap_or(Path::new(".")).join(rel))
+}
+
 /// Decodes a score's attached audio track (embedded, or a file relative to the score).
 fn load_audio(score: &cecilia_core::Score, score_path: &Path) -> Option<cecilia_audio::AudioClip> {
     let audio = score.audio.as_ref()?;
     let ext = audio.file.as_deref().and_then(|f| f.rsplit('.').next());
     let result = match (&audio.embedded, &audio.file) {
         (Some(bytes), _) => cecilia_audio::AudioClip::decode((**bytes).clone(), ext),
-        (None, Some(f)) => {
-            cecilia_audio::AudioClip::load(&score_path.parent().unwrap_or(Path::new(".")).join(f))
-        }
+        (None, Some(f)) => match audio_path(score_path, f) {
+            Some(p) => cecilia_audio::AudioClip::load(&p),
+            None => {
+                eprintln!("warning: audio file {f} is outside the score's folder; not loaded");
+                return None;
+            }
+        },
         _ => return None,
     };
     match result {
@@ -360,7 +386,10 @@ fn export_audio(
         .soundfont
         .clone()
         .or_else(cecilia_app::config::find_system_soundfont);
-    let (synth, name, _) = cecilia_audio::make_synth(soundfont.as_deref(), rate);
+    let (synth, name, warning) = cecilia_audio::make_synth(soundfont.as_deref(), rate);
+    if let Some(w) = warning {
+        eprintln!("warning: {w}");
+    }
     let length = seq
         .duration
         .max(clip.as_ref().map_or(0.0, |c| c.duration()))
@@ -537,6 +566,23 @@ fn play(path: &Path, config: &Config, speed: Option<f64>) -> Result<()> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn audio_files_stay_inside_the_score_folder() {
+        let score = Path::new("/music/song.gp");
+        assert_eq!(
+            audio_path(score, "take.mp3"),
+            Some(PathBuf::from("/music/take.mp3"))
+        );
+        assert_eq!(
+            audio_path(score, "audio\\take.mp3"),
+            Some(PathBuf::from("/music/audio/take.mp3"))
+        );
+        assert_eq!(audio_path(score, "/etc/passwd"), None);
+        assert_eq!(audio_path(score, "../secret.wav"), None);
+        assert_eq!(audio_path(score, "a/../../secret.wav"), None);
+        assert_eq!(audio_path(score, "C:\\x.wav"), None);
+    }
 
     #[test]
     fn options_then_double_dash_then_files() {

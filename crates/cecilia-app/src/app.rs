@@ -508,6 +508,11 @@ pub enum Effect {
     ScoreChanged {
         buffer: usize,
     },
+    /// A buffer slot now holds another score (closed, replaced by a workspace switch or reused
+    /// for a new file): everything cached for its index is stale and playback of it is over.
+    BufferReplaced {
+        buffer: usize,
+    },
     /// A buffer's audio track was attached, detached or changed.
     AudioChanged {
         buffer: usize,
@@ -669,6 +674,9 @@ pub struct App {
     pub confirm_delete_workspace: Option<PathBuf>,
     /// A pending "file changed on disk: reload?" prompt, for this buffer.
     pub confirm_reload: Option<usize>,
+    /// Files of the last restored workspace that exist but could not be opened, with why:
+    /// saving the workspace keeps them (so a temporary failure doesn't drop them).
+    pub(crate) unopened_files: Vec<(PathBuf, String)>,
     /// When the open files were last looked at for outside changes.
     pub(crate) disk_checked: Option<std::time::Instant>,
     /// Record the active workspace for the next start (`cecilia` without arguments reopens it).
@@ -788,6 +796,7 @@ impl App {
             workspace_file: None,
             confirm_delete_workspace: None,
             confirm_reload: None,
+            unopened_files: Vec::new(),
             disk_checked: None,
             remember_workspace: false,
         };
@@ -1633,6 +1642,7 @@ impl App {
             }
         }
         let index = if self.buffers.len() == 1 && self.buffers[0].path.is_none() {
+            self.buffer_replaced(0);
             self.buffers[0] = buffer;
             0
         } else {
@@ -1733,6 +1743,19 @@ impl App {
         self.show_buffer(next);
     }
 
+    /// A buffer's slot is about to hold something else: playback of it stops and the frontend
+    /// drops what it cached under the index (sequence, audio, loaded player score).
+    pub(crate) fn buffer_replaced(&mut self, buffer: usize) {
+        if self.playing_buffer == Some(buffer) {
+            self.playing = false;
+            self.paused = false;
+            self.paused_at = None;
+            self.play_start = None;
+            self.playing_buffer = None;
+        }
+        self.effects.push(Effect::BufferReplaced { buffer });
+    }
+
     /// Closes a buffer's tab in the active view. Panes showing it switch to the most recent
     /// other buffer they showed that is still in the view, or close if there is none. The
     /// buffer is unloaded once no view has it; unsaved changes then stop the close unless
@@ -1802,6 +1825,7 @@ impl App {
         if !in_other_views {
             self.forget_marks(buffer);
             self.swap_release(buffer);
+            self.buffer_replaced(buffer);
             // Unloaded: the slot stays (indices are shared) but holds nothing.
             self.buffers[buffer] = Buffer {
                 name: "[closed]".into(),
@@ -1867,6 +1891,7 @@ impl App {
         for &b in orphans {
             self.forget_marks(b);
             self.swap_release(b);
+            self.buffer_replaced(b);
             self.buffers[b] = Buffer {
                 name: "[closed]".into(),
                 ..Buffer::empty()
@@ -2938,7 +2963,8 @@ impl App {
                 self.effects.push(Effect::OpenDialog { dir });
             }
             Write(path) => self.write(path),
-            SaveAs(Some(path)) => self.save_as(path),
+            WriteOver(path) => self.save_as_to(path, true),
+            SaveAs(Some(path)) => self.save_as_to(path, false),
             SaveAs(None) => self.request_save_dialog(),
             Source => self.reload_config(),
             CommandMode => self.open_command_line(""),
@@ -3005,7 +3031,7 @@ impl App {
         }
         // `:write FILE` is `:save-as FILE`: the buffer takes the new file.
         if let Some(path) = path {
-            return self.save_as(path);
+            return self.save_as_to(path, false);
         }
         self.write_buffer(index, path);
     }
@@ -3034,7 +3060,13 @@ impl App {
     /// `:save-as`: writes the focused buffer to `path` (format by extension) and makes that its
     /// file, so a later `:w` writes there. The buffer counts as saved. Nothing changes if the
     /// write fails or another buffer already has that file.
-    pub fn save_as(&mut self, mut path: PathBuf) {
+    pub fn save_as(&mut self, path: PathBuf) {
+        self.save_as_to(path, true);
+    }
+
+    /// [`App::save_as`] from a command: without `force` an existing file that is not the
+    /// buffer's own is not overwritten (`:w! FILE` / `:save-as! FILE` do).
+    fn save_as_to(&mut self, mut path: PathBuf, force: bool) {
         // A name without an extension is a native file.
         if path.extension().is_none() {
             path.set_extension(native_extension(&self.buffer().score));
@@ -3046,6 +3078,13 @@ impl App {
         }) {
             let name = self.buffers[other].name.clone();
             return self.error(format!("\"{name}\" is already open in another buffer tab"));
+        }
+        let own = self.buffers[index].path.as_deref();
+        if !force && canonical.is_some() && canonical.as_deref() != own {
+            return self.error(format!(
+                "{} already exists (:w! overwrites it)",
+                path.display()
+            ));
         }
         if !self.write_buffer(index, Some(path.clone())) {
             return;
@@ -3144,11 +3183,13 @@ impl App {
             .filter(|a| is_gp && a.embedded.is_none())
             && let Some(file) = audio.file.as_deref()
         {
-            let file = buffer
-                .path
-                .as_deref()
-                .and_then(Path::parent)
-                .map_or_else(|| PathBuf::from(file), |d| d.join(file));
+            let Some(file) = crate::playalong::score_audio_path(buffer.path.as_deref(), file)
+            else {
+                self.error(format!(
+                    "audio file {file} is outside the score's folder; not embedded"
+                ));
+                return false;
+            };
             match std::fs::read(&file) {
                 Ok(bytes) => {
                     embedded = score.clone();
@@ -4293,6 +4334,46 @@ pub(crate) mod tests {
         app.run(Command::Write(Some(dir.join("out.unknown"))));
         assert!(app.last_notification().unwrap().error);
         std::fs::remove_dir_all(&dir).unwrap();
+    }
+
+    #[test]
+    fn writing_gp_does_not_embed_audio_from_outside_the_score_folder() {
+        let dir = std::env::temp_dir().join(format!("cecilia-embed-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let mut app = test_app();
+        app.buffers[0].score.audio = Some(cecilia_core::AudioSync {
+            file: Some("/etc/hostname".into()),
+            ..Default::default()
+        });
+        let out = dir.join("out.gp");
+        app.run(Command::Write(Some(out.clone())));
+        assert!(app.last_notification().unwrap().error);
+        assert!(!out.exists());
+        std::fs::remove_dir_all(&dir).ok();
+    }
+
+    #[test]
+    fn write_to_an_existing_other_file_needs_a_bang() {
+        let dir = std::env::temp_dir().join(format!("cecilia-over-{}", std::process::id()));
+        std::fs::remove_dir_all(&dir).ok();
+        std::fs::create_dir_all(&dir).unwrap();
+        let other = dir.join("other.ccm");
+        std::fs::write(&other, "precious").unwrap();
+        let mut app = test_app();
+        let before = app.buffers[0].path.clone();
+        for line in ["w", "save-as"] {
+            app.run(Command::parse(&format!("{line} {}", other.display())).unwrap());
+            assert!(app.last_notification().unwrap().error, "{line}");
+            assert_eq!(std::fs::read_to_string(&other).unwrap(), "precious");
+            assert_eq!(app.buffers[0].path, before);
+        }
+        app.run(Command::parse(&format!("w! {}", other.display())).unwrap());
+        assert_ne!(std::fs::read(&other).unwrap(), b"precious");
+        assert_eq!(app.buffers[0].path, other.canonicalize().ok());
+        // Saving again onto the buffer's own file needs no bang.
+        app.run(Command::parse(&format!("w {}", other.display())).unwrap());
+        assert!(!app.last_notification().unwrap().error);
+        std::fs::remove_dir_all(&dir).ok();
     }
 
     /// Files `name` (empty scores) in a temp folder.

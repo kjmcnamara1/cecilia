@@ -25,8 +25,8 @@ Conventions:
 | `new [modern\|chant]`, `enew` | New empty score (modern by default). |
 | `open [FILE]` | Open a file; without a name, the system file dialog. |
 | `open-dialog` | System file dialog. |
-| `write [FILE]`, `w` | Save the buffer, or export it to FILE (format by extension). |
-| `save-as [FILE]`, `saveas` | Save to a new file and make it the buffer's file; without a name, the dialog. |
+| `write [FILE]`, `w`, `write! FILE`, `w! FILE` | Save the buffer, or save it as FILE (the buffer then takes that file; format by extension). An existing file other than the buffer's own is only overwritten with `!`. |
+| `save-as [FILE]`, `saveas`, `save-as! FILE`, `saveas! FILE` | Save to a new file and make it the buffer's file; without a name, the dialog. An existing file is only overwritten with `!`. |
 | `wall`, `wa` | Write every changed file. |
 | `write-quit`, `wq`, `x`, `wqall`, `wqa`, `xall`, `xa` | Write every changed file, then quit. |
 | `quit`, `q`, `quitall`, `qa` | Quit; refused while files have unsaved changes. |
@@ -103,13 +103,13 @@ Keymap-only commands that drive the tool panes while they have the focus:
 | Command | Description |
 | --- | --- |
 | `set OPTION [VALUE]` | Change an option for this session; no value or `default` resets it. |
-| `get OPTION` | Show an option's value. Options are listed in [config.example.toml](config.example.toml). |
+| `get OPTION` | Show an option's value. Options are listed in [OPTIONS.md](OPTIONS.md). |
 | `help`, `h` | Help. |
-| `pick KIND` | Open a picker: `buffer`, `view`, `workspace`, `recent`, `mark`, `macro`, `keymap`, `section` or `history`. |
+| `pick KIND` | Open a picker: `buffer`, `view`, `workspace`, `recent`, `mark`, `macro`, `keymap`, `section`, `notification` or `history`. |
 | `pick-buffer`, `pick-view`, `pick-workspace`, `pick-recent`, `pick-keymap`, `pick-section` | Shortcuts for `pick KIND`. |
 | `keymaps`, `maps` | Keymap picker. |
 | `sections` | Section picker. |
-| `notify [-s SUBJECT] [-t SECONDS] [-u info\|error] [-i ICON] MESSAGE` | Raise a notification (quotes group words; `-t 0` stays). |
+| `notify [-s SUBJECT] [-t SECONDS] [-u info\|error] [-i ICON] MESSAGE` | Raise a notification (quotes group words; `-t 0` stays). Long flags `--subject`, `--timeout`, `--urgency`, `--icon`; urgency also takes `normal`, `low`, `critical`. |
 | `notify-dismiss` | Dismiss the notification cards on screen. |
 | `notifications` | Notification history picker. |
 | `command-mode` | Open the command line. |
@@ -122,7 +122,7 @@ Keymap-only commands that drive the tool panes while they have the focus:
 | --- | --- |
 | `workspace-save [NAME]`, `workspace-save!` | Save the session as a workspace (the active one without a name; `!` overwrites). |
 | `workspace-open [NAME]`, `workspace-open!` | Save the current workspace and switch to NAME (created if new); without a name, a picker. `!` discards unsaved changes instead of saving. |
-| `workspace-delete [NAME]`, `workspace-delete!` | Delete a workspace (the active one without a name); `!` skips the confirmation. |
+| `workspace-delete [NAME]`, `workspace-delete!` | Delete a workspace (the active one without a name); `!` skips the confirmation. Only workspace files go: a path to any other file is refused. |
 
 ## Moving the cursor
 
@@ -173,7 +173,9 @@ Keymap-only commands that drive the tool panes while they have the focus:
 | `run-macro R` | Play the macro in register R. |
 | `macros`, `registers`, `reg` | Macro picker. |
 
-## Notes and beats _(modern)_
+## Notes and beats
+
+Commands here are for modern scores unless marked otherwise; `pitch-up`, `pitch-down`, `octave-up` and `octave-down` work on every score.
 
 | Command | Description |
 | --- | --- |
@@ -198,7 +200,9 @@ Keymap-only commands that drive the tool panes while they have the focus:
 | `capo FRET` | Set the capo. |
 | `reflow` | Redraw barlines to match the time signatures (whole score or selection). |
 
-## Bars and structure _(modern)_
+## Bars and structure
+
+Commands here are for modern scores, except `tempo`, which works on every score.
 
 | Command | Description |
 | --- | --- |
@@ -217,22 +221,24 @@ Keymap-only commands that drive the tool panes while they have the focus:
 | `section [NAME]` | Name a section starting at this bar. |
 | `text [TEXT]` | Text above the beat. |
 
-## Tracks and staves _(modern)_
+## Tracks and staves
+
+Commands here are for modern scores, except `track-instrument`, `track-rename`, `track-rename-start`, `track-volume*`, `track-color`, `lyrics` and `clef`, which work on every score.
 
 | Command | Description |
 | --- | --- |
-| `track-add [KIND]` | Add a track (default `guitar`). |
+| `track-add [KIND]` | Add a track: `guitar` (default), `bass`, `drums`, `piano` or `voice`. |
 | `track-delete` | Delete the track. |
 | `track-rename NAME [N]` | Rename a track (the cursor's without a number). |
 | `track-rename-start` | Rename the selected track in place. |
-| `track-instrument [PROGRAM\|drums]` | General MIDI program 1–128; without an argument, a picker. |
+| `track-instrument [PROGRAM\|drums] [N]` | General MIDI program 1–128 for track N (the cursor's without a number); without an argument, a picker. |
 | `track-volume PERCENT\|+N\|-N`, `track-volume-up`, `track-volume-down` | Track volume. |
 | `track-color [#rrggbb\|off]` | Track colour; none cycles the theme palette. |
 | `notation standard [clef]\|tab\|slash`, `staff` | Show the cursor's staff in another notation. |
 | `staff-add [NOTATION]` | Add a staff to the track. |
 | `staff-remove [N]` | Remove staff N (1 = top; the cursor's by default). |
 | `staff-move N\|+N\|-N` | Move the staff. |
-| `clef NAME` | Clef: `treble`, `bass`, `grand [split]`, `neutral` (standard), `do`, `fa`, or `c1`–`c4`, `cb3`, `f1`–`f4` (chant). |
+| `clef NAME` | Clef: `treble`, `bass`, `grand [split]`, `neutral` (standard), or `c1`–`c4`, `cb3`, `f1`–`f4` (chant). |
 | `lyrics-attach above\|below [TRACK]\|none` | Attach lyrics to the staff. |
 | `lyrics TEXT` | Add lyrics from the cursor on (`\n` = line break). |
 | `lyrics-clear [VERSE]` | Remove a verse (all without a number). |
@@ -279,17 +285,17 @@ Commands marked _(chant)_ only work on a chant score. See [CHANT.md](CHANT.md).
 | `trainer [START TARGET [STEP]\|off]` | Speed trainer, in percent (step 5 by default). |
 | `metronome` | Toggle the metronome. |
 | `count-in`, `countin` | Toggle the count-in. |
-| `volume midi\|audio\|metronome PERCENT` | Mixer level. |
+| `volume midi\|audio\|metronome\|master PERCENT` | Mixer level, 0–150 (`click` is the same as `metronome`). |
 | `mute [N\|audio\|master]`, `solo [N\|audio\|master]` | Mute / solo a track, the audio track or the synth master (default: the cursor's track). |
-| `audio [FILE\|off]` | Attach an audio file (the best match next to the score by default). |
+| `audio [FILE\|off]` | Attach an audio file (the best match next to the score by default). It must be in the score's folder or below; the score needs a file name. |
 | `mix [both\|audio\|midi]` | Mixer source; none cycles. |
-| `pitch SEMITONES` | Pitch-shift the audio. |
+| `pitch SEMITONES` | Pitch-shift the audio (clamped to ±12). |
 | `sync` | Start / stop tapping sync points from the cursor bar. |
 | `sync-tap`, `sync-clear`, `sync-detect` | Tap a point, clear all points, detect beats from the audio. |
 | `sync-unit syllable\|note` _(chant)_ | What one tap syncs. |
-| `sync-undo` _(chant)_ | Take back the last tap. |
+| `sync-undo` | Take back the last tap (chant) or beat sync (modern). |
 | `sync-remove` | Remove the sync point of the cursor (or selection). |
-| `sync-here` | Sync the cursor note at the playhead. |
+| `sync-here` | Sync the cursor note (chant) or beat (modern) at the playhead. |
 | `sync-nudge MS` | Move the sync point under the cursor by MS milliseconds. |
 
 ## Page design

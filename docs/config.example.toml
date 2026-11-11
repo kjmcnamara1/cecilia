@@ -18,6 +18,8 @@ tab_rhythm = "auto"   # rhythm row under tab: "auto" (only when the track has no
 highlight_incomplete_bars = false   # draw the staff lines of bars whose beats don't fill the time signature in red (:set ui.highlight_incomplete_bars toggle)
 chant_chords = "top"   # chant is monophonic: which note of a chord `:modern-to-chant` and `cecilia convert … .gabc` keep — "top", "bottom", or "error" (refuse the conversion; a message names the chord)
 hide_cursor_while_following = true   # …and only the red bar shows then (the edit cursor hides)
+layout = "vertical"   # GUI: default score layout of new panes: "page", "vertical" or "horizontal" (:layout, <leader>v)
+zoom = 1.0   # GUI: default zoom factor at startup (0.1 to 10; <C-=> <C-->, <C-0> change it)
 completion_ignore_case = true   # Tab completion on the command line ignores letter case
 picker_position = 25          # how far down the window (percent) the command palette and pickers sit
 picker_max_items = 12         # the most candidates the command palette and pickers list at once
@@ -105,7 +107,7 @@ preset = "dark"
 # status_b = "#3c3f49"        # the status line's second sections (layout, progress)
 # toolbar = "#2e3037"
 # button_hover = "#484b56"
-# cursor_border = "#141418"  # outline of the edit cursor (default: contrasts with the page)
+# cursor_border = "#141418"  # outline of the edit cursor (default: contrasts with the page); config-file only, not an option for :set / -o
 # capo = "#e1e1e6"            # the capo on the fretboard
 # panel = "#1e2025"           # tracks panel, waveform bar
 # empty_bar = "#373a42"       # bars without notes in the tracks panel
@@ -116,7 +118,7 @@ preset = "dark"
 # marker = "#5abed2"          # terminal score view: headings, beat text
 # lyrics_text = "#e1e1e6"     # the lyrics text area (properties pane): the words
 # lyrics_text_dim = "#9698a0" # …the words with GABC shown (dimmed)
-# lyrics_gabc = "#f0f0f4"     # …(GABC) groups, in bold
+# lyrics_gabc = "#f0f0f4"     # …the other characters inside a GABC group
 # lyrics_label = "#64a0f0"    # …[labels] such as verse numbers, in bold
 # lyrics_anchor = "#f05a5a"   # …(bar:beat) anchors
 # lyrics_clef, lyrics_division, lyrics_note, lyrics_shape, lyrics_attach, lyrics_space,
@@ -202,7 +204,6 @@ clef = "treble"          # clef of a standard staff added without one: treble, b
 # Insert-mode keys on every staff, e.g. durations. Shared defaults: h j k l move the cursor
 # (beat back, string down, string up, beat on), <CR> puts a note at the cursor and moves to the
 # next beat (<A-CR> only adds a beat). On a tab H is hammer-on / pull-off and L let ring.
-# "<A-8>" = "duration 128"
 # "<A-8>" = "duration 128"
 
 # Insert-mode keys for the notation under the cursor, looked up before [keymap.insert]:

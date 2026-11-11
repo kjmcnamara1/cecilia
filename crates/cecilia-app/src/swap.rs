@@ -74,10 +74,29 @@ pub(crate) fn swap_name(path: &Path) -> String {
     format!("{name}.swp")
 }
 
+/// Whether another process with this id exists. Where that can't be told (not Unix) it is
+/// assumed to, so a swap file is never taken from a cecilia that may still be running.
 fn pid_alive(pid: u32) -> bool {
-    cfg!(target_os = "linux")
-        && pid != std::process::id()
-        && Path::new(&format!("/proc/{pid}")).exists()
+    if pid == std::process::id() {
+        return false;
+    }
+    #[cfg(unix)]
+    {
+        // 0 and ids beyond pid_t would address process groups or nothing at all.
+        let Ok(pid) = libc::pid_t::try_from(pid).ok().filter(|p| *p > 0).ok_or(()) else {
+            return false;
+        };
+        // SAFETY: signal 0 only checks that the process exists and may be signalled.
+        if unsafe { libc::kill(pid, 0) } == 0 {
+            return true;
+        }
+        // EPERM: it exists but belongs to someone else.
+        std::io::Error::last_os_error().raw_os_error() == Some(libc::EPERM)
+    }
+    #[cfg(not(unix))]
+    {
+        true
+    }
 }
 
 fn modified_time(path: &Path) -> Option<std::time::SystemTime> {
@@ -86,8 +105,10 @@ fn modified_time(path: &Path) -> Option<std::time::SystemTime> {
 
 /// Writes `bytes` to `path` through a temp file and a rename, so an existing file is never
 /// left half written.
-fn write_atomic(path: &Path, bytes: &[u8]) -> std::io::Result<()> {
-    let tmp = path.with_extension("swp.tmp");
+pub(crate) fn write_atomic(path: &Path, bytes: &[u8]) -> std::io::Result<()> {
+    let mut tmp = path.as_os_str().to_owned();
+    tmp.push(".tmp");
+    let tmp = PathBuf::from(tmp);
     std::fs::write(&tmp, bytes)?;
     std::fs::rename(&tmp, path).inspect_err(|_| {
         std::fs::remove_file(&tmp).ok();
@@ -410,6 +431,23 @@ impl App {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn pid_alive_asks_the_os() {
+        assert!(
+            !pid_alive(std::process::id()),
+            "this process is not 'another' one"
+        );
+        assert!(!pid_alive(0) && !pid_alive(u32::MAX));
+        #[cfg(unix)]
+        {
+            assert!(pid_alive(1), "init exists (EPERM counts as alive)");
+            let mut child = std::process::Command::new("true").spawn().unwrap();
+            let pid = child.id();
+            child.wait().unwrap();
+            assert!(!pid_alive(pid));
+        }
+    }
     use crate::app::tests::test_app;
     use crate::command::Command;
 

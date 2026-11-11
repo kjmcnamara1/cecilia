@@ -1,7 +1,7 @@
 # Default keymap
 
 All bindings can be overridden in `config.toml` under `[keymap.<mode>]`. `<leader>` defaults to `<Space>`.
-Items marked _(M1)_ are implemented in the first milestone; the rest are the planned defaults.
+Items marked _(M1)_ … _(M7)_ name the milestone that introduced them; everything listed is implemented.
 
 ## Key notation
 
@@ -52,14 +52,14 @@ only be used in the GUI there, and `<D-…>` bindings never fire.
 | `0` `<Home>` / `<End>`    | first / last beat of the bar, note or not (`:bar-start`, `:bar-end`)                                                                                      | _(M1)_ |
 | `gg` / `G`                | first bar / last bar (`[count]G` = bar _count_)                                                                                                          | _(M1)_ |
 | `J` / `K`                 | next / previous track                                                                                                                                    | _(M1)_ |
-| `]v` / `[v`, `<A-v>` / `<A-V>` (also insert mode) | edit the next / previous voice of the bar: voices go round through those with notes and one more, which is created empty (`:voice-next`, `:voice-prev`) | |
+| `]v` / `[v` (insert mode: `<A-v>` / `<A-V>`) | edit the next / previous voice of the bar: voices go round through those with notes and one more, which is created empty (`:voice-next`, `:voice-prev`) | |
 | `<A-F1>`…`<A-F4>` (also insert mode) | edit voice 1…4 of the bar (`:voice N`); a voice the bar doesn't have yet is created empty. The cursor stays at the same time position, on the beat of that voice sounding there | |
 | `]s` / `[s`         | next / previous section (`[count]` sections away; `''` goes back) |        |
 | `<leader>S`         | sections picker: every section of the file with its bars; Enter jumps there (`:sections`) | |
 | `` `{a-z} `` / `` `{A-Z} ``    | set a mark in this file / a global mark (any file)                                                                                                       |        |
 | `'{mark}`                 | jump to the mark's exact position (a popup lists the marks and where they are); a global mark reopens its file if it was closed. `''` jumps back to before the last jump (also after `gg`, `G`). `'<` / `'>` are the start / end of the last Visual selection, `'^` where Insert mode was last left |        |
 | `zz` / `zt` / `zb`        | scroll the view so the cursor is in the middle / at the top / at the bottom of the pane (the left / right in the horizontal layout; the cursor's own staff line when a system is taller than the pane); the cursor does not move, a count is ignored (`:scroll-center`, `:scroll-top`, `:scroll-bottom`) | |
-| `<C-d>` / `<C-u>`         | half a screen down / up: half the displayed bars in the horizontal layout, else half the displayed rows of bars (rounded up, at least one; in the page layout half the rows on a page, whatever the zoom) keeping the place in the bar and on the staff | _(M1)_ |
+| `<C-d>` / `<C-u>`, `<PageDown>` / `<PageUp>` | half a screen down / up: half the displayed bars in the horizontal layout, else half the displayed rows of bars (rounded up, at least one; in the page layout half the rows on a page, whatever the zoom) keeping the place in the bar and on the staff | _(M1)_ |
 
 ### Voices
 
@@ -67,14 +67,14 @@ A track holds up to four voices (Guitar Pro's): independent rhythmic streams tha
 on their own, sharing the track's instrument, tuning and mixer settings. The status line shows
 `V2` … once the bar has more than one voice or another than the first is being edited (a click
 on it goes to the next voice). Beats, durations, ties, `d` `c` `y` `p` and the other edits act on the
-voice being edited only; transposing, `:retune` and the like act on all voices. `cc` clears only
+voice being edited only; transposing, `:tuning` and the like act on all voices. `cc` clears only
 the voice being edited (leaving it empty); a new voice is empty too (no rest, nothing filled)
 until typed into. The staves draw voices 1 and 3 with stems up and 2 and 4 with stems down,
 their rests offset, beats at the same time on the same column and clashing tab frets side by side;
 the editing palette starts with a button per voice that switches to it and
 highlights the one being edited in that voice's color (`theme.voice_colors`); the terminal tab shows every voice on a shared time grid (the voices not being edited dimmed, in every bar).
 Writing `.gp5` keeps two voices per bar (the status line warns when more with notes are left out);
-`.gp`, `.gpx`, `.cc` and MusicXML keep all four.
+`.gp`, `.gpx`, `.ccc` / `.ccm` and MusicXML keep all four.
 
 ### Playback
 
@@ -88,11 +88,11 @@ Writing `.gp5` keeps two voices per bar (the status line warns when more with no
 | `<leader>m`                 | toggle metronome                                                                                                                                                                                                        | _(M5)_ |
 | `<leader>-` / `<leader>=`   | speed −5% / +5%                                                                                                                                                                                                         | _(M5)_ |
 | `<leader>a`                 | cycle mix: audio + MIDI / audio only / MIDI only                                                                                                                                                                        | _(M5)_ |
-| `<leader>t`                 | sync tap: place the next bar (chant: the next syllable) at the current audio time                                                                                                                                                                  | _(M5)_ |
+| `<leader>t`                 | sync tap: place the next beat (chant: the next syllable) at the current audio time                                                                                                                                                                  | _(M5)_ |
 | `<leader>w`                 | show / hide the waveform tool pane (`:waveform`) | _(M5)_ |
 | `<leader>v`                 | cycle the focused pane's score layout (vertical / page / horizontal); new splits and views copy it                                                                                                                      | _(M3)_ |
 | `<leader>d`                 | design mode on / off: adjust the page layout by hand (see _Design mode_ below)                                                                                                                                           | _(M3)_ |
-| `<C-=>` / `<C-->` / `<C-0>` | zoom the focused pane in / out / reset (GUI); Ctrl+wheel zooms the pane under the mouse                                                                                                                                                                        | _(M3)_ |
+| `<C-=>` (`<C-+>`) / `<C-->` / `<C-0>` | zoom the focused pane in / out / reset (GUI); Ctrl+wheel zooms the pane under the mouse                                                                                                                                                                        | _(M3)_ |
 
 ### Design mode
 
@@ -166,9 +166,9 @@ cancels. `:bdelete!` closes without asking. A new score counts as unchanged unti
 | `<C-w>h/j/k/l`      | focus pane left/down/up/right             | _(M1)_ |
 | `<C-w>w` / `<C-w>W` | focus the next / previous pane in layout order, wrapping (`:focus-next`, `:focus-prev`; `<C-w><C-w>` too) | |
 | `<C-w>p`            | focus the previously focused pane, back and forth (`:focus-last`; `<C-w><C-p>` too) | |
-| `<C-w>q`            | close pane (the last one closes the view) | _(M1)_ |
+| `<C-w>q` / `<C-w>c` | close pane (the last one closes the view) | _(M1)_ |
 | `<C-w>+` / `<C-w>-` | pane taller / shorter by 5% (`:resize +N`, `:resize N` in percent of its split) | |
-| `<C-w>>` / `<C-w><` | pane wider / narrower by 5% (`:vertical-resize`) | |
+| `<C-w>>` / `<C-w><lt>` | pane wider / narrower by 5% (`:vertical-resize`; bound as `<C-w><lt>`) | |
 | `<C-w>=`            | all panes the same size (`:resize-equal`) | |
 | `<C-w>H` `J` `K` `L` | move the pane to the far left / bottom / top / right, spanning the view (`:pane-move-left` …) | |
 | `<C-w>x`            | swap the pane with the next one (`:pane-exchange`) | |
@@ -251,7 +251,7 @@ is typed after it, is one undo step.
 | `<C-a>` / `<C-x>`                                      | pitch up / down a semitone (moves string when the fret runs out)                                  |
 | `r`                                                    | make the beat a rest                                                                              |
 | `t.` / `t3`                                            | toggle dot / triplet                                                                              |
-| `ZZ`                                                   | write and close                                                                                   |
+| `ZZ` / `ZQ`                                            | write all changed files and quit / quit without writing (`:write-quit`, `:quit!`)                 |
 
 The `t` keys depend on the notation under the cursor (`[keymap.normal-tab]`, `-standard`,
 `-slash`, looked up before `[keymap.normal]`; `<F1>` and the keymaps picker list the
@@ -269,7 +269,7 @@ current ones):
 | keys | command |
 | --- | --- |
 | `+` / `-` | step the duration of every selected beat one note value longer / shorter (dots and tuplets stay; a whole note is the longest; the status line says when a bar runs over) (`:duration-longer`, `:duration-shorter`) |
-| `t…` `H` `L` … (the Normal-mode technique keys of the staff), the palette | the range tools below, on every beat of the selection (the selection stays, so several can be applied; `<Esc>` leaves) |
+| `t…` … (the Normal-mode technique keys of the staff), the palette | the range tools below, on every beat of the selection (the selection stays, so several can be applied; `<Esc>` leaves) |
 | `o` | move the cursor to the other end of the selection (`:visual-other-end`) |
 | `i` / `a` | leave the selection and insert a new beat before its first / after its last beat (a bar selection: at the start of its first bar / the end of its last bar), then Insert mode (`:visual-insert`, `:visual-append`) |
 
@@ -307,8 +307,8 @@ act on the bar of every track, as bars are shared.
 | `:`         | command line     | _(M1)_ |
 | `<F1>`      | help: the key bindings of the current mode (Normal, Insert, Visual, command line, picker, tracks/properties/palette pane); `<F1>` or `<Esc>` hides it. Works in every mode; in the Normal modes a user binding of `<F1>` takes precedence |        |
 | `<leader>?` | find a key binding (keymaps picker) |        |
-| `ZZ`        | write and quit   |        |
-| `<C-q>`     | quit cecilia (`:quit`; not while files have unsaved changes) | |
+| `ZZ`        | write all and quit |        |
+| `<C-q>`     | quit cecilia (`:quit`; with unsaved changes it asks whether to save) | |
 
 ## Status line
 
@@ -432,7 +432,7 @@ mode; while the pane has the focus its keys are `[keymap.tracks]`, then the usua
 | `:track-rename NAME [n]` | rename track n (default: the cursor's track) |
 | `:track-instrument [PROGRAM\|drums] [n]` | set a track's General MIDI instrument (1–128) or the drum kit (only an empty track changes between drums and pitched); without a program, a picker |
 | `:track-volume 80` (`+10`, `-10`) / `:track-volume-up` / `:track-volume-down` | the track's volume in percent |
-| `:track-color #rrggbb` / `:track-color off` / `:track-color` | the track's color (saved in `.cc` files) / back to the theme's / the next palette color |
+| `:track-color #rrggbb` / `:track-color off` / `:track-color` | the track's color (saved in `.ccc` / `.ccm` files) / back to the theme's / the next palette color |
 | `:mute [n\|audio\|master]` / `:solo [n\|audio\|master]` | toggle mute / solo of track n (default: the cursor's), the audio track, or the synth master. A row is soloed, muted or neither: turning one on turns the other off. With any row soloed only soloed rows play; a muted row is silent. The master's mute is on when every synth track is muted (it mutes or unmutes them all); its solo is on when any synth track is soloed (it solos them all, or clears their solos) |
 
 ## Properties pane
@@ -568,7 +568,6 @@ commands typed (`:toggle staccato`, `:dynamic p` …) apply to every beat of the
 undo step, and a button is tinted when the whole selection has it:
 
 - Moving between the score and the palette keeps the selection: `<leader>E` focuses the palette (the mode stays Visual); while it has the focus `h` `j` `k` `l` and the arrows move in its grid, not the selection, `<CR>` applies the selected tool to the selection, `/` searches, and `<Esc>` (or `<leader>E` again) gives the focus back to the score, where `hjkl` extend the selection again.
-- Moving between the score and the palette keeps the selection: `<leader>E` focuses the palette (the mode stays Visual); while it has the focus `h` `j` `k` `l` and the arrows move in its grid, not the selection, `<CR>` applies the selected tool to the selection, `/` searches, and `<Esc>` (or `<leader>E` again) gives the focus back to the score, where `hjkl` extend the selection again.
 - Techniques (`:toggle`: staccato, accent, marcato, let ring, palm mute, vibrato, harmonics,
   tremolo, tap / slap / pop, strokes, arpeggio, rasgueado, pick strokes, fermata, fades, grace
   notes, left-hand tapping …): if every beat or note has it, it is taken off all; otherwise it
@@ -641,8 +640,8 @@ Shared keys:
 | keys                         | command                                                         |
 | ---------------------------- | --------------------------------------------------------------- |
 | `<Space>`                    | next beat, appending one (or moving to the next bar) at the end |
-| `<Left>` `<Right>` / `<Up>` `<Down>` | the same as `h` `l` / `k` `j`: previous / next beat (no beat is added), row up / down (across staves). On chant and on drum tracks, where those letters are pitches and instruments, the arrows still move |
-| `h` `l` / `j` `k`            | previous / next beat (no beat is added), row down / up. Not on chant, where they are pitches; on drum tracks `h` and `k` are the hi-hat and kick |
+| `<Left>` `<Right>` / `<Up>` `<Down>` | the same as `h` `l` / `k` `j`: previous / next beat (no beat is added), row up / down (across staves). On drum tracks, where those letters are instruments, the arrows still move |
+| `h` `l` / `j` `k`            | previous / next beat (no beat is added), row down / up. On drum tracks `h` and `k` are the hi-hat and kick |
 | `<CR>`                       | finish the beat: on a tab the fret typed stays (an empty beat becomes a rest); on a standard staff a note is put at the cursor's line or space (in the key; nothing if the beat has a note there already); on a slash staff the slash. Then the cursor goes to the next beat, as `<Space>` (appending one while the bar has room for it, else to the start of the next bar, adding a bar at the end of the score). The beats get the insert duration: the duration tool of the palette, `+` `-` `<A-1>`…`<A-7>`. On a chant score `<CR>` puts a note in the empty beat the cursor is on, see "Chant" |
 | `<A-CR>`                     | new beat after the cursor, staying (`:beat-new`; the old `<CR>`) |
 | `<A-v>` / `<A-V>` / `<A-F1>`…`<A-F4>` | next / previous voice, voice 1…4 (see Voices) |
@@ -769,8 +768,8 @@ values in `config.toml` are clamped or reset to the default, with a warning.
 
 | command                                                              |                                                                                                                                                                                             |
 | -------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `:open {file}` / `:w [file]` / `:q` (quit) / `:wq` (write all, quit) / `:q!`                  | _(M2)_ `:w file.ext` exports by extension                                                                                                                                                   |
-| `:save-as [file]` (`:saveas`) | write to a new file and make it the buffer's file (later `:w` writes there; `:w file` stays an export). No file: the system save dialog (starting beside the current file, suggesting its name or `untitled.ccm` (`.ccc` for a chant); cancelling does nothing; no file extension means `.ccc` for a chant score, `.ccm` otherwise). A plain `:w` on a buffer with no file runs it too. Builds without the `dialog` feature say "use :write FILE" |
+| `:open {file}` / `:w [file]` / `:q` (quit) / `:wq` (write all, quit) / `:q!`                  | _(M2)_ `:w file` is `:save-as file`: the format follows the extension, and the buffer takes the new file                                                                                                                                                   |
+| `:save-as [file]` (`:saveas`) | write to a new file and make it the buffer's file (later `:w` writes there; `:w file` does the same). No file: the system save dialog (starting beside the current file, suggesting its name or `untitled.ccm` (`.ccc` for a chant); cancelling does nothing; no file extension means `.ccc` for a chant score, `.ccm` otherwise). A plain `:w` on a buffer with no file runs it too. Builds without the `dialog` feature say "use :write FILE" |
 | `:wa` (`:wall`) / `:pane-close` | write every changed file / close the focused pane (its view with the last pane); the last pane of the last view cannot be closed (a message says so; close its buffers to reach the [dashboard](#dashboard)); the remaining panes of its split share the space equally again (`ui.equalize_on_close`; off: the neighbour takes it) |
 | `:split` / `:vsplit`                                                 | _(M1)_                                                                                                                                                                                      |
 | `:track {n}`                                                         | _(M1)_                                                                                                                                                                                      |
@@ -880,8 +879,10 @@ lists (`<F1>`, the keymaps picker) and the which-key popup show the both and cha
 modern score the both and modern ones. A command of the other kind still parses when typed in full
 and answers with the kind (`capo: not in a chant score`, `chant-mora: not in a modern score`)
 instead of "unknown command". Chant-only commands are the `:chant-*` ones, `:gabc`,
-`:interpretation` and `:chant-to-modern`; modern-only are durations, tuplets, rests, ties,
-effects, dynamics, tuning, capo, staves, `:lyrics`, bar insertion, `:modern-to-chant` and the like.
+`:interpretation`, `:sync-unit`, `:lyric-mode`, `:lyrics-select`, `:lyrics-delete`, `:lyrics-shift`
+and `:chant-to-modern`; modern-only are durations, tuplets, rests, ties, effects, dynamics, tuning,
+capo, staves, `:lyrics-clear`, `:lyrics-attach`, bar insertion, `:modern-to-chant` and the like
+(`:lyrics` works on both: on a chant it sets the cursor syllable's text).
 The chant score has its own normal-mode layer, `[keymap.normal-chant]` (`[keymap.chant]` is
 accepted as well), looked up before `[keymap.normal]` and only on chant scores:
 
@@ -913,7 +914,7 @@ syllable (each note with `:sync-unit note`); fix the rest by hand.
 
 **Syncing a modern score** works the same way, by beat: every beat (rests included) of the cursor's voice
 takes a sync point of its own, kept on the beat's stable id so that editing the score does not move it
-(it is saved in `.cc` files; Guitar Pro files keep the derived bar points). `<CR>` syncs the beat under
+(it is saved in `.ccc` / `.ccm` files; Guitar Pro files keep the derived bar points). `<CR>` syncs the beat under
 the cursor at the playhead and moves to the next beat; `x`, `u`, `[` `]` `{` `}`, `d` / `c` over a range, Visual mode and the
 mouse on the waveform do what they do on a chant. The waveform's top ruler has a tall tick at the first
 beat of every bar (`bar:1`) and a short one at the others (the beat). There is no sync unit (a beat is
@@ -946,7 +947,7 @@ chant keys, and which modern-track keys answer "not in chant").
 | `:chant-mora` `:chant-episema` `:chant-ictus` | toggle the mora, the horizontal episema or the ictus of the cursor note                              |
 | `:chant-alter flat\|natural`                 | the flat or natural before the cursor note                                                            |
 | `:chant-liquescence deminutus\|ascendens\|descendens` | toggle a liquescence of the cursor note                                                     |
-| `:chant-symbol SYMBOL`                       | add `*` `+` `†` `℣` `℟` to (or take it off) the cursor syllable's text                                |
+| `:chant-symbol SYMBOL`                       | add `*` `+` `†` `℣` `℟` `Ⱥ` to (or take it off) the cursor syllable's text                                |
 | `:score-kind`                                | say whether this is a modern or a chant score and which command converts it (what clicking `MODERN` / `CHANT` in the status line does) |
 | `:modern-to-chant`                           | open the cursor track's melody as chant in a new buffer `[chant] name` (syllables from lyrics; a chord keeps the note `ui.chant_chords` picks); other tracks are left out |
 | `:chant-to-modern`                           | open the chant score as a modern score in a new buffer `[modern] name` (bars as a pitched track, syllables as lyrics); the chant buffer is unchanged |
@@ -956,7 +957,7 @@ chant keys, and which modern-track keys answer "not in chant").
 | command                                    |                                                                                                                                                                                                          |
 | ------------------------------------------ | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | `:audio [file]` / `:audio off`             | attach a recording (mp3, m4a/aac, flac, ogg, wav; relative to the score). Without a file, the best name match next to the score or in its `mp3/`/`audio/` folder                                         |
-| `:sync`                                    | enter (or leave) Sync mode: the waveform shows the sync points and rulers, `<Space>` plays, `<CR>` syncs the cursor's cell (a modern score: the bar) and moves on, `<Esc>` leaves                                                                                                                |
+| `:sync`                                    | enter (or leave) Sync mode: the waveform shows the sync points and rulers, `<Space>` plays, `<CR>` syncs the cursor's cell (a modern score: the beat) and moves on, `<Esc>` leaves                                                                                                                |
 | `:sync-tap` / `:sync-clear`                | sync the cursor beat (chant: note) at the playhead and move on / remove all sync points                                                                                                                                             |
 | `:sync-unit syllable\|note`                | chant: what one sync tap sets (default a syllable; also a row in the chant Score tab)                    |
 | `:sync-remove`                             | chant: remove the sync point of the cursor (or selection)                                               |
@@ -971,8 +972,7 @@ chant keys, and which modern-track keys answer "not in chant").
 | `:pitch {semitones}`                       | shift the recording's pitch (−12…12, keeps tempo)                                                                                                                                                        |
 | `:metronome` / `:count-in` / `:waveform-strip` | toggles (`:waveform-strip`: the focused pane's strip) |
 | `:waveform [on\|off]`                      | the waveform tool pane: the score pane's audio waveform, marking the play position (or the cursor when stopped); no argument toggles |
-| `:export {file}`                           | export by extension                                                                                                                                                                                      |
-| `:design [on\|off\|toggle]`               | design mode (page layout only): the layout can be adjusted by hand, with handles in the GUI and the keys of `[keymap.design]`; the status line shows `design`. The adjustments are saved in `.cc` files |
+| `:design [on\|off\|toggle]`               | design mode (page layout only): the layout can be adjusted by hand, with handles in the GUI and the keys of `[keymap.design]`; the status line shows `design`. The adjustments are saved in `.ccc` / `.ccm` files |
 | `:bar-width N\|+N\|-N\|auto`              | width of the cursor bar in the page layout, in percent of its automatic share of the line (the other bars of the line give up or take the difference so the line still fills the page; a bar is never narrower than 35% of its natural width) |
 | `:bars-per-line N\|+N\|-N\|auto`          | exactly N bars on the cursor's line (squeezed if need be) from the line's first bar on; `auto` hands the line back to the layout |
 | `:line-break` / `:line-join`              | start a new line at the cursor bar / bring the cursor bar back onto the previous line |
