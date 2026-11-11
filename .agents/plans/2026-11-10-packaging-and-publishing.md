@@ -32,7 +32,7 @@ SmartScreen/Gatekeeper warning in the README), Flatpak/Snap/AppImage (not in TOD
 
 ### Phase 1 — GitHub Actions (CI)
 
-1. `.github/workflows/ci.yml`: on push/PR, ubuntu-latest, install `libasound2-dev pkg-config`, `dtolnay/rust-toolchain` stable + `Swatinem/rust-cache`, then `cargo fmt --check`, `cargo clippy --workspace --all-targets -- -D warnings`, `cargo test --workspace`. Add a `rust-version` (1.85) check job with `cargo check --workspace`.
+1. `.github/workflows/ci.yml`: on push/PR, ubuntu-latest, install `libasound2-dev pkg-config`, `dtolnay/rust-toolchain` stable + `Swatinem/rust-cache`, then `cargo fmt --check`, `cargo clippy --workspace --all-targets -- -D warnings`, `cargo test --workspace`. Add a `rust-version` (1.88: the dependencies need it, ratatui 0.30 and time 0.3.55 require 1.88; CI found that the earlier 1.85 was wrong) check job with `cargo check --workspace`.
 2. Make `test-corpus`-dependent tests skip cleanly when the dir is missing (find with `grep -rn test-corpus crates`); verify with `cargo test --workspace` in a worktree lacking the directory.
 3. Add a Windows and macOS `cargo check --workspace` matrix job (this is what proves the later release phases are feasible).
 4. Verify: push a branch, all jobs green.
