@@ -169,7 +169,7 @@ impl ChantClef {
         if flat {
             rest = &rest[1..];
         }
-        let line: u8 = rest.parse().ok().filter(|l| (1..=5).contains(l))?;
+        let line: u8 = rest.parse().ok().filter(|l| (1..=4).contains(l))?;
         Some(Self { kind, line, flat })
     }
 
@@ -1920,6 +1920,16 @@ pub fn group_neumes<'a>(run: &[(usize, &'a ChantNote)]) -> Vec<Vec<(usize, &'a C
 
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn clefs_sit_on_staff_lines_one_to_four() {
+        for ok in ["c1", "c4", "f1", "f4", "cb3", "fb2"] {
+            assert!(ChantClef::parse(ok).is_some(), "{ok}");
+        }
+        for bad in ["c0", "c5", "f5", "cb5", "c", "x3", "c10"] {
+            assert!(ChantClef::parse(bad).is_none(), "{bad}");
+        }
+    }
+
     use super::*;
 
     fn note(p: u8, mods: &[&str]) -> NeumeItem {

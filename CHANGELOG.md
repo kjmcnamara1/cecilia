@@ -30,6 +30,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- Chant clefs sit on staff lines 1 to 4: `:chant-clef`, `:clef` and GABC reading no longer accept `c5`, `f5` or line 0 (a GABC clef like that is kept as raw text).
+
 - README rewritten for users: features, a comparison with Guitar Pro, MuseScore and others, the WYSIWYG chant editor, pre-1.0 notice, installation per platform, usage; added a demo GIF.
 
 ## [0.44.0] - 2026-11-10
