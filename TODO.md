@@ -26,6 +26,7 @@ Planned work. Finished items move to `CHANGELOG.md` under `[Unreleased]`.
   - [ ] Notification history times show UTC on Windows (`notify.rs` `local_time` only uses the local zone on Unix)
   - [ ] Typed paths: `~\` and `\` separators in the path completion and workspace names (`complete.rs`, `workspace.rs`) only understand `/`
 - [ ] MacOS Release
+  - [ ] Never run on real hardware: the author's macOS VM (Intel, x86_64) has no Metal (Ghostty cannot start there) and no working audio output (CoreAudio: "unknown error"). Unverified: `--gui`, `--screenshot`, playback, the tuner and the microphone prompt, the Apple Silicon build. The TUI runs (Terminal.app and iTerm2) and renders; Homebrew does not support Intel Macs
 
 ### Code review follow-ups (2026-11-10)
 
