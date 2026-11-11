@@ -12,7 +12,7 @@ Planned work. Finished items move to `CHANGELOG.md` under `[Unreleased]`.
   - table of each option with type, default value, description, and example
 - [ ] Document all commands in docs/COMMANDS.md
 - [x] Document the specification for the .cc file in a section in docs/SPEC.md
-- [ ] Rewrite README.md for audience=user
+- [x] Rewrite README.md for audience=user
 
 ### Packaging/Publishing
 
