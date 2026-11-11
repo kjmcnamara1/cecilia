@@ -7,7 +7,7 @@ Planned work. Finished items move to `CHANGELOG.md` under `[Unreleased]`.
 - [ ] Static site for documentation (Zensical)
   - [ ] Github pages
 - [x] Document the specification for the .cc file in a section in docs/SPEC.md
-- [ ] Rewrite README.md for audience=user
+- [x] Rewrite README.md for audience=user
 
 ### Packaging/Publishing
 
