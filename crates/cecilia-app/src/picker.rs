@@ -420,7 +420,7 @@ pub(crate) fn tuning_notes(strings: &[u8]) -> String {
 
 /// `~/…` for paths under the home folder.
 fn tilde(path: &std::path::Path) -> String {
-    let home = std::env::var_os("HOME").map(std::path::PathBuf::from);
+    let home = crate::config::home_dir();
     match home.as_deref().and_then(|h| path.strip_prefix(h).ok()) {
         Some(rest) => format!("~/{}", rest.display()),
         None => path.display().to_string(),

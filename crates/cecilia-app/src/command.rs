@@ -1533,10 +1533,7 @@ fn parse_endings(s: &str) -> Result<u8, String> {
 
 fn expand_tilde(p: &str) -> PathBuf {
     match p.strip_prefix("~/") {
-        Some(rest) => std::env::var_os("HOME")
-            .map(PathBuf::from)
-            .unwrap_or_default()
-            .join(rest),
+        Some(rest) => crate::config::home_dir().unwrap_or_default().join(rest),
         None => PathBuf::from(p),
     }
 }

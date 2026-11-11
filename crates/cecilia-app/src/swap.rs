@@ -39,13 +39,19 @@ pub(crate) struct SwapInfo {
     pub history: Option<crate::history::History>,
 }
 
-/// Default swap directory: `$XDG_STATE_HOME/cecilia/swap`, else `~/.local/state/cecilia/swap`.
+/// Default swap directory: `$XDG_STATE_HOME/cecilia/swap`, else `~/.local/state/cecilia/swap`
+/// (on Windows `%LOCALAPPDATA%\cecilia\swap`).
 pub fn default_swap_dir() -> Option<PathBuf> {
     let state = std::env::var_os("XDG_STATE_HOME")
         .filter(|v| !v.is_empty())
         .map(PathBuf::from)
         .or_else(|| {
-            directories::BaseDirs::new().map(|d| d.home_dir().join(".local").join("state"))
+            let dirs = directories::BaseDirs::new()?;
+            Some(if cfg!(windows) {
+                dirs.data_local_dir().to_path_buf()
+            } else {
+                dirs.home_dir().join(".local").join("state")
+            })
         })?;
     Some(state.join("cecilia").join("swap"))
 }

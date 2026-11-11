@@ -1462,6 +1462,11 @@ pub fn clamp_setting(v: f64, lo: f64, hi: f64, default: f64) -> f64 {
     if v.is_nan() { default } else { v.clamp(lo, hi) }
 }
 
+/// The user's home folder (`$HOME`, or the profile folder on Windows), for `~/` in paths.
+pub fn home_dir() -> Option<PathBuf> {
+    directories::BaseDirs::new().map(|d| d.home_dir().to_path_buf())
+}
+
 /// Default config file location (`$XDG_CONFIG_HOME/cecilia/config.toml` on Linux).
 pub fn default_config_path() -> Option<PathBuf> {
     directories::ProjectDirs::from("", "", "cecilia").map(|d| d.config_dir().join("config.toml"))

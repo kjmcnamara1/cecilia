@@ -247,7 +247,7 @@ pub fn workspace_path(arg: &str) -> Option<PathBuf> {
     }
     if arg.contains('/') || arg.ends_with(".toml") {
         let p = match arg.strip_prefix("~/") {
-            Some(rest) => PathBuf::from(std::env::var_os("HOME")?).join(rest),
+            Some(rest) => crate::config::home_dir()?.join(rest),
             None => PathBuf::from(arg),
         };
         return Some(p);

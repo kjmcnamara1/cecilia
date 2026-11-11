@@ -40,15 +40,19 @@ jobs:
       - run: sudo apt-get update && sudo apt-get install -y libasound2-dev pkg-config
       - run: cargo check --workspace --locked
 
-  # Windows and macOS only have to compile for now; the release workflow builds the binaries.
-  check:
-    strategy:
-      fail-fast: false
-      matrix:
-        os: [windows-latest, macos-latest]
-    runs-on: ${{ matrix.os }}
+  # macOS only has to compile for now; the release workflow builds its binaries.
+  check-macos:
+    runs-on: macos-latest
     steps:
       - uses: actions/checkout@v4
       - uses: dtolnay/rust-toolchain@stable
       - uses: Swatinem/rust-cache@v2
       - run: cargo check --workspace --all-targets --locked
+
+  test-windows:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+      - run: cargo test --workspace --locked

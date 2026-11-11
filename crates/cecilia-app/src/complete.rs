@@ -776,8 +776,8 @@ fn paths(
         None => ("", typed),
     };
     let dir = if let Some(rest) = dir_part.strip_prefix("~/") {
-        std::env::var_os("HOME")
-            .map(|h| Path::new(&h).join(rest))
+        crate::config::home_dir()
+            .map(|h| h.join(rest))
             .unwrap_or_default()
     } else if Path::new(dir_part).is_absolute() {
         dir_part.into()

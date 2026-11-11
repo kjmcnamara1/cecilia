@@ -54,7 +54,7 @@ pub use app::{
 };
 pub use chant_text::TextMarks;
 pub use command::{Command, Strip};
-pub use config::{Config, Mode};
+pub use config::{Config, Mode, home_dir};
 pub use editor::Clip;
 pub use keys::{Key, KeyCode};
 pub use swap::default_swap_dir;
