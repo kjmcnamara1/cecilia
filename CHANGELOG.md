@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.44.0] - 2026-11-10
+
 ### Added
 
 - `ui.tab_rhythm` (`auto` / `on` / `off`, `:set ui.tab_rhythm on`): the rhythm row under a tab. `auto`, the default, shows it only when the track has no standard or slash staff.
