@@ -2,7 +2,7 @@
 
 > **For agentic workers:** REQUIRED SUB-SKILL: superpowers:subagent-driven-development (recommended) or superpowers:executing-plans. Steps use checkbox (`- [ ]`) syntax.
 
-> **Status: NOT STARTED (written 2026-11-11).** Tick steps as they are done; when finished, say so here and delete the section from `TODO.md`.
+> **Status: IMPLEMENTED (2026-11-11) on branch `fix/code-review-followups`, one commit per task; awaiting review and the user's go-ahead to merge to `main`.** Deviations: task 2 clef list is `cb1`–`cb4`/`fb1`–`fb4` in completion too; task 6 added no test for the same-path swap name (`live_owner_needs_force` and `live_owner_is_not_auto_recovered` already pin it) and no orphan retention (orphans are announced, never deleted); task 7 used reader-level unit tests with crafted bytes (no corpus test, the corpus is not in CI); task 9 is two lines in `TODO.md` (the AltGr logic was already unit-tested); `cecilia-tui`'s bufferline test wrote a `.cc` file and now writes `.ccc`. Open question 2 stays open: the audio command channel is still `mpsc`. The `TODO.md` section is gone; new TODOs: wide vibrato / feedback harmonic / golpe.
 
 ## Goal
 
@@ -148,4 +148,4 @@ Cannot be done here (no hardware; known VM limitations are already in `TODO.md`'
 
 ## Status
 
-- [ ] Task 1 · [ ] Task 2 · [ ] Task 3 · [ ] Task 4 · [ ] Task 5 · [ ] Task 6 · [ ] Task 7 · [ ] Task 8 · [ ] Task 9
+- [x] Task 1 · [x] Task 2 · [x] Task 3 · [x] Task 4 · [x] Task 5 · [x] Task 6 · [x] Task 7 · [x] Task 8 · [x] Task 9

@@ -23,18 +23,12 @@ Planned work. Finished items move to `CHANGELOG.md` under `[Unreleased]`.
   - [ ] Scoop: `packaging/scoop/cecilia.json` is written but untested; run `packaging/bump-windows.sh` after the first release, test with `scoop install`, then publish to a bucket
   - [ ] Winget: `packaging/winget/` is written but untested; validate with `winget validate` and `wingetcreate`, then PR to `microsoft/winget-pkgs`
   - [ ] Chocolatey: `packaging/choco/` is written but untested; `choco pack`, test install, then push (needs an API key)
+  - [ ] AltGr typing in `--gui` (`cecilia-gui/src/keys.rs`, logic unit-tested): on a German layout AltGr+Q must type `@`, not `<C-A-q>`; also `%WINDIR%\Fonts` fonts load
   - [ ] Notification history times show UTC on Windows (`notify.rs` `local_time` only uses the local zone on Unix)
   - [ ] Typed paths: `~\` and `\` separators in the path completion and workspace names (`complete.rs`, `workspace.rs`) only understand `/`
 - [ ] MacOS Release
+  - [ ] macOS SoundFont default paths, and the bundle's microphone prompt (`NSMicrophoneUsageDescription`) when opening the tuner
   - [ ] Never run on real hardware: the author's macOS VM (Intel, x86_64) has no Metal (Ghostty cannot start there) and no working audio output (CoreAudio: "unknown error"). Unverified: `--gui`, `--screenshot`, playback, the tuner and the microphone prompt, the Apple Silicon build. The TUI runs (Terminal.app and iTerm2) and renders; Homebrew does not support Intel Macs
-
-### Code review follow-ups (2026-11-10)
-
-Left open by the pre-release code review; the rest was fixed (see `CHANGELOG.md`).
-
-- [ ] Not tested on real Windows or macOS: AltGr handling (`cecilia-gui/src/keys.rs`),
-      `%WINDIR%` fonts, macOS SoundFont paths, the macOS bundle's microphone permission
-      (`NSMicrophoneUsageDescription`, needed for the tuner).
 
 ### Refactor
 
