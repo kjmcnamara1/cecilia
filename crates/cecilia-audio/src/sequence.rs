@@ -73,38 +73,38 @@ impl Sequence {
             perf,
             ..Sequence::default()
         };
-        if options.audio_sync {
-            if let Some(audio) = &score.audio {
-                let pad = audio.frame_padding as f64 / SYNC_RATE;
-                seq.offset = -pad;
-                // A chant is timed note by note; anything else bar by bar.
-                let mut anchors: Vec<(u64, f64, f64)> = if audio.note_anchors.is_empty() {
-                    audio
-                        .points
-                        .iter()
-                        .filter_map(|p| {
-                            let pb = seq
-                                .perf
-                                .bars
-                                .iter()
-                                .filter(|b| b.bar == p.bar)
-                                .nth(p.occurrence as usize)?;
-                            Some((pb.start, p.frame as f64 / SYNC_RATE - pad, p.tempo))
-                        })
-                        .collect()
-                } else {
-                    audio
-                        .note_anchors
-                        .iter()
-                        .map(|&(tick, frame, tempo)| (tick, frame as f64 / SYNC_RATE - pad, tempo))
-                        .collect()
-                };
-                anchors.sort_by_key(|a| a.0);
-                anchors.dedup_by_key(|a| a.0);
-                // Keep audio times increasing.
-                anchors.dedup_by(|b, a| b.1 <= a.1);
-                seq.anchors = anchors;
-            }
+        if options.audio_sync
+            && let Some(audio) = &score.audio
+        {
+            let pad = audio.frame_padding as f64 / SYNC_RATE;
+            seq.offset = -pad;
+            // A chant is timed note by note; anything else bar by bar.
+            let mut anchors: Vec<(u64, f64, f64)> = if audio.note_anchors.is_empty() {
+                audio
+                    .points
+                    .iter()
+                    .filter_map(|p| {
+                        let pb = seq
+                            .perf
+                            .bars
+                            .iter()
+                            .filter(|b| b.bar == p.bar)
+                            .nth(p.occurrence as usize)?;
+                        Some((pb.start, p.frame as f64 / SYNC_RATE - pad, p.tempo))
+                    })
+                    .collect()
+            } else {
+                audio
+                    .note_anchors
+                    .iter()
+                    .map(|&(tick, frame, tempo)| (tick, frame as f64 / SYNC_RATE - pad, tempo))
+                    .collect()
+            };
+            anchors.sort_by_key(|a| a.0);
+            anchors.dedup_by_key(|a| a.0);
+            // Keep audio times increasing.
+            anchors.dedup_by(|b, a| b.1 <= a.1);
+            seq.anchors = anchors;
         }
         let perf = &seq.perf;
         let mut events = Vec::with_capacity(perf.notes.len() * 2 + perf.tracks.len() * 3);

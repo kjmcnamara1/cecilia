@@ -28,13 +28,12 @@ pub fn read_gp7(bytes: &[u8]) -> Result<Score> {
     drop(file);
     let mut score = read_gpif(&xml)?;
     // The backing track lives in the archive (Content/Assets/...).
-    if let Some(audio) = score.audio.as_mut() {
-        if let Some(name) = audio.file.clone() {
-            if let Ok(mut entry) = zip.by_name(&name) {
-                let data = crate::read_entry(&mut entry, &mut budget, "backing track")?;
-                audio.embedded = Some(std::sync::Arc::new(data));
-            }
-        }
+    if let Some(audio) = score.audio.as_mut()
+        && let Some(name) = audio.file.clone()
+        && let Ok(mut entry) = zip.by_name(&name)
+    {
+        let data = crate::read_entry(&mut entry, &mut budget, "backing track")?;
+        audio.embedded = Some(std::sync::Arc::new(data));
     }
     Ok(score)
 }
@@ -231,10 +230,10 @@ pub fn read_gpif(xml: &str) -> Result<Score> {
     }
     // Keep a track's clef only where it differs from the one cecilia would choose anyway.
     for t in &mut score.tracks {
-        if let Some(c) = t.clef.take() {
-            if t.staff_clef() != c {
-                t.clef = Some(c);
-            }
+        if let Some(c) = t.clef.take()
+            && t.staff_clef() != c
+        {
+            t.clef = Some(c);
         }
     }
     score.anacrusis = path(root, &["MasterTrack", "Anacrusis"]).is_some();
@@ -446,15 +445,15 @@ fn read_master_bar(n: Node, previous: Option<&MasterBar>) -> MasterBar {
         time_signature: previous.map(|p| p.time_signature).unwrap_or_default(),
         ..MasterBar::default()
     };
-    if let Some((a, b)) = text(n, "Time").and_then(|t| t.split_once('/')) {
-        if let (Ok(num), Ok(den)) = (a.parse::<u8>(), b.parse::<u8>()) {
-            if num > 0 && den > 0 {
-                mb.time_signature = TimeSignature {
-                    numerator: num,
-                    denominator: den,
-                };
-            }
-        }
+    if let Some((a, b)) = text(n, "Time").and_then(|t| t.split_once('/'))
+        && let (Ok(num), Ok(den)) = (a.parse::<u8>(), b.parse::<u8>())
+        && num > 0
+        && den > 0
+    {
+        mb.time_signature = TimeSignature {
+            numerator: num,
+            denominator: den,
+        };
     }
     if let Some(k) = child(n, "Key") {
         mb.key_signature = KeySignature {
@@ -664,11 +663,11 @@ fn read_beat(
         _ => None,
     };
     for nid in ids(text(b, "Notes")) {
-        if let Some(n) = notes.get(nid) {
-            if let Some(mut note) = read_note(*n, track, info, velocity, &mut beat.effects) {
-                note.effects.tremolo_picking = tremolo;
-                beat.notes.push(note);
-            }
+        if let Some(n) = notes.get(nid)
+            && let Some(mut note) = read_note(*n, track, info, velocity, &mut beat.effects)
+        {
+            note.effects.tremolo_picking = tremolo;
+            beat.notes.push(note);
         }
     }
     beat.text = child(b, "FreeText").map(|_| text_or_empty(b, "FreeText"));

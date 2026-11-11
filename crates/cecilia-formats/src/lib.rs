@@ -124,10 +124,8 @@ pub fn read_bytes(bytes: &[u8], path: Option<&Path>) -> Result<Score> {
 /// the syllables the file put on the beats.
 pub fn lyrics_to_text(score: &mut Score, lines: bool) {
     use cecilia_core::gabcplus;
-    if lines {
-        if let Some((t, text)) = gabcplus::text_from_lines(score) {
-            score.tracks[t].lyrics_text = text;
-        }
+    if lines && let Some((t, text)) = gabcplus::text_from_lines(score) {
+        score.tracks[t].lyrics_text = text;
     }
     gabcplus::ensure_text(score);
     for t in 0..score.tracks.len() {

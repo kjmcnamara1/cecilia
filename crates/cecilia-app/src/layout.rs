@@ -94,14 +94,14 @@ impl Node {
                 children,
                 weights,
             } => {
-                if *a == axis {
-                    if let Some(i) = children.iter().position(|c| *c == Node::Leaf(target)) {
-                        // The split's panes share it equally again (fixed ones keep their size).
-                        children.insert(i + 1, Node::Leaf(new));
-                        weights.insert(i + 1, 1.0);
-                        weights.iter_mut().for_each(|w| *w = 1.0);
-                        return true;
-                    }
+                if *a == axis
+                    && let Some(i) = children.iter().position(|c| *c == Node::Leaf(target))
+                {
+                    // The split's panes share it equally again (fixed ones keep their size).
+                    children.insert(i + 1, Node::Leaf(new));
+                    weights.insert(i + 1, 1.0);
+                    weights.iter_mut().for_each(|w| *w = 1.0);
+                    return true;
                 }
                 children.iter_mut().any(|c| c.split(target, new, axis))
             }

@@ -1112,14 +1112,14 @@ impl App {
             .text_scroll
             .get()
             .min(total.saturating_sub(shown));
-        if let Some((caret, row)) = caret {
-            if caret != self.props.text_seen.get() {
-                self.props.text_seen.set(caret);
-                if row < skip {
-                    skip = row;
-                } else if row >= skip + shown {
-                    skip = row + 1 - shown;
-                }
+        if let Some((caret, row)) = caret
+            && caret != self.props.text_seen.get()
+        {
+            self.props.text_seen.set(caret);
+            if row < skip {
+                skip = row;
+            } else if row >= skip + shown {
+                skip = row + 1 - shown;
             }
         }
         self.props.text_scroll.set(skip);
@@ -1191,18 +1191,18 @@ impl App {
     }
 
     fn remove_selection(&mut self) {
-        if let Some(e) = self.props.edit.as_mut() {
-            if let Some((a, b)) = e.selection() {
-                e.remove(a, b);
-                e.caret = a;
-                e.anchor = None;
-                e.visual = None;
-                e.rest();
-                if !e.insert {
-                    self.ed.group = None;
-                }
-                self.apply_live();
+        if let Some(e) = self.props.edit.as_mut()
+            && let Some((a, b)) = e.selection()
+        {
+            e.remove(a, b);
+            e.caret = a;
+            e.anchor = None;
+            e.visual = None;
+            e.rest();
+            if !e.insert {
+                self.ed.group = None;
             }
+            self.apply_live();
         }
     }
 
@@ -1279,10 +1279,10 @@ impl App {
 
     /// The button comes up: a press without a drag selects nothing.
     pub fn text_release(&mut self) {
-        if let Some(e) = self.props.edit.as_mut() {
-            if e.anchor == Some(e.caret) {
-                e.anchor = None;
-            }
+        if let Some(e) = self.props.edit.as_mut()
+            && e.anchor == Some(e.caret)
+        {
+            e.anchor = None;
         }
     }
 
@@ -2215,12 +2215,11 @@ impl App {
             .edit
             .as_mut()
             .filter(|e| e.field == Field::Lyrics)
+            && e.text != now
         {
-            if e.text != now {
-                e.text = now;
-                e.caret = e.caret.min(e.len());
-                e.anchor = None;
-            }
+            e.text = now;
+            e.caret = e.caret.min(e.len());
+            e.anchor = None;
         }
     }
 
@@ -2534,14 +2533,14 @@ impl App {
     /// A click on a row: it selects it, and a double click edits it. A switch flips at once.
     pub fn click_property(&mut self, row: usize, double: bool) {
         // In the lyrics text area a double click is `i`, as `<CR>` is.
-        if let Some(e) = self.props.edit.as_mut().filter(|e| e.modal) {
-            if row == self.props.selected {
-                if double && !e.insert {
-                    e.insert = true;
-                    self.ed.group = Some(false);
-                }
-                return;
+        if let Some(e) = self.props.edit.as_mut().filter(|e| e.modal)
+            && row == self.props.selected
+        {
+            if double && !e.insert {
+                e.insert = true;
+                self.ed.group = Some(false);
             }
+            return;
         }
         let toggle = matches!(
             self.property_rows().get(row).map(|r| &r.kind),
@@ -2592,10 +2591,12 @@ impl App {
             }) => Some(*i),
             _ => None,
         };
-        if let (Some(a), Some(b)) = (at(from), at(to)) {
-            if a != b && self.property_is_staff(from) && self.property_is_staff(to) {
-                self.move_property_staff(a, b);
-            }
+        if let (Some(a), Some(b)) = (at(from), at(to))
+            && a != b
+            && self.property_is_staff(from)
+            && self.property_is_staff(to)
+        {
+            self.move_property_staff(a, b);
         }
     }
 

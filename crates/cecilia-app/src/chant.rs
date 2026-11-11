@@ -199,10 +199,11 @@ impl App {
                 }
             };
             f(chant, n)?;
-            if insert && made {
-                if let Some(si) = chant.syllable_of(n) {
-                    chant.insert_slot(si + 1);
-                }
+            if insert
+                && made
+                && let Some(si) = chant.syllable_of(n)
+            {
+                chant.insert_slot(si + 1);
             }
             Ok(Some(Target::Note(n)))
         });

@@ -88,10 +88,10 @@ pub fn get() -> String {
                 .stdin(Stdio::null())
                 .stderr(Stdio::null())
                 .output();
-            if let Ok(out) = out {
-                if out.status.success() {
-                    return String::from_utf8_lossy(&out.stdout).into_owned();
-                }
+            if let Ok(out) = out
+                && out.status.success()
+            {
+                return String::from_utf8_lossy(&out.stdout).into_owned();
             }
         }
     }

@@ -939,10 +939,10 @@ fn write_beat(
     if let Some(text) = &beat.text {
         let _ = write!(b, "<FreeText>{}</FreeText>", cdata(text));
     }
-    if let Some(c) = &beat.chord {
-        if let Some(i) = ids.chords.iter().position(|x| x == c) {
-            let _ = write!(b, "<Chord>{i}</Chord>");
-        }
+    if let Some(c) = &beat.chord
+        && let Some(i) = ids.chords.iter().position(|x| x == c)
+    {
+        let _ = write!(b, "<Chord>{i}</Chord>");
     }
     if !beat.lyrics.is_empty() {
         b.push_str("<Lyrics>");

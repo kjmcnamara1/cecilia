@@ -127,18 +127,18 @@ impl App {
         self.recent.retain(|p| *p != path);
         self.recent.insert(0, path);
         self.recent.truncate(MAX_RECENT);
-        if self.remember_workspace {
-            if let Some(file) = recent_file() {
-                let text: Vec<String> = self
-                    .recent
-                    .iter()
-                    .map(|p| p.display().to_string())
-                    .collect();
-                if let Some(dir) = file.parent() {
-                    std::fs::create_dir_all(dir).ok();
-                }
-                std::fs::write(file, text.join("\n")).ok();
+        if self.remember_workspace
+            && let Some(file) = recent_file()
+        {
+            let text: Vec<String> = self
+                .recent
+                .iter()
+                .map(|p| p.display().to_string())
+                .collect();
+            if let Some(dir) = file.parent() {
+                std::fs::create_dir_all(dir).ok();
             }
+            std::fs::write(file, text.join("\n")).ok();
         }
     }
 

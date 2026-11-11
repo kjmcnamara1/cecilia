@@ -2981,21 +2981,21 @@ fn draw_waveform(
         x += step;
     }
     // Loop region.
-    if let Some((a, b)) = app.pa.loop_bars {
-        if let (Some(ta), Some(tb)) = (
+    if let Some((a, b)) = app.pa.loop_bars
+        && let (Some(ta), Some(tb)) = (
             playback.time_of(app, buffer, a, 0),
             playback.time_of(app, buffer, b + 1, 0).or(Some(duration)),
-        ) {
-            let rr = Rect::new(x_of(ta).max(r.x0), r.y0, x_of(tb).min(r.x1), r.y1);
-            if rr.width() > 0.0 {
-                scene.fill(
-                    Fill::NonZero,
-                    Affine::IDENTITY,
-                    tc(|t| t.loop_region),
-                    None,
-                    &rr,
-                );
-            }
+        )
+    {
+        let rr = Rect::new(x_of(ta).max(r.x0), r.y0, x_of(tb).min(r.x1), r.y1);
+        if rr.width() > 0.0 {
+            scene.fill(
+                Fill::NonZero,
+                Affine::IDENTITY,
+                tc(|t| t.loop_region),
+                None,
+                &rr,
+            );
         }
     }
     let score = &app.buffers[buffer].score;
@@ -4547,10 +4547,10 @@ fn draw_edit_palette(scene: &mut Scene, app: &App, views: &mut Views, r: Rect) {
         (Some((i, ..)), _) => views.palette_hover = Some((*i, std::time::Instant::now())),
         (None, _) => views.palette_hover = None,
     }
-    if let (Some((_, b, name)), Some((_, since))) = (hovered, views.palette_hover) {
-        if since.elapsed() >= TOOLTIP_DELAY {
-            views.tooltip = Some((b, name));
-        }
+    if let (Some((_, b, name)), Some((_, since))) = (hovered, views.palette_hover)
+        && since.elapsed() >= TOOLTIP_DELAY
+    {
+        views.tooltip = Some((b, name));
     }
 }
 
@@ -5561,18 +5561,17 @@ fn draw_properties(scene: &mut Scene, app: &App, views: &mut Views, r: Rect) {
         );
     }
     // While a staff is dragged: a line in the accent color where it would land.
-    if let Some(Drag::Prop(from, to, _)) = views.drag {
-        if from != to {
-            if let Some(&(_, x0, top, bottom, labelled)) = staff_rows.iter().find(|r| r.0 == to) {
-                let ly = if to > from { bottom + 6.0 } else { top - 6.0 };
-                let x0 = if labelled && to < from { x0 + 44.0 } else { x0 };
-                fill(
-                    scene,
-                    Rect::new(x0, ly - 1.5, bx1, ly + 1.5),
-                    col(th.accent),
-                );
-            }
-        }
+    if let Some(Drag::Prop(from, to, _)) = views.drag
+        && from != to
+        && let Some(&(_, x0, top, bottom, labelled)) = staff_rows.iter().find(|r| r.0 == to)
+    {
+        let ly = if to > from { bottom + 6.0 } else { top - 6.0 };
+        let x0 = if labelled && to < from { x0 + 44.0 } else { x0 };
+        fill(
+            scene,
+            Rect::new(x0, ly - 1.5, bx1, ly + 1.5),
+            col(th.accent),
+        );
     }
 }
 
@@ -6893,10 +6892,10 @@ impl Views {
             PropHit::Row(i) => {
                 app.click_property(i, double);
                 // A click in the lyrics puts the caret where it landed.
-                if double || app.text_editing(i) {
-                    if let Some(pt) = self.props_text.as_ref().filter(|p| p.area.contains((x, y))) {
-                        app.set_text_caret(pt.at(x, y));
-                    }
+                if (double || app.text_editing(i))
+                    && let Some(pt) = self.props_text.as_ref().filter(|p| p.area.contains((x, y)))
+                {
+                    app.set_text_caret(pt.at(x, y));
                 }
             }
         }

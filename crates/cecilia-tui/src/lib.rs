@@ -273,10 +273,10 @@ fn event_loop(terminal: &mut DefaultTerminal, app: &mut App) -> Result<()> {
     while !app.quit {
         playback.sync(app);
         let play_loc = playback.location(app);
-        if app.playing {
-            if let Some((buffer, loc, _, _)) = play_loc {
-                app.follow_playback(buffer, loc.bar, loc.tick);
-            }
+        if app.playing
+            && let Some((buffer, loc, _, _)) = play_loc
+        {
+            app.follow_playback(buffer, loc.bar, loc.tick);
         }
         ui.audio_levels = if app.has_tool(PaneKind::Tracks) || app.has_tool(PaneKind::Audio) {
             playback.bar_levels(app, app.pane().buffer)
@@ -358,10 +358,9 @@ fn event_loop(terminal: &mut DefaultTerminal, app: &mut App) -> Result<()> {
                     {
                         if let (Some(Drag::Select(pane)), Some(track)) =
                             (ui.drag.clone(), app.mouse_track())
+                            && let Some(h) = nearest_hit(&ui.hits, pane, track, m.column, m.row)
                         {
-                            if let Some(h) = nearest_hit(&ui.hits, pane, track, m.column, m.row) {
-                                app.mouse_drag(h.cursor);
-                            }
+                            app.mouse_drag(h.cursor);
                         }
                     }
                     MouseEventKind::Drag(MouseButton::Left) if ui.drag == Some(Drag::Text) => {
@@ -523,14 +522,15 @@ fn event_loop(terminal: &mut DefaultTerminal, app: &mut App) -> Result<()> {
                                 let typing = app.props.edit.as_ref().is_some_and(|e| e.modal);
                                 if let (true, Some((x, y, h, lines, skip))) =
                                     (double || typing, ui.props_text.as_ref())
+                                    && m.row >= *y
+                                    && m.row < y + h
+                                    && m.column >= *x
                                 {
-                                    if m.row >= *y && m.row < y + h && m.column >= *x {
-                                        let row = (*skip + (m.row - y) as usize)
-                                            .min(lines.len().saturating_sub(1));
-                                        if let Some(&(s, e)) = lines.get(row) {
-                                            let col = (m.column - x) as usize;
-                                            app.set_text_caret(s + col.min(e - s));
-                                        }
+                                    let row = (*skip + (m.row - y) as usize)
+                                        .min(lines.len().saturating_sub(1));
+                                    if let Some(&(s, e)) = lines.get(row) {
+                                        let col = (m.column - x) as usize;
+                                        app.set_text_caret(s + col.min(e - s));
                                     }
                                 }
                             }
@@ -1596,7 +1596,7 @@ fn draw_piano(
         buf.set_string(x, area.y, "█", Style::default().fg(rc(key)).bg(rc(t.panel)));
         // The lower row: white keys only (black keys are short); C octaves numbered.
         let low = if is_black(p) { t.page } else { key };
-        let label = if p % 12 == 0 {
+        let label = if p.is_multiple_of(12) {
             ((p / 12) as i32 - 1).to_string()
         } else {
             " ".into()
@@ -2496,28 +2496,27 @@ fn draw_properties(f: &mut Frame, app: &App, area: Rect, ui: &mut Ui) {
         f.buffer_mut().set_string(x0 + 1, y, line, style);
     }
     // While a staff is dragged: a line in the accent color where it would land.
-    if let Some(Drag::Prop(from, to, _)) = ui.drag {
-        if from != to {
-            if let Some(&(_, line, labelled)) = staff_rows.iter().find(|r| r.0 == to) {
-                let ly = if to > from {
-                    line + 1
-                } else {
-                    line.saturating_sub(1)
-                };
-                let from_x = if labelled && to < from {
-                    x0 + 10
-                } else {
-                    x0 + 2
-                };
-                let w = width.saturating_sub((from_x - x0) as usize);
-                f.buffer_mut().set_string(
-                    from_x,
-                    ly,
-                    "━".repeat(w),
-                    Style::default().fg(rc(t.accent)).bg(rc(t.panel)),
-                );
-            }
-        }
+    if let Some(Drag::Prop(from, to, _)) = ui.drag
+        && from != to
+        && let Some(&(_, line, labelled)) = staff_rows.iter().find(|r| r.0 == to)
+    {
+        let ly = if to > from {
+            line + 1
+        } else {
+            line.saturating_sub(1)
+        };
+        let from_x = if labelled && to < from {
+            x0 + 10
+        } else {
+            x0 + 2
+        };
+        let w = width.saturating_sub((from_x - x0) as usize);
+        f.buffer_mut().set_string(
+            from_x,
+            ly,
+            "━".repeat(w),
+            Style::default().fg(rc(t.accent)).bg(rc(t.panel)),
+        );
     }
 }
 
@@ -2975,11 +2974,12 @@ fn draw_status(
         x += width(&shown);
         let bg = bg_of(seg.kind);
         let next = segs.get(i + 1).map_or(t.chrome, |n| bg_of(n.kind));
-        if let Some((sep, _)) = seps {
-            if bg != next && x < right_x {
-                buf.set_string(x, area.y, sep, Style::default().fg(rc(bg)).bg(rc(next)));
-                x += 1;
-            }
+        if let Some((sep, _)) = seps
+            && bg != next
+            && x < right_x
+        {
+            buf.set_string(x, area.y, sep, Style::default().fg(rc(bg)).bg(rc(next)));
+            x += 1;
         }
     }
 }

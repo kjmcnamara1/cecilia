@@ -372,12 +372,11 @@ impl Chant {
             });
         }
         let new = new as u8;
-        if ii > 0 {
-            if let NeumeItem::Alteration { pitch, .. } = &mut self.syllables[si].items[ii - 1] {
-                if *pitch == old {
-                    *pitch = new;
-                }
-            }
+        if ii > 0
+            && let NeumeItem::Alteration { pitch, .. } = &mut self.syllables[si].items[ii - 1]
+            && *pitch == old
+        {
+            *pitch = new;
         }
         self.note_mut(n)?.pitch = new;
         Ok(())
@@ -673,10 +672,10 @@ impl Chant {
     /// group becomes a division of its own `(:)`, a group with notes gets it after them
     /// (`(g::)`), and a division of its own is replaced.
     pub fn set_group_division(&mut self, si: usize, sign: Option<&str>) -> Result<(), String> {
-        if let Some(sign) = sign {
-            if !Self::is_division(sign) {
-                return Err(format!("'{sign}' is not a division (, ; : :: `)"));
-            }
+        if let Some(sign) = sign
+            && !Self::is_division(sign)
+        {
+            return Err(format!("'{sign}' is not a division (, ; : :: `)"));
         }
         let s = self.syllables.get_mut(si).ok_or("no such syllable")?;
         // The division at the end goes first.

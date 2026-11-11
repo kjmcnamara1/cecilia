@@ -152,10 +152,11 @@ impl Playback {
             }
         }
         // Late-arriving audio joins the current playback.
-        if let (Some(b), None) = (app.playing_buffer, self.audio_on_player) {
-            if self.player.is_some() && matches!(self.audio.get(&b), Some(AudioState::Ready(_))) {
-                self.push_audio(b);
-            }
+        if let (Some(b), None) = (app.playing_buffer, self.audio_on_player)
+            && self.player.is_some()
+            && matches!(self.audio.get(&b), Some(AudioState::Ready(_)))
+        {
+            self.push_audio(b);
         }
     }
 
