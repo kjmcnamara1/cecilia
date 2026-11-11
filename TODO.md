@@ -18,9 +18,12 @@ Planned work. Finished items move to `CHANGELOG.md` under `[Unreleased]`.
   - [ ] cecilia-bin for AUR: same
   - [ ] .deb and .rpm: built by the release workflow; install-test the CI-built files
 - [ ] Windows Release
-  - [ ] Scoop
-  - [ ] Winget
-  - [ ] Chocolatey
+  - [ ] Run the release zip on a Windows machine: `cecilia --version`, the TUI in Windows Terminal, `cecilia --gui`, audio playback, the file picker, the clipboard (`clip.exe` / PowerShell)
+  - [ ] Scoop: `packaging/scoop/cecilia.json` is written but untested; run `packaging/bump-windows.sh` after the first release, test with `scoop install`, then publish to a bucket
+  - [ ] Winget: `packaging/winget/` is written but untested; validate with `winget validate` and `wingetcreate`, then PR to `microsoft/winget-pkgs`
+  - [ ] Chocolatey: `packaging/choco/` is written but untested; `choco pack`, test install, then push (needs an API key)
+  - [ ] Notification history times show UTC on Windows (`notify.rs` `local_time` only uses the local zone on Unix)
+  - [ ] Typed paths: `~\` and `\` separators in the path completion and workspace names (`complete.rs`, `workspace.rs`) only understand `/`
 - [ ] MacOS Release
 
 ### Code review follow-ups (2026-11-10)
