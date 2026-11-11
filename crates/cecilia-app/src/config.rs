@@ -614,6 +614,7 @@ const DEFAULT_NORMAL: &[(&str, &str)] = &[
     ("H", "buffer-prev"),
     ("<leader>x", "buffer-close"),
     ("<leader>b", "pick-buffer"),
+    ("<leader>'", "buffer-alternate"),
     ("'", "jump-mark"),
     ("`", "set-mark"),
     ("<leader>V", "pick-view"),

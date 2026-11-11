@@ -333,7 +333,7 @@ and look-alikes (equal but for numbers) merge into one card with a `×N` badge; 
 after `notifications.info_timeout` / `error_timeout` seconds (0: stays), a thin bar along its
 bottom showing the time left; a click dismisses it. Questions (save, reload) are cards that stay
 until answered. Every notification is kept in a history (`notifications.history_size`, stored in
-the state directory) browsed with `:notifications` (repeats stacked as on screen, message left, when it appeared right as "5m ago" or a date and time: `notifications.history_time`; Enter shows the notification again). `:notify` raises one.
+the state directory) browsed with `:notifications` (repeats stacked as on screen, message left, when it appeared right as "5m ago" or a date and time: `notifications.history_time`; Enter opens the notification in a read-only text popup in the middle of the window: `hjkl`, `v`/`V` and `y` as in the lyrics text area but never editing, the mouse selects, `<Esc>` or the "x" in the corner closes it). `:notify` raises one.
 
 ### 8.3 Mouse
 
