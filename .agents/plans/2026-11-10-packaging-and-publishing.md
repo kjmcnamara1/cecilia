@@ -100,7 +100,7 @@ Shared: a script/Makefile target `packaging/linux/stage.sh DESTDIR PREFIX` that 
 
 - [x] Phase 0 — repo metadata, release profile (done 2026-11-11 on `chore/packaging-phase-0`: `[workspace.package]` has repository/homepage/readme/keywords/categories, inherited by all 9 crates; `[profile.release]` is `lto = "thin"`, `codegen-units = 1`, `strip = true`: binary 32.5 MB -> 23.4 MB, clean release build ~2 min on this machine; runtime speed not measured. GitHub repo `kjmcnamara1/cecilia` created public 2026-11-11, `main` and all tags pushed; this branch is not merged yet)
 - [x] Phase 1 — CI workflow (PR #1, all 4 jobs green on 750bd0f: Ubuntu fmt+clippy+test, MSRV 1.88, Windows and macOS `cargo check --all-targets`; Windows/macOS tests are not run in CI; the MSRV was corrected from 1.85 to 1.88; not merged yet)
-- [ ] Phase 2 — release workflow (binaries, checksums, release notes)
+- [x] Phase 2 — release workflow (PR #2; tested 2026-11-11 with pre-release tag `v0.44.0-rc.1` on the PR branch: all 4 targets built, `SHA256SUMS` verified, Linux binary runs (`--version`) and needs glibc 2.35; the Windows and macOS binaries were built but not run (CI smoke-tests Windows and aarch64 macOS only); the rc release and tag were deleted afterwards. Known gap: `packaging/linux/install.sh` in the Linux tarball runs `cargo install --path`, so it does not work from the tarball; the Phase 4 stage script fixes that. Not merged yet)
 - [ ] Phase 3 — crates.io
 - [ ] Phase 4 — Linux: stage script, PKGBUILD, cecilia-bin, .deb, .rpm
 - [ ] Phase 5 — Windows: build fixes, Scoop, Winget, Chocolatey

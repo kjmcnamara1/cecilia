@@ -14,6 +14,7 @@ Planned work. Finished items move to `CHANGELOG.md` under `[Unreleased]`.
 - [ ] Github Actions
 - [ ] crates.io
 - [ ] Linux Releases
+  - [ ] `packaging/linux/install.sh` in the release tarball builds from source (`cargo install --path`); make it install the shipped binary
   - [ ] PKGBUILD for AUR
   - [ ] cecilia-bin for AUR
   - [ ] .deb
