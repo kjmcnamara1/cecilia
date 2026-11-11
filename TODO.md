@@ -35,8 +35,6 @@ Left open by the pre-release code review; the rest was fixed (see `CHANGELOG.md`
 - [ ] Not tested on real Windows or macOS: AltGr handling (`cecilia-gui/src/keys.rs`),
       `%WINDIR%` fonts, macOS SoundFont paths, the macOS bundle's microphone permission
       (`NSMicrophoneUsageDescription`, needed for the tuner).
-- [ ] `docs/SPEC.md` §4.1/§4.2 still say "parity" and "As built" for features nobody re-checked;
-      lines 306–345 (bufferline, notification history) were not traced through the GUI code.
 
 ### Refactor
 
@@ -105,6 +103,7 @@ This is how the # of stafflines is decided for tab notation
 - [ ] Write ASCII tab (`.txt`); `:w x.pdf` / `.wav` export from inside the editor
 - [ ] Nothing should be lost when writing to .ccc / .ccm files
 - [ ] Some data may be lost when writing to .gp, .musicxml, .gabc (there is no .txt writer yet)
+- [ ] Model wide vibrato, the feedback harmonic and golpe (`docs/SPEC.md` §4.1): the GPIF reader drops them today
 
 ### File/Track Import
 

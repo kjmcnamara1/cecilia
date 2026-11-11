@@ -88,7 +88,7 @@ Score
 Time is measured in **ticks** (960 per quarter note). Every note has a canonical MIDI pitch; tab
 (string/fret) is a *view* of pitch for fretted tracks, so staff and tab are always linked.
 
-### 4.1 Technique set (target: Guitar Pro 7/8 parity)
+### 4.1 Technique set
 
 Bends (all GP bend types, arbitrary curve points), pre-bend/release, slides (shift, legato, in/out
 above/below), hammer-on/pull-off, left/right-hand tapping, vibrato (note & beat, wide), harmonics
@@ -98,7 +98,11 @@ trill, whammy/tremolo bar (dive, dip, release, return, custom), slap/pop, rasgue
 arpeggio strokes, pick strokes, fingering (left/right hand), dynamics, fade in/out, volume swell,
 let-ring/palm-mute ranges, chord diagrams (barres, fingerings), free time, multiple voices,
 tuplets (incl. nested), lyrics, repeats, alternate endings, directions.
-The goal is that anything not yet editable still round-trips through `extras`.
+The set follows Guitar Pro 7/8. Not modelled yet: wide vibrato (vibrato is on or off), the
+feedback harmonic (read as a semi harmonic) and golpe; the GPIF reader does not look for them, so
+a file that uses them loses that detail. The other techniques are stored in the model; how far
+each is read, written, engraved and played depends on the format and the technique (GP5 files,
+for one, cannot hold everything a `.gp` file can).
 
 The editing palette (`cecilia-app`, `palette.rs`) exposes these as tools: durations, accidentals
 (down to double sharp / flat), dynamics and hairpins, articulations, effects, the six slides,
@@ -128,7 +132,7 @@ salicus, strophae, horizontal/vertical episema, mora (dot), custos, bar lines (q
 full, double), flats/naturals. Pitch stored as staff position + clef, resolved to MIDI pitch for
 playback/conversion.
 
-As built (M6): a chant track holds `chant` (syllables with their GABC text and items: notes with
+A chant track holds `chant` (syllables with their GABC text and items: notes with
 their modifiers kept in written order, spaces, clefs, divisions, alterations, custodes, anything
 else verbatim) and, in its ordinary bars, a transcription of it: one free-time bar per phrase
 between divisions, one eighth-note beat per sounded note (a mora doubles it; the `solesmes`
