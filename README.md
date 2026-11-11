@@ -77,7 +77,9 @@ practising with a recording from a terminal or a plain window. What it does and 
 - Reads Guitar Pro 3-5 (`.gp3`-`.gp5`) and 6-8 (`.gpx`, `.gp`); writes GP5, GPX and GP7/8.
 - Reads and writes MusicXML, MIDI and GABC (Gregorio), plus its own `.ccc` / `.ccm` files.
 - Sounds: a SoundFont (`.sf2`) you provide, or a basic built-in synth. No SoundFont is bundled.
-- Platforms: Linux is the tested platform; macOS and Windows build from source but are untested.
+- Platforms: Linux is the tested platform. On macOS (Intel, in a virtual machine) and Windows
+  (virtual machine) the terminal interface was run and builds from source; the window, audio and
+  tuner were never run there (the VMs had no GPU and no sound device).
 - Not there yet: binary releases, distribution packages, a plugin or scripting interface, and
   the polish and community of older programs such as Guitar Pro, MuseScore or TuxGuitar.
 
@@ -152,6 +154,11 @@ it is not found). On macOS the Xcode command line tools (`xcode-select --install
 (`--gui`) needs a graphics driver with working compute shaders; on Windows it crashed inside
 Windows' software renderer on a virtual machine without 3D acceleration (see `TODO.md`), so use a
 machine with a real GPU.
+
+Terminal notes: the default `tabline.icons = "nerd"` needs a [Nerd Font](https://www.nerdfonts.com)
+in the terminal; without one icons show as boxes, so run `:set tabline.icons unicode` (or `none`).
+Apple's Terminal.app only does 256 colors, so cecilia switches to the 256-color palette there; set
+`CECILIA_COLORS=truecolor` or `256` to override the detection. iTerm2 shows the full theme.
 
 ### Just try it
 
