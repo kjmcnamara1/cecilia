@@ -583,6 +583,8 @@ pub enum Command {
     ViewRename(Option<String>),
     BufferNext,
     BufferPrev,
+    /// Back to the buffer the pane showed before this one (vim's alternate buffer).
+    BufferAlternate,
     /// Show the buffer of bufferline tab number (1-based).
     BufferGoto(usize),
     /// Close a bufferline tab (number, or the focused pane's buffer); true discards changes.
@@ -755,6 +757,7 @@ impl Command {
             "view-rename" => ViewRename(arg.map(String::from)),
             "buffer-next" | "bnext" | "bn" => BufferNext,
             "buffer-prev" | "bprevious" | "bprev" | "bp" => BufferPrev,
+            "buffer-alternate" | "balternate" | "balt" => BufferAlternate,
             "buffer" | "b" => BufferGoto(number("buffer tab number")?),
             "buffer-close" | "bdelete" | "bd" => {
                 BufferClose(arg.and_then(|a| a.parse().ok()), false)
@@ -1347,6 +1350,7 @@ impl Command {
                 | ViewPrev
                 | BufferNext
                 | BufferPrev
+                | BufferAlternate
                 | PitchUp
                 | PitchDown
                 | DurationLonger

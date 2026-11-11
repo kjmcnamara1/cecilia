@@ -2864,6 +2864,11 @@ impl App {
             }
             BufferNext => self.cycle_buffer(1),
             BufferPrev => self.cycle_buffer(-1),
+            BufferAlternate => {
+                if let Some(&(alt, _)) = self.pane().recent.first() {
+                    self.show_buffer(alt);
+                }
+            }
             BufferMove(amount) => {
                 let b = self.pane().buffer;
                 let tabs = &self.view().buffers;
@@ -4320,6 +4325,12 @@ pub(crate) mod tests {
         assert_eq!(app.buffer().name, "b.ccm");
         app.run(Command::BufferPrev);
         assert_eq!(app.pane().cursor.string, 3);
+        // The alternate buffer toggles between the last two.
+        assert_eq!(app.buffer().name, "a.ccm");
+        app.run(Command::BufferAlternate);
+        assert_eq!(app.buffer().name, "b.ccm");
+        app.run(Command::BufferAlternate);
+        assert_eq!(app.buffer().name, "a.ccm");
         // A new view copies the bufferline (tabline.new_view = "copy"), sharing the buffers.
         app.run(Command::ViewNew(None));
         assert_eq!(names(&app), ["a.ccm", "b.ccm", "c.ccm"]);
