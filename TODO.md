@@ -39,8 +39,6 @@ Left open by the pre-release code review; the rest was fixed (see `CHANGELOG.md`
 - [ ] `write_bytes` (`cecilia-formats/src/lib.rs`) still writes the legacy `.cc` format; make it
       read-only by default, as AGENTS.md says, and fix what depends on it in `cecilia-app`.
 - [ ] MIDI writer: a time signature whose denominator is not a power of two is floored to a power of two; MIDI cannot store it.
-- [ ] Undoing back to the saved state should not clear "modified" on a buffer whose file was
-      deleted on disk.
 - [ ] Regression tests for Guitar Pro 3/4 grace notes (field order was fixed from corpus
       evidence, not a spec) and for the saturating lyric-start and channel arithmetic in `gp.rs`
       (needs a crafted GP binary).

@@ -18,6 +18,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- Undoing back to the saved state no longer clears "modified" on a buffer whose file was deleted on disk.
 - The terminal interface draws in the 256-color palette in Apple's Terminal.app (`TERM_PROGRAM=Apple_Terminal`), which misdraws 24-bit colors; `CECILIA_COLORS=256` or `truecolor` forces either.
 - The minimum supported Rust version is 1.88, not 1.85: ratatui 0.30 and time 0.3 need it, so 1.85 never built. CI now checks it.
 
