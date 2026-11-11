@@ -66,7 +66,9 @@ waveform_beat_labels = true      # label the score ruler (the bar left of a tall
 
 [tabline]
 new_view = "copy"        # a new view starts with: "copy" (this view's buffers), "current", "empty"
-icons = "nerd"           # terminal icons (file types, and the editing palette's buttons): "nerd" (Nerd Font
+icons = "auto"           # terminal icons (file types, and the editing palette's buttons): "auto" (Nerd Font if
+                         # the terminal is kitty/WezTerm/Ghostty or fontconfig lists one, else Unicode under a
+                         # UTF-8 locale, else "none"), "nerd" (Nerd Font
                          # glyphs, e.g. the music notes), "unicode" (plain music symbols) or "none" (the
                          # palette shows short text labels like "1/8", "PM", "||"; chant notation then uses
                          # ASCII note heads)

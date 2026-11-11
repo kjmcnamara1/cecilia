@@ -1654,7 +1654,7 @@ fn draw_toolbar(f: &mut Frame, app: &App, area: Rect, ui: &mut Ui) {
     let t = &app.config.theme;
     let base = Style::default().bg(rc(t.toolbar)).fg(rc(t.chrome_text));
     f.render_widget(Paragraph::new("").style(base), area);
-    let style = app.config.file.tabline.icons.as_str();
+    let style = app.config.file.tabline.icon_style();
     let buf = f.buffer_mut();
     let mut x = area.x + 1;
     for (i, item) in app.toolbar_items().into_iter().enumerate() {
@@ -1734,7 +1734,7 @@ fn draw_tabline(f: &mut Frame, app: &App, area: Rect, ui: &mut Ui) {
 
     // Buffer tabs from the left, up to the views.
     let t = &app.config.file.tabline.truncation;
-    let icons = app.config.file.tabline.icons.as_str();
+    let icons = app.config.file.tabline.icon_style();
     let mut x = area.x;
     for (n, tab) in app.bufferline().into_iter().enumerate() {
         let name =
@@ -2135,7 +2135,7 @@ fn draw_edit_palette(f: &mut Frame, app: &App, area: Rect, ui: &mut Ui) {
                         style
                     };
                     // The symbol's glyph by `tabline.icons` (nerd, unicode), else the short label.
-                    let glyph = match app.config.file.tabline.icons.as_str() {
+                    let glyph = match app.config.file.tabline.icon_style() {
                         "none" => None,
                         style => cecilia_app::palette::palette_glyph(row.command, style == "nerd"),
                     };
@@ -2845,7 +2845,7 @@ fn draw_status(
     use cecilia_app::statusline::{SegKind, Segment, StatusIcon};
     let t = &app.config.theme;
     let line = app.statusline(play.map(|(_, _, now, total)| (now, total)), false);
-    let icons = app.config.file.tabline.icons.as_str();
+    let icons = app.config.file.tabline.icon_style();
     // Powerline separators need a Nerd/Powerline font: only with Nerd Font icons.
     let seps = match (app.config.file.statusline.separators.as_str(), icons) {
         ("arrow", "nerd") => Some(("\u{e0b0}", "\u{e0b2}")),
@@ -3688,7 +3688,7 @@ mod render_tests {
 
     #[test]
     fn the_status_line_has_lualine_sections() {
-        let mut app = App::new(cecilia_app::Config::default(), None);
+        let mut app = App::new(nerd_config(), None);
         app.run(cecilia_app::Command::New);
         let mut terminal = Terminal::new(TestBackend::new(100, 12)).unwrap();
         let mut ui = Ui::default();
@@ -3724,9 +3724,20 @@ mod render_tests {
         assert!(row.contains("\u{f038b}=120"), "{row}");
     }
 
+    /// The default config with Nerd Font icons: "auto" depends on the machine running the tests.
+    fn nerd_config() -> cecilia_app::Config {
+        let mut config = cecilia_app::Config::default();
+        config.file.tabline.icons = "nerd".into();
+        config
+    }
+
     fn render(app: &mut App, w: u16, h: u16) -> String {
         // Notification cards would cover the score: these tests look at what is under them.
         app.notifications.dismiss_all();
+        // "auto" depends on the machine running the tests: the tests expect Nerd Font glyphs.
+        if app.config.file.tabline.icons == "auto" {
+            app.config.file.tabline.icons = "nerd".into();
+        }
         let mut terminal = Terminal::new(TestBackend::new(w, h)).unwrap();
         let mut ui = Ui::default();
         terminal.draw(|f| draw(f, app, None, &mut ui)).unwrap();
@@ -3817,13 +3828,13 @@ mod render_tests {
     fn bufferline_shows_buffers_left_and_views_right() {
         let dir = std::env::temp_dir().join(format!("cecilia-bufferline-{}", std::process::id()));
         std::fs::create_dir_all(&dir).unwrap();
-        let mut app = App::new(cecilia_app::Config::default(), None);
+        let mut app = App::new(nerd_config(), None);
         app.run(cecilia_app::Command::New);
         let long = dir.join("A very long song title that does not fit.cc");
         let short = dir.join("short.gp5");
         app.run(cecilia_app::Command::Write(Some(long.clone())));
         app.run(cecilia_app::Command::Write(Some(short.clone())));
-        let mut app = App::new(cecilia_app::Config::default(), None);
+        let mut app = App::new(nerd_config(), None);
         app.run(cecilia_app::Command::Edit(long));
         app.run(cecilia_app::Command::Edit(short));
         app.run(cecilia_app::Command::ViewNew(None));

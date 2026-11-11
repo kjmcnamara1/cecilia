@@ -599,7 +599,7 @@ impl Widget for TabView<'_> {
         let sh = system_height(track, mode);
         let rows = track.strings.len().max(1);
         let rhythm_rows = rhythm::rows(track, mode);
-        let icons = self.app.config.file.tabline.icons.as_str();
+        let icons = self.app.config.file.tabline.icon_style();
         let visible = (area.height / sh).max(1) as usize;
         // The page layout draws each page in a box: the score sits two columns inside it.
         let paged = pane.layout == "page" && self.page.is_some();

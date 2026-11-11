@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- `tabline.icons = "auto"` (the new default) picks Nerd Font glyphs when the terminal is kitty, WezTerm or Ghostty or fontconfig lists a Nerd Font, else plain Unicode under a UTF-8 locale, else ASCII (`none`).
+
 ### Security
 
 - Reading untrusted files is bounded: GPX, zip (`.ccc`, `.gp`, `.mxl`) and decoded audio have size caps, and a huge GABC `nabc-lines`, MusicXML `<forward>`, NaN tempo or oversized chord no longer panics or exhausts memory or time.

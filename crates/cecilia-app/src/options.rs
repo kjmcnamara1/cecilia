@@ -296,8 +296,8 @@ pub static OPTIONS: LazyLock<Vec<OptionSpec>> = LazyLock::new(|| {
         ),
         o(
             "tabline.icons",
-            Choice(&["nerd", "unicode", "none"]),
-            "File-type icons in the terminal UI.",
+            Choice(&["auto", "nerd", "unicode", "none"]),
+            "File-type icons in the terminal UI (auto: Nerd Font if detected, else Unicode, else ASCII).",
         ),
         o(
             "tabline.hide_single_view",
