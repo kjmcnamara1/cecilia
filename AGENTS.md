@@ -6,8 +6,9 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 `cecilia`: a keyboard-first editor/player for guitar tab, standard notation and Gregorian chant
 (Guitar Pro compatible, audio play-along). Rust 2024 workspace; `docs/SPEC.md` is the spec,
-`docs/keymap.md` the key bindings, `docs/config.example.toml` the config reference. Keep the last
-two in sync when adding commands, keys or settings.
+`docs/keymap.md` the key bindings, `docs/config.example.toml` the config reference, `docs/OPTIONS.md`
+the option table (a test in `options.rs` fails when it drifts from the registry). Keep the last
+two in sync when adding commands, keys or settings (a new option also needs a row in OPTIONS.md).
 
 ## Commands
 

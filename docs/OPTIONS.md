@@ -81,7 +81,7 @@ tables below that read _preset_ come from the theme (`theme.preset`).
 | `ui.picker_max_items` | integer 1–50 | `12` | The most candidates the command palette and pickers list at once. | `-o ui.picker_max_items=10` |
 | `ui.frecency` | bool | `true` | Order command completion and the buffer, recent file and workspace pickers by how often and how lately each was used. | `:set ui.frecency toggle` |
 | `ui.command_history_size` | integer 0–10000 | `500` | Command lines kept in the command history (0: no history). | `-o ui.command_history_size=10` |
-| `ui.command_history_time` | choice: `relative`, `absolute` | `relative` |  | `:set ui.command_history_time absolute` |
+| `ui.command_history_time` | choice: `relative`, `absolute` | `relative` | The command history shows when a line was run as how long ago, or as a date and time. | `:set ui.command_history_time absolute` |
 | `ui.progress_bar` | bool | `true` | A progress bar along the bottom of every score pane. | `:set ui.progress_bar toggle` |
 | `ui.scrollbar` | bool | `true` | A scrollbar on each score pane. | `:set ui.scrollbar toggle` |
 | `ui.tracks_panel` | bool | `false` | Start with the tracks panel (tracks with mixer and bar overview) open. | `:set ui.tracks_panel toggle` |
@@ -101,15 +101,15 @@ tables below that read _preset_ come from the theme (`theme.preset`).
 | `ui.hide_cursor_while_following` | bool | `true` | While playing with follow on, hide the edit cursor. | `:set ui.hide_cursor_while_following toggle` |
 | `ui.layout` | choice: `page`, `vertical`, `horizontal` | `vertical` | Default GUI score layout for new panes. | `:set ui.layout page` |
 | `ui.zoom` | number 0.1–10 | `1` | Default GUI zoom factor at startup. | `:set ui.zoom 1.5` |
-| `ui.chant_chords` | choice: `top`, `bottom`, `error` | `top` |  | `:set ui.chant_chords error` |
-| `ui.bar_numbers` | choice: `system`, `every` | `system` |  | `:set ui.bar_numbers every` |
-| `ui.tab_rhythm` | choice: `auto`, `on`, `off` | `auto` |  | `:set ui.tab_rhythm off` |
+| `ui.chant_chords` | choice: `top`, `bottom`, `error` | `top` | Which note of a chord :modern-to-chant keeps. | `:set ui.chant_chords error` |
+| `ui.bar_numbers` | choice: `system`, `every` | `system` | Bar numbers on the score: the first bar of each line, or every bar. | `:set ui.bar_numbers every` |
+| `ui.tab_rhythm` | choice: `auto`, `on`, `off` | `auto` | Rhythm row under tab: always, never, or only when the track has no standard or slash staff. | `:set ui.tab_rhythm off` |
 | `ui.highlight_incomplete_bars` | bool | `false` | Draw the staff lines of bars that don't hold their full count in red. | `:set ui.highlight_incomplete_bars toggle` |
 | `ui.focus_ring_width` | number 0–8 | `4` | Thickness in pixels of the ring around the focused pane in the GUI (0: none). | `-o ui.focus_ring_width=2` |
 | `ui.focus_ring_color` | color | _unset_ | Color of the focus ring; empty: the current mode's color. | `:set ui.focus_ring_color #fabe28` |
 | `ui.lyrics_font` | string | `Source Sans 3` | GUI: the font family of the lyrics text area in the properties pane. | `-o "ui.lyrics_font=Noto Sans"` |
 | `ui.lyrics_font_size` | number 4–96 | `12` | GUI: the lyrics text area's font size in points. | `-o ui.lyrics_font_size=10` |
-| `ui.chant_text_font` | choice: `noto-serif`, `source-sans` | `noto-serif` |  | `:set ui.chant_text_font source-sans` |
+| `ui.chant_text_font` | choice: `noto-serif`, `source-sans` | `noto-serif` | The font of the lyrics of a chant score. | `:set ui.chant_text_font source-sans` |
 | `ui.mark_labels` | choice: `exact`, `above`, `off` | `exact` | Where the marks are drawn on the score while ' waits for a letter: on the exact position, above the staff, or not at all. | `:set ui.mark_labels off` |
 | `ui.waveform_time_ticks` | choice: `all`, `major`, `off` | `all` | GUI: which ticks of the waveform's time ruler are drawn. | `:set ui.waveform_time_ticks off` |
 | `ui.waveform_beat_ticks` | choice: `all`, `major`, `off` | `all` | GUI: which ticks of the waveform's score ruler are drawn. | `:set ui.waveform_beat_ticks off` |
@@ -121,8 +121,8 @@ tables below that read _preset_ come from the theme (`theme.preset`).
 
 | Option | Type | Default | Description | Example |
 |---|---|---|---|---|
-| `tabline.new_view` | choice: `copy`, `current`, `empty` | `copy` |  | `:set tabline.new_view empty` |
-| `tabline.icons` | choice: `nerd`, `unicode`, `none` | `nerd` |  | `:set tabline.icons none` |
+| `tabline.new_view` | choice: `copy`, `current`, `empty` | `copy` | What a new view starts with: the current buffers, the current buffer or nothing. | `:set tabline.new_view empty` |
+| `tabline.icons` | choice: `nerd`, `unicode`, `none` | `nerd` | File-type icons in the terminal UI. | `:set tabline.icons none` |
 | `tabline.hide_single_view` | bool | `true` | Hide the views on the right of the tabline while there is only one. | `:set tabline.hide_single_view toggle` |
 | `tabline.wrap` | bool | `true` | Buffer next/prev wrap around at the ends of the tabline. | `:set tabline.wrap toggle` |
 
@@ -156,12 +156,12 @@ tables below that read _preset_ come from the theme (`theme.preset`).
 | Option | Type | Default | Description | Example |
 |---|---|---|---|---|
 | `notifications.anchor` | choice: `top_left`, `top`, `top_right`, `right`, `bottom_right`, `bottom`, `bottom_left`, `left` | `top_right` | The corner or side notification cards stack against. | `:set notifications.anchor top_left` |
-| `notifications.area` | choice: `scores`, `window` | `scores` |  | `:set notifications.area window` |
+| `notifications.area` | choice: `scores`, `window` | `scores` | What the cards sit in: the area of the score panes, or the whole window. | `:set notifications.area window` |
 | `notifications.info_timeout` | number 0–3600 | `4` | Seconds an information card stays (0: until dismissed). | `-o notifications.info_timeout=10` |
 | `notifications.error_timeout` | number 0–3600 | `8` | Seconds an error card stays (0: until dismissed). | `-o notifications.error_timeout=10` |
 | `notifications.max_visible` | integer 1–20 | `5` | Most cards shown at once; the rest are counted in a "+N more" line. | `-o notifications.max_visible=10` |
 | `notifications.history_size` | integer 0–10000 | `500` | Notifications kept in the history picker (0: no history). | `-o notifications.history_size=10` |
-| `notifications.history_time` | choice: `relative`, `absolute` | `relative` |  | `:set notifications.history_time absolute` |
+| `notifications.history_time` | choice: `relative`, `absolute` | `relative` | The history picker shows when a notification appeared as how long ago, or as a date and time. | `:set notifications.history_time absolute` |
 
 ### `[popups]`
 
@@ -196,13 +196,13 @@ The colors are listed [below](#theme-colors).
 
 | Option | Type | Default | Description | Example |
 |---|---|---|---|---|
-| `statusline.separators` | choice: `arrow`, `round`, `none` | `arrow` |  | `:set statusline.separators none` |
+| `statusline.separators` | choice: `arrow`, `round`, `none` | `arrow` | TUI: how the status line separates its sections. | `:set statusline.separators none` |
 
 ### `[score]`
 
 | Option | Type | Default | Description | Example |
 |---|---|---|---|---|
-| `score.clef` | choice: `treble`, `bass`, `grand` | `treble` |  | `:set score.clef grand` |
+| `score.clef` | choice: `treble`, `bass`, `grand` | `treble` | Clef of a standard staff added without one. | `:set score.clef grand` |
 
 ### Theme colors
 
