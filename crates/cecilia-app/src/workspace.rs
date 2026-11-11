@@ -547,10 +547,13 @@ impl App {
         if force {
             return self.remove_workspace(&path);
         }
-        self.ask(format!(
-            "delete workspace {}? (y/n)",
-            workspace_label(&path)
-        ));
+        self.ask(
+            format!("delete workspace {}? (y/n)", workspace_label(&path)),
+            &[
+                ("Delete", crate::keys::KeyCode::Char('y')),
+                ("Cancel", crate::keys::KeyCode::Esc),
+            ],
+        );
         self.confirm_delete_workspace = Some(path);
     }
 

@@ -102,6 +102,8 @@ pub struct Notification {
     pub icon: NoticeIcon,
     /// A question waiting for a key: stays until answered, never merges, not in the history.
     pub prompt: bool,
+    /// The buttons of a prompt: a label and the key a click on it stands for.
+    pub choices: Vec<(&'static str, crate::keys::KeyCode)>,
     /// How many notifications this card stands for (repeats are merged into it).
     pub count: u32,
     shown: Instant,
@@ -331,6 +333,7 @@ impl Notifications {
                     error: n.error,
                     icon,
                     prompt: false,
+                    choices: Vec::new(),
                     count: 1,
                     shown: now,
                     timeout,
@@ -354,7 +357,12 @@ impl Notifications {
     }
 
     /// Shows a question that stays until [`dismiss_prompts`](Self::dismiss_prompts).
-    pub fn prompt(&mut self, text: String, now: Instant) {
+    pub fn prompt(
+        &mut self,
+        text: String,
+        choices: &[(&'static str, crate::keys::KeyCode)],
+        now: Instant,
+    ) {
         self.dismiss_prompts();
         self.next_id += 1;
         self.visible.push(Notification {
@@ -365,6 +373,7 @@ impl Notifications {
             error: false,
             icon: NoticeIcon::Info,
             prompt: true,
+            choices: choices.to_vec(),
             count: 1,
             shown: now,
             timeout: None,
@@ -701,8 +710,30 @@ impl App {
         (area.unwrap_or(self.viewport), Anchor::parse(&cfg.anchor))
     }
 
+    /// A click on a card: it goes, unless it is a question (only its buttons answer that).
     pub fn dismiss_notification(&mut self, id: u64) {
-        self.notifications.dismiss(id);
+        if !self
+            .notifications
+            .visible
+            .iter()
+            .any(|c| c.id == id && c.prompt)
+        {
+            self.notifications.dismiss(id);
+        }
+    }
+
+    /// A click on button `choice` of the question on screen: the key it stands for answers it.
+    pub fn answer_prompt(&mut self, choice: usize) {
+        let code = self
+            .notifications
+            .visible
+            .iter()
+            .find(|c| c.prompt)
+            .and_then(|c| c.choices.get(choice))
+            .map(|&(_, code)| code);
+        if let Some(code) = code {
+            self.handle_key(crate::keys::Key::new(code));
+        }
     }
 
     /// `:notify-dismiss`: clears the cards (not a question waiting for its answer).
@@ -815,8 +846,8 @@ mod tests {
         let (cards, more) = n.shown(t0, 3);
         assert_eq!((cards.len(), more), (3, 1));
         assert_eq!(cards[0].text, "mdx");
-        n.prompt("sure?".into(), t0);
-        n.prompt("sure?".into(), t0);
+        n.prompt("sure?".into(), &[], t0);
+        n.prompt("sure?".into(), &[], t0);
         assert_eq!(n.visible.iter().filter(|c| c.prompt).count(), 1);
         assert!(n.shown(t0 + secs(3600.0), 9).0[0].prompt);
         n.dismiss_where(|c| !c.prompt);
@@ -887,6 +918,31 @@ mod tests {
     }
 
     #[test]
+    fn a_question_has_buttons_that_answer_it() {
+        use crate::keys::KeyCode;
+        let mut app = App::new(crate::Config::default(), None);
+        app.delete_workspace(Some("nope-not-there"), false);
+        app.ask(
+            "sure?".into(),
+            &[("Yes", KeyCode::Char('y')), ("No", KeyCode::Esc)],
+        );
+        let id = app
+            .notifications_shown()
+            .0
+            .iter()
+            .find(|c| c.prompt)
+            .unwrap()
+            .id;
+        // A click on the card itself leaves the question standing.
+        app.dismiss_notification(id);
+        assert!(app.notifications_shown().0.iter().any(|c| c.prompt));
+        app.confirm_reload = Some(0);
+        app.answer_prompt(1);
+        assert!(app.confirm_reload.is_none());
+        assert!(!app.notifications_shown().0.iter().any(|c| c.prompt));
+    }
+
+    #[test]
     fn text_wraps_and_cuts() {
         assert_eq!(wrap("a bb ccc dddd", 6, 5), ["a bb", "ccc", "dddd"]);
         assert_eq!(wrap("abcdefghij", 4, 5), ["abcd", "efgh", "ij"]);
@@ -921,7 +977,7 @@ mod tests {
         app.run(Command::parse("notify-dismiss").unwrap());
         assert!(!app.notifications_active());
         // A question stays until answered.
-        app.ask("sure?".into());
+        app.ask("sure?".into(), &[]);
         app.run(Command::parse("notify-dismiss").unwrap());
         assert!(app.notifications_active());
         app.answered();

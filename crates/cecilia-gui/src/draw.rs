@@ -210,6 +210,11 @@ pub struct Views {
     tooltip: Option<(Rect, String)>,
     /// The notification cards drawn last frame (area, id): a click dismisses one.
     notifications: Vec<(Rect, u64)>,
+    /// The buttons of a question card drawn last frame (area, choice): a click answers it.
+    prompt_buttons: Vec<(Rect, usize)>,
+    /// How far each question button's hover highlight has faded in (0..=1), and when it was
+    /// last stepped.
+    prompt_fade: (Vec<f32>, Option<std::time::Instant>),
     /// Where the tabline and toolbar end.
     chrome_bottom: f64,
     /// Clickable areas of the tracks panel drawn last frame.
@@ -6145,8 +6150,10 @@ fn wrap_px(text: &str, width: f64, size: f64, max: usize) -> Vec<String> {
 fn draw_notifications(scene: &mut Scene, app: &App, views: &mut Views, window: Rect) {
     use cecilia_app::notify::{Placed, place_stack};
     views.notifications.clear();
+    views.prompt_buttons.clear();
     let (cards, more) = app.notifications_shown();
     if cards.is_empty() {
+        views.prompt_fade = Default::default();
         return;
     }
     const LINE: f64 = 18.0;
@@ -6186,7 +6193,10 @@ fn draw_notifications(scene: &mut Scene, app: &App, views: &mut Views, window: R
             let head = fonts.text_width(FontKind::Bold, &c.subject, 15.0) + badge;
             (
                 (body.max(head) + 60.0).clamp(200.0, max_w),
-                lines.len() as f64 * LINE + 48.0 + peek(c),
+                lines.len() as f64 * LINE
+                    + 48.0
+                    + peek(c)
+                    + if c.choices.is_empty() { 0.0 } else { 34.0 },
             )
         })
         .collect();
@@ -6312,6 +6322,51 @@ fn draw_notifications(scene: &mut Scene, app: &App, views: &mut Views, window: R
                 color,
                 true,
             );
+        }
+        // A question's buttons, in a row along the bottom; the hovered one fades in a fill.
+        let mut bx = r.x0 + 42.0;
+        let (fades, last) = &mut views.prompt_fade;
+        let step = last.map_or(1.0, |t| now.duration_since(t).as_secs_f32() / 0.12);
+        *last = Some(now);
+        fades.resize(card.choices.len(), 0.0);
+        for (n, (label, _)) in card.choices.iter().enumerate() {
+            let w = fonts.text_width(FontKind::Text, label, 13.0) + 24.0;
+            let b = Rect::new(bx, r.y1 - 36.0, bx + w, r.y1 - 10.0);
+            let over = b.contains(views.hover);
+            let fade = &mut fades[n];
+            *fade = if over {
+                (*fade + step).min(1.0)
+            } else {
+                (*fade - step).max(0.0)
+            };
+            if *fade > 0.0 {
+                scene.fill(
+                    Fill::NonZero,
+                    Affine::IDENTITY,
+                    tc(|t| t.button_hover).with_alpha(*fade),
+                    None,
+                    &b.to_rounded_rect(5.0),
+                );
+            }
+            scene.stroke(
+                &Stroke::new(1.0),
+                Affine::IDENTITY,
+                if n == 0 { color } else { dim() },
+                None,
+                &b.to_rounded_rect(5.0),
+            );
+            text(
+                scene,
+                label,
+                b.x0 + w / 2.0,
+                b.y1 - 8.0,
+                13.0,
+                Align::Center,
+                text_on(popover()),
+                n == 0,
+            );
+            views.prompt_buttons.push((b, n));
+            bx += w + 8.0;
         }
         // The time left, as a thin bar along the bottom.
         if let Some(left) = card.remaining_fraction(now) {
@@ -7197,6 +7252,10 @@ impl Views {
     pub fn click(&mut self, app: &mut App, x: f64, y: f64) {
         if app.viewer().is_some() {
             return self.viewer_click(app, x, y);
+        }
+        if let Some(&(_, n)) = self.prompt_buttons.iter().find(|(r, _)| r.contains((x, y))) {
+            app.answer_prompt(n);
+            return;
         }
         if let Some(&(_, id)) = self.notifications.iter().find(|(r, _)| r.contains((x, y))) {
             app.dismiss_notification(id);
