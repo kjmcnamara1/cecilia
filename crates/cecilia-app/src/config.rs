@@ -168,7 +168,9 @@ pub struct TablineConfig {
     /// What a new view starts with: "copy" (the current view's buffers), "current" (the
     /// current buffer only) or "empty".
     pub new_view: String,
-    /// File-type icons in the terminal UI: "nerd" (Nerd Font glyphs), "unicode" or "none".
+    /// File-type icons in the terminal UI: "auto" (the best the terminal seems to show),
+    /// "nerd" (Nerd Font glyphs), "unicode" or "none" (ASCII). Read it through
+    /// [`TablineConfig::icon_style`].
     pub icons: String,
     /// Hide the views on the right of the tabline while there is only one.
     pub hide_single_view: bool,
@@ -182,12 +184,59 @@ impl Default for TablineConfig {
     fn default() -> Self {
         Self {
             new_view: "copy".into(),
-            icons: "nerd".into(),
+            icons: "auto".into(),
             hide_single_view: true,
             wrap: true,
             truncation: TruncationConfig::default(),
         }
     }
+}
+
+impl TablineConfig {
+    /// The icon style to draw with: `icons`, with "auto" resolved to "nerd", "unicode" or "none".
+    pub fn icon_style(&self) -> &str {
+        match self.icons.as_str() {
+            "auto" => detect_icon_style(),
+            other => other,
+        }
+    }
+}
+
+/// What the terminal seems able to show, found once: "nerd" when the terminal bundles a Nerd
+/// Font symbol fallback (kitty, WezTerm, Ghostty) or fontconfig lists a Nerd Font, else
+/// "unicode" under a UTF-8 locale (or Windows Terminal), else "none". A program can't ask a
+/// terminal which font it uses, so this is a best guess; set `tabline.icons` to override it.
+fn detect_icon_style() -> &'static str {
+    static STYLE: std::sync::OnceLock<&'static str> = std::sync::OnceLock::new();
+    STYLE.get_or_init(|| {
+        let var = |k: &str| std::env::var(k).unwrap_or_default();
+        let utf8 = ["LC_ALL", "LC_CTYPE", "LANG"]
+            .iter()
+            .map(|k| var(k))
+            .find(|v| !v.is_empty())
+            .is_some_and(|v| {
+                let v = v.to_ascii_lowercase();
+                v.contains("utf-8") || v.contains("utf8")
+            });
+        if !(utf8 || std::env::var_os("WT_SESSION").is_some()) || var("TERM") == "linux" {
+            return "none";
+        }
+        let bundled = var("TERM") == "xterm-kitty"
+            || matches!(var("TERM_PROGRAM").as_str(), "WezTerm" | "ghostty");
+        if bundled || fontconfig_has_nerd_font() {
+            "nerd"
+        } else {
+            "unicode"
+        }
+    })
+}
+
+/// Whether `fc-list` names an installed Nerd Font (patched or the symbols-only font).
+fn fontconfig_has_nerd_font() -> bool {
+    std::process::Command::new("fc-list")
+        .stderr(std::process::Stdio::null())
+        .output()
+        .is_ok_and(|o| String::from_utf8_lossy(&o.stdout).contains("Nerd Font"))
 }
 
 /// Long file names in tabs keep their first `prefix_width` and last `suffix_width`

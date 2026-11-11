@@ -828,7 +828,7 @@ impl Widget for ChantView<'_> {
         let Some(track) = score.tracks.get(pane.cursor.track) else {
             return;
         };
-        let ascii = self.app.config.file.tabline.icons == "none";
+        let ascii = self.app.config.file.tabline.icon_style() == "none";
         let Some(chant) = track.chant.as_deref() else {
             return;
         };

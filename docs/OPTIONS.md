@@ -122,7 +122,7 @@ tables below that read _preset_ come from the theme (`theme.preset`).
 | Option | Type | Default | Description | Example |
 |---|---|---|---|---|
 | `tabline.new_view` | choice: `copy`, `current`, `empty` | `copy` | What a new view starts with: the current buffers, the current buffer or nothing. | `:set tabline.new_view empty` |
-| `tabline.icons` | choice: `nerd`, `unicode`, `none` | `nerd` | File-type icons in the terminal UI. | `:set tabline.icons none` |
+| `tabline.icons` | choice: `auto`, `nerd`, `unicode`, `none` | `auto` | File-type icons in the terminal UI (auto: Nerd Font if detected, else Unicode, else ASCII). | `:set tabline.icons none` |
 | `tabline.hide_single_view` | bool | `true` | Hide the views on the right of the tabline while there is only one. | `:set tabline.hide_single_view toggle` |
 | `tabline.wrap` | bool | `true` | Buffer next/prev wrap around at the ends of the tabline. | `:set tabline.wrap toggle` |
 
