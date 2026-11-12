@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.45.0] - 2026-11-12
+
 ### Added
 
 - Swap files of unnamed scores left by a crashed session are announced once at startup, and `:recover` on an unnamed buffer opens the newest.
