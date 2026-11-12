@@ -39,3 +39,15 @@ bump version:
     sed -i -e "s/^pkgver=.*/pkgver=$new/" -e "s/^pkgrel=.*/pkgrel=1/" packaging/aur/*/PKGBUILD
     sed -i "s/$old/$new/g" "${win[@]}"
     echo "$cur -> $new"
+
+# The CI checks that can run here (the `test` job; `msrv` too when toolchain 1.88 is installed).
+# Run before every push. The macOS and Windows jobs need those platforms.
+ci:
+    export RUSTFLAGS="-D warnings"; \
+    cargo fmt --check && \
+    cargo clippy --workspace --all-targets && \
+    cargo test --workspace && \
+    cargo check --workspace --all-targets --locked
+    if rustup toolchain list | grep -q '^1\.88'; then \
+      RUSTFLAGS="-D warnings" cargo +1.88 check --workspace --locked; \
+    else echo "skipping msrv: rustup toolchain install 1.88"; fi

@@ -19,6 +19,7 @@ cargo test --workspace                     # all tests
 cargo test -p cecilia-app tracks::            # one crate / one module or test name
 cargo clippy --workspace --all-targets     # keep clean
 cargo fmt                                  # rustfmt.toml: max_width 100
+just ci                                    # the CI checks that can run locally; run before every push
 cargo run --release -- --gui song.gp5      # window (default is the terminal UI)
 # headless GUI screenshot, for checking engraving/layout changes:
 target/release/cecilia -W <scratch-workspace> --screenshot out.png --keys "<keys>" song.gp5
