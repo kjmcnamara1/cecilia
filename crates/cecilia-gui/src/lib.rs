@@ -345,9 +345,11 @@ impl ApplicationHandler for Gui {
                         });
                     }
                 }
-                // Hover effects on the tabline (close buttons) need a redraw.
+                // Hover effects on the tabline (close buttons) and dashboard buttons need a
+                // redraw.
                 if (was_over
                     || self.views.over_tabline(self.mouse.1)
+                    || self.app.dashboard_visible()
                     || self.app.viewer().is_some())
                     && let Some(gpu) = &self.gpu
                 {

@@ -151,3 +151,26 @@ jobs:
       - run: cargo publish --workspace --locked
         env:
           CARGO_REGISTRY_TOKEN: ${{ secrets.CARGO_REGISTRY_TOKEN }}
+
+  # Pushes both PKGBUILDs to the AUR once the crates are on crates.io. `just bump` already set
+  # pkgver; the action fills in the checksums from the published release (updpkgsums), regenerates
+  # .SRCINFO and pushes. Skipped with `publish` for pre-releases.
+  aur:
+    needs: [meta, publish]
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        pkgname: [cecilia, cecilia-bin]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: KSXGitHub/github-actions-deploy-aur@v4.0.0
+        with:
+          pkgname: ${{ matrix.pkgname }}
+          pkgbuild: packaging/aur/${{ matrix.pkgname }}/PKGBUILD
+          ssh_private_key: ${{ secrets.AUR_SSH_PRIVATE_KEY }}
+          commit_username: github-actions[bot]
+          commit_email: 41898282+github-actions[bot]@users.noreply.github.com
+          commit_message: Update to ${{ github.ref_name }}
+          ssh_keyscan_types: rsa,ecdsa,ed25519
+          updpkgsums: true

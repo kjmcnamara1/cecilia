@@ -144,10 +144,10 @@ impl<'a> GpReader<'a> {
         }
         self.last_fret = vec![[[0; MAX_STRINGS]; 2]; track_count];
         for bar in 0..bar_count {
-            for t in 0..track_count {
+            for (t, track) in score.tracks.iter_mut().enumerate() {
                 self.r.location = Some(format!("track {}, bar {}", t + 1, bar + 1));
-                let b = self.read_bar(&score.tracks[t], t)?;
-                score.tracks[t].bars.push(b);
+                let b = self.read_bar(track, t)?;
+                track.bars.push(b);
             }
             let mut changes = std::mem::take(&mut self.bar_tempos);
             changes.sort_by_key(|c| c.tick);

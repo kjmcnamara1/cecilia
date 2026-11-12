@@ -383,9 +383,9 @@ mod tests {
         let eighths = |string: u8| vec![note(string, DurationValue::Eighth, false); 8];
         // Voice 1: eight eighths per bar on string 0; voice 2: a whole bass note tied over the
         // barline on string 5, sustained under them.
-        for b in 0..2 {
-            score.tracks[0].bars[b].voices[0].beats = eighths(0);
-            score.tracks[0].bars[b].voices.push(Voice {
+        for (b, bar) in score.tracks[0].bars.iter_mut().enumerate().take(2) {
+            bar.voices[0].beats = eighths(0);
+            bar.voices.push(Voice {
                 beats: vec![note(5, DurationValue::Whole, b == 1)],
             });
         }

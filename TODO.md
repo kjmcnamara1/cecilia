@@ -11,11 +11,13 @@ Planned work. Finished items move to `CHANGELOG.md` under `[Unreleased]`.
 
 ### Packaging/Publishing
 
-- [ ] Github Actions
-- [ ] crates.io
+- [x] Github Actions
+- [x] crates.io
 - [ ] Linux Releases
-  - [ ] PKGBUILD for AUR: written and built with `makepkg`; run `packaging/aur/bump.sh` after the first release and push to the AUR
-  - [ ] cecilia-bin for AUR: same
+  - [x] PKGBUILD for AUR: written and built with `makepkg`; the release workflow now pushes it (needs the `AUR_SSH_PRIVATE_KEY` secret and the AUR packages registered); verify after the next release
+  - [x] cecilia-bin for AUR: same
+  - [ ] PKGBUILD for cecilia-git
+  - [ ] Wait on AUR adoption requests for cecilia and cecilia-git
   - [ ] .deb and .rpm: built by the release workflow; install-test the CI-built files
 - [ ] Windows Release
   - [ ] Run the release zip on a Windows machine: `cecilia --version`, the TUI in Windows Terminal, `cecilia --gui`, audio playback, the file picker, the clipboard (`clip.exe` / PowerShell)
