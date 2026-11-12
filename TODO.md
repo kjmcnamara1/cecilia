@@ -14,7 +14,7 @@ Planned work. Finished items move to `CHANGELOG.md` under `[Unreleased]`.
 - [ ] Github Actions
 - [ ] crates.io
 - [ ] Linux Releases
-  - [ ] PKGBUILD for AUR: written and built with `makepkg`; run `packaging/aur/bump.sh` after the first release and push to the AUR
+  - [ ] PKGBUILD for AUR: written and built with `makepkg`; the release workflow now pushes it (needs the `AUR_SSH_PRIVATE_KEY` secret and the AUR packages registered); verify after the next release
   - [ ] cecilia-bin for AUR: same
   - [ ] .deb and .rpm: built by the release workflow; install-test the CI-built files
 - [ ] Windows Release

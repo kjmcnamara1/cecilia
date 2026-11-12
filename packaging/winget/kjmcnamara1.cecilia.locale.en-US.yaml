@@ -1,6 +1,6 @@
 # yaml-language-server: $schema=https://aka.ms/winget-manifest.defaultLocale.1.6.0.schema.json
 PackageIdentifier: kjmcnamara1.cecilia
-PackageVersion: 0.44.0
+PackageVersion: 0.45.1
 PackageLocale: en-US
 Publisher: The cecilia contributors
 PublisherUrl: https://github.com/kjmcnamara1
