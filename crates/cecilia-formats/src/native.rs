@@ -1,4 +1,4 @@
-//! The native `.ccc` / `.ccm` format (and the legacy `.cc`, which shares it): a zip archive
+//! The native `.ccc` / `.ccm` format (and the legacy `.cc`, which shares it but is only read): a zip archive
 //! holding a versioned manifest and the full score model as JSON, so nothing is lost when
 //! saving.
 

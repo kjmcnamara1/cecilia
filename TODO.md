@@ -23,38 +23,12 @@ Planned work. Finished items move to `CHANGELOG.md` under `[Unreleased]`.
   - [ ] Scoop: `packaging/scoop/cecilia.json` is written but untested; run `packaging/bump-windows.sh` after the first release, test with `scoop install`, then publish to a bucket
   - [ ] Winget: `packaging/winget/` is written but untested; validate with `winget validate` and `wingetcreate`, then PR to `microsoft/winget-pkgs`
   - [ ] Chocolatey: `packaging/choco/` is written but untested; `choco pack`, test install, then push (needs an API key)
+  - [ ] AltGr typing in `--gui` (`cecilia-gui/src/keys.rs`, logic unit-tested): on a German layout AltGr+Q must type `@`, not `<C-A-q>`; also `%WINDIR%\Fonts` fonts load
   - [ ] Notification history times show UTC on Windows (`notify.rs` `local_time` only uses the local zone on Unix)
   - [ ] Typed paths: `~\` and `\` separators in the path completion and workspace names (`complete.rs`, `workspace.rs`) only understand `/`
 - [ ] MacOS Release
+  - [ ] macOS SoundFont default paths, and the bundle's microphone prompt (`NSMicrophoneUsageDescription`) when opening the tuner
   - [ ] Never run on real hardware: the author's macOS VM (Intel, x86_64) has no Metal (Ghostty cannot start there) and no working audio output (CoreAudio: "unknown error"). Unverified: `--gui`, `--screenshot`, playback, the tuner and the microphone prompt, the Apple Silicon build. The TUI runs (Terminal.app and iTerm2) and renders; Homebrew does not support Intel Macs
-
-### Code review follow-ups (2026-11-10)
-
-Left open by the pre-release code review; the rest was fixed (see `CHANGELOG.md`).
-
-- [ ] Swap files: offer to recover or clean up `unnamed-<pid>-<idx>.swp` files from crashed
-      sessions (`swap.rs`); two instances editing the same path share one swap file name.
-- [ ] Audio callback (`cecilia-audio/src/player.rs`): dropped clips and sequences go to a reaper
-      thread over `std::sync::mpsc`, which can still allocate; use a lock-free queue.
-- [ ] `write_bytes` (`cecilia-formats/src/lib.rs`) still writes the legacy `.cc` format; make it
-      read-only by default, as AGENTS.md says, and fix what depends on it in `cecilia-app`.
-- [ ] MIDI writer: a time signature whose denominator is not a power of two is floored to a power of two; MIDI cannot store it.
-- [ ] Undoing back to the saved state should not clear "modified" on a buffer whose file was
-      deleted on disk.
-- [ ] Regression tests for Guitar Pro 3/4 grace notes (field order was fixed from corpus
-      evidence, not a spec) and for the saturating lyric-start and channel arithmetic in `gp.rs`
-      (needs a crafted GP binary).
-- [ ] `chant-clef` accepts `cb`/`fb` on any line 1–4; the docs list only `cb3`.
-- [ ] Not tested on real Windows or macOS: AltGr handling (`cecilia-gui/src/keys.rs`),
-      `%WINDIR%` fonts, macOS SoundFont paths, the macOS bundle's microphone permission
-      (`NSMicrophoneUsageDescription`, needed for the tuner).
-- [ ] `docs/SPEC.md` §4.1/§4.2 still say "parity" and "As built" for features nobody re-checked;
-      lines 306–345 (bufferline, notification history) were not traced through the GUI code.
-- [ ] `docs/config.example.toml` has no `[keymap.visual]` or `insert-tab`/`insert-slash`/
-      `insert-chant` sections; the TODO "Tracks" list below calls `c` "change instrument" but `c`
-      is track colour and `i` is instrument.
-- [ ] `write` completion offers `pdf`, `svg`, `png`, `wav`, `flac` (`complete.rs` `WRITE_EXTENSIONS`)
-      though `:w` cannot write them.
 
 ### Refactor
 
@@ -93,8 +67,7 @@ This is how the # of stafflines is decided for tab notation
 
 - [ ] "d" should delete the track
 - [ ] "o" should add a new track
-- [ ] "r" should rename the track
-- [ ] "c" should change the instrument
+- [ ] "r" should rename the track (today `t`; `c` is the track colour, `i` the instrument)
 - [ ] instrument should be preceeded by its icon
 
 ### Performance
@@ -124,6 +97,7 @@ This is how the # of stafflines is decided for tab notation
 - [ ] Write ASCII tab (`.txt`); `:w x.pdf` / `.wav` export from inside the editor
 - [ ] Nothing should be lost when writing to .ccc / .ccm files
 - [ ] Some data may be lost when writing to .gp, .musicxml, .gabc (there is no .txt writer yet)
+- [ ] Model wide vibrato, the feedback harmonic and golpe (`docs/SPEC.md` §4.1): the GPIF reader drops them today
 
 ### File/Track Import
 

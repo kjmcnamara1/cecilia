@@ -210,8 +210,25 @@ clef = "treble"          # clef of a standard staff added without one: treble, b
 
 # Insert-mode keys for the notation under the cursor, looked up before [keymap.insert]:
 # [keymap.insert-tab], [keymap.insert-standard], [keymap.insert-slash], [keymap.insert-chant].
+[keymap.insert-tab]
+# Insert-mode keys on a tab staff or drum lanes (H hammer-on / pull-off, L let ring ...).
+# "H" = "toggle hammer"
+
 [keymap.insert-standard]
 # "%" = "accidental flat"
+
+[keymap.insert-slash]
+# Insert-mode keys on a slash staff.
+
+[keymap.insert-chant]
+# Insert-mode keys on a chant track (the cursor row is a pitch: do, re ... ti).
+
+[keymap.visual]
+# Visual mode (v: beats, V: bars). Defaults: <Esc> leaves, d x delete,
+# y yanks, c changes, v V switch the selection kind, + - lengthen / shorten the durations,
+# <A-+> <A--> step the dynamics, i a insert before / after the selection, o jumps to its other end.
+# Motions are the Normal-mode ones. "nop" removes a default.
+# "<A-d>" = "duration 4"
 
 [keymap.tracks]
 # Keys while the tracks panel has the focus (<C-w>t).

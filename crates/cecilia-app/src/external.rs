@@ -180,6 +180,35 @@ mod tests {
     }
 
     #[test]
+    fn undoing_to_the_saved_state_keeps_a_deleted_file_modified() {
+        let (mut app, dir, file) = app_with_file("undo-deleted");
+        let i = app.pane().buffer;
+        app.run(Command::parse("bar-width 150").unwrap());
+        app.run(Command::Write(None));
+        app.run(Command::parse("bar-width 200").unwrap());
+        std::fs::remove_file(&file).unwrap();
+        app.check_external();
+        app.run(Command::Undo);
+        assert!(app.buffers[i].history.at_saved());
+        assert!(
+            app.buffers[i].modified,
+            "the file is gone, so the saved state is not on disk"
+        );
+        std::fs::remove_dir_all(dir).ok();
+    }
+
+    #[test]
+    fn undoing_to_the_saved_state_of_a_new_buffer_is_clean() {
+        let mut app = App::new(Config::default(), None);
+        app.run(Command::New);
+        let i = app.pane().buffer;
+        app.run(Command::parse("bar-width 150").unwrap());
+        assert!(app.buffers[i].modified);
+        app.run(Command::Undo);
+        assert!(!app.buffers[i].modified);
+    }
+
+    #[test]
     fn our_own_writes_are_not_outside_changes() {
         let (mut app, dir, _) = app_with_file("own");
         let i = app.pane().buffer;

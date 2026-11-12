@@ -9,8 +9,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- Swap files of unnamed scores left by a crashed session are announced once at startup, and `:recover` on an unnamed buffer opens the newest.
 - `CECILIA_CPU=1` runs the GUI renderer's shader stages on the CPU (`use_cpu`), as a workaround for drivers without working compute shaders (virtual machines).
 - `tabline.icons = "auto"` (the new default) picks Nerd Font glyphs when the terminal is kitty, WezTerm or Ghostty or fontconfig lists a Nerd Font, else plain Unicode under a UTF-8 locale, else ASCII (`none`).
+
+### Changed
+
+- Writing a `.mid` warns when a time signature has a denominator that is not a power of two (MIDI cannot store it; it is written rounded down).
+- Writing the legacy `.cc` format is refused (`:w x.cc`, `cecilia convert`): it still opens; save as `.ccc` or `.ccm`.
 
 ### Security
 
@@ -19,6 +25,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- Replaced sequences and clips leave the audio callback through a wait-free queue (`rtrb`) to the reaper thread instead of an `mpsc` channel, which could allocate.
+- `:chant-clef` and `:clef` documentation and completion list every clef the parser accepts (`c1`–`c4`, `cb1`–`cb4`, `f1`–`f4`, `fb1`–`fb4`); `:w` completion no longer offers `pdf`, `svg`, `png`, `wav` or `flac`, which it cannot write.
+- Undoing back to the saved state no longer clears "modified" on a buffer whose file was deleted on disk.
 - The terminal interface draws in the 256-color palette in Apple's Terminal.app (`TERM_PROGRAM=Apple_Terminal`), which misdraws 24-bit colors; `CECILIA_COLORS=256` or `truecolor` forces either.
 - The minimum supported Rust version is 1.88, not 1.85: ratatui 0.30 and time 0.3 need it, so 1.85 never built. CI now checks it.
 

@@ -1949,8 +1949,10 @@ impl App {
             });
         };
         buffer.version += 1;
-        // Back at the saved state, the file is unchanged (a new score: back to empty).
-        buffer.modified = !buffer.history.at_saved();
+        // Back at the saved state, the file is unchanged (a new score: back to empty), unless
+        // the file was deleted on disk: then nothing holds the saved state.
+        buffer.modified =
+            !buffer.history.at_saved() || (buffer.path.is_some() && buffer.disk.is_none());
         clamp_cursor(&buffer.score, &mut c);
         let seq = buffer.history.current_seq();
         self.panes.get_mut(&id).unwrap().cursor = c;

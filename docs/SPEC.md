@@ -88,7 +88,7 @@ Score
 Time is measured in **ticks** (960 per quarter note). Every note has a canonical MIDI pitch; tab
 (string/fret) is a *view* of pitch for fretted tracks, so staff and tab are always linked.
 
-### 4.1 Technique set (target: Guitar Pro 7/8 parity)
+### 4.1 Technique set
 
 Bends (all GP bend types, arbitrary curve points), pre-bend/release, slides (shift, legato, in/out
 above/below), hammer-on/pull-off, left/right-hand tapping, vibrato (note & beat, wide), harmonics
@@ -98,7 +98,11 @@ trill, whammy/tremolo bar (dive, dip, release, return, custom), slap/pop, rasgue
 arpeggio strokes, pick strokes, fingering (left/right hand), dynamics, fade in/out, volume swell,
 let-ring/palm-mute ranges, chord diagrams (barres, fingerings), free time, multiple voices,
 tuplets (incl. nested), lyrics, repeats, alternate endings, directions.
-The goal is that anything not yet editable still round-trips through `extras`.
+The set follows Guitar Pro 7/8. Not modelled yet: wide vibrato (vibrato is on or off), the
+feedback harmonic (read as a semi harmonic) and golpe; the GPIF reader does not look for them, so
+a file that uses them loses that detail. The other techniques are stored in the model; how far
+each is read, written, engraved and played depends on the format and the technique (GP5 files,
+for one, cannot hold everything a `.gp` file can).
 
 The editing palette (`cecilia-app`, `palette.rs`) exposes these as tools: durations, accidentals
 (down to double sharp / flat), dynamics and hairpins, articulations, effects, the six slides,
@@ -128,7 +132,7 @@ salicus, strophae, horizontal/vertical episema, mora (dot), custos, bar lines (q
 full, double), flats/naturals. Pitch stored as staff position + clef, resolved to MIDI pitch for
 playback/conversion.
 
-As built (M6): a chant track holds `chant` (syllables with their GABC text and items: notes with
+A chant track holds `chant` (syllables with their GABC text and items: notes with
 their modifiers kept in written order, spaces, clefs, divisions, alterations, custodes, anything
 else verbatim) and, in its ordinary bars, a transcription of it: one free-time bar per phrase
 between divisions, one eighth-note beat per sounded note (a mora doubles it; the `solesmes`
@@ -212,7 +216,7 @@ tab, commands, settings, limits) is [LYRICS.md](LYRICS.md).
 | Standard MIDI File | ✔ | ✔ | done (M2); export expands repeats; import quantises to 32nd/triplet grid |
 | GABC (Gregorio) | ✔ | ✔ | done (M6); glyph rules follow Gregorio's (`gabc-glyphs-determination.c`); reading and writing are covered by the format tests. NABC (adiastematic) sections are kept verbatim |
 | ASCII tab | — | — | **Planned**: there is no `.txt` writer (the TUI draws text tab on screen only) |
-| `.ccc` / `.ccm` (native; legacy `.cc` read, and writable by name) | ✔ | ✔ | done (M2); see 5.1 |
+| `.ccc` / `.ccm` (native; legacy `.cc` read only) | ✔ | ✔ | done (M2); see 5.1 |
 
 Format detection by magic bytes first, extension second.
 Encoding for GP3–5 strings: Windows-1252, or UTF-8 when the bytes are valid UTF-8.
@@ -235,8 +239,7 @@ reproduced by anything in this repository.
 
 One serialization, two extensions: `.ccc` (cecilia chant) is what a chant score saves as by default,
 `.ccm` (cecilia modern) any other score. Both read and write the same way, and the extension typed
-is honored. Legacy `.cc` files (the earlier single extension) are still read, never written by
-default.
+is honored. Legacy `.cc` files (the earlier single extension) are still read, never written.
 
 Zip archive (`crates/cecilia-formats/src/native.rs`, `FORMAT_VERSION` 2):
 - `manifest.toml`: `format = "cecilia"`, `format_version` (a newer file than the app supports is
@@ -298,7 +301,9 @@ rewritten.
   (from a Visual-mode selection), count-in, metronome, speed trainer (increase speed each loop).
 - Mixer: per-track volume/mute/solo, audio-track volume and metronome volume, as commands and the
   tracks pane (per-track pan and a master volume are not exposed yet). The audio thread is fed
-  through `std::sync::mpsc` channels; it is not audited to be allocation- or lock-free.
+  through `std::sync::mpsc` channels (a send can allocate; not audited to be allocation- or
+  lock-free). What it replaces (sequences, clips) leaves through a wait-free `rtrb` queue to a
+  reaper thread that frees it.
 - Export: WAV/FLAC rendering of MIDI (and optionally the mixed audio).
 
 ## 8. User interface

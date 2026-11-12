@@ -865,7 +865,7 @@ autosaving that file until you choose:
 | command                  |                                                                                  |
 | ------------------------ | -------------------------------------------------------------------------------- |
 | `:recover`               | restore the file from its swap file, left unsaved (`:recover!` if another cecilia owns it) |
-| `:recover swapfile`      | open a swap file as a new unnamed buffer (for scores that were never saved)      |
+| `:recover swapfile`      | open a swap file as a new unnamed buffer (for scores that were never saved); on an unnamed buffer plain `:recover` opens the newest one left by a crashed session (a notice at startup says how many there are) |
 | `:swap-discard`          | delete the file's swap file                                                      |
 | `:notifications`         | pick from the notification history (`:pick notification`); Enter opens that one in a read-only popup (move, `v`/`V` select, `y` copies, `<Esc>` or the "x" closes) |
 | `:notify-dismiss`        | dismiss the notification cards on screen                                         |
@@ -943,7 +943,7 @@ chant keys, and which modern-track keys answer "not in chant").
 | `:clef c3`                                   | change the chant clef (`c1`–`c4`, `f1`–`f4`, `cb3` for a flat clef); notes keep their staff positions |
 | `:chant-shape NAME`                          | the cursor note's head: `punctum`, `inclinatum`, `virga`, `virga-reversa`, `bivirga`, `trivirga`, `stropha`, `bistropha`, `tristropha`, `quilisma`, `oriscus`, `oriscus-stem`, `quadratum` (again takes it off) |
 | `:chant-division TOKEN`                      | a division after the cursor syllable: `,` `;` `:` `::`, `;1`…`;6` (the same again takes it off, another replaces it) |
-| `:chant-clef NAME`                           | the chant's first clef (`:clef` does the same)                                                        |
+| `:chant-clef NAME`                           | the chant's first clef: `c1`–`c4`, `f1`–`f4`, `cb1`–`cb4`, `fb1`–`fb4` (`:clef` does the same) |
 | `:chant-mora` `:chant-episema` `:chant-ictus` | toggle the mora, the horizontal episema or the ictus of the cursor note                              |
 | `:chant-alter flat\|natural`                 | the flat or natural before the cursor note                                                            |
 | `:chant-liquescence deminutus\|ascendens\|descendens` | toggle a liquescence of the cursor note                                                     |

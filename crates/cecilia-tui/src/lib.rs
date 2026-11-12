@@ -3837,7 +3837,7 @@ mod render_tests {
         std::fs::create_dir_all(&dir).unwrap();
         let mut app = App::new(nerd_config(), None);
         app.run(cecilia_app::Command::New);
-        let long = dir.join("A very long song title that does not fit.cc");
+        let long = dir.join("A very long song title that does not fit.ccc");
         let short = dir.join("short.gp5");
         app.run(cecilia_app::Command::Write(Some(long.clone())));
         app.run(cecilia_app::Command::Write(Some(short.clone())));
@@ -3851,7 +3851,7 @@ mod render_tests {
         let buf = terminal.backend().buffer().clone();
         let top: String = (0..100).map(|x| buf[(x, 1)].symbol().to_string()).collect();
         // Long names lose their middle; icons come first; views sit at the right.
-        assert!(top.contains("\u{f025} A very long so…not fit.cc"), "{top}");
+        assert!(top.contains("\u{f025} A very long so…ot fit.ccc"), "{top}");
         assert!(top.contains("\u{f001} short.gp5"), "{top}");
         assert!(top.trim_end().ends_with("1   2"), "{top}");
         // A lone view isn't shown, unless tabline.hide_single_view is off.

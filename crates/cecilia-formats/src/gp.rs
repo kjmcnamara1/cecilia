@@ -1008,6 +1008,121 @@ mod tests {
         assert_eq!(parse_version("FICHIER GUITARE PRO v1.04"), None);
     }
 
+    /// A reader positioned just after the version header of a `version` file, over `body`.
+    fn reader_over<'a>(data: &'a mut Vec<u8>, version: &str, body: &[u8]) -> GpReader<'a> {
+        let name = format!("FICHIER GUITAR PRO v{version}");
+        data.push(name.len() as u8);
+        data.extend(name.as_bytes());
+        data.resize(31, 0);
+        data.extend(body);
+        let mut reader = GpReader::new(data).unwrap();
+        reader.version = parse_version(&name).unwrap();
+        reader
+    }
+
+    fn i32s(values: &[i32]) -> Vec<u8> {
+        values.iter().flat_map(|v| v.to_le_bytes()).collect()
+    }
+
+    /// GP3/4 store a grace note's transition before its duration (the order comes from the
+    /// files in the corpus, not from a spec).
+    #[test]
+    fn gp4_grace_notes_read_transition_then_duration() {
+        let mut data = Vec::new();
+        // fret 6, dynamic 6 (velocity 95), transition 3 (hammer), duration 1.
+        let mut r = reader_over(&mut data, "4.06", &[6, 6, 3, 1]);
+        let g = r.read_grace().unwrap();
+        assert_eq!(
+            (
+                g.fret,
+                g.velocity,
+                g.duration,
+                g.transition,
+                g.dead,
+                g.on_beat
+            ),
+            (
+                6,
+                95,
+                DurationValue::SixtyFourth,
+                GraceTransition::Hammer,
+                false,
+                false
+            )
+        );
+        // A fret of -1 is a dead note; transition 0 is none; duration 3 is a sixteenth.
+        let mut data = Vec::new();
+        let mut r = reader_over(&mut data, "3.00", &[0xFF, 6, 0, 3]);
+        let g = r.read_grace().unwrap();
+        assert!(g.dead && g.fret == 0);
+        assert_eq!(
+            (g.transition, g.duration),
+            (GraceTransition::None, DurationValue::Sixteenth)
+        );
+    }
+
+    #[test]
+    fn gp5_grace_notes_read_flags_after_the_duration() {
+        let mut data = Vec::new();
+        // fret 2, dynamic 6, transition 2 (bend), duration 2, flags: dead + on beat.
+        let mut r = reader_over(&mut data, "5.10", &[2, 6, 2, 2, 0x03]);
+        let g = r.read_grace().unwrap();
+        assert_eq!(
+            (g.transition, g.duration, g.dead, g.on_beat),
+            (
+                GraceTransition::Bend,
+                DurationValue::ThirtySecond,
+                true,
+                true
+            )
+        );
+    }
+
+    #[test]
+    fn lyric_start_bars_saturate() {
+        for (start, want) in [
+            (i32::MIN, 0),
+            (i32::MAX, i32::MAX as u32 - 1),
+            (0, 0),
+            (3, 2),
+        ] {
+            let mut body = i32s(&[1]);
+            body.extend(i32s(&[start, 3]));
+            body.extend(b"la\0");
+            // The other four lines are empty.
+            for _ in 0..4 {
+                body.extend(i32s(&[0, 0]));
+            }
+            let mut data = Vec::new();
+            let mut r = reader_over(&mut data, "5.10", &body);
+            let lyrics = r.read_lyrics().unwrap();
+            assert_eq!(lyrics.lines[0].start_bar, want, "start {start}");
+        }
+    }
+
+    #[test]
+    fn track_channels_and_ports_at_the_extremes_stay_in_range() {
+        for (port, channel, effect) in [
+            (i32::MAX, i32::MIN, i32::MIN),
+            (i32::MIN, i32::MAX, i32::MAX),
+            (0, 0, 0),
+        ] {
+            let mut body = vec![0u8, 4];
+            body.extend(b"gtr\0");
+            body.resize(2 + 40, 0);
+            body.extend(i32s(&[6]));
+            body.extend(i32s(&[64, 59, 55, 50, 45, 40, 0]));
+            body.extend(i32s(&[port, channel, effect, 24, 0]));
+            body.extend([0, 0, 0, 0]);
+            let mut data = Vec::new();
+            let mut r = reader_over(&mut data, "4.06", &body);
+            let channels: Vec<Channel> = Vec::new();
+            let t = r.read_track(0, &channels).unwrap();
+            assert!(t.midi.channel <= 15 && t.midi.effect_channel <= 15);
+            assert_eq!(t.strings.len(), 6);
+        }
+    }
+
     #[test]
     fn rejects_truncated_input() {
         let mut data = vec![24u8];

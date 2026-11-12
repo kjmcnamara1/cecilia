@@ -169,7 +169,10 @@ pub fn write_bytes(score: &Score, extension: &str) -> Result<Vec<u8>> {
         "mid" | "midi" => midi::write_midi(score),
         "musicxml" | "xml" => musicxml::write_musicxml(score),
         "mxl" => musicxml::write_mxl(score),
-        "cc" | "ccc" | "ccm" => native::write_cecilia(score),
+        "ccc" | "ccm" => native::write_cecilia(score),
+        "cc" => Err(Error::Unsupported(
+            "cannot write legacy .cc files (they still open); save as .ccc or .ccm".into(),
+        )),
         "gabc" => gabc::write_gabc(score),
         other => Err(Error::Unsupported(format!("cannot write .{other} files"))),
     }
@@ -190,6 +193,24 @@ pub fn voices_lost(score: &Score, extension: &str) -> usize {
         .flat_map(|t| &t.bars)
         .flat_map(|b| b.voices.iter().skip(limit))
         .filter(|v| v.beats.iter().any(|b| !b.notes.is_empty()))
+        .count()
+}
+
+/// Time signature changes that a file of this extension cannot store: MIDI keeps the denominator
+/// as a power of two, so another one (`5/12`) is written floored to one. Callers can warn.
+pub fn time_signatures_lost(score: &Score, extension: &str) -> usize {
+    if !matches!(extension.to_ascii_lowercase().as_str(), "mid" | "midi") {
+        return 0;
+    }
+    let mut prev = None;
+    score
+        .master_bars
+        .iter()
+        .filter(|mb| {
+            let changed = prev != Some(mb.time_signature);
+            prev = Some(mb.time_signature);
+            changed && !mb.time_signature.denominator.max(1).is_power_of_two()
+        })
         .count()
 }
 

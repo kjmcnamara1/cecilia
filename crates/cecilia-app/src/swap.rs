@@ -29,6 +29,8 @@ pub(crate) struct SwapState {
     notices: Vec<(String, bool)>,
     /// A write failed and was reported; stays quiet until one works.
     failed: bool,
+    /// The swap directory was searched for swap files of crashed unnamed buffers.
+    orphans_scanned: bool,
 }
 
 /// What a swap file says about its writer.
@@ -254,6 +256,7 @@ impl App {
         if !cfg.enabled {
             return self.swap_clear();
         }
+        self.swap_scan_orphans();
         // Swap files that went stale: saved, closed, undone to the saved state or renamed.
         let stale: Vec<usize> = self
             .swap
@@ -297,6 +300,52 @@ impl App {
                     e.2 = now;
                 }
             }
+        }
+    }
+
+    /// Swap files of unnamed buffers (`unnamed-<pid>-<slot>.swp`) whose cecilia is gone,
+    /// newest first. Nothing else ever names them, so without a look they pile up.
+    fn orphan_swaps(&self) -> Vec<(PathBuf, SwapInfo)> {
+        let Some(dir) = self.swap_dir() else {
+            return Vec::new();
+        };
+        let Ok(entries) = std::fs::read_dir(dir) else {
+            return Vec::new();
+        };
+        let mut found: Vec<_> = entries
+            .flatten()
+            .map(|e| e.path())
+            .filter(|p| {
+                p.file_name()
+                    .and_then(|n| n.to_str())
+                    .is_some_and(|n| n.starts_with("unnamed-") && n.ends_with(".swp"))
+            })
+            .filter_map(|p| {
+                let info = read_swap(&p).ok()?;
+                (info.pid != std::process::id() && !pid_alive(info.pid))
+                    .then(|| (modified_time(&p), p, info))
+            })
+            .collect();
+        found.sort_by_key(|f| std::cmp::Reverse(f.0));
+        found.into_iter().map(|(_, p, i)| (p, i)).collect()
+    }
+
+    /// Once per session: tells about swap files left by crashed sessions on unnamed buffers.
+    fn swap_scan_orphans(&mut self) {
+        if std::mem::replace(&mut self.swap.orphans_scanned, true) {
+            return;
+        }
+        let n = self.orphan_swaps().len();
+        if n > 0 {
+            self.swap.notices.push((
+                format!(
+                    "{n} unsaved unnamed score{} left by a crashed session: :recover on an \
+                     unnamed buffer opens the newest (:recover FILE a given swap file)",
+                    if n == 1 { "" } else { "s" }
+                ),
+                false,
+            ));
+            self.show_swap_notices();
         }
     }
 
@@ -395,6 +444,14 @@ impl App {
     /// open a given swap file (for an unnamed buffer) as a new buffer.
     pub(crate) fn recover(&mut self, given: Option<PathBuf>, force: bool) {
         let buffer = self.pane().buffer;
+        // An unnamed buffer has no swap file of its own to recover: take the newest orphan.
+        let given = given.or_else(|| {
+            self.buffers[buffer]
+                .path
+                .is_none()
+                .then(|| self.orphan_swaps().into_iter().next().map(|(p, _)| p))
+                .flatten()
+        });
         let Some(file) = given.clone().or_else(|| self.swap_file(buffer)) else {
             return self.error("recover: no swap directory");
         };
@@ -664,6 +721,65 @@ mod tests {
         let f = std::fs::File::options().write(true).open(&swap).unwrap();
         f.set_modified(later).unwrap();
         changed
+    }
+
+    /// A swap file of an unnamed, modified buffer, renamed and re-stamped as written by `pid`.
+    fn unnamed_swap(dir: &Path, pid: u32) -> (PathBuf, cecilia_core::Score) {
+        let mut app = app_in(dir);
+        app.run(Command::New);
+        crate::app::tests::keys(&mut app, "i7<Esc>");
+        let score = app.buffer().score.clone();
+        let t0 = Instant::now();
+        app.swap_tick(t0);
+        app.swap_tick(t0 + Duration::from_secs(6));
+        let swap = swaps(dir)
+            .into_iter()
+            .find(|p| {
+                p.file_name()
+                    .unwrap()
+                    .to_string_lossy()
+                    .starts_with("unnamed-")
+            })
+            .unwrap();
+        let mut bytes = std::fs::read(&swap).unwrap();
+        let header = format!("{MAGIC}\n{}\n", std::process::id());
+        bytes.splice(0..header.len(), format!("{MAGIC}\n{pid}\n").bytes());
+        let renamed = swap.with_file_name(format!("unnamed-{pid}-0.swp"));
+        std::fs::remove_file(&swap).unwrap();
+        std::fs::write(&renamed, bytes).unwrap();
+        (renamed, score)
+    }
+
+    #[test]
+    fn orphaned_unnamed_swaps_are_announced_once_and_recovered_by_recover() {
+        let dir = tmp("orphans");
+        let (dead, score) = unnamed_swap(&dir, 4_000_000_000);
+        let live = cfg!(target_os = "linux").then(|| unnamed_swap(&dir, 1).0);
+        let mut app = app_in(&dir);
+        app.swap_tick(Instant::now());
+        let msg = app.last_notification().unwrap();
+        assert!(
+            msg.text.starts_with("1 unsaved unnamed score "),
+            "{}",
+            msg.text
+        );
+        // Once per session; our own and a running cecilia's files are not orphans.
+        app.run(Command::New);
+        app.swap_tick(Instant::now());
+        assert_eq!(app.last_notification().unwrap().count, 1);
+        // :recover on the unnamed buffer opens the orphan in a new buffer.
+        let before = app.buffers.len();
+        app.run(Command::Recover(None, false));
+        assert_eq!(app.buffers.len(), before + 1);
+        assert!(app.buffer().modified && app.buffer().score == score);
+        assert!(
+            !dead.exists(),
+            "the recovered orphan's file moves to this session's swap"
+        );
+        if let Some(live) = live {
+            assert!(live.exists());
+        }
+        std::fs::remove_dir_all(dir).ok();
     }
 
     #[test]
