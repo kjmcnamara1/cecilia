@@ -7,6 +7,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.45.1] - 2026-11-12
+
+### Fixed
+
+- The release workflow's crates.io publish job installs `libwayland-dev`, which verifying `cecilia-tui` on its own needs; `0.45.0` never reached crates.io, so this is its first published version.
+
 ## [0.45.0] - 2026-11-12
 
 ### Added
