@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+
+- The GUI dashboard's button hover highlight follows the pointer at once instead of waiting for the next idle redraw (up to half a second).
+
 ## [0.45.1] - 2026-11-12
 
 ### Fixed
