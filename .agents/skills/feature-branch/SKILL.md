@@ -72,11 +72,11 @@ Right after the merge, on `main`, pick the semantic version bump (the project is
 the user decides when to reach 1.0.0): a new feature is a minor bump, a fix-only change a patch
 bump, and a breaking change a minor bump while on 0.x. Then:
 
-1. Set `version` in the workspace `Cargo.toml` (`[workspace.package]`; the crates inherit it)
-   and run `cargo build` so `Cargo.lock` updates.
-2. In `CHANGELOG.md`, move the `[Unreleased]` entries under a new `## [x.y.z] - YYYY-MM-DD`
-   heading, keeping an empty `[Unreleased]` above it.
-3. Commit as `chore(release): vX.Y.Z`, then tag that commit: `git tag -a vX.Y.Z -m "vX.Y.Z"`.
+1. Run `just bump minor` (or `patch`, or an explicit `just bump X.Y.Z`). It sets the version in
+   `Cargo.toml` and `Cargo.lock`, moves the `[Unreleased]` entries in `CHANGELOG.md` under a new
+   dated heading, and updates the AUR PKGBUILDs and the Scoop, Winget and Chocolatey manifests. It
+   refuses an empty `[Unreleased]`.
+2. Commit as `chore(release): vX.Y.Z`, then tag that commit: `git tag -a vX.Y.Z -m "vX.Y.Z"`.
 
 State the chosen version and why when reporting. Do not push the commit or tag unless asked.
 
