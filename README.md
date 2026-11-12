@@ -152,8 +152,10 @@ Build requirements: on Windows the Visual Studio C++ Build Tools ("Desktop devel
 and LLVM (the `bindgen` build step needs `libclang`; set `LIBCLANG_PATH` to LLVM's `bin` folder if
 it is not found). On macOS the Xcode command line tools (`xcode-select --install`). The window
 (`--gui`) needs a graphics driver with working compute shaders; on Windows it crashed inside
-Windows' software renderer on a virtual machine without 3D acceleration (see `TODO.md`), so use a
-machine with a real GPU.
+Windows' software renderer on a virtual machine without 3D acceleration (see `TODO.md`). Setting
+`CECILIA_CPU=1` makes the renderer run its shader stages on the CPU (slower, untested on that VM);
+on Linux VMs install a software Vulkan driver (`mesa-vulkan-swrast` / lavapipe) or use the
+terminal UI.
 
 Terminal notes: the default `tabline.icons = "nerd"` needs a [Nerd Font](https://www.nerdfonts.com)
 in the terminal; without one icons show as boxes, so run `:set tabline.icons unicode` (or `none`).

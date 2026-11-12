@@ -55,9 +55,12 @@ struct Gui {
     error: Option<anyhow::Error>,
 }
 
+/// `CECILIA_CPU=1` runs vello's shader stages on the CPU instead of the GPU's compute shaders,
+/// for drivers (virtual machines, software renderers) where those crash or are missing. The
+/// result is still presented through wgpu.
 fn renderer_options() -> RendererOptions {
     RendererOptions {
-        use_cpu: false,
+        use_cpu: std::env::var_os("CECILIA_CPU").is_some_and(|v| !v.is_empty() && v != "0"),
         antialiasing_support: AaSupport::area_only(),
         num_init_threads: NonZeroUsize::new(1),
         pipeline_cache: None,
