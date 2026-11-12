@@ -732,14 +732,12 @@ mod tests {
         let t0 = Instant::now();
         app.swap_tick(t0);
         app.swap_tick(t0 + Duration::from_secs(6));
+        // This session's file only: earlier calls left renamed ones in the directory, and the
+        // directory listing has no fixed order.
+        let own = format!("unnamed-{}-", std::process::id());
         let swap = swaps(dir)
             .into_iter()
-            .find(|p| {
-                p.file_name()
-                    .unwrap()
-                    .to_string_lossy()
-                    .starts_with("unnamed-")
-            })
+            .find(|p| p.file_name().unwrap().to_string_lossy().starts_with(&own))
             .unwrap();
         let mut bytes = std::fs::read(&swap).unwrap();
         let header = format!("{MAGIC}\n{}\n", std::process::id());
