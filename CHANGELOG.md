@@ -9,6 +9,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- `CECILIA_CPU=1` runs the GUI renderer's shader stages on the CPU (`use_cpu`), as a workaround for drivers without working compute shaders (virtual machines).
 - `tabline.icons = "auto"` (the new default) picks Nerd Font glyphs when the terminal is kitty, WezTerm or Ghostty or fontconfig lists a Nerd Font, else plain Unicode under a UTF-8 locale, else ASCII (`none`).
 
 ### Security
