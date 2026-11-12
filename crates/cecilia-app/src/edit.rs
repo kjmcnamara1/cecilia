@@ -1225,8 +1225,14 @@ pub fn reflow(cx: &mut EditCx, from: Pos, to: Pos) -> Result<(), String> {
     let mut prefix = Vec::new();
     let mut suffix = Vec::new();
     let mut queue: std::collections::VecDeque<Beat> = Default::default();
-    for b in from.0..=to_bar {
-        let beats = cx.score.tracks[t].bars[b]
+    for (b, bar) in cx.score.tracks[t]
+        .bars
+        .iter()
+        .enumerate()
+        .take(to_bar + 1)
+        .skip(from.0)
+    {
+        let beats = bar
             .voices
             .get(v)
             .map(|x| x.beats.clone())
