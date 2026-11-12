@@ -77,7 +77,10 @@ fn render_context() -> RenderContext {
             backends: wgpu::Backends::VULKAN,
             ..Default::default()
         });
-        if !instance.enumerate_adapters(wgpu::Backends::VULKAN).is_empty() {
+        if !instance
+            .enumerate_adapters(wgpu::Backends::VULKAN)
+            .is_empty()
+        {
             return RenderContext {
                 instance,
                 devices: Vec::new(),
