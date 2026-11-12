@@ -161,7 +161,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        pkgname: [cecilia, cecilia-bin]
+        pkgname: [cecilia, cecilia-bin, cecilia-git]
     steps:
       - uses: actions/checkout@v4
       - uses: KSXGitHub/github-actions-deploy-aur@v4.0.0

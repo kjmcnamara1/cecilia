@@ -16,7 +16,7 @@ Planned work. Finished items move to `CHANGELOG.md` under `[Unreleased]`.
 - [ ] Linux Releases
   - [x] PKGBUILD for AUR: written and built with `makepkg`; the release workflow now pushes it (needs the `AUR_SSH_PRIVATE_KEY` secret and the AUR packages registered); verify after the next release
   - [x] cecilia-bin for AUR: same
-  - [ ] PKGBUILD for cecilia-git
+  - [x] PKGBUILD for cecilia-git: written (version from `git describe`, untested with `makepkg`); the release workflow pushes it too
   - [ ] Wait on AUR adoption requests for cecilia and cecilia-git
   - [ ] .deb and .rpm: built by the release workflow; install-test the CI-built files
 - [ ] Windows Release
