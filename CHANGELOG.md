@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+
+- On Windows, `--gui` prefers the Vulkan backend when it has an adapter and falls back to the other backends otherwise; wgpu's default could pick DX12, which crashed on some laptops (set `WGPU_BACKEND` to override).
+
 ## [0.45.1] - 2026-11-12
 
 ### Fixed

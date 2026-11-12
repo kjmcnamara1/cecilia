@@ -67,6 +67,26 @@ fn renderer_options() -> RendererOptions {
     }
 }
 
+/// The wgpu context. On Windows, wgpu's default (all backends) can pick DX12 or its WARP software
+/// renderer, which crashes or draws nothing on some laptops, while Vulkan works. So unless
+/// `WGPU_BACKEND` says otherwise, Vulkan is used when it has an adapter, else everything.
+fn render_context() -> RenderContext {
+    #[cfg(windows)]
+    if std::env::var_os("WGPU_BACKEND").is_none() {
+        let instance = wgpu::Instance::new(&wgpu::InstanceDescriptor {
+            backends: wgpu::Backends::VULKAN,
+            ..Default::default()
+        });
+        if !instance.enumerate_adapters(wgpu::Backends::VULKAN).is_empty() {
+            return RenderContext {
+                instance,
+                devices: Vec::new(),
+            };
+        }
+    }
+    RenderContext::new()
+}
+
 /// Most bytes a screenshot may take (RGBA, plus the readback's padding).
 const MAX_IMAGE_BYTES: u64 = 1 << 30;
 
@@ -95,7 +115,7 @@ pub fn run(app: App) -> Result<()> {
     let mut gui = Gui {
         tracks_peek_drawn: false,
         notifications_drawn: false,
-        cx: RenderContext::new(),
+        cx: render_context(),
         gpu: None,
         app,
         views: Views::default(),
@@ -493,7 +513,7 @@ pub fn screenshot(
     hover: Option<(f64, f64)>,
 ) -> Result<Vec<u8>> {
     let factor = factor.max(0.1);
-    let mut cx = RenderContext::new();
+    let mut cx = render_context();
     let dev_id = pollster::block_on(cx.device(None)).ok_or_else(|| anyhow!("no GPU adapter"))?;
     let dev = &cx.devices[dev_id];
     let (device, queue) = (&dev.device, &dev.queue);
