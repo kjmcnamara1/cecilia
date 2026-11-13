@@ -124,8 +124,35 @@ jobs:
           name: macos-app
           path: dist/*.dmg
 
+  # AppImage from the Linux binary (packaging/appimage). Built blind until the first -rc tag, so it
+  # must not block a release.
+  appimage:
+    needs: [meta, build]
+    runs-on: ubuntu-22.04
+    continue-on-error: true
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/download-artifact@v4
+        with:
+          name: x86_64-unknown-linux-gnu
+          path: in
+      - name: Build the AppImage
+        env:
+          APPIMAGE_EXTRACT_AND_RUN: "1"
+        run: |
+          v=${{ needs.meta.outputs.version }}
+          tar xzf in/cecilia-v$v-x86_64-unknown-linux-gnu.tar.gz -C in
+          curl -fsSL -o linuxdeploy https://github.com/linuxdeploy/linuxdeploy/releases/download/continuous/linuxdeploy-x86_64.AppImage
+          chmod +x linuxdeploy
+          LINUXDEPLOY=$PWD/linuxdeploy packaging/appimage/build.sh "$v" \
+            in/cecilia-v$v-x86_64-unknown-linux-gnu/cecilia out
+      - uses: actions/upload-artifact@v4
+        with:
+          name: appimage
+          path: out/*.AppImage
+
   release:
-    needs: [meta, build, macos-app]
+    needs: [meta, build, macos-app, appimage]
     runs-on: ubuntu-latest
     permissions:
       contents: write
