@@ -21,7 +21,7 @@ grep -q '<string>0.0.1</string>' "$app/Contents/Info.plist" || fail "version not
 [ -L "$tmp/mnt/Applications" ] || fail "no Applications link"
 [ -f "$tmp/mnt/.DS_Store" ] || fail "no window layout (.DS_Store)"
 [ -f "$tmp/mnt/.VolumeIcon.icns" ] || fail "no volume icon"
-ls "$tmp/mnt/.background/"* >/dev/null 2>&1 || fail "no window background"
+[ -f "$tmp/mnt/.background.tiff" ] || fail "no window background"
 [ "$("$app/Contents/MacOS/cecilia-gui" x)" = "$(printf -- '--gui\nx')" ] || fail "launcher"
 codesign --verify "$app" || fail "signature"
 

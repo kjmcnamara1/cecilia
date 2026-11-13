@@ -31,7 +31,8 @@ chmod +x "$tmp/bin/uname"
 
 run() { # run PREFIX [env...]: the installer, output in $tmp/out
     local prefix=$1; shift
-    env PATH="$tmp/bin:$PATH" HOME="$tmp/home" SHELL=/bin/bash CECILIA_BASE_URL="file://$tmp/rel" \
+    env PATH="$tmp/bin:$PATH" HOME="$tmp/home" XDG_CONFIG_HOME="$tmp/home/.config" ZDOTDIR="$tmp/home" \
+        SHELL=/bin/bash CECILIA_BASE_URL="file://$tmp/rel" \
         CECILIA_VERSION=$V CECILIA_PREFIX="$prefix" "$@" sh "$ROOT/packaging/install.sh" \
         > "$tmp/out" 2>&1
 }
