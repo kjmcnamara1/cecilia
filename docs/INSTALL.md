@@ -33,11 +33,15 @@ curl -fsSL https://github.com/kjmcnamara1/cecilia/releases/latest/download/insta
 It picks the build for your system, checks it against `SHA256SUMS`, and installs without root:
 
 - **Linux (x86_64)**: the binary, desktop entry, icon and file types under `~/.local`
-  (`CECILIA_PREFIX` changes that; put `~/.local/bin` on your `PATH`). Remove it with
+  (`CECILIA_PREFIX` changes that). Remove it with
   `packaging/linux/uninstall.sh` from a source checkout or release archive.
 - **macOS**: `Cecilia.app` in `~/Applications` (`CECILIA_APP_DIR`) and a `cecilia` command in
   `~/.local/bin` (`CECILIA_BIN_DIR`). Downloads made this way carry no quarantine flag, so there is
   no Gatekeeper prompt.
+- If the `bin` folder is not on your `PATH` yet, it is added for new terminals with one line in
+  your shell's startup file (`~/.zshrc`, `~/.bashrc` on Linux or `~/.bash_profile` on macOS,
+  `~/.config/fish/conf.d/cecilia.fish`, otherwise `~/.profile`), marked
+  `# added by the cecilia installer`. `CECILIA_NO_MODIFY_PATH=1` leaves the file alone.
 - `CECILIA_VERSION=0.46.0` installs that version instead of the latest.
 
 Other systems get a message pointing at `cargo binstall cecilia` or `cargo install`.

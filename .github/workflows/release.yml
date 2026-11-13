@@ -153,6 +153,7 @@ jobs:
             in/aarch64-apple-darwin/cecilia-v$v-aarch64-apple-darwin/cecilia \
             in/x86_64-apple-darwin/cecilia-v$v-x86_64-apple-darwin/cecilia
           brew install librsvg
+          pipx install dmgbuild
           mkdir dist
           packaging/macos/bundle.sh "$v" cecilia dist/cecilia-v$v-universal-apple-darwin.dmg
       - uses: actions/upload-artifact@v4
