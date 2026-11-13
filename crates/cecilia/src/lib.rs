@@ -100,8 +100,10 @@ enum Cmd {
 }
 
 /// Runs cecilia with the process's arguments; `ceciliaw` passes `force_gui` (it always opens
-/// the window).
+/// the window). Velopack's install, update and uninstall hooks run (and exit) before anything
+/// else, and an update downloaded while running is handed to its updater on the way out.
 pub fn main(force_gui: bool) -> Result<()> {
+    cecilia_app::update::startup();
     let mut cli = if force_gui {
         // No console to print a usage error to: it becomes the error ceciliaw shows.
         match Cli::try_parse() {
@@ -116,7 +118,9 @@ pub fn main(force_gui: bool) -> Result<()> {
         cli.gui = true;
         cli.tui = false;
     }
-    run(cli)
+    let result = run(cli);
+    cecilia_app::update::apply_on_exit();
+    result
 }
 
 /// Shows an error of `ceciliaw`, which has no console on Windows: in a message box there, on
@@ -270,6 +274,8 @@ fn run(cli: Cli) -> Result<()> {
                 std::fs::write(out, cecilia_gui::screenshot(app, w, h, f, hover)?)?;
                 return Ok(());
             }
+            // At most once a day, as `ui.auto_update` says (off: no network at all).
+            app.check_for_updates_on_start();
             // The terminal interface by default; --gui opens a window.
             if !cli.gui {
                 return cecilia_tui::run(app);
