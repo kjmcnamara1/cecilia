@@ -18,8 +18,10 @@ cecilia-audio.workspace = true
 cecilia-engrave.workspace = true
 anyhow.workspace = true
 vello = "0.5"
+vello_cpu = { version = "0.4", default-features = false, features = ["std", "u8_pipeline"] }
 resvg = { version = "0.45", default-features = false }
 winit = "0.30"
+softbuffer = "0.4"
 pollster = "0.4"
 tiny-skia = "0.11"
 ttf-parser = "0.25"

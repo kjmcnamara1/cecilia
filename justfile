@@ -40,7 +40,7 @@ bump version:
     sed -i "s/$old/$new/g" "${win[@]}"
     echo "$cur -> $new"
 
-# The CI checks that can run here (the `test` job; `msrv` too when toolchain 1.88 is installed).
+# The CI checks that can run here (the `test` job; `msrv` too when toolchain 1.89 is installed).
 # Run before every push. The macOS and Windows jobs need those platforms.
 ci:
     export RUSTFLAGS="-D warnings"; \
@@ -48,6 +48,6 @@ ci:
     cargo clippy --workspace --all-targets && \
     cargo test --workspace && \
     cargo check --workspace --all-targets --locked
-    if rustup toolchain list | grep -q '^1\.88'; then \
-      RUSTFLAGS="-D warnings" cargo +1.88 check --workspace --locked; \
-    else echo "skipping msrv: rustup toolchain install 1.88"; fi
+    if rustup toolchain list | grep -q '^1\.89'; then \
+      RUSTFLAGS="-D warnings" cargo +1.89 check --workspace --locked; \
+    else echo "skipping msrv: rustup toolchain install 1.89"; fi

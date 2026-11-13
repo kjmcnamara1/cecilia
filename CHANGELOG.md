@@ -7,6 +7,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- `ui.renderer` (`auto`, `gpu`, `software` or `cpu`) and the `CECILIA_RENDERER` environment variable choose the GUI renderer. `auto` (the default) tries the GPU, then falls back to a software adapter (e.g. Vulkan lavapipe) with the shaders run on the CPU, so `--gui` can start on GPU-less machines; `CECILIA_CPU=1` still works. The GPU attempt never takes a CPU-type adapter (Windows' DX12 WARP, llvmpipe, lavapipe) unless `WGPU_ADAPTER_NAME` names one, and WARP is skipped by the software attempt too, because it crashes; `ui.renderer = gpu` with only such an adapter fails with an error.
+- `ui.renderer = cpu`: a renderer with no graphics API at all (`vello_cpu`, shown through `softbuffer`), for VMs and machines without a working GPU or driver (including Windows VMs without 3D). `auto` falls back to it last, and `--screenshot` works headless without a GPU. The CI `render-smoke` job renders a screenshot with it on the macOS and Windows runners.
+
+### Changed
+
+- The minimum supported Rust version is 1.89 (the CPU renderer's `vello_cpu` needs it).
+
 ### Fixed
 
 - On Windows, `--gui` prefers the Vulkan backend when it has an adapter and falls back to the other backends otherwise; wgpu's default could pick DX12, which crashed on some laptops (set `WGPU_BACKEND` to override).

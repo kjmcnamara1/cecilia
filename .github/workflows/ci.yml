@@ -35,7 +35,7 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      - uses: dtolnay/rust-toolchain@1.88
+      - uses: dtolnay/rust-toolchain@1.89
       - uses: Swatinem/rust-cache@v2
       - run: sudo apt-get update && sudo apt-get install -y libasound2-dev pkg-config
       - run: cargo check --workspace --locked
@@ -59,7 +59,10 @@ jobs:
 
   # Informational: does the GPU renderer start on hosted macOS and Windows runners? These runners
   # may have no usable GPU, so a failure here is a finding, not a regression (hence
-  # continue-on-error). The image is uploaded to look at.
+  # continue-on-error). The default (`auto`) step must succeed even without a GPU, by ending on
+  # the CPU renderer. The second step (`ui.renderer = cpu`) needs no GPU or graphics API at all,
+  # which the first cannot say: the Windows hosted runner has no GPU and the wgpu path segfaults
+  # there. The images are uploaded to look at.
   render-smoke:
     strategy:
       fail-fast: false
@@ -75,9 +78,14 @@ jobs:
       - name: Render the start screen headless
         shell: bash
         run: ./target/release/cecilia -W ci --screenshot render.png
+      - name: Render the start screen headless with the CPU renderer (no GPU needed)
+        shell: bash
+        run: CECILIA_RENDERER=cpu ./target/release/cecilia -W ci --screenshot render-cpu.png
       - uses: actions/upload-artifact@v4
         if: always()
         with:
           name: render-${{ matrix.os }}
-          path: render.png
+          path: |
+            render.png
+            render-cpu.png
           if-no-files-found: warn

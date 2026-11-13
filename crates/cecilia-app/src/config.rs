@@ -362,6 +362,8 @@ pub struct UiConfig {
     /// While `'` waits for a mark letter: where the marks are drawn on the score, `"exact"`
     /// (on the position a jump lands on), `"above"` (over the staff, at that beat) or `"off"`.
     pub mark_labels: MarkLabels,
+    /// GUI renderer: "auto" (GPU, then software, then cpu), "gpu", "software" or "cpu".
+    pub renderer: RendererMode,
     /// Draw the staff lines of bars that don't hold their full count in red.
     pub highlight_incomplete_bars: bool,
     /// Thickness in pixels of the ring around the focused pane in the GUI (0: none; 0 to 8).
@@ -389,6 +391,17 @@ pub struct UiConfig {
     /// Sync mode: how far (milliseconds, 0 to 200) a sync point is moved to reach the strongest
     /// onset of the audio near where it was put; 0 puts it exactly there.
     pub sync_snap: f64,
+}
+
+/// Which renderer the GUI uses: `Auto` tries the GPU, then a software Vulkan driver, then the CPU renderer.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Deserialize, Serialize)]
+#[serde(rename_all = "lowercase")]
+pub enum RendererMode {
+    #[default]
+    Auto,
+    Gpu,
+    Software,
+    Cpu,
 }
 
 /// Where the marks show on the score while `'` waits for a letter.
@@ -468,6 +481,7 @@ impl Default for UiConfig {
             lyrics_font_size: 12.0,
             chant_text_font: "noto-serif".into(),
             mark_labels: MarkLabels::Exact,
+            renderer: RendererMode::Auto,
             waveform_time_ticks: Ticks::All,
             waveform_beat_ticks: Ticks::All,
             waveform_time_labels: true,

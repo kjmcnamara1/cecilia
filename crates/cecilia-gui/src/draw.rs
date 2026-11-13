@@ -3,6 +3,7 @@
 
 use std::collections::HashMap;
 
+use crate::canvas::Canvas;
 use cecilia_app::layout::PaneId;
 use cecilia_app::playback::Playback;
 use cecilia_app::theme::Rgba;
@@ -11,7 +12,6 @@ use cecilia_audio::Location;
 use cecilia_engrave::display::{Align, BeatRef, FontKind};
 use cecilia_engrave::output::{Paint, outlines};
 use cecilia_engrave::{Layout, Options};
-use vello::Scene;
 use vello::kurbo::{Affine, BezPath, Circle, Rect, RoundedRect, Shape, Stroke};
 use vello::peniko::{Color, Fill, Mix};
 
@@ -31,7 +31,7 @@ thread_local! {
 
 /// Fills `shape` with the blurred page behind it (nothing without a backdrop): the layer under a
 /// popup's translucent surface.
-fn backdrop(scene: &mut Scene, shape: &impl vello::kurbo::Shape) {
+fn backdrop(scene: &mut Canvas, shape: &impl vello::kurbo::Shape) {
     BACKDROP.with(|b| {
         if let Some((image, k)) = &*b.borrow() {
             scene.fill(
@@ -113,7 +113,7 @@ const UI_FONT: f64 = 14.0;
 const BASE_SCALE: f64 = 1.6;
 
 /// A linked note's color-recolored pages: the note, its color, and (page, scene) pairs.
-type Lit = (cecilia_app::LinkedNote, [u8; 4], Vec<(usize, Scene)>);
+type Lit = (cecilia_app::LinkedNote, [u8; 4], Vec<(usize, Canvas)>);
 
 type CacheKey = (
     usize,
@@ -138,7 +138,7 @@ struct Cached {
     /// chord policy)
     key: CacheKey,
     layout: Layout,
-    scenes: Vec<Scene>,
+    scenes: Vec<Canvas>,
     /// The note shown in the mode's color on the track's other staves, its color, and the pages
     /// redrawn for it (replacing `scenes`'): recolored when the cursor or mode changes, without
     /// engraving again.
@@ -443,7 +443,7 @@ fn clip_text(s: &str, max: usize) -> String {
 /// The tracks panel: a row per track (number, volume, solo, mute, name, instrument) and a
 /// block per bar, colored where the bar has notes, with the edit cursor and the playhead.
 fn draw_tracks(
-    scene: &mut Scene,
+    scene: &mut Canvas,
     app: &App,
     views: &mut Views,
     mut playback: Option<&mut Playback>,
@@ -831,7 +831,7 @@ const PROGRESS_H: f64 = 24.0;
 /// A score pane's progress bar: the song's sections as labelled segments (letter and title),
 /// a translucent red marker at the play position (or the cursor's), and the time.
 fn draw_progress(
-    scene: &mut Scene,
+    scene: &mut Canvas,
     app: &App,
     views: &mut Views,
     id: PaneId,
@@ -923,7 +923,7 @@ fn draw_progress(
 /// about the row's middle (blank until the audio has loaded).
 #[allow(clippy::too_many_arguments)]
 fn draw_track_waveform(
-    scene: &mut Scene,
+    scene: &mut Canvas,
     app: &App,
     pb: &mut Playback,
     buffer: usize,
@@ -1005,8 +1005,8 @@ fn dim_inactive_voices(
     }
 }
 
-fn page_scene(page: &cecilia_engrave::display::Page, paper: Rgba, ink: Rgba) -> Scene {
-    let mut s = Scene::new();
+fn page_scene(page: &cecilia_engrave::display::Page, paper: Rgba, ink: Rgba) -> Canvas {
+    let mut s = Canvas::new();
     s.fill(
         Fill::NonZero,
         Affine::IDENTITY,
@@ -1039,7 +1039,7 @@ fn page_scene(page: &cecilia_engrave::display::Page, paper: Rgba, ink: Rgba) -> 
 
 #[allow(clippy::too_many_arguments)]
 fn text(
-    scene: &mut Scene,
+    scene: &mut Canvas,
     s: &str,
     x: f64,
     y: f64,
@@ -1056,7 +1056,7 @@ fn text(
 /// `text` with a stroke along the outlines, which thickens the glyphs by `heft` px.
 #[allow(clippy::too_many_arguments)]
 fn text_heavy(
-    scene: &mut Scene,
+    scene: &mut Canvas,
     s: &str,
     x: f64,
     y: f64,
@@ -1072,14 +1072,14 @@ fn text_heavy(
     scene.stroke(&Stroke::new(heft), Affine::IDENTITY, color, None, &path);
 }
 
-fn fill(scene: &mut Scene, r: Rect, c: Color) {
+fn fill(scene: &mut Canvas, r: Rect, c: Color) {
     scene.fill(Fill::NonZero, Affine::IDENTITY, c, None, &r);
 }
 
 #[allow(clippy::too_many_arguments)]
 pub fn build(
-    scene: &mut Scene,
-    popups: &mut Scene,
+    scene: &mut Canvas,
+    popups: &mut Canvas,
     app: &mut App,
     views: &mut Views,
     mut playback: Option<&mut Playback>,
@@ -1147,7 +1147,7 @@ pub fn build(
     if tabline {
         let hover = views.hover;
         views.hover.1 -= tab_y;
-        let mut tabs = Scene::new();
+        let mut tabs = Canvas::new();
         draw_tabs(&mut tabs, app, views, width);
         views.hover = hover;
         scene.append(&tabs, Some(Affine::translate((0.0, tab_y))));
@@ -1322,7 +1322,7 @@ fn lily_image() -> Option<vello::peniko::Image> {
 
 /// The dashboard shown instead of the panes: the name and a column of buttons, centred in `main`
 /// (the focused or hovered one highlighted).
-fn draw_dashboard(scene: &mut Scene, app: &App, views: &mut Views, main: Rect) {
+fn draw_dashboard(scene: &mut Canvas, app: &App, views: &mut Views, main: Rect) {
     use cecilia_app::dashboard::DashboardButton;
     let (w, h, gap) = (260.0, 48.0, 14.0);
     let (icon, header) = (96.0, 96.0 + 24.0 + 44.0 + 22.0 + 36.0);
@@ -1401,7 +1401,7 @@ fn draw_dashboard(scene: &mut Scene, app: &App, views: &mut Views, main: Rect) {
 
 /// The tabline, as in bufferline.nvim: the active view's buffers as tabs on the left (file-type
 /// icon, name shortened in the middle, × on hover or ● when modified), the views on the right.
-fn draw_tabs(scene: &mut Scene, app: &App, views: &mut Views, width: f64) {
+fn draw_tabs(scene: &mut Canvas, app: &App, views: &mut Views, width: f64) {
     let fonts = cecilia_engrave::fonts::fonts();
     fill(scene, Rect::new(0.0, 0.0, width, TAB_BAR), chrome());
     views.tabline.clear();
@@ -1569,7 +1569,7 @@ fn draw_tabs(scene: &mut Scene, app: &App, views: &mut Views, width: f64) {
 
 /// The toolbar: a button per configured command, separators between groups, and the
 /// tooltip of the button the mouse rests on.
-fn draw_toolbar(scene: &mut Scene, app: &App, views: &mut Views, width: f64) {
+fn draw_toolbar(scene: &mut Canvas, app: &App, views: &mut Views, width: f64) {
     let y0 = 0.0;
     fill(
         scene,
@@ -1671,7 +1671,7 @@ fn draw_toolbar(scene: &mut Scene, app: &App, views: &mut Views, width: f64) {
 }
 
 /// The tooltip of the toolbar button the mouse rests on (drawn over everything).
-fn draw_tooltip(scene: &mut Scene, r: Rect, tip: &str, width: f64) {
+fn draw_tooltip(scene: &mut Canvas, r: Rect, tip: &str, width: f64) {
     let w = cecilia_engrave::fonts::fonts().text_width(FontKind::Text, tip, 12.5) + 16.0;
     let x = r.x0.min(width - w - 4.0).max(4.0);
     let tr = Rect::new(x, r.y1 + 6.0, x + w, r.y1 + 30.0);
@@ -1704,7 +1704,7 @@ fn draw_tooltip(scene: &mut Scene, r: Rect, tip: &str, width: f64) {
 
 /// A toolbar button's icon, drawn in a 16 px box centred at `c`.
 fn draw_tool_icon(
-    scene: &mut Scene,
+    scene: &mut Canvas,
     b: &cecilia_app::toolbar::ToolButton,
     c: vello::kurbo::Point,
     color: Color,
@@ -1713,10 +1713,10 @@ fn draw_tool_icon(
     let stroke = Stroke::new(1.6)
         .with_caps(vello::kurbo::Cap::Round)
         .with_join(vello::kurbo::Join::Round);
-    let line = |scene: &mut Scene, path: &BezPath| {
+    let line = |scene: &mut Canvas, path: &BezPath| {
         scene.stroke(&stroke, Affine::IDENTITY, color, None, path);
     };
-    let solid = |scene: &mut Scene, shape: &dyn Fn() -> BezPath| {
+    let solid = |scene: &mut Canvas, shape: &dyn Fn() -> BezPath| {
         scene.fill(Fill::NonZero, Affine::IDENTITY, color, None, &shape());
     };
     let path = |points: &[(f64, f64)], close: bool| {
@@ -1997,9 +1997,9 @@ fn draw_tool_icon(
 }
 
 /// A small file-type icon centred vertically at `cy`, starting at `x` (14 px wide).
-fn draw_file_icon(scene: &mut Scene, kind: &str, x: f64, cy: f64) {
+fn draw_file_icon(scene: &mut Canvas, kind: &str, x: f64, cy: f64) {
     let color = tc(|t| t.file_icon(kind));
-    fn f(s: &mut Scene, color: Color, shape: &impl vello::kurbo::Shape) {
+    fn f(s: &mut Canvas, color: Color, shape: &impl vello::kurbo::Shape) {
         s.fill(Fill::NonZero, Affine::IDENTITY, color, None, shape);
     }
     match kind {
@@ -2137,7 +2137,7 @@ fn ring_shape(rect: Rect, radius: f64, width: f64) -> RoundedRect {
 
 /// The ring around the focused pane: `ui.focus_ring_width` thick, `ui.focus_ring_color`. It
 /// is drawn after the pane's content so nothing (title bar, page) covers it.
-fn ring(scene: &mut Scene, app: &App, rect: Rect, radius: f64) {
+fn ring(scene: &mut Canvas, app: &App, rect: Rect, radius: f64) {
     let width = app.config.file.ui.focus_ring_width;
     if width <= 0.0 {
         return;
@@ -2154,7 +2154,7 @@ fn ring(scene: &mut Scene, app: &App, rect: Rect, radius: f64) {
 
 #[allow(clippy::too_many_arguments)]
 fn draw_pane(
-    scene: &mut Scene,
+    scene: &mut Canvas,
     app: &mut App,
     views: &mut Views,
     playback: Option<&mut Playback>,
@@ -2171,7 +2171,7 @@ fn draw_pane(
 
 #[allow(clippy::too_many_arguments)]
 fn draw_pane_content(
-    scene: &mut Scene,
+    scene: &mut Canvas,
     app: &mut App,
     views: &mut Views,
     playback: Option<&mut Playback>,
@@ -2824,7 +2824,7 @@ fn draw_pane_content(
 
 /// The audio track around the playhead (or cursor): envelope, sync points, loop and playhead.
 fn draw_waveform(
-    scene: &mut Scene,
+    scene: &mut Canvas,
     app: &App,
     playback: &mut Playback,
     buffer: usize,
@@ -3170,7 +3170,7 @@ struct Tick {
 /// and 5 % of the strip's height, so they stay out of the waveform; the labels sit against the
 /// edge of the strip, straddling their tick, where there is room.
 fn draw_ruler(
-    scene: &mut Scene,
+    scene: &mut Canvas,
     r: Rect,
     mut ticks: Vec<Tick>,
     top: bool,
@@ -3246,7 +3246,7 @@ fn draw_ruler(
 /// the mouse), a dot under each beat of the cursor's bar. The one being dragged is solid.
 #[allow(clippy::too_many_arguments)]
 fn draw_design_handles(
-    scene: &mut Scene,
+    scene: &mut Canvas,
     layout: &Layout,
     to_screen: &impl Fn(usize) -> Affine,
     hover: &impl Fn(usize) -> (f64, f64),
@@ -3671,7 +3671,7 @@ fn beat_fallback<'a>(layout: &'a Layout, r: &BeatRef) -> Option<&'a cecilia_engr
 
 /// A very soft gaussian drop shadow under a floating box (palette, pickers, cards): offset 6 px
 /// down, blurred over ~36 px and faint, so the box hovers a little above the page.
-fn popover_shadow(scene: &mut Scene, r: Rect, radius: f64) {
+fn popover_shadow(scene: &mut Canvas, r: Rect, radius: f64) {
     let (alpha, blur, offset) = popup(|p| {
         (
             (p.shadow_opacity.clamp(0.0, 100.0) * 2.55).round() as u8,
@@ -3705,7 +3705,7 @@ fn wrap_text(s: &str, max: f64, size: f64) -> Vec<String> {
 /// the window and its list (at most `ui.picker_max_items`) below it, or above it (the first
 /// item nearest the input) when `p.up`; descriptions right-aligned for commands.
 fn draw_palette(
-    scene: &mut Scene,
+    scene: &mut Canvas,
     p: &cecilia_app::Palette,
     ui: &cecilia_app::config::UiConfig,
     width: f64,
@@ -3927,7 +3927,7 @@ fn draw_palette(
 /// The status line, as lualine.nvim: mode, layout, workspace and file on the left; the rest of
 /// the state, progress and `bar:beat` on the right. Colored sections are rounded chips.
 fn draw_status(
-    scene: &mut Scene,
+    scene: &mut Canvas,
     app: &App,
     views: &mut Views,
     play: Option<(usize, Location, f64, f64)>,
@@ -3976,7 +3976,7 @@ fn draw_status(
                 None => 0.0,
             }
     };
-    let draw = |scene: &mut Scene, x: f64, w: f64, seg: &Segment| {
+    let draw = |scene: &mut Canvas, x: f64, w: f64, seg: &Segment| {
         if seg.kind.is_chip() {
             scene.fill(
                 Fill::NonZero,
@@ -4077,7 +4077,7 @@ fn draw_status(
 }
 
 /// A quarter note (the tempo): a slanted head and a stem, as the 󰎋 glyph.
-fn draw_quarter_note(scene: &mut Scene, x: f64, cy: f64, color: Color) {
+fn draw_quarter_note(scene: &mut Canvas, x: f64, cy: f64, color: Color) {
     let head = vello::kurbo::Ellipse::new((x + 3.2, cy + 4.0), (3.4, 2.4), -0.35);
     scene.fill(Fill::NonZero, Affine::IDENTITY, color, None, &head);
     fill(
@@ -4088,7 +4088,7 @@ fn draw_quarter_note(scene: &mut Scene, x: f64, cy: f64, color: Color) {
 }
 
 /// A speedometer (the playback speed), as the 󰓅 glyph.
-fn draw_speedometer(scene: &mut Scene, x: f64, cy: f64, color: Color) {
+fn draw_speedometer(scene: &mut Canvas, x: f64, cy: f64, color: Color) {
     let (cx, cy) = (x + 7.0, cy + 3.0);
     let mut dial = BezPath::new();
     dial.move_to((cx - 6.5, cy));
@@ -4126,21 +4126,21 @@ const PROPS_VALUE: f64 = 13.0 * 1.2;
 const PROPS_SECTION: f64 = 13.0 * 1.5;
 
 /// An icon in an 18 px square with its corner at (`x`, `y`).
-fn draw_icon(scene: &mut Scene, icon: cecilia_app::icons::Icon, x: f64, y: f64, c: Color) {
+fn draw_icon(scene: &mut Canvas, icon: cecilia_app::icons::Icon, x: f64, y: f64, c: Color) {
     use cecilia_app::icons::Icon;
     use vello::kurbo::{Cap, Ellipse, Line};
     let (cx, cy) = (x + 9.0, y + 9.0);
-    let line = |scene: &mut Scene, a: (f64, f64), b: (f64, f64), w: f64| {
+    let line = |scene: &mut Canvas, a: (f64, f64), b: (f64, f64), w: f64| {
         let stroke = Stroke::new(w).with_caps(Cap::Round);
         scene.stroke(&stroke, Affine::IDENTITY, c, None, &Line::new(a, b));
     };
-    fn outline(scene: &mut Scene, c: Color, shape: &impl Shape) {
+    fn outline(scene: &mut Canvas, c: Color, shape: &impl Shape) {
         scene.stroke(&Stroke::new(1.3), Affine::IDENTITY, c, None, shape);
     }
-    fn solid(scene: &mut Scene, c: Color, shape: &impl Shape) {
+    fn solid(scene: &mut Canvas, c: Color, shape: &impl Shape) {
         scene.fill(Fill::NonZero, Affine::IDENTITY, c, None, shape);
     }
-    let letter = |scene: &mut Scene, s: &str, lx: f64, ly: f64, size: f64| {
+    let letter = |scene: &mut Canvas, s: &str, lx: f64, ly: f64, size: f64| {
         text(scene, s, lx, ly, size, Align::Center, c, true);
     };
     match icon {
@@ -4283,7 +4283,7 @@ fn draw_icon(scene: &mut Scene, icon: cecilia_app::icons::Icon, x: f64, y: f64, 
 }
 
 /// A chevron centred on (`x`, `y`): pointing right, or down when `open`.
-fn draw_chevron(scene: &mut Scene, x: f64, y: f64, open: bool, color: Color) {
+fn draw_chevron(scene: &mut Canvas, x: f64, y: f64, open: bool, color: Color) {
     let mut path = BezPath::new();
     if open {
         path.move_to((x - 4.5, y - 2.5));
@@ -4306,7 +4306,7 @@ const PROPS_UNIT: f64 = 24.0;
 /// four fifths of it. Returns where it ends.
 #[allow(clippy::too_many_arguments)]
 fn text_small_caps(
-    scene: &mut Scene,
+    scene: &mut Canvas,
     s: &str,
     mut x: f64,
     y: f64,
@@ -4333,7 +4333,7 @@ fn text_small_caps(
 /// The editing palette: section titles with a chevron over grids of icon buttons wrapped to
 /// the pane's width. The buttons in force are tinted with the accent; the highlighted button
 /// (the mouse-over, which is also the keyboard selection) is a neutral gray.
-fn draw_edit_palette(scene: &mut Scene, app: &App, views: &mut Views, r: Rect) {
+fn draw_edit_palette(scene: &mut Canvas, app: &App, views: &mut Views, r: Rect) {
     use cecilia_app::palette::{PaletteKind, PaletteLine};
     const PAD: f64 = 10.0;
     const CELL: f64 = 32.0;
@@ -4557,7 +4557,7 @@ fn draw_edit_palette(scene: &mut Scene, app: &App, views: &mut Views, r: Rect) {
 /// Draws the items of a chant palette icon (what the tool puts in the score, from the chant
 /// engraver's own symbols) as large as fit the icon, centred on `c`.
 fn draw_chant_icon(
-    scene: &mut Scene,
+    scene: &mut Canvas,
     items: &[cecilia_engrave::display::Item],
     c: vello::kurbo::Point,
     color: Color,
@@ -4649,7 +4649,7 @@ fn draw_chant_icon(
 /// An icon of the editing palette for its command, in a 16 px square around `c`.
 /// Draws music-font glyphs (in a row, or stacked) centred on `c`, as large as fit the icon.
 fn draw_icon_glyphs(
-    scene: &mut Scene,
+    scene: &mut Canvas,
     glyphs: &[char],
     stacked: bool,
     c: vello::kurbo::Point,
@@ -4693,7 +4693,7 @@ fn draw_icon_glyphs(
 }
 
 fn draw_palette_icon(
-    scene: &mut Scene,
+    scene: &mut Canvas,
     command: &str,
     short: &str,
     c: vello::kurbo::Point,
@@ -4716,10 +4716,10 @@ fn draw_palette_icon(
         }
         p
     };
-    let line = |scene: &mut Scene, p: &BezPath, w: f64| {
+    let line = |scene: &mut Canvas, p: &BezPath, w: f64| {
         scene.stroke(&stroke(w), Affine::IDENTITY, color, None, p);
     };
-    let label = |scene: &mut Scene, s: &str, size: f64| {
+    let label = |scene: &mut Canvas, s: &str, size: f64| {
         text(
             scene,
             s,
@@ -4732,7 +4732,7 @@ fn draw_palette_icon(
         );
     };
     // A note head (filled or hollow) with its stem and `flags` flags.
-    let note = |scene: &mut Scene, filled: bool, stem: bool, flags: usize, dx: f64| {
+    let note = |scene: &mut Canvas, filled: bool, stem: bool, flags: usize, dx: f64| {
         let head = Ellipse::new((x + 6.0 + dx, y + 12.0), (3.4, 2.5), -0.4);
         if filled {
             scene.fill(Fill::NonZero, Affine::IDENTITY, color, None, &head);
@@ -4758,7 +4758,7 @@ fn draw_palette_icon(
             }
         }
     };
-    let arrow = |scene: &mut Scene, from: (f64, f64), to: (f64, f64)| {
+    let arrow = |scene: &mut Canvas, from: (f64, f64), to: (f64, f64)| {
         line(scene, &path(&[from, to], false), 1.4);
         let (dx, dy) = (to.0 - from.0, to.1 - from.1);
         let n = (dx * dx + dy * dy).sqrt().max(0.1);
@@ -4773,7 +4773,7 @@ fn draw_palette_icon(
         );
         line(scene, &head, 1.4);
     };
-    let zigzag = |scene: &mut Scene, amp: f64| {
+    let zigzag = |scene: &mut Canvas, amp: f64| {
         let pts: Vec<(f64, f64)> = (0..7)
             .map(|k| {
                 (
@@ -4846,7 +4846,7 @@ fn draw_palette_icon(
         }
         // Stems: a quarter note with its stem up or down (both for automatic).
         ("stems", dir) => {
-            let one = |scene: &mut Scene, hx: f64, up: bool| {
+            let one = |scene: &mut Canvas, hx: f64, up: bool| {
                 let head = Ellipse::new((x + hx, y + 8.0), (2.8, 2.0), -0.4);
                 scene.fill(Fill::NonZero, Affine::IDENTITY, color, None, &head);
                 let (sx, a, b) = if up {
@@ -5107,7 +5107,7 @@ fn draw_palette_icon(
 
 /// The properties pane: its tabs, then the shown tab's rows (section titles, and per property
 /// its label above a box holding the value), with room around everything.
-fn draw_properties(scene: &mut Scene, app: &App, views: &mut Views, r: Rect) {
+fn draw_properties(scene: &mut Canvas, app: &App, views: &mut Views, r: Rect) {
     use cecilia_app::properties::{Field, PropTab, RowKind, caret_in, wrap_ranges};
     const PAD: f64 = 16.0;
     const BOX_H: f64 = 36.0;
@@ -5577,7 +5577,7 @@ fn draw_properties(scene: &mut Scene, app: &App, views: &mut Views, r: Rect) {
 
 /// The tuner: the note heard (big), a cents scale with a needle (green when in tune), the
 /// frequency, and the nearest string of the track's tuning.
-fn draw_tuner(scene: &mut Scene, app: &App, r: Rect) {
+fn draw_tuner(scene: &mut Canvas, app: &App, r: Rect) {
     let th = &app.config.theme;
     fill(scene, r, col(th.panel));
     fill(scene, Rect::new(r.x0, r.y0, r.x1, r.y0 + 1.0), col(th.tab));
@@ -5757,7 +5757,7 @@ const PIANO_KEYS: (u8, u8) = (21, 108);
 /// The fretboard: the track's strings and frets (spaced as on a real neck), inlays, and the
 /// notes at the cursor or playhead as dots in the track's color with their names.
 fn draw_fretboard(
-    scene: &mut Scene,
+    scene: &mut Canvas,
     app: &App,
     views: &mut Views,
     v: &cecilia_app::instrument::InstrumentView,
@@ -5919,7 +5919,7 @@ fn draw_fretboard(
 
 /// The piano: 88 keys with the notes at the cursor or playhead pressed in the track's color.
 fn draw_piano_panel(
-    scene: &mut Scene,
+    scene: &mut Canvas,
     app: &App,
     views: &mut Views,
     v: &cecilia_app::instrument::InstrumentView,
@@ -5990,7 +5990,7 @@ fn draw_piano_panel(
 }
 
 /// A piano keyboard (the synth plays), as the 󰣱 glyph.
-fn draw_piano(scene: &mut Scene, x: f64, cy: f64, color: Color) {
+fn draw_piano(scene: &mut Canvas, x: f64, cy: f64, color: Color) {
     let body = RoundedRect::new(x, cy - 6.0, x + 14.0, cy + 6.0, 1.5);
     scene.stroke(&Stroke::new(1.4), Affine::IDENTITY, color, None, &body);
     for k in [3.5, 7.0, 10.5] {
@@ -6010,7 +6010,7 @@ fn draw_piano(scene: &mut Scene, x: f64, cy: f64, color: Color) {
 }
 
 /// Two beamed notes (the recording plays), as the 󰝚 glyph.
-fn draw_music(scene: &mut Scene, x: f64, cy: f64, color: Color) {
+fn draw_music(scene: &mut Canvas, x: f64, cy: f64, color: Color) {
     for (hx, hy) in [(x + 2.8, cy + 4.5), (x + 10.8, cy + 3.0)] {
         let head = vello::kurbo::Ellipse::new((hx, hy), (2.8, 2.1), -0.35);
         scene.fill(Fill::NonZero, Affine::IDENTITY, color, None, &head);
@@ -6035,7 +6035,7 @@ fn draw_music(scene: &mut Scene, x: f64, cy: f64, color: Color) {
 }
 
 /// A magnifying glass (the zoom), as the  glyph.
-fn draw_magnifier(scene: &mut Scene, x: f64, cy: f64, color: Color) {
+fn draw_magnifier(scene: &mut Canvas, x: f64, cy: f64, color: Color) {
     scene.stroke(
         &Stroke::new(1.6),
         Affine::IDENTITY,
@@ -6056,7 +6056,7 @@ fn draw_magnifier(scene: &mut Scene, x: f64, cy: f64, color: Color) {
 }
 
 /// Four corner arrows pointing outwards: a maximized pane.
-fn draw_expand(scene: &mut Scene, x: f64, cy: f64, color: Color) {
+fn draw_expand(scene: &mut Canvas, x: f64, cy: f64, color: Color) {
     let stroke = Stroke::new(1.5).with_caps(vello::kurbo::Cap::Round);
     let (x0, x1, y0, y1) = (x + 1.0, x + 13.0, cy - 6.0, cy + 6.0);
     // Each corner: a diagonal to the tip, and the two short sides of its arrowhead.
@@ -6077,7 +6077,7 @@ fn draw_expand(scene: &mut Scene, x: f64, cy: f64, color: Color) {
 }
 
 /// A small briefcase: the workspace.
-fn draw_workspace_icon(scene: &mut Scene, x: f64, cy: f64, color: Color) {
+fn draw_workspace_icon(scene: &mut Canvas, x: f64, cy: f64, color: Color) {
     let body = RoundedRect::new(x, cy - 4.0, x + 13.0, cy + 6.0, 1.5);
     scene.stroke(&Stroke::new(1.5), Affine::IDENTITY, color, None, &body);
     let mut handle = BezPath::new();
@@ -6089,7 +6089,7 @@ fn draw_workspace_icon(scene: &mut Scene, x: f64, cy: f64, color: Color) {
     fill(scene, Rect::new(x, cy - 0.3, x + 13.0, cy + 0.9), color);
 }
 
-fn panel(scene: &mut Scene, r: Rect, title: &str) {
+fn panel(scene: &mut Canvas, r: Rect, title: &str) {
     backdrop(scene, &RoundedRect::from_rect(r, 8.0));
     scene.fill(
         Fill::NonZero,
@@ -6146,7 +6146,7 @@ fn wrap_px(text: &str, width: f64, size: f64, max: usize) -> Vec<String> {
 /// The notification cards, stacked against the configured anchor of the score panes' area (or
 /// the window): rounded cards with an accent (or error) strip, `×N` and peeking cards behind for
 /// merged repeats, and a thin bar along the bottom draining as the timeout runs out.
-fn draw_notifications(scene: &mut Scene, app: &App, views: &mut Views, window: Rect) {
+fn draw_notifications(scene: &mut Canvas, app: &App, views: &mut Views, window: Rect) {
     use cecilia_app::notify::{Placed, place_stack};
     views.notifications.clear();
     views.prompt_buttons.clear();
@@ -6390,7 +6390,7 @@ fn draw_notifications(scene: &mut Scene, app: &App, views: &mut Views, window: R
 
 /// A notification's icon in a 16 px box whose top left is `at`, in the severity's color.
 fn draw_notice_icon(
-    scene: &mut Scene,
+    scene: &mut Canvas,
     icon: cecilia_app::notify::NoticeIcon,
     at: (f64, f64),
     color: Color,
@@ -6400,7 +6400,7 @@ fn draw_notice_icon(
     let stroke = Stroke::new(1.7)
         .with_caps(vello::kurbo::Cap::Round)
         .with_join(vello::kurbo::Join::Round);
-    let line = |scene: &mut Scene, pts: &[(f64, f64)], close: bool| {
+    let line = |scene: &mut Canvas, pts: &[(f64, f64)], close: bool| {
         let mut p = BezPath::new();
         for (k, &(px, py)) in pts.iter().enumerate() {
             if k == 0 {
@@ -6414,7 +6414,7 @@ fn draw_notice_icon(
         }
         scene.stroke(&stroke, Affine::IDENTITY, color, None, &p);
     };
-    let ring = |scene: &mut Scene| {
+    let ring = |scene: &mut Canvas| {
         scene.stroke(
             &stroke,
             Affine::IDENTITY,
@@ -6510,7 +6510,7 @@ fn draw_notice_icon(
     }
 }
 
-fn draw_which_key(scene: &mut Scene, title: &str, rows: &[(String, String)], main: Rect) {
+fn draw_which_key(scene: &mut Canvas, title: &str, rows: &[(String, String)], main: Rect) {
     let fonts = cecilia_engrave::fonts::fonts();
     let desc_w = rows
         .iter()
@@ -6550,7 +6550,7 @@ fn draw_which_key(scene: &mut Scene, title: &str, rows: &[(String, String)], mai
     }
 }
 
-fn draw_help(scene: &mut Scene, app: &App, main: Rect) {
+fn draw_help(scene: &mut Canvas, app: &App, main: Rect) {
     let (title, items) = app.help_view();
     let r = main.inset(-60.0);
     panel(scene, r, &format!("{title} — F1 or Esc to close"));
@@ -6578,7 +6578,7 @@ fn draw_help(scene: &mut Scene, app: &App, main: Rect) {
 
 /// The text viewer: a popup in the middle of `main` with the text as a read-only text area (the
 /// caret a block in normal mode, the selection highlighted) and an "x" in the top right corner.
-fn draw_viewer(scene: &mut Scene, app: &App, views: &mut Views, main: Rect) {
+fn draw_viewer(scene: &mut Canvas, app: &App, views: &mut Views, main: Rect) {
     views.viewer = None;
     let Some(v) = app.viewer() else {
         return;

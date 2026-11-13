@@ -2,7 +2,9 @@
 //! gaussian blurred on the GPU, and handed to vello as an image (`Renderer::override_image`) that
 //! the popups fill their shape with before their translucent surface.
 
+use crate::canvas::Canvas;
 use anyhow::{Result, anyhow};
+use vello::kurbo::Affine;
 use vello::peniko::{Image, ImageFormat};
 use vello::wgpu::{self, util::DeviceExt};
 use vello::{AaConfig, RenderParams, Renderer, Scene};
@@ -10,6 +12,26 @@ use vello::{AaConfig, RenderParams, Renderer, Scene};
 /// The blurred copy is this many times smaller than the window: cheaper to blur, and a blur
 /// hides the lost detail.
 pub const DOWNSCALE: u32 = 4;
+
+/// The size of the blurred copy for a window of `size` pixels.
+pub fn low_size((width, height): (u32, u32)) -> (u32, u32) {
+    (
+        width.div_ceil(DOWNSCALE).max(1),
+        height.div_ceil(DOWNSCALE).max(1),
+    )
+}
+
+/// A blank image of the blurred copy's size: popups fill with it, and a renderer swaps in the
+/// blurred pixels by its identity (the blob id).
+pub fn placeholder(size: (u32, u32)) -> Image {
+    let (w, h) = low_size(size);
+    Image::new(
+        vec![0u8; (w * h * 4) as usize].into(),
+        ImageFormat::Rgba8,
+        w,
+        h,
+    )
+}
 
 const FORMAT: wgpu::TextureFormat = wgpu::TextureFormat::Rgba8Unorm;
 
@@ -119,26 +141,13 @@ impl Blur {
         }
     }
 
-    fn low_size((width, height): (u32, u32)) -> (u32, u32) {
-        (
-            width.div_ceil(DOWNSCALE).max(1),
-            height.div_ceil(DOWNSCALE).max(1),
-        )
-    }
-
     /// The image popups fill with for a window of `size` pixels (drawn at `DOWNSCALE` pixels per
     /// image pixel).
     pub fn backdrop(&mut self, size: (u32, u32)) -> Image {
         if self.size != size || self.placeholder.is_none() {
             self.size = size;
             self.targets = None;
-            let (w, h) = Self::low_size(size);
-            self.placeholder = Some(Image::new(
-                vec![0u8; (w * h * 4) as usize].into(),
-                ImageFormat::Rgba8,
-                w,
-                h,
-            ));
+            self.placeholder = Some(placeholder(size));
         }
         self.placeholder.clone().expect("set above")
     }
@@ -217,8 +226,8 @@ impl Blur {
         renderer: &mut Renderer,
         device: &wgpu::Device,
         queue: &wgpu::Queue,
-        base: &Scene,
-        popups: &Scene,
+        base: &Canvas,
+        popups: &Canvas,
         target: &wgpu::TextureView,
         base_color: vello::peniko::Color,
         size: (u32, u32),
@@ -235,6 +244,10 @@ impl Blur {
                 .render_to_texture(device, queue, scene, view, &params)
                 .map_err(|e| anyhow!("render: {e}"))
         };
+        let (mut base_scene, mut popups_scene) = (Scene::new(), Scene::new());
+        base.replay_vello(&mut base_scene, Affine::IDENTITY);
+        popups.replay_vello(&mut popups_scene, Affine::IDENTITY);
+        let (base, popups) = (&base_scene, &popups_scene);
         let blurred = sigma > 0.0
             && !popups.encoding().is_empty()
             && self.size == size
@@ -244,7 +257,7 @@ impl Blur {
         if !blurred {
             return draw(renderer, &full, target);
         }
-        let low_size = Self::low_size(size);
+        let low_size = low_size(size);
         let targets = self.targets.get_or_insert_with(|| Targets {
             base: texture(
                 device,
