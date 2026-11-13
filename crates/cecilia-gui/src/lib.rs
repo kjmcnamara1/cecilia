@@ -59,9 +59,13 @@ struct Gui {
 /// `CECILIA_CPU=1` runs vello's shader stages on the CPU instead of the GPU's compute shaders,
 /// for drivers (virtual machines, software renderers) where those crash or are missing. The
 /// result is still presented through wgpu.
-fn renderer_options() -> RendererOptions {
+///
+/// `software` (the software-adapter attempt) forces that on: lavapipe-like drivers rarely run
+/// vello's compute shaders reliably, and the CPU path is the one that works there.
+fn renderer_options(software: bool) -> RendererOptions {
     RendererOptions {
-        use_cpu: std::env::var_os("CECILIA_CPU").is_some_and(|v| !v.is_empty() && v != "0"),
+        use_cpu: software
+            || std::env::var_os("CECILIA_CPU").is_some_and(|v| !v.is_empty() && v != "0"),
         antialiasing_support: AaSupport::area_only(),
         num_init_threads: NonZeroUsize::new(1),
         pipeline_cache: None,
@@ -89,6 +93,106 @@ fn render_context() -> RenderContext {
         }
     }
     RenderContext::new()
+}
+
+/// A fresh wgpu context (all backends) and the name of its first software (CPU) adapter, such as
+/// lavapipe or llvmpipe.
+///
+/// vello's `RenderContext` cannot be handed a device made by hand (`DeviceHandle`'s adapter is
+/// private), so the adapter is chosen through the `WGPU_ADAPTER_NAME` variable it honours, set
+/// only around the device request (see `with_adapter_name`). wgpu's `force_fallback_adapter`
+/// only ever yields CPU-type adapters too, so "no CPU adapter enumerated" and "no fallback
+/// adapter" are the same failure.
+fn software_adapter() -> Result<(RenderContext, String)> {
+    let cx = RenderContext::new();
+    let infos: Vec<_> = cx
+        .instance
+        .enumerate_adapters(wgpu::Backends::all())
+        .iter()
+        .map(|a| a.get_info())
+        .collect();
+    let i = backend::pick_software(&infos).ok_or_else(|| anyhow!("no software adapter found"))?;
+    let name = infos[i].name.clone();
+    Ok((cx, name))
+}
+
+/// Runs `f` with `WGPU_ADAPTER_NAME` set to `name` (vello's device selection reads it), then
+/// restores the previous value.
+fn with_adapter_name<T>(name: &str, f: impl FnOnce() -> T) -> T {
+    let previous = std::env::var_os("WGPU_ADAPTER_NAME");
+    // SAFETY: only called while opening the renderer at start-up; nothing else writes the
+    // environment, and the window system's own threads do not read this variable.
+    unsafe { std::env::set_var("WGPU_ADAPTER_NAME", name) };
+    let out = f();
+    // SAFETY: as above.
+    unsafe {
+        match previous {
+            Some(v) => std::env::set_var("WGPU_ADAPTER_NAME", v),
+            None => std::env::remove_var("WGPU_ADAPTER_NAME"),
+        }
+    }
+    out
+}
+
+/// Opens the renderer for one `attempt` in `cx` (a fresh GPU context; the software attempt
+/// replaces it): the window's surface, vello's renderer and the blur pipeline.
+fn open_wgpu(
+    cx: &mut RenderContext,
+    attempt: backend::Attempt,
+    window: Arc<Window>,
+    size: winit::dpi::PhysicalSize<u32>,
+) -> Result<(RenderSurface<'static>, Renderer, blur::Blur)> {
+    let software = attempt == backend::Attempt::Software;
+    let adapter = if software {
+        let (fresh, name) = software_adapter()?;
+        *cx = fresh;
+        Some(name)
+    } else {
+        None
+    };
+    let create = |cx: &mut RenderContext| {
+        pollster::block_on(cx.create_surface(
+            window.clone(),
+            size.width.max(1),
+            size.height.max(1),
+            wgpu::PresentMode::AutoVsync,
+        ))
+        .map_err(|e| anyhow!("surface: {e}"))
+    };
+    let surface = match &adapter {
+        Some(name) => with_adapter_name(name, || create(cx))?,
+        None => create(cx)?,
+    };
+    let dev = &cx.devices[surface.dev_id];
+    let blur = blur::Blur::new(&dev.device);
+    let renderer = Renderer::new(&dev.device, renderer_options(software))
+        .map_err(|e| anyhow!("renderer: {e}"))?;
+    Ok((surface, renderer, blur))
+}
+
+/// The error for when every attempt in `tried` failed; `last` is the final attempt's error.
+fn no_renderer(tried: &[backend::Attempt], last: anyhow::Error) -> anyhow::Error {
+    let names: Vec<_> = tried
+        .iter()
+        .map(|a| match a {
+            backend::Attempt::Gpu => "gpu",
+            backend::Attempt::Software => "software",
+        })
+        .collect();
+    last.context(format!(
+        "no usable renderer (tried {}); set ui.renderer or CECILIA_RENDERER, install a software \
+         Vulkan driver (lavapipe), or use the terminal UI",
+        names.join(", ")
+    ))
+}
+
+/// The renderer modes to try: `CECILIA_RENDERER` over `ui.renderer`.
+fn renderer_attempts(app: &App) -> Vec<backend::Attempt> {
+    let env = std::env::var("CECILIA_RENDERER").ok();
+    backend::attempts(backend::resolve_mode(
+        env.as_deref(),
+        app.config.file.ui.renderer,
+    ))
 }
 
 /// Most bytes a screenshot may take (RGBA, plus the readback's padding).
@@ -259,17 +363,22 @@ impl ApplicationHandler for Gui {
         let result = (|| -> Result<Gpu> {
             let window = Arc::new(event_loop.create_window(attrs)?);
             let size = window.inner_size();
-            let surface = pollster::block_on(self.cx.create_surface(
-                window.clone(),
-                size.width.max(1),
-                size.height.max(1),
-                wgpu::PresentMode::AutoVsync,
-            ))
-            .map_err(|e| anyhow!("surface: {e}"))?;
-            let dev = &self.cx.devices[surface.dev_id];
-            let blur = blur::Blur::new(&dev.device);
-            let renderer = Renderer::new(&dev.device, renderer_options())
-                .map_err(|e| anyhow!("renderer: {e}"))?;
+            let attempts = renderer_attempts(&self.app);
+            let mut failure = None;
+            let mut opened = None;
+            for (n, &attempt) in attempts.iter().enumerate() {
+                match open_wgpu(&mut self.cx, attempt, window.clone(), size) {
+                    Ok(o) => {
+                        opened = Some(o);
+                        break;
+                    }
+                    Err(e) => failure = Some((n, e)),
+                }
+            }
+            let Some((surface, renderer, blur)) = opened else {
+                let (n, e) = failure.expect("at least one renderer attempt");
+                return Err(no_renderer(&attempts[..=n], e));
+            };
             Ok(Gpu {
                 window,
                 surface,
@@ -519,14 +628,41 @@ pub fn screenshot(
     hover: Option<(f64, f64)>,
 ) -> Result<Vec<u8>> {
     let factor = factor.max(0.1);
-    let mut cx = render_context();
-    let dev_id = pollster::block_on(cx.device(None)).ok_or_else(|| anyhow!("no GPU adapter"))?;
+    let attempts = renderer_attempts(&app);
+    let mut failure = None;
+    let mut opened = None;
+    for (n, &attempt) in attempts.iter().enumerate() {
+        let result = match attempt {
+            backend::Attempt::Gpu => {
+                let mut cx = render_context();
+                pollster::block_on(cx.device(None))
+                    .map(|id| (cx, id))
+                    .ok_or_else(|| anyhow!("no GPU adapter"))
+            }
+            backend::Attempt::Software => software_adapter().and_then(|(mut cx, name)| {
+                with_adapter_name(&name, || pollster::block_on(cx.device(None)))
+                    .map(|id| (cx, id))
+                    .ok_or_else(|| anyhow!("cannot open the software adapter {name:?}"))
+            }),
+        };
+        match result {
+            Ok(o) => {
+                opened = Some((o, attempt == backend::Attempt::Software));
+                break;
+            }
+            Err(e) => failure = Some((n, e)),
+        }
+    }
+    let Some(((cx, dev_id), software)) = opened else {
+        let (n, e) = failure.expect("at least one renderer attempt");
+        return Err(no_renderer(&attempts[..=n], e));
+    };
     let dev = &cx.devices[dev_id];
     let (device, queue) = (&dev.device, &dev.queue);
     let (width, height) = clamp_image_size(width, height, device.limits().max_texture_dimension_2d)
         .ok_or_else(|| anyhow!("screenshot size {width}x{height} is too large"))?;
     let mut renderer =
-        Renderer::new(device, renderer_options()).map_err(|e| anyhow!("renderer: {e}"))?;
+        Renderer::new(device, renderer_options(software)).map_err(|e| anyhow!("renderer: {e}"))?;
     let mut scene = Scene::new();
     let mut blur = blur::Blur::new(device);
     let mut views = Views::default();
