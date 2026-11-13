@@ -8,6 +8,7 @@
 # Downloads are checked against the release's SHA256SUMS. Other variables:
 #   CECILIA_VERSION   a version such as 0.46.0 (default: the latest release)
 #   CECILIA_BASE_URL  default https://github.com/kjmcnamara1/cecilia/releases
+#   CECILIA_NO_MODIFY_PATH=1  don't add the bin directory to PATH in the shell's startup file
 set -eu
 
 BASE=${CECILIA_BASE_URL:-https://github.com/kjmcnamara1/cecilia/releases}
@@ -30,8 +31,34 @@ actual_sum() {
     fi
 }
 
+# Puts $1 on PATH for new shells unless it is there already: a line in the startup file of the
+# user's shell ($SHELL), added once. CECILIA_NO_MODIFY_PATH=1 only prints a note.
 on_path() {
-    case ":$PATH:" in *":$1:"*) ;; *) echo "note: add $1 to your PATH" ;; esac
+    case ":$PATH:" in *":$1:"*) return ;; esac
+    if [ "${CECILIA_NO_MODIFY_PATH:-0}" = 1 ]; then
+        echo "note: add $1 to your PATH"
+        return
+    fi
+    case "${SHELL##*/}" in
+        zsh) rc=${ZDOTDIR:-$HOME}/.zshrc ;;
+        bash)
+            # Terminal.app starts login shells, which read .bash_profile and not .bashrc
+            if [ "$(uname -s)" = Darwin ]; then rc=$HOME/.bash_profile; else rc=$HOME/.bashrc; fi
+            ;;
+        fish) rc=${XDG_CONFIG_HOME:-$HOME/.config}/fish/conf.d/cecilia.fish ;;
+        *) rc=$HOME/.profile ;;
+    esac
+    if [ -f "$rc" ] && grep -qF "$1" "$rc"; then
+        return
+    fi
+    mkdir -p "$(dirname "$rc")"
+    if [ "${SHELL##*/}" = fish ]; then
+        line="contains -- \"$1\" \$PATH; or set -gx PATH \"$1\" \$PATH"
+    else
+        line="export PATH=\"$1:\$PATH\""
+    fi
+    printf '\n# added by the cecilia installer\n%s\n' "$line" >> "$rc"
+    echo "added $1 to your PATH in $rc; open a new terminal to use it"
 }
 
 main() {
