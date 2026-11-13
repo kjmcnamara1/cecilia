@@ -1,0 +1,40 @@
+# Builds the checkout offline. cargo-sources.json is generated from Cargo.lock by
+# flatpak-cargo-generator.py (flatpak-builder-tools) and not committed. For Flathub the `dir`
+# source becomes `type: git` with the release tag and commit (see docs/INSTALL.md).
+app-id: io.github.kjmcnamara1.cecilia
+runtime: org.freedesktop.Platform
+runtime-version: "24.08"
+sdk: org.freedesktop.Sdk
+sdk-extensions:
+  - org.freedesktop.Sdk.Extension.rust-stable
+command: cecilia
+finish-args:
+  - --share=ipc
+  - --socket=wayland
+  - --socket=fallback-x11
+  - --device=dri
+  - --socket=pulseaudio
+  - --filesystem=home
+modules:
+  - name: cecilia
+    buildsystem: simple
+    build-options:
+      append-path: /usr/lib/sdk/rust-stable/bin
+      env:
+        CARGO_HOME: /run/build/cecilia/cargo
+    build-commands:
+      - cargo --offline fetch --manifest-path Cargo.toml --verbose
+      - cargo --offline build --release --locked -p cecilia
+      - packaging/linux/stage.sh "" /app target/release/cecilia
+      - mv /app/share/applications/cecilia.desktop /app/share/applications/io.github.kjmcnamara1.cecilia.desktop
+      - sed -i 's/^Icon=cecilia$/Icon=io.github.kjmcnamara1.cecilia/' /app/share/applications/io.github.kjmcnamara1.cecilia.desktop
+      - mv /app/share/icons/hicolor/scalable/apps/cecilia.svg /app/share/icons/hicolor/scalable/apps/io.github.kjmcnamara1.cecilia.svg
+      - install -Dm644 packaging/flatpak/io.github.kjmcnamara1.cecilia.metainfo.xml /app/share/metainfo/io.github.kjmcnamara1.cecilia.metainfo.xml
+    sources:
+      - type: dir
+        path: ../..
+        skip:
+          - target
+          - .git
+          - test-corpus
+      - cargo-sources.json

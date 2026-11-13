@@ -151,8 +151,35 @@ jobs:
           name: appimage
           path: out/*.AppImage
 
+  # Flatpak bundle (packaging/flatpak), built offline from Cargo.lock. Built blind until the first
+  # -rc tag, so it must not block a release.
+  flatpak:
+    needs: meta
+    runs-on: ubuntu-latest
+    continue-on-error: true
+    container:
+      image: ghcr.io/flathub-infra/flatpak-github-actions:freedesktop-24.08
+      options: --privileged
+    steps:
+      - uses: actions/checkout@v4
+      - name: Vendor the crates for the offline build
+        run: |
+          pip install aiohttp toml tomlkit
+          git clone --depth 1 https://github.com/flatpak/flatpak-builder-tools
+          python3 flatpak-builder-tools/cargo/flatpak-cargo-generator.py Cargo.lock \
+            -o packaging/flatpak/cargo-sources.json
+      - uses: flatpak/flatpak-github-actions/flatpak-builder@v6
+        with:
+          bundle: cecilia-v${{ needs.meta.outputs.version }}.flatpak
+          manifest-path: packaging/flatpak/io.github.kjmcnamara1.cecilia.yml
+          cache-key: flatpak-${{ github.sha }}
+      - uses: actions/upload-artifact@v4
+        with:
+          name: flatpak
+          path: cecilia-v${{ needs.meta.outputs.version }}.flatpak
+
   release:
-    needs: [meta, build, macos-app, appimage]
+    needs: [meta, build, macos-app, appimage, flatpak]
     runs-on: ubuntu-latest
     permissions:
       contents: write
