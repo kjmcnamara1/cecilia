@@ -74,6 +74,8 @@ This is how the # of stafflines is decided for tab notation
 - [ ] Add ability to create multitracks that are a combination of other tracks
 - [ ] Toolbar
   - hamburger icon menu
+  - "About" that lists version
+  - :version command to send notification of current software version
   - Reorder/regroup icons
   - Change icons
 

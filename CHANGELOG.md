@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.49.0] - 2026-11-13
+
 ### Added
 
 - The macOS `.dmg` opens a styled window: a background with an arrow from Cecilia to the
