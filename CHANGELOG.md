@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+
+- The CPU renderer's popup backdrop blur was most of each frame's time (about 60 ms of a 4 MP frame); it is now a three-pass box blur and takes a few milliseconds.
+
 ## [0.46.0] - 2026-11-12
 
 ### Added

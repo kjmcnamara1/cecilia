@@ -114,67 +114,111 @@ pub fn blurred_copy(rgba: &[u8], size: (u32, u32), sigma: f64) -> Vec<u8> {
     let low = blur::low_size(size);
     let shrunk = shrink(rgba, size, low);
     let sigma = ((sigma / f64::from(DOWNSCALE)) as f32).max(0.5);
-    let mid = gaussian(&shrunk, low, sigma, true);
-    gaussian(&mid, low, sigma, false)
+    gaussian(&shrunk, low, sigma)
 }
 
 /// Box-filter downscale of `src` to `low` (cells at the right and bottom edge average the pixels
 /// that exist).
 fn shrink(src: &[u8], (w, h): (u32, u32), (lw, lh): (u32, u32)) -> Vec<u8> {
-    let mut out = vec![0u8; (lw * lh * 4) as usize];
-    for ly in 0..lh {
-        for lx in 0..lw {
+    let (w, h, lw, lh, d) = (
+        w as usize,
+        h as usize,
+        lw as usize,
+        lh as usize,
+        DOWNSCALE as usize,
+    );
+    let mut sums = vec![0u32; lw * lh * 4];
+    for (y, row) in src.chunks_exact(w * 4).take(h).enumerate() {
+        let cells = &mut sums[y / d * lw * 4..][..lw * 4];
+        for (cell, pixels) in cells
+            .as_chunks_mut::<4>()
+            .0
+            .iter_mut()
+            .zip(row.chunks(d * 4))
+        {
             let mut sum = [0u32; 4];
-            let mut n = 0;
-            for y in ly * DOWNSCALE..((ly + 1) * DOWNSCALE).min(h) {
-                for x in lx * DOWNSCALE..((lx + 1) * DOWNSCALE).min(w) {
-                    let i = ((y * w + x) * 4) as usize;
-                    for c in 0..4 {
-                        sum[c] += u32::from(src[i + c]);
-                    }
-                    n += 1;
-                }
+            for px in pixels.as_chunks::<4>().0 {
+                sum = [
+                    sum[0] + u32::from(px[0]),
+                    sum[1] + u32::from(px[1]),
+                    sum[2] + u32::from(px[2]),
+                    sum[3] + u32::from(px[3]),
+                ];
             }
-            let o = ((ly * lw + lx) * 4) as usize;
-            for c in 0..4 {
-                out[o + c] = ((sum[c] + n / 2) / n.max(1)) as u8;
+            for (s, v) in cell.iter_mut().zip(sum) {
+                *s += v;
             }
+        }
+    }
+    let mut out = vec![0u8; lw * lh * 4];
+    for (i, (o, s)) in out
+        .as_chunks_mut::<4>()
+        .0
+        .iter_mut()
+        .zip(sums.as_chunks::<4>().0)
+        .enumerate()
+    {
+        let (lx, ly) = (i % lw, i / lw);
+        let n = ((w - lx * d).min(d) * (h - ly * d).min(d)) as u32;
+        for (o, &s) in o.iter_mut().zip(s.iter()) {
+            *o = ((s + n / 2) / n) as u8;
         }
     }
     out
 }
 
-/// One separable gaussian pass (along x when `horizontal`), edges clamped.
-fn gaussian(src: &[u8], (w, h): (u32, u32), sigma: f32, horizontal: bool) -> Vec<u8> {
-    let radius = (sigma * 3.0).ceil() as i32;
-    let weights: Vec<f32> = (-radius..=radius)
-        .map(|i| (-0.5 * (i * i) as f32 / (sigma * sigma)).exp())
-        .collect();
-    let total: f32 = weights.iter().sum();
-    let (w, h) = (w as i32, h as i32);
-    let mut out = vec![0u8; src.len()];
-    for y in 0..h {
-        for x in 0..w {
-            let mut sum = [0f32; 4];
-            for (k, wt) in weights.iter().enumerate() {
-                let d = k as i32 - radius;
-                let (sx, sy) = if horizontal {
-                    ((x + d).clamp(0, w - 1), y)
-                } else {
-                    (x, (y + d).clamp(0, h - 1))
-                };
-                let i = ((sy * w + sx) * 4) as usize;
-                for c in 0..4 {
-                    sum[c] += wt * f32::from(src[i + c]);
-                }
+/// A gaussian blur of `sigma` pixels, as three box blurs per axis (within a few percent of the
+/// true gaussian, at a cost that does not grow with the radius), edges clamped.
+fn gaussian(src: &[u8], size: (u32, u32), sigma: f32) -> Vec<u8> {
+    // Box width for three passes whose variance adds up to sigma^2.
+    let radius = (((4.0 * sigma * sigma + 1.0).sqrt() - 1.0) / 2.0).round() as usize;
+    let mut a = src.to_vec();
+    let mut b = vec![0u8; src.len()];
+    for horizontal in [true, false] {
+        for _ in 0..3 {
+            box_pass(&a, &mut b, size, radius, horizontal);
+            std::mem::swap(&mut a, &mut b);
+        }
+    }
+    a
+}
+
+/// One box blur pass of `radius` (along x when `horizontal`), edges clamped, with a running sum
+/// per channel. The vertical pass keeps one sum per column and walks whole rows, so memory is
+/// read in order.
+fn box_pass(src: &[u8], dst: &mut [u8], (w, h): (u32, u32), radius: usize, horizontal: bool) {
+    let (w, h, r) = (w as usize, h as usize, radius as isize);
+    let n = (2 * radius + 1) as u32;
+    // Dividing by `n` as a multiplication and a shift keeps the integer divide out of the loop.
+    let recip = (65536 + n / 2) / n;
+    // Along a line of `len` positions, `step` bytes apart, one sum per byte of a position
+    // (`inner` of them): a pixel's channels per row, or a whole row's per column.
+    let (len, step, inner, lines) = if horizontal {
+        (w, 4, 4, h)
+    } else {
+        (h, w * 4, w * 4, 1)
+    };
+    for line in 0..lines {
+        let origin = if horizontal { line * w * 4 } else { 0 };
+        let at = |i: isize| origin + i.clamp(0, len as isize - 1) as usize * step;
+        let mut sum = vec![0u32; inner];
+        for i in -r..=r {
+            let p = at(i);
+            for (s, &v) in sum.iter_mut().zip(&src[p..p + inner]) {
+                *s += u32::from(v);
             }
-            let o = ((y * w + x) * 4) as usize;
-            for c in 0..4 {
-                out[o + c] = (sum[c] / total).round().clamp(0.0, 255.0) as u8;
+        }
+        for i in 0..len as isize {
+            let o = origin + i as usize * step;
+            let (add, sub) = (at(i + r + 1), at(i - r));
+            let out = &mut dst[o..o + inner];
+            let (add, sub) = (&src[add..add + inner], &src[sub..sub + inner]);
+            for (((s, d), &a), &b) in sum.iter_mut().zip(out).zip(add).zip(sub) {
+                *d = ((*s * recip + 32768) >> 16) as u8;
+                *s = *s + u32::from(a) - u32::from(b);
             }
         }
     }
-    out
 }
 
 /// Converted images by blob id, plus the blurred backdrop standing in for the placeholder.
