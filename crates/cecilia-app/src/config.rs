@@ -364,6 +364,8 @@ pub struct UiConfig {
     pub mark_labels: MarkLabels,
     /// GUI renderer: "auto" (GPU, then software, then cpu), "gpu", "software" or "cpu".
     pub renderer: RendererMode,
+    /// What to do about a newer release (see [`AutoUpdate`]).
+    pub auto_update: AutoUpdate,
     /// Draw the staff lines of bars that don't hold their full count in red.
     pub highlight_incomplete_bars: bool,
     /// Thickness in pixels of the ring around the focused pane in the GUI (0: none; 0 to 8).
@@ -402,6 +404,23 @@ pub enum RendererMode {
     Gpu,
     Software,
     Cpu,
+}
+
+/// What cecilia does about a newer release (`ui.auto_update`), checked at most once a day at
+/// startup. Only an install made by the Windows installer updates itself; any other install
+/// treats `on` and `ask` as `notify`, naming the command that updates it.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Deserialize, Serialize)]
+#[serde(rename_all = "lowercase")]
+pub enum AutoUpdate {
+    /// Download it in the background and install it when cecilia exits.
+    On,
+    /// Ask whether to install it.
+    Ask,
+    /// Only say that it exists, and how to update.
+    #[default]
+    Notify,
+    /// Never look (no network access at all); `:update` still checks when asked.
+    Off,
 }
 
 /// Where the marks show on the score while `'` waits for a letter.
@@ -482,6 +501,7 @@ impl Default for UiConfig {
             chant_text_font: "noto-serif".into(),
             mark_labels: MarkLabels::Exact,
             renderer: RendererMode::Auto,
+            auto_update: AutoUpdate::Notify,
             waveform_time_ticks: Ticks::All,
             waveform_beat_ticks: Ticks::All,
             waveform_time_labels: true,

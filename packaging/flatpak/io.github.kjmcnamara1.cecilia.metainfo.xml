@@ -1,0 +1,35 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<component type="desktop-application">
+  <id>io.github.kjmcnamara1.cecilia</id>
+  <metadata_license>CC0-1.0</metadata_license>
+  <project_license>MIT OR Apache-2.0</project_license>
+  <name>cecilia</name>
+  <summary>Edit and play guitar tab, notation and Gregorian chant</summary>
+  <description>
+    <p>
+      A keyboard-first editor and player for guitar tablature, standard notation and Gregorian
+      chant. It reads Guitar Pro files (GP3 to GP8), MusicXML, MIDI and GABC, writes Guitar Pro,
+      MusicXML, MIDI and GABC, and plays along with a recording.
+    </p>
+    <p>Chant is edited in a WYSIWYG square-notation editor, not as text.</p>
+  </description>
+  <launchable type="desktop-id">io.github.kjmcnamara1.cecilia.desktop</launchable>
+  <url type="homepage">https://github.com/kjmcnamara1/cecilia</url>
+  <url type="bugtracker">https://github.com/kjmcnamara1/cecilia/issues</url>
+  <provides>
+    <binary>cecilia</binary>
+  </provides>
+  <categories>
+    <category>AudioVideo</category>
+    <category>Audio</category>
+    <category>Music</category>
+  </categories>
+  <developer id="io.github.kjmcnamara1">
+    <name>Kevin McNamara</name>
+  </developer>
+  <content_rating type="oars-1.1"/>
+  <releases>
+    <release version="0.47.0" date="2026-11-13"/>
+    <release version="0.46.0" date="2026-11-12"/>
+  </releases>
+</component>

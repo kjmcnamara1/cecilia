@@ -80,7 +80,7 @@ practising with a recording from a terminal or a plain window. What it does and 
 - Platforms: Linux is the tested platform. On macOS (Intel, in a virtual machine) and Windows
   (virtual machine) the terminal interface was run and builds from source; the window, audio and
   tuner were never run there (the VMs had no GPU and no sound device).
-- Not there yet: binary releases, distribution packages, a plugin or scripting interface, and
+- Not there yet: signed or notarized macOS and Windows builds, a plugin or scripting interface, and
   the polish and community of older programs such as Guitar Pro, MuseScore or TuxGuitar.
 
 ## WYSIWYG chant editor
@@ -106,8 +106,25 @@ In the terminal, chant is shown as a text staff (the engraved view needs the GUI
 
 ## Installation
 
-cecilia is not packaged yet: the repository has version tags only, no binary releases or
-distribution packages, so for now you build it from source. You need a [Rust toolchain](https://rustup.rs) (1.89 or newer) and git.
+The quickest way on Linux and macOS:
+
+```sh
+curl -fsSL https://github.com/kjmcnamara1/cecilia/releases/latest/download/install.sh | sh
+```
+
+| System  | Alternatives                                                                                   |
+| ------- | ---------------------------------------------------------------------------------------------- |
+| macOS   | `brew install --cask kjmcnamara1/cecilia/cecilia` (the app), or the `.dmg` from the releases   |
+| Linux   | Flatpak bundle, `snap install cecilia`, AppImage, AUR (`cecilia`, `cecilia-bin`), `.deb`, `.rpm` |
+| Windows | `cecilia-win-Setup.exe` (see below), or the release zip                                        |
+| any     | `cargo binstall cecilia`, or `cargo install --locked cecilia`                                  |
+
+[docs/INSTALL.md](docs/INSTALL.md) has every command and the details (macOS Gatekeeper, sandboxed
+config paths, checksums). The binaries are not signed.
+
+### Build from source
+
+You need a [Rust toolchain](https://rustup.rs) (1.89 or newer) and git.
 
 ```sh
 git clone https://github.com/kjmcnamara1/cecilia.git && cd cecilia
@@ -137,17 +154,34 @@ The window (`--gui`) normally uses the GPU (Vulkan or OpenGL on Linux, Metal on 
 DX12 on Windows). No graphics driver is needed with `ui.renderer = cpu` or the `auto` fallback
 below.
 
-### macOS and Windows
+### Windows installer
 
-Packaged builds do not exist yet, and these platforms are not tested by the author. In principle
-the same build works:
+Download `cecilia-win-Setup.exe` from the
+[latest release](https://github.com/kjmcnamara1/cecilia/releases/latest) and run it. It installs
+cecilia for your user only (no administrator rights; in `%LocalAppData%\cecilia`), adds a Start
+Menu shortcut that opens the window, and an entry under Settings > Apps to uninstall it. It is not
+signed yet, so SmartScreen warns: choose "More info", then "Run anyway". The shortcut runs
+`ceciliag.exe`, which is `cecilia --gui` without a console window. The install folder
+(`%LocalAppData%\cecilia\current`) goes on your user `PATH`, so `cecilia` runs the terminal
+interface from a new terminal; uninstalling takes it off again.
+
+This install updates itself. `ui.auto_update` says how: `notify` (the default) says when a newer
+release is out, `ask` asks whether to install it, `on` downloads it in the background and installs
+it when cecilia exits, and `off` never connects. `:update` looks for one now. Installs made any
+other way (Scoop, winget, Chocolatey, `cargo install`, Linux packages, an unpacked archive) never
+replace themselves: `on` and `ask` act as `notify` there, with the command that updates them.
+
+### macOS and Windows from source
+
+These platforms are not tested by the author on real hardware. To build from source:
 
 ```sh
 cargo install --locked --path crates/cecilia
 ```
 
-This puts `cecilia` on your `PATH` (in `~/.cargo/bin`). There is no installer, file association
-or desktop entry; run `cecilia --gui song.gp5` from a terminal. Bug reports from these platforms
+This puts `cecilia` on your `PATH` (in `~/.cargo/bin`), with `ceciliag`, which always opens the
+window (on Windows without a console). This way there is no file association or desktop entry;
+run `cecilia --gui song.gp5` from a terminal. Bug reports from these platforms
 are welcome. The terminal interface needs a modern terminal; on Windows use Windows Terminal.
 
 Build requirements: on Windows the Visual Studio C++ Build Tools ("Desktop development with C++")

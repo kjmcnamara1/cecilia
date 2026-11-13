@@ -674,6 +674,8 @@ pub struct App {
     pub confirm_delete_workspace: Option<PathBuf>,
     /// A pending "file changed on disk: reload?" prompt, for this buffer.
     pub confirm_reload: Option<usize>,
+    /// Looking for, downloading and offering newer releases (`ui.auto_update`, `:update`).
+    pub update: crate::update::UpdateState,
     /// Files of the last restored workspace that exist but could not be opened, with why:
     /// saving the workspace keeps them (so a temporary failure doesn't drop them).
     pub(crate) unopened_files: Vec<(PathBuf, String)>,
@@ -796,6 +798,7 @@ impl App {
             workspace_file: None,
             confirm_delete_workspace: None,
             confirm_reload: None,
+            update: Default::default(),
             unopened_files: Vec::new(),
             disk_checked: None,
             remember_workspace: false,
@@ -1977,6 +1980,7 @@ impl App {
         self.swap_tick(std::time::Instant::now());
         self.notifications.expire(std::time::Instant::now());
         self.poll_files();
+        self.poll_update();
         let Some(path) = self.config_path.clone() else {
             return;
         };
@@ -2083,6 +2087,9 @@ impl App {
         }
         if let Some(buffer) = self.confirm_reload.take() {
             return self.answer_reload(buffer, key);
+        }
+        if let Some(release) = self.update.offer.take() {
+            return self.answer_update(release, key);
         }
         if let Some(buffer) = self.confirm_close.take() {
             return self.answer_close(buffer, key);
@@ -2937,6 +2944,7 @@ impl App {
             Recover(path, force) => self.recover(path, force),
             SwapDiscard => self.swap_discard(),
             NotifyDismiss => self.notify_dismiss(),
+            Update => self.update_command(),
             Notify(a) => self.raise(crate::notify::Notice {
                 text: a.message,
                 error: a.error.unwrap_or(false),

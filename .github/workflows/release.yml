@@ -62,13 +62,16 @@ jobs:
           exe=target/${{ matrix.target }}/release/cecilia
           [ "$RUNNER_OS" = Windows ] && exe=$exe.exe
           "$exe" --version
+          # ceciliag.exe has no console to print to: only check it was built.
+          if [ "$RUNNER_OS" = Windows ]; then test -f "${exe%cecilia.exe}ceciliag.exe"; fi
       - name: Package
         shell: bash
         run: |
           name=cecilia-v${{ needs.meta.outputs.version }}-${{ matrix.target }}
           mkdir "$name"
           if [ "$RUNNER_OS" = Windows ]; then
-            cp target/${{ matrix.target }}/release/cecilia.exe "$name/"
+            # ceciliag.exe: the window without a console (Start Menu shortcuts).
+            cp target/${{ matrix.target }}/release/{cecilia,ceciliag}.exe "$name/"
           else
             cp target/${{ matrix.target }}/release/cecilia "$name/"
           fi
@@ -82,6 +85,39 @@ jobs:
           else
             tar czf "dist/$name.tar.gz" "$name"
           fi
+      - uses: actions/setup-dotnet@v4
+        if: runner.os == 'Windows'
+        with:
+          dotnet-version: 8.0.x
+      - name: Windows installer (Velopack)
+        if: runner.os == 'Windows'
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          # vpk must be the version of the velopack crate cecilia links (Cargo.lock).
+          vpk_version=$(awk '{ sub(/\r$/, "") } $0 == "name = \"velopack\"" { getline; gsub(/version = |"|\r/, ""); print; exit }' Cargo.lock)
+          [ -n "$vpk_version" ] || { echo "::error::no velopack in Cargo.lock"; exit 1; }
+          dotnet tool install vpk --version "$vpk_version" --tool-path .vpk
+          # The tag, not Cargo.toml: a pre-release must sort below its final release in Velopack.
+          v=${GITHUB_REF_NAME#v}
+          mkdir pack
+          cp target/${{ matrix.target }}/release/{cecilia,ceciliag}.exe pack/
+          cp LICENSE-APACHE LICENSE-MIT README.md CHANGELOG.md pack/
+          # The latest release's feed and package, so this release gets a delta package and a
+          # feed listing both. There is none before the first release with an installer.
+          .vpk/vpk download github --repoUrl "https://github.com/${{ github.repository }}" \
+            --token "$GH_TOKEN" --outputDir Releases || echo "no earlier installer release"
+          # Per-user install with a Start Menu shortcut to ceciliag.exe and an uninstall entry.
+          .vpk/vpk pack --packId cecilia --packVersion "$v" --packDir pack \
+            --mainExe ceciliag.exe --icon crates/cecilia/assets/cecilia.ico \
+            --packTitle cecilia --packAuthors "The cecilia contributors" --runtime win-x64 \
+            --shortcuts StartMenuRoot --noPortable --outputDir Releases
+          ls -l Releases
+          # Released with the other assets: the installer, this version's packages and the feed
+          # (installed copies read releases.win.json from the latest release).
+          cp Releases/cecilia-win-Setup.exe Releases/releases.win.json dist/
+          cp Releases/cecilia-"$v"-*.nupkg dist/
       - name: .deb and .rpm
         if: runner.os == 'Linux'
         run: |
@@ -95,8 +131,105 @@ jobs:
           name: ${{ matrix.target }}
           path: dist/*
 
-  release:
+  # The universal macOS app: the two macOS binaries joined with lipo, wrapped in Cecilia.app
+  # (packaging/macos) and packed into a .dmg. Strict (not continue-on-error): the install
+  # script and the Homebrew cask download it.
+  macos-app:
     needs: [meta, build]
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/download-artifact@v4
+        with:
+          pattern: "*-apple-darwin"
+          path: in
+      - name: Universal binary and .dmg
+        run: |
+          v=${{ needs.meta.outputs.version }}
+          for t in aarch64 x86_64; do
+            tar xzf in/$t-apple-darwin/cecilia-v$v-$t-apple-darwin.tar.gz -C in/$t-apple-darwin
+          done
+          lipo -create -output cecilia \
+            in/aarch64-apple-darwin/cecilia-v$v-aarch64-apple-darwin/cecilia \
+            in/x86_64-apple-darwin/cecilia-v$v-x86_64-apple-darwin/cecilia
+          brew install librsvg
+          mkdir dist
+          packaging/macos/bundle.sh "$v" cecilia dist/cecilia-v$v-universal-apple-darwin.dmg
+      - uses: actions/upload-artifact@v4
+        with:
+          name: macos-app
+          path: dist/*.dmg
+
+  # AppImage from the Linux binary (packaging/appimage). Built blind until the first -rc tag, so it
+  # must not block a release.
+  appimage:
+    needs: [meta, build]
+    runs-on: ubuntu-22.04
+    continue-on-error: true
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/download-artifact@v4
+        with:
+          name: x86_64-unknown-linux-gnu
+          path: in
+      - name: Build the AppImage
+        env:
+          APPIMAGE_EXTRACT_AND_RUN: "1"
+        run: |
+          v=${{ needs.meta.outputs.version }}
+          tar xzf in/cecilia-v$v-x86_64-unknown-linux-gnu.tar.gz -C in
+          curl -fsSL -o linuxdeploy https://github.com/linuxdeploy/linuxdeploy/releases/download/continuous/linuxdeploy-x86_64.AppImage
+          chmod +x linuxdeploy
+          LINUXDEPLOY=$PWD/linuxdeploy packaging/appimage/build.sh "$v" \
+            in/cecilia-v$v-x86_64-unknown-linux-gnu/cecilia out
+      - uses: actions/upload-artifact@v4
+        with:
+          name: appimage
+          path: out/*.AppImage
+
+  # Flatpak bundle (packaging/flatpak), built offline from Cargo.lock. Built blind until the first
+  # -rc tag, so it must not block a release.
+  flatpak:
+    needs: meta
+    runs-on: ubuntu-latest
+    continue-on-error: true
+    container:
+      image: ghcr.io/flathub-infra/flatpak-github-actions:freedesktop-25.08
+      options: --privileged
+    steps:
+      - uses: actions/checkout@v4
+      - name: Vendor the crates for the offline build
+        run: |
+          pip install aiohttp toml tomlkit
+          git clone --depth 1 https://github.com/flatpak/flatpak-builder-tools
+          python3 flatpak-builder-tools/cargo/flatpak-cargo-generator.py Cargo.lock \
+            -o packaging/flatpak/cargo-sources.json
+      - uses: flatpak/flatpak-github-actions/flatpak-builder@v6
+        with:
+          bundle: cecilia-v${{ needs.meta.outputs.version }}.flatpak
+          manifest-path: packaging/flatpak/io.github.kjmcnamara1.cecilia.yml
+          cache-key: flatpak-${{ github.sha }}
+      - uses: actions/upload-artifact@v4
+        with:
+          name: flatpak
+          path: cecilia-v${{ needs.meta.outputs.version }}.flatpak
+
+  # Snap (snap/snapcraft.yaml). Built blind until the first -rc tag, so it must not block a release.
+  snap:
+    needs: meta
+    runs-on: ubuntu-latest
+    continue-on-error: true
+    steps:
+      - uses: actions/checkout@v4
+      - uses: snapcore/action-build@v1
+        id: build
+      - uses: actions/upload-artifact@v4
+        with:
+          name: snap
+          path: ${{ steps.build.outputs.snap }}
+
+  release:
+    needs: [meta, build, macos-app, appimage, flatpak, snap]
     runs-on: ubuntu-latest
     permissions:
       contents: write
@@ -108,7 +241,11 @@ jobs:
           merge-multiple: true
       - name: Checksums
         working-directory: dist
+        # The archives, packages and cecilia-win-Setup.exe.
         run: sha256sum cecilia* > SHA256SUMS
+      - name: Install script
+        # Not in SHA256SUMS: it is what reads them.
+        run: cp packaging/install.sh dist/install.sh
       - name: Release notes
         run: |
           v=${{ needs.meta.outputs.version }}
@@ -174,3 +311,54 @@ jobs:
           commit_message: Update to ${{ github.ref_name }}
           ssh_keyscan_types: rsa,ecdsa,ed25519
           updpkgsums: true
+
+  # Updates the Homebrew tap (kjmcnamara1/homebrew-cecilia) once the release is published: the
+  # formula (CLI and TUI, macOS and Linux) and the cask (Cecilia.app). The token must be able to
+  # push to the tap. Skipped for pre-releases.
+  homebrew:
+    needs: [meta, release]
+    if: needs.meta.outputs.prerelease == 'false'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/checkout@v4
+        with:
+          repository: kjmcnamara1/homebrew-cecilia
+          token: ${{ secrets.HOMEBREW_TAP_TOKEN }}
+          path: tap
+      - name: Render the formula and the cask
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release download "$GITHUB_REF_NAME" --pattern SHA256SUMS
+          packaging/homebrew/render.sh ${{ needs.meta.outputs.version }} SHA256SUMS tap
+      - name: Push
+        working-directory: tap
+        run: |
+          git add -A
+          git diff --cached --quiet && exit 0
+          git -c user.name=github-actions[bot] \
+            -c user.email=41898282+github-actions[bot]@users.noreply.github.com \
+            commit -m "cecilia ${{ needs.meta.outputs.version }}"
+          git push
+
+  # Publishes the snap to the Snap Store (stable) after the release. The name must be registered
+  # once (`snapcraft register cecilia`) and SNAPCRAFT_STORE_CREDENTIALS set. Skipped for
+  # pre-releases.
+  snap-publish:
+    needs: [meta, release, snap]
+    if: needs.meta.outputs.prerelease == 'false'
+    runs-on: ubuntu-latest
+    # A snap that failed to build (or is not registered yet) must not turn the release red.
+    continue-on-error: true
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          name: snap
+          path: snap
+      - uses: snapcore/action-publish@v1
+        env:
+          SNAPCRAFT_STORE_CREDENTIALS: ${{ secrets.SNAPCRAFT_STORE_CREDENTIALS }}
+        with:
+          snap: snap/cecilia_${{ needs.meta.outputs.version }}_amd64.snap
+          release: stable

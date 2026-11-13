@@ -15,7 +15,8 @@ categories.workspace = true
 cecilia-core.workspace = true
 cecilia-formats.workspace = true
 cecilia-convert.workspace = true
-cecilia-app.workspace = true
+# The message box `ceciliag` shows its errors in.
+cecilia-app = { workspace = true, features = ["dialog"] }
 cecilia-audio.workspace = true
 cecilia-tui.workspace = true
 cecilia-engrave.workspace = true
@@ -23,6 +24,10 @@ cecilia-gui.workspace = true
 anyhow.workspace = true
 clap.workspace = true
 serde_json.workspace = true
+
+[build-dependencies]
+# Only used when the target is Windows (build.rs): the icon and version resource.
+winresource = { version = "0.1", default-features = false }
 
 # Distribution packages. CI stages the files with `packaging/linux/stage.sh target/stage /usr
 # target/release/cecilia`, then runs `cargo deb --no-build` and `cargo generate-rpm`; both
@@ -65,3 +70,13 @@ alsa-lib = "*"
 cecilia = "*"
 [package.metadata.generate-rpm.obsoletes]
 cecilia = "*"
+
+# `cargo binstall cecilia` downloads the release archive (see .github/workflows/release.yml)
+# instead of compiling.
+[package.metadata.binstall]
+pkg-url = "{ repo }/releases/download/v{ version }/cecilia-v{ version }-{ target }.{ archive-format }"
+bin-dir = "cecilia-v{ version }-{ target }/{ bin }{ binary-ext }"
+pkg-fmt = "tgz"
+
+[package.metadata.binstall.overrides.x86_64-pc-windows-msvc]
+pkg-fmt = "zip"

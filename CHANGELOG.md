@@ -7,9 +7,40 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- Windows installer: puts its folder on the user `PATH`, so `cecilia` runs the terminal interface
+  from any new terminal (uninstalling removes it). Installs from 0.47.0 get it with their next
+  update.
+
 ### Fixed
 
 - The `.deb` and `.rpm` are now named `cecilia-editor` (they conflict with `cecilia`). On Debian, Ubuntu and Fedora the package manager offered the unrelated `cecilia` package (a Csound frontend) as an upgrade. Remove the old `cecilia` package before installing the new one: `sudo apt remove cecilia` or `sudo dnf remove cecilia`.
+
+## [0.47.0] - 2026-11-13
+
+### Added
+
+- A Windows installer, `cecilia-win-Setup.exe` (built with Velopack): a per-user install with a Start Menu shortcut and an uninstall entry, which updates itself.
+- `ceciliag`, a second executable that always opens the window (`cecilia --gui`); on Windows it has no console window, so shortcuts open just the window. The Windows zip ships it, and the Scoop and Chocolatey shortcuts open it.
+- The Windows executables have the lily icon (the Linux desktop icon) (Explorer, taskbar, shortcuts), and the window shows it on Windows and X11.
+- `ui.auto_update` (`on`, `ask`, `notify`, `off`; default `notify`): what to do about a newer release, looked for at most once a day at startup. `on` downloads it and installs it when cecilia exits, `ask` asks first, `notify` only says so, `off` never connects. Only the Windows installer's install updates itself; Scoop, winget, Chocolatey, `cargo install`, Linux packages and unpacked archives treat `on` and `ask` as `notify` and are told the command that updates them. `:update` looks now.
+- macOS `Cecilia.app` (opens the window, icon from the lily, file types registered) in a universal `.dmg` attached to each release; ad-hoc signed, not notarized.
+- An install script, `curl -fsSL https://github.com/kjmcnamara1/cecilia/releases/latest/download/install.sh | sh`, for Linux (x86_64) and macOS: checks the download against `SHA256SUMS` and installs without root.
+- A Homebrew tap (`kjmcnamara1/cecilia`) with a formula (command line, macOS and Linux) and a cask (the app), updated by the release workflow.
+- An AppImage, a Flatpak bundle (`io.github.kjmcnamara1.cecilia`, with AppStream metainfo) and a Snap (`cecilia`, window as `cecilia.gui`) built by the release workflow.
+- `cargo binstall cecilia` downloads the release archive instead of compiling.
+- `docs/INSTALL.md`: every way to install, with the macOS Gatekeeper and sandbox notes; `bash packaging/check.sh` tests the packaging scripts.
+
+### Changed
+
+- `just bump` also adds the new version to the Flatpak metainfo's release list.
+
+### Fixed
+
+- Clicking in the score while playing with follow-playback on moves the playhead to the click, as moving the cursor with keys does (it used to jump back to the music).
+- The CPU renderer's popup backdrop blur was most of each frame's time (about 60 ms of a 4 MP frame); it is now a three-pass box blur and takes a few milliseconds.
+- The CPU renderer keeps the previous frame and draws again only the rectangles whose commands changed (the playhead, the cursor, a progress bar); popups are drawn over it in their own bounding box, and their blurred backdrop is kept until the page changes. An unchanged frame went from about 100 ms to about 4 ms at 4 MP.
 
 ## [0.46.0] - 2026-11-12
 

@@ -12,7 +12,7 @@ use vello::kurbo::{Affine, BezPath, Rect, Shape, Stroke};
 use vello::peniko::{BlendMode, BrushRef, Color, Fill, Image};
 
 /// What a command paints with: draw.rs only uses solid colors and images.
-#[derive(Clone)]
+#[derive(Clone, PartialEq)]
 pub enum Paint {
     Color(Color),
     Image(Image),
@@ -39,7 +39,7 @@ impl Paint {
     }
 }
 
-#[derive(Clone)]
+#[derive(Clone, PartialEq)]
 pub(crate) enum Cmd {
     Fill {
         style: Fill,
