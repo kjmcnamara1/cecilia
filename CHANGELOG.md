@@ -9,7 +9,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
-- `ui.renderer` (`auto`, `gpu` or `software`) and the `CECILIA_RENDERER` environment variable choose the GUI renderer.
+- `ui.renderer` (`auto`, `gpu` or `software`) and the `CECILIA_RENDERER` environment variable choose the GUI renderer. `auto` (the default) tries the GPU, then falls back to a software adapter (e.g. Vulkan lavapipe) with the shaders run on the CPU, so `--gui` can start on GPU-less machines; `CECILIA_CPU=1` still works. Windows' DX12 WARP adapter is skipped because it crashes.
 
 ### Fixed
 

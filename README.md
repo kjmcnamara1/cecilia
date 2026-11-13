@@ -133,7 +133,9 @@ sudo packaging/linux/install.sh /usr/local   # system-wide
 packaging/linux/uninstall.sh [PREFIX]        # remove it again
 ```
 
-A Vulkan- or OpenGL-capable graphics driver is needed for the window (`--gui`).
+A Vulkan- or OpenGL-capable graphics driver is needed for the window (`--gui`). Without a GPU (a VM,
+say), install a software Vulkan driver (`mesa-vulkan-swrast` / lavapipe); the default
+`ui.renderer = auto` then falls back to it. See "Renderer selection" below.
 
 ### macOS and Windows
 
@@ -152,10 +154,16 @@ Build requirements: on Windows the Visual Studio C++ Build Tools ("Desktop devel
 and LLVM (the `bindgen` build step needs `libclang`; set `LIBCLANG_PATH` to LLVM's `bin` folder if
 it is not found). On macOS the Xcode command line tools (`xcode-select --install`). The window
 (`--gui`) needs a graphics driver with working compute shaders; on Windows it crashed inside
-Windows' software renderer on a virtual machine without 3D acceleration (see `TODO.md`). Setting
-`CECILIA_CPU=1` makes the renderer run its shader stages on the CPU (slower, untested on that VM);
-on Linux VMs install a software Vulkan driver (`mesa-vulkan-swrast` / lavapipe) or use the
-terminal UI.
+Windows' software renderer on a virtual machine without 3D acceleration (see `TODO.md`).
+
+Renderer selection: `ui.renderer` (`auto`, `gpu` or `software`; `-o ui.renderer=software` or
+`[ui] renderer` in `config.toml`) picks the GUI renderer, and the `CECILIA_RENDERER` environment
+variable overrides it. `auto` tries the GPU, then a software adapter (a wgpu adapter of type CPU,
+such as Vulkan lavapipe/llvmpipe) with the shaders run on the CPU; `software` skips the GPU attempt.
+Windows' DX12 WARP adapter is deliberately never used, because it crashes, so on a Windows VM
+without 3D `software` does not help yet (a renderer without wgpu is planned). `CECILIA_CPU=1`
+still forces the CPU shader path. If no renderer works, `--gui` exits with an error; use the
+terminal UI then.
 
 Terminal notes: the default `tabline.icons = "nerd"` needs a [Nerd Font](https://www.nerdfonts.com)
 in the terminal; without one icons show as boxes, so run `:set tabline.icons unicode` (or `none`).
