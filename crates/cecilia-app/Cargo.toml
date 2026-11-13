@@ -29,7 +29,12 @@ thiserror.workspace = true
 rfd = { version = "0.17", optional = true }
 
 [target.'cfg(windows)'.dependencies]
-windows-sys = { version = "0.61", features = ["Win32_Foundation", "Win32_System_Threading"] }
+windows-sys = { version = "0.61", features = [
+    "Win32_Foundation",
+    "Win32_System_Registry",
+    "Win32_System_Threading",
+    "Win32_UI_WindowsAndMessaging",
+] }
 # The Windows installer's updates (src/update/velopack.rs); the vpk tool the release workflow
 # packs with is pinned to the version in Cargo.lock.
 velopack = "1.2"
