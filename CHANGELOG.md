@@ -7,6 +7,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- macOS `Cecilia.app` (opens the window, icon from the lily, file types registered) in a universal `.dmg` attached to each release; ad-hoc signed, not notarized.
+- An install script, `curl -fsSL https://github.com/kjmcnamara1/cecilia/releases/latest/download/install.sh | sh`, for Linux (x86_64) and macOS: checks the download against `SHA256SUMS` and installs without root.
+- A Homebrew tap (`kjmcnamara1/cecilia`) with a formula (command line, macOS and Linux) and a cask (the app), updated by the release workflow.
+- An AppImage, a Flatpak bundle (`io.github.kjmcnamara1.cecilia`, with AppStream metainfo) and a Snap (`cecilia`, window as `cecilia.gui`) built by the release workflow.
+- `cargo binstall cecilia` downloads the release archive instead of compiling.
+- `docs/INSTALL.md`: every way to install, with the macOS Gatekeeper and sandbox notes; `bash packaging/check.sh` tests the packaging scripts.
+
+### Changed
+
+- `just bump` also adds the new version to the Flatpak metainfo's release list.
+
 ## [0.46.0] - 2026-11-12
 
 ### Added
