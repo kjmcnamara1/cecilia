@@ -10,6 +10,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Fixed
 
 - The CPU renderer's popup backdrop blur was most of each frame's time (about 60 ms of a 4 MP frame); it is now a three-pass box blur and takes a few milliseconds.
+- The CPU renderer keeps the previous frame and draws again only the rectangles whose commands changed (the playhead, the cursor, a progress bar); popups are drawn over it in their own bounding box, and their blurred backdrop is kept until the page changes. An unchanged frame went from about 100 ms to about 4 ms at 4 MP.
 
 ## [0.46.0] - 2026-11-12
 
