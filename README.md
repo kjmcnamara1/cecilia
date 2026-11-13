@@ -1,12 +1,27 @@
-<p align="center"><img src="crates/cecilia-gui/assets/lily.svg" alt="cecilia" width="120"></p>
+<div align="center">
 
-# cecilia
+<img src="crates/cecilia-gui/assets/lily.svg" alt="cecilia" width="120">
+
+# Cecilia
+
+[![MSRV](https://img.shields.io/crates/msrv/cecilia?style=for-the-badge&logo=rust&label=MSRV)](https://www.rust-lang.org)
+[![GitHub Release](https://img.shields.io/github/v/release/kjmcnamara1/cecilia?style=for-the-badge&logo=github)](https://github.com/kjmcnamara1/cecilia/releases/latest)
+[![Crates.io Version](https://img.shields.io/crates/v/cecilia?style=for-the-badge&logo=rust)](https://crates.io/crates/cecilia)
+[![AUR Version](https://img.shields.io/aur/version/cecilia-bin?style=for-the-badge&logo=archlinux)](https://aur.archlinux.org/packages/cecilia-bin)
+<!-- [![CI](https://img.shields.io/github/actions/workflow/status/kjmcnamara1/cecilia/ci.yml?branch=main&style=for-the-badge&logo=githubactions&label=CI)](https://github.com/kjmcnamara1/cecilia/actions/workflows/ci.yml) -->
+<!-- [![License](https://img.shields.io/crates/l/cecilia?style=for-the-badge)](#license) -->
+
+![macOS Windows Linux](https://img.shields.io/badge/macOS%20%C2%B7%20Windows%20%C2%B7%20Linux-native-blue?style=for-the-badge)
+![Status Alpha](https://img.shields.io/badge/status-alpha-orange?style=for-the-badge&logo=archlinux)
 
 **A keyboard-first editor and player for guitar tab, standard notation and Gregorian chant.**
+
 Open Guitar Pro files, play along with a recording, and edit square-note chant in a real
 WYSIWYG editor. Free and open source, written in Rust, with a window _and_ a terminal interface.
 
 ![cecilia: reading a Guitar Pro tab, a live fretboard, the tracks panel, then Gregorian chant](assets/demo.gif)
+
+</div>
 
 > [!WARNING]
 > **cecilia is still in development.** Until version 1.0.0, features, key bindings, commands,
@@ -113,12 +128,12 @@ The quickest way on Linux and macOS:
 curl -fsSL https://github.com/kjmcnamara1/cecilia/releases/latest/download/install.sh | sh
 ```
 
-| System  | Alternatives                                                                                   |
-| ------- | ---------------------------------------------------------------------------------------------- |
-| macOS   | `brew install --cask kjmcnamara1/cecilia/cecilia` (the app), or the `.dmg` from the releases   |
+| System  | Alternatives                                                                                     |
+| ------- | ------------------------------------------------------------------------------------------------ |
+| macOS   | `brew install --cask kjmcnamara1/cecilia/cecilia` (the app), or the `.dmg` from the releases     |
 | Linux   | Flatpak bundle, `snap install cecilia`, AppImage, AUR (`cecilia`, `cecilia-bin`), `.deb`, `.rpm` |
-| Windows | `cecilia-win-Setup.exe` (see below), or the release zip                                        |
-| any     | `cargo binstall cecilia`, or `cargo install --locked cecilia`                                  |
+| Windows | `cecilia-win-Setup.exe` (see below), or the release zip                                          |
+| any     | `cargo binstall cecilia`, or `cargo install --locked cecilia`                                    |
 
 [docs/INSTALL.md](docs/INSTALL.md) has every command and the details (macOS Gatekeeper, sandboxed
 config paths, checksums). The binaries are not signed.
