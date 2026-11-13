@@ -37,6 +37,9 @@ pub fn render(
     blur_sigma: f64,
     backdrop: Option<&p4::Image>,
 ) -> Result<Vec<u8>> {
+    if size.0 == 0 || size.1 == 0 {
+        return Err(anyhow!("cannot render a {}x{} frame", size.0, size.1));
+    }
     let (w, h) = (
         u16::try_from(size.0).map_err(|_| anyhow!("size {}x{} too large", size.0, size.1))?,
         u16::try_from(size.1).map_err(|_| anyhow!("size {}x{} too large", size.0, size.1))?,
@@ -50,10 +53,9 @@ pub fn render(
         k11::Affine::IDENTITY,
         &mut images,
     );
-    let blurred = blur_sigma > 0.0 && !popups.commands().is_empty();
     let mut target = Pixmap::new(w, h);
-    ctx.render(&mut target, &mut resources);
-    if !blurred {
+    if blur_sigma <= 0.0 || popups.commands().is_empty() {
+        // No backdrop to make: the popups go straight on top of the base in one pass.
         replay(
             popups.commands(),
             &mut ctx,
@@ -63,6 +65,7 @@ pub fn render(
         ctx.render(&mut target, &mut resources);
         return Ok(finish(target));
     }
+    ctx.render(&mut target, &mut resources);
     // Popups go over the finished base, so they replay into a context that starts with it.
     if let Some(backdrop) = backdrop {
         let low = blurred_copy(target.data_as_u8_slice(), size, blur_sigma);
@@ -347,12 +350,16 @@ fn replay(cmds: &[Cmd], ctx: &mut RenderContext, base: k11::Affine, images: &mut
                 ctx.stroke_path(&path(shape));
             }
             Cmd::PushLayer {
+                blend,
                 alpha,
                 transform,
                 clip,
-                ..
             } => {
                 // draw.rs only pushes `Mix::Clip` layers.
+                debug_assert!(
+                    *blend == p4::BlendMode::from(p4::Mix::Clip),
+                    "unsupported layer blend mode {blend:?}"
+                );
                 ctx.set_transform(affine(base * *transform));
                 ctx.push_layer(
                     Some(&path(clip)),
@@ -525,5 +532,62 @@ mod tests {
         assert_eq!(px(&data, 64, 61, 8), BG);
         let edge = px(&data, 64, 32, 8);
         assert!(edge[0] > BG[0] + 5 && edge[0] < 195, "edge {edge:?}");
+    }
+
+    #[test]
+    fn dashed_stroke_has_gaps() {
+        let mut c = Canvas::new();
+        c.stroke(
+            &k11::Stroke::new(4.0).with_dashes(0.0, [8.0, 8.0]),
+            k11::Affine::IDENTITY,
+            red(),
+            None,
+            &k11::Line::new((0.0, 8.0), (32.0, 8.0)),
+        );
+        let data = frame(&c, (32, 16));
+        assert_eq!(px(&data, 32, 4, 8), [200, 0, 0, 255]);
+        assert_eq!(px(&data, 32, 12, 8), BG);
+        assert_eq!(px(&data, 32, 20, 8), [200, 0, 0, 255]);
+    }
+
+    #[test]
+    fn translucent_layer_blends_with_the_background() {
+        let mut c = Canvas::new();
+        c.push_layer(
+            Mix::Clip,
+            0.5,
+            k11::Affine::IDENTITY,
+            &k11::Rect::new(0.0, 0.0, 16.0, 16.0),
+        );
+        fill(&mut c, k11::Rect::new(0.0, 0.0, 8.0, 16.0));
+        c.pop_layer();
+        let data = frame(&c, (16, 16));
+        let p = px(&data, 16, 4, 8);
+        // Half red over the background: between the two on the red channel.
+        assert!((p[0] as i32 - 105).abs() <= 3, "{p:?}");
+        assert!((p[1] as i32 - 10).abs() <= 3, "{p:?}");
+        assert_eq!(px(&data, 16, 12, 8), BG);
+    }
+
+    #[test]
+    fn image_command_draws_the_pixels() {
+        let data: Vec<u8> = [[0, 255, 0, 255], [0, 0, 255, 255]].concat();
+        let image = p4::Image::new(data.into(), p4::ImageFormat::Rgba8, 2, 1);
+        let mut c = Canvas::new();
+        c.draw_image(
+            &image,
+            k11::Affine::translate((4.0, 4.0)) * k11::Affine::scale(4.0),
+        );
+        let out = frame(&c, (16, 16));
+        assert_eq!(px(&out, 16, 5, 5), [0, 255, 0, 255]);
+        assert_eq!(px(&out, 16, 10, 5), [0, 0, 255, 255]);
+        assert_eq!(px(&out, 16, 2, 2), BG);
+    }
+
+    #[test]
+    fn empty_size_is_an_error() {
+        let c = Canvas::new();
+        assert!(render(&c, &c, (0, 10), bg(), 0.0, None).is_err());
+        assert!(render(&c, &c, (10, 0), bg(), 0.0, None).is_err());
     }
 }

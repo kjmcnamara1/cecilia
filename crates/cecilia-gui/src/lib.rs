@@ -11,7 +11,7 @@ mod draw;
 mod keys;
 mod mono;
 
-use std::num::NonZeroUsize;
+use std::num::{NonZeroU32, NonZeroUsize};
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 
@@ -30,6 +30,7 @@ use winit::window::{CursorIcon, Window, WindowId};
 
 pub use draw::Views;
 
+/// The wgpu renderer: vello on a GPU (or software Vulkan) device, blitted to the window.
 struct Gpu {
     window: Arc<Window>,
     surface: Surf,
@@ -37,11 +38,92 @@ struct Gpu {
     blur: blur::Blur,
 }
 
+/// The CPU renderer's window: frames are drawn by `cpu::render` and presented with softbuffer, so
+/// no graphics API is involved.
+struct CpuWindow {
+    window: Arc<Window>,
+    surface: softbuffer::Surface<Arc<Window>, Arc<Window>>,
+    /// The size softbuffer's buffer is set to.
+    size: (u32, u32),
+    /// The backdrop placeholder popups fill with, for the size it was made for.
+    placeholder: Option<((u32, u32), vello::peniko::Image)>,
+}
+
+impl CpuWindow {
+    fn new(window: Arc<Window>) -> Result<Self> {
+        let context = softbuffer::Context::new(window.clone())
+            .map_err(|e| anyhow!("softbuffer context: {e}"))?;
+        let surface = softbuffer::Surface::new(&context, window.clone())
+            .map_err(|e| anyhow!("softbuffer surface: {e}"))?;
+        Ok(Self {
+            window,
+            surface,
+            size: (0, 0),
+            placeholder: None,
+        })
+    }
+
+    /// Sizes the buffer to the window; a zero size (minimised) leaves it alone, as nothing is
+    /// drawn then.
+    fn resize(&mut self, width: u32, height: u32) -> Result<()> {
+        if let (Some(w), Some(h)) = (NonZeroU32::new(width), NonZeroU32::new(height))
+            && self.size != (width, height)
+        {
+            self.surface
+                .resize(w, h)
+                .map_err(|e| anyhow!("softbuffer resize: {e}"))?;
+            self.size = (width, height);
+        }
+        Ok(())
+    }
+
+    fn placeholder(&mut self, size: (u32, u32)) -> vello::peniko::Image {
+        match &self.placeholder {
+            Some((s, image)) if *s == size => image.clone(),
+            _ => {
+                let image = blur::placeholder(size);
+                self.placeholder = Some((size, image.clone()));
+                image
+            }
+        }
+    }
+
+    /// Shows `rgba` (opaque RGBA8, `size` pixels) in the window.
+    fn present(&mut self, rgba: &[u8], size: (u32, u32)) -> Result<()> {
+        self.resize(size.0, size.1)?;
+        let mut buffer = self
+            .surface
+            .buffer_mut()
+            .map_err(|e| anyhow!("softbuffer buffer: {e}"))?;
+        for (dst, px) in buffer.iter_mut().zip(rgba.as_chunks::<4>().0) {
+            *dst = u32::from(px[0]) << 16 | u32::from(px[1]) << 8 | u32::from(px[2]);
+        }
+        buffer
+            .present()
+            .map_err(|e| anyhow!("softbuffer present: {e}"))
+    }
+}
+
+/// What draws the window's frames.
+enum Backend {
+    Wgpu(Box<Gpu>),
+    Cpu(CpuWindow),
+}
+
+impl Backend {
+    fn window(&self) -> &Arc<Window> {
+        match self {
+            Backend::Wgpu(g) => &g.window,
+            Backend::Cpu(c) => &c.window,
+        }
+    }
+}
+
 struct Gui {
     /// The peeking tracks were drawn last frame (one more redraw hides them).
     tracks_peek_drawn: bool,
     notifications_drawn: bool,
-    gpu: Option<Gpu>,
+    backend: Option<Backend>,
     app: App,
     views: Views,
     playback: Playback,
@@ -265,11 +347,17 @@ fn no_renderer(tried: &[backend::Attempt], last: anyhow::Error) -> anyhow::Error
         .map(|a| match a {
             backend::Attempt::Gpu => "gpu",
             backend::Attempt::Software => "software",
+            backend::Attempt::Cpu => "cpu",
         })
         .collect();
+    let advice = if tried.contains(&backend::Attempt::Cpu) {
+        "set ui.renderer or CECILIA_RENDERER to try another renderer, or use the terminal UI"
+    } else {
+        "set ui.renderer or CECILIA_RENDERER to cpu (needs no graphics driver) or auto, or use \
+         the terminal UI"
+    };
     last.context(format!(
-        "no usable renderer (tried {}); set ui.renderer or CECILIA_RENDERER, install a software \
-         Vulkan driver (lavapipe), or use the terminal UI",
+        "no usable renderer (tried {}); {advice}",
         names.join(", ")
     ))
 }
@@ -305,13 +393,52 @@ fn clamp_image_size(width: u32, height: u32, max_dimension: u32) -> Option<(u32,
     (u64::from(size.0) * 4 + 255 < u64::from(u32::MAX)).then_some(size)
 }
 
+/// Builds the frame into `scene` (device pixels) and returns its popups, also in device pixels:
+/// the UI is laid out in logical units (`logical`, `popups_logical`) and scaled by `factor`.
+/// `backdrop` is the placeholder popups fill with to show the blurred page (None without blur).
+#[allow(clippy::too_many_arguments)]
+fn build_frame(
+    app: &mut App,
+    views: &mut Views,
+    playback: &mut Playback,
+    follow_playback: bool,
+    [logical, popups_logical, scene]: [&mut Canvas; 3],
+    (width, height): (u32, u32),
+    factor: f64,
+    backdrop: Option<vello::peniko::Image>,
+) -> Canvas {
+    let play = if follow_playback {
+        playback.location(app)
+    } else {
+        None
+    };
+    views.set_backdrop(backdrop.map(|image| (image, f64::from(blur::DOWNSCALE) / factor)));
+    logical.reset();
+    popups_logical.reset();
+    draw::build(
+        logical,
+        popups_logical,
+        app,
+        views,
+        Some(playback),
+        play,
+        width as f64 / factor,
+        height as f64 / factor,
+    );
+    scene.reset();
+    scene.append(logical, Some(Affine::scale(factor)));
+    let mut popups = Canvas::new();
+    popups.append(popups_logical, Some(Affine::scale(factor)));
+    popups
+}
+
 /// Opens the GUI window and runs until the user quits.
 pub fn run(app: App) -> Result<()> {
     let event_loop = EventLoop::new().context("cannot open a window (no display?)")?;
     let mut gui = Gui {
         tracks_peek_drawn: false,
         notifications_drawn: false,
-        gpu: None,
+        backend: None,
         app,
         views: Views::default(),
         playback: Playback::default(),
@@ -333,38 +460,53 @@ pub fn run(app: App) -> Result<()> {
 
 impl Gui {
     fn redraw(&mut self) -> Result<()> {
-        let Some(gpu) = self.gpu.as_mut() else {
+        let Some(backend) = self.backend.as_mut() else {
             return Ok(());
         };
-        let (width, height) = (gpu.surface.config.width, gpu.surface.config.height);
+        let window = backend.window().clone();
+        let (width, height) = match backend {
+            Backend::Wgpu(gpu) => (gpu.surface.config.width, gpu.surface.config.height),
+            Backend::Cpu(_) => {
+                let size = window.inner_size();
+                (size.width, size.height)
+            }
+        };
+        // Minimised: nothing to draw into.
+        if width == 0 || height == 0 {
+            return Ok(());
+        }
         // Lay out in logical units so the UI keeps its size on HiDPI and fractionally scaled
         // monitors, then scale the frame to the surface's pixels.
-        let factor = gpu.window.scale_factor().max(0.1);
-        self.logical.reset();
-        self.popups.reset();
-        let play = self.playback.location(&self.app);
+        let factor = window.scale_factor().max(0.1);
         let blur_px = self.app.config.file.popups.blur;
-        self.views.set_backdrop((blur_px > 0.0).then(|| {
-            (
-                gpu.blur.backdrop((width, height)),
-                f64::from(blur::DOWNSCALE) / factor,
-            )
-        }));
-        draw::build(
-            &mut self.logical,
-            &mut self.popups,
+        let backdrop = (blur_px > 0.0).then(|| match backend {
+            Backend::Wgpu(gpu) => gpu.blur.backdrop((width, height)),
+            Backend::Cpu(cpu) => cpu.placeholder((width, height)),
+        });
+        let popups = build_frame(
             &mut self.app,
             &mut self.views,
-            Some(&mut self.playback),
-            play,
-            width as f64 / factor,
-            height as f64 / factor,
+            &mut self.playback,
+            true,
+            [&mut self.logical, &mut self.popups, &mut self.scene],
+            (width, height),
+            factor,
+            backdrop.clone(),
         );
-        self.scene.reset();
-        self.scene
-            .append(&self.logical, Some(Affine::scale(factor)));
-        let mut popups = Canvas::new();
-        popups.append(&self.popups, Some(Affine::scale(factor)));
+        let gpu = match backend {
+            Backend::Wgpu(gpu) => gpu,
+            Backend::Cpu(cpu) => {
+                let pixels = cpu::render(
+                    &self.scene,
+                    &popups,
+                    (width, height),
+                    draw::background(),
+                    blur_px * factor,
+                    backdrop.as_ref(),
+                )?;
+                return cpu.present(&pixels, (width, height));
+            }
+        };
         gpu.blur.render(
             &mut gpu.renderer,
             &gpu.surface.device,
@@ -412,9 +554,17 @@ impl Gui {
 
     /// Physical pixels per logical unit of the window (1.5 on a 150% scaled monitor).
     fn scale_factor(&self) -> f64 {
-        self.gpu
-            .as_ref()
-            .map_or(1.0, |g| g.window.scale_factor().max(0.1))
+        self.window().map_or(1.0, |w| w.scale_factor().max(0.1))
+    }
+
+    fn window(&self) -> Option<&Arc<Window>> {
+        self.backend.as_ref().map(Backend::window)
+    }
+
+    fn request_redraw(&self) {
+        if let Some(window) = self.window() {
+            window.request_redraw();
+        }
     }
 
     fn after_input(&mut self) {
@@ -423,15 +573,13 @@ impl Gui {
                 self.playback.apply(&mut self.app, effect);
             }
         }
-        if let Some(gpu) = &self.gpu {
-            gpu.window.request_redraw();
-        }
+        self.request_redraw();
     }
 }
 
 impl ApplicationHandler for Gui {
     fn resumed(&mut self, event_loop: &ActiveEventLoop) {
-        if self.gpu.is_some() {
+        if self.backend.is_some() {
             return;
         }
         let attrs = Window::default_attributes()
@@ -445,14 +593,27 @@ impl ApplicationHandler for Gui {
             let attrs = WindowAttributesExtWayland::with_name(attrs, "cecilia", "cecilia");
             WindowAttributesExtX11::with_name(attrs, "cecilia", "cecilia")
         };
-        let result = (|| -> Result<Gpu> {
+        let result = (|| -> Result<Backend> {
             let window = Arc::new(event_loop.create_window(attrs)?);
             let size = window.inner_size();
             let attempts = renderer_attempts(&self.app);
             let mut failure = None;
             let mut opened = None;
             for (n, &attempt) in attempts.iter().enumerate() {
-                match open_wgpu(attempt, window.clone(), size) {
+                let result = match attempt {
+                    backend::Attempt::Cpu => CpuWindow::new(window.clone()).map(Backend::Cpu),
+                    _ => {
+                        open_wgpu(attempt, window.clone(), size).map(|(surface, renderer, blur)| {
+                            Backend::Wgpu(Box::new(Gpu {
+                                window: window.clone(),
+                                surface,
+                                renderer,
+                                blur,
+                            }))
+                        })
+                    }
+                };
+                match result {
                     Ok(o) => {
                         opened = Some(o);
                         break;
@@ -460,21 +621,15 @@ impl ApplicationHandler for Gui {
                     Err(e) => failure = Some((n, e)),
                 }
             }
-            let Some((surface, renderer, blur)) = opened else {
+            opened.ok_or_else(|| {
                 let (n, e) = failure.expect("at least one renderer attempt");
-                return Err(no_renderer(&attempts[..=n], e));
-            };
-            Ok(Gpu {
-                window,
-                surface,
-                renderer,
-                blur,
+                no_renderer(&attempts[..=n], e)
             })
         })();
         match result {
-            Ok(gpu) => {
-                gpu.window.request_redraw();
-                self.gpu = Some(gpu);
+            Ok(backend) => {
+                backend.window().request_redraw();
+                self.backend = Some(backend);
             }
             Err(e) => {
                 self.error = Some(e);
@@ -491,16 +646,20 @@ impl ApplicationHandler for Gui {
                 self.after_input();
             }
             WindowEvent::Resized(size) => {
-                if let Some(gpu) = self.gpu.as_mut() {
-                    gpu.surface.resize(size.width, size.height);
-                    gpu.window.request_redraw();
+                match self.backend.as_mut() {
+                    Some(Backend::Wgpu(gpu)) => gpu.surface.resize(size.width, size.height),
+                    Some(Backend::Cpu(cpu)) => {
+                        if let Err(e) = cpu.resize(size.width, size.height) {
+                            self.app.error(format!("{e:#}"));
+                        }
+                    }
+                    None => {}
                 }
+                self.request_redraw();
             }
             WindowEvent::ScaleFactorChanged { .. } => {
                 // Moved to a monitor with another scale; the new size follows as `Resized`.
-                if let Some(gpu) = &self.gpu {
-                    gpu.window.request_redraw();
-                }
+                self.request_redraw();
             }
             WindowEvent::RedrawRequested => {
                 if let Err(e) = self.redraw() {
@@ -534,8 +693,8 @@ impl ApplicationHandler for Gui {
                 let pointer = self.views.pointer(&self.app, self.mouse.0, self.mouse.1);
                 if pointer != self.pointer {
                     self.pointer = pointer;
-                    if let Some(gpu) = &self.gpu {
-                        gpu.window.set_cursor(match pointer {
+                    if let Some(window) = self.window() {
+                        window.set_cursor(match pointer {
                             draw::Pointer::Default => CursorIcon::Default,
                             draw::Pointer::ResizeColumns => CursorIcon::ColResize,
                             draw::Pointer::ResizeRows => CursorIcon::RowResize,
@@ -544,20 +703,17 @@ impl ApplicationHandler for Gui {
                 }
                 // Hover effects on the tabline (close buttons) and dashboard buttons need a
                 // redraw.
-                if (was_over
+                if was_over
                     || self.views.over_tabline(self.mouse.1)
                     || self.app.dashboard_visible()
-                    || self.app.viewer().is_some())
-                    && let Some(gpu) = &self.gpu
+                    || self.app.viewer().is_some()
                 {
-                    gpu.window.request_redraw();
+                    self.request_redraw();
                 }
             }
             WindowEvent::CursorLeft { .. } => {
                 self.views.hover = (-1.0, -1.0);
-                if let Some(gpu) = &self.gpu {
-                    gpu.window.request_redraw();
-                }
+                self.request_redraw();
             }
             WindowEvent::MouseInput {
                 state: ElementState::Pressed,
@@ -614,9 +770,7 @@ impl ApplicationHandler for Gui {
                     .views
                     .wheel(&self.app, mx, my, dx, dy, self.mods.control_key())
                 {
-                    if let Some(gpu) = &self.gpu {
-                        gpu.window.request_redraw();
-                    }
+                    self.request_redraw();
                 } else if self.mods.control_key() {
                     // Zooms the pane under the mouse, not the focused one.
                     if let Some(id) = self.views.pane_at(mx, my) {
@@ -649,43 +803,33 @@ impl ApplicationHandler for Gui {
             if let Some((buffer, loc, _, _)) = self.playback.location(&self.app) {
                 self.app.follow_playback(buffer, loc.bar, loc.tick);
             }
-            if let Some(gpu) = &self.gpu {
-                gpu.window.request_redraw();
-            }
+            self.request_redraw();
             event_loop.set_control_flow(ControlFlow::WaitUntil(
                 Instant::now() + Duration::from_millis(16),
             ));
         } else if self.app.has_tool(cecilia_app::PaneKind::Tuner) {
             // The tuner's needle moves with what it hears.
-            if let Some(gpu) = &self.gpu {
-                gpu.window.request_redraw();
-            }
+            self.request_redraw();
             event_loop.set_control_flow(ControlFlow::WaitUntil(
                 Instant::now() + Duration::from_millis(33),
             ));
         } else if self.app.tracks_peeking() || self.tracks_peek_drawn {
             // The tracks peeking after a change of track: redraw until they hide again.
             self.tracks_peek_drawn = self.app.tracks_peeking();
-            if let Some(gpu) = &self.gpu {
-                gpu.window.request_redraw();
-            }
+            self.request_redraw();
             event_loop.set_control_flow(ControlFlow::WaitUntil(
                 Instant::now() + Duration::from_millis(100),
             ));
         } else if self.app.notifications_active() || self.notifications_drawn {
             // Notification cards: redraw (their bars drain) until the last one is gone.
             self.notifications_drawn = self.app.notifications_active();
-            if let Some(gpu) = &self.gpu {
-                gpu.window.request_redraw();
-            }
+            self.request_redraw();
             event_loop.set_control_flow(ControlFlow::WaitUntil(
                 Instant::now() + Duration::from_millis(33),
             ));
         } else if self.views.tooltip_pending() {
             // A toolbar tooltip waits to show.
-            if let Some(gpu) = &self.gpu {
-                gpu.window.request_redraw();
-            }
+            self.request_redraw();
             event_loop.set_control_flow(ControlFlow::WaitUntil(
                 Instant::now() + Duration::from_millis(100),
             ));
@@ -712,47 +856,41 @@ pub fn screenshot(
     hover: Option<(f64, f64)>,
 ) -> Result<Vec<u8>> {
     let factor = factor.max(0.1);
-    // Temporary escape hatch, removed in 5c when `Attempt::Cpu` exists: render with `cpu::render`
-    // and never touch wgpu.
-    if std::env::var_os("CECILIA_CPU_RENDER").is_some() {
-        return screenshot_with(app, width, height, factor, hover, None);
-    }
     let attempts = renderer_attempts(&app);
     let mut failure = None;
+    // The first attempt that opens: a wgpu device, or None for the CPU renderer.
     let mut opened = None;
     for (n, &attempt) in attempts.iter().enumerate() {
         let result = match attempt {
             backend::Attempt::Gpu => {
                 let mut cx = render_context();
                 pollster::block_on(cx.device(None))
-                    .map(|id| (cx.devices[id].device.clone(), cx.devices[id].queue.clone()))
+                    .map(|id| {
+                        let d = &cx.devices[id];
+                        Some((d.device.clone(), d.queue.clone(), false))
+                    })
                     .ok_or_else(|| anyhow!("no GPU adapter"))
             }
             backend::Attempt::Software => {
                 let instance = RenderContext::new().instance;
-                software_device(&instance, None).map(|(_, device, queue)| (device, queue))
+                software_device(&instance, None)
+                    .map(|(_, device, queue)| Some((device, queue, true)))
             }
+            backend::Attempt::Cpu => Ok(None),
         };
         match result {
             Ok(o) => {
-                opened = Some((o, attempt == backend::Attempt::Software));
+                opened = Some(o);
                 break;
             }
             Err(e) => failure = Some((n, e)),
         }
     }
-    let Some(((device, queue), software)) = opened else {
+    let Some(gpu) = opened else {
         let (n, e) = failure.expect("at least one renderer attempt");
         return Err(no_renderer(&attempts[..=n], e));
     };
-    screenshot_with(
-        app,
-        width,
-        height,
-        factor,
-        hover,
-        Some((device, queue, software)),
-    )
+    screenshot_with(app, width, height, factor, hover, gpu)
 }
 
 /// [`screenshot`] on a wgpu device, or on the CPU renderer without one.
@@ -769,13 +907,13 @@ fn screenshot_with(
         .map_or(16384, |(d, ..)| d.limits().max_texture_dimension_2d);
     let (width, height) = clamp_image_size(width, height, max_dimension)
         .ok_or_else(|| anyhow!("screenshot size {width}x{height} is too large"))?;
-    let mut gpu = gpu.map(|(device, queue, software)| {
-        let renderer = Renderer::new(&device, renderer_options(software))
-            .map_err(|e| anyhow!("renderer: {e}"));
-        renderer.map(|r| (blur::Blur::new(&device), r, device, queue))
-    });
-    let mut gpu = gpu.take().transpose()?;
-    let mut scene = Canvas::new();
+    let mut gpu = gpu
+        .map(|(device, queue, software)| {
+            Renderer::new(&device, renderer_options(software))
+                .map(|r| (blur::Blur::new(&device), r, device, queue))
+                .map_err(|e| anyhow!("renderer: {e}"))
+        })
+        .transpose()?;
     let mut views = Views::default();
     views.hover = hover.unwrap_or((-1.0, -1.0));
     // Load the focused buffer's audio so the waveform shows.
@@ -789,51 +927,36 @@ fn screenshot_with(
         }
         std::thread::sleep(std::time::Duration::from_millis(50));
     }
-    let mut logical = Canvas::new();
-    let mut popups = Canvas::new();
     let blur_px = app.config.file.popups.blur;
     let placeholder = (blur_px > 0.0).then(|| match gpu.as_mut() {
         Some((blur, ..)) => blur.backdrop((width, height)),
         None => blur::placeholder((width, height)),
     });
-    views.set_backdrop(
-        placeholder
-            .clone()
-            .map(|image| (image, f64::from(blur::DOWNSCALE) / factor)),
-    );
+    let mut canvases = [Canvas::new(), Canvas::new(), Canvas::new()];
+    let [logical, popups, scene] = &mut canvases;
+    let mut frame = |app: &mut App, views: &mut Views, playback: &mut Playback| {
+        build_frame(
+            app,
+            views,
+            playback,
+            false,
+            [&mut *logical, &mut *popups, &mut *scene],
+            (width, height),
+            factor,
+            placeholder.clone(),
+        )
+    };
     // Hovering a toolbar button: draw once and wait, so its tooltip shows.
     if hover.is_some() {
-        let mut first = Canvas::new();
-        draw::build(
-            &mut first,
-            &mut Canvas::new(),
-            &mut app,
-            &mut views,
-            Some(&mut playback),
-            None,
-            width as f64 / factor,
-            height as f64 / factor,
-        );
+        frame(&mut app, &mut views, &mut playback);
         if views.tooltip_pending() {
             std::thread::sleep(std::time::Duration::from_millis(550));
         }
     }
-    draw::build(
-        &mut logical,
-        &mut popups,
-        &mut app,
-        &mut views,
-        Some(&mut playback),
-        None,
-        width as f64 / factor,
-        height as f64 / factor,
-    );
-    scene.append(&logical, Some(Affine::scale(factor)));
-    let mut popups_dev = Canvas::new();
-    popups_dev.append(&popups, Some(Affine::scale(factor)));
+    let popups_dev = frame(&mut app, &mut views, &mut playback);
     let Some((mut blur, mut renderer, device, queue)) = gpu else {
         let pixels = cpu::render(
-            &scene,
+            scene,
             &popups_dev,
             (width, height),
             draw::background(),
@@ -865,7 +988,7 @@ fn screenshot_with(
         &mut renderer,
         device,
         queue,
-        &scene,
+        scene,
         &popups_dev,
         &view,
         draw::background(),

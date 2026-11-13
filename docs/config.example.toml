@@ -53,7 +53,7 @@ lyrics_font = "Source Sans 3"   # GUI: font of the lyrics text area (properties 
 lyrics_font_size = 12.0  # GUI: its size in points
 chant_text_font = "noto-serif"   # the font of the lyrics of a chant score: noto-serif or source-sans (the
                          # versicle, response, dagger and barred A are Noto Serif's either way)
-renderer = "auto"   # GUI: "auto" (GPU, falling back to software), "gpu" or "software"; the CECILIA_RENDERER environment variable overrides it
+renderer = "auto"   # GUI: "auto" (GPU, then software, then cpu), "gpu", "software" or "cpu" (no graphics API, slower); the CECILIA_RENDERER environment variable overrides it
 mark_labels = "exact"          # while ' waits for a mark letter, the marks are drawn on the score: "exact" (where a jump
                          # lands), "above" (over the staff, at that beat) or "off"
 waveform_time_ticks = "all"      # GUI waveform pane: the time ruler along the bottom (fixed scale: a tick a second,

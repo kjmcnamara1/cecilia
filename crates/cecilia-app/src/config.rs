@@ -362,7 +362,7 @@ pub struct UiConfig {
     /// While `'` waits for a mark letter: where the marks are drawn on the score, `"exact"`
     /// (on the position a jump lands on), `"above"` (over the staff, at that beat) or `"off"`.
     pub mark_labels: MarkLabels,
-    /// GUI renderer: "auto" (GPU, falling back to software), "gpu" or "software".
+    /// GUI renderer: "auto" (GPU, then software, then cpu), "gpu", "software" or "cpu".
     pub renderer: RendererMode,
     /// Draw the staff lines of bars that don't hold their full count in red.
     pub highlight_incomplete_bars: bool,
@@ -393,7 +393,7 @@ pub struct UiConfig {
     pub sync_snap: f64,
 }
 
-/// Which renderer the GUI uses: `Auto` tries the GPU, then falls back to software.
+/// Which renderer the GUI uses: `Auto` tries the GPU, then a software Vulkan driver, then the CPU renderer.
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Deserialize, Serialize)]
 #[serde(rename_all = "lowercase")]
 pub enum RendererMode {
@@ -401,6 +401,7 @@ pub enum RendererMode {
     Auto,
     Gpu,
     Software,
+    Cpu,
 }
 
 /// Where the marks show on the score while `'` waits for a letter.

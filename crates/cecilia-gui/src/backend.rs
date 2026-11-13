@@ -8,6 +8,8 @@ use vello::wgpu::{AdapterInfo, DeviceType};
 pub enum Attempt {
     Gpu,
     Software,
+    /// No graphics API: `vello_cpu` and, in a window, softbuffer.
+    Cpu,
 }
 
 /// The renderer mode in force: the `CECILIA_RENDERER` value `env` when it names a mode, else
@@ -18,9 +20,10 @@ pub fn resolve_mode(env: Option<&str>, configured: RendererMode) -> RendererMode
         Some("auto") => RendererMode::Auto,
         Some("gpu") => RendererMode::Gpu,
         Some("software") => RendererMode::Software,
+        Some("cpu") => RendererMode::Cpu,
         Some(other) => {
             eprintln!(
-                "cecilia: ignoring CECILIA_RENDERER={other:?} (expected auto, gpu or software)"
+                "cecilia: ignoring CECILIA_RENDERER={other:?} (expected auto, gpu, software or cpu)"
             );
             configured
         }
@@ -30,9 +33,10 @@ pub fn resolve_mode(env: Option<&str>, configured: RendererMode) -> RendererMode
 /// The renderers to try for `mode`, in order.
 pub fn attempts(mode: RendererMode) -> Vec<Attempt> {
     match mode {
-        RendererMode::Auto => vec![Attempt::Gpu, Attempt::Software],
+        RendererMode::Auto => vec![Attempt::Gpu, Attempt::Software, Attempt::Cpu],
         RendererMode::Gpu => vec![Attempt::Gpu],
         RendererMode::Software => vec![Attempt::Software],
+        RendererMode::Cpu => vec![Attempt::Cpu],
     }
 }
 
@@ -90,6 +94,10 @@ mod tests {
             resolve_mode(Some(""), RendererMode::Software),
             RendererMode::Software
         );
+        assert_eq!(
+            resolve_mode(Some("cpu"), RendererMode::Auto),
+            RendererMode::Cpu
+        );
         assert_eq!(resolve_mode(None, RendererMode::Auto), RendererMode::Auto);
     }
 
@@ -97,8 +105,9 @@ mod tests {
     fn attempts_per_mode() {
         assert_eq!(
             attempts(RendererMode::Auto),
-            vec![Attempt::Gpu, Attempt::Software]
+            vec![Attempt::Gpu, Attempt::Software, Attempt::Cpu]
         );
+        assert_eq!(attempts(RendererMode::Cpu), vec![Attempt::Cpu]);
         assert_eq!(attempts(RendererMode::Gpu), vec![Attempt::Gpu]);
         assert_eq!(attempts(RendererMode::Software), vec![Attempt::Software]);
     }
