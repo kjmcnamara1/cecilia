@@ -5,7 +5,7 @@ cd "$(dirname "$0")/../.."
 fail() { echo "FAIL: $*" >&2; exit 1; }
 ID=io.github.kjmcnamara1.cecilia
 manifest=packaging/flatpak/$ID.yml
-meta=packaging/flatpak/$ID.metainfo.xml
+meta=packaging/linux/$ID.metainfo.xml
 
 ruby -ryaml -e '
   m = YAML.load_file(ARGV[0])

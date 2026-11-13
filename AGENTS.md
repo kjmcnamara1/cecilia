@@ -34,7 +34,7 @@ Sample score files (GP, GABC, etc.) for testing and screenshots live in `test-co
 
 `just bump major|minor|patch|X.Y.Z` sets the new version everywhere in the working tree:
 `Cargo.toml`/`Cargo.lock`, the `CHANGELOG.md` heading (needs entries under `[Unreleased]`), the AUR
-PKGBUILDs, the Scoop/Winget/Chocolatey manifests and the release list in the Flatpak metainfo. Never edit those versions by hand. It does not commit or
+PKGBUILDs, the Scoop/Winget/Chocolatey manifests and the release list in the AppStream metainfo (`packaging/linux`). Never edit those versions by hand. It does not commit or
 tag: commit as `chore(release): vX.Y.Z` and tag `vX.Y.Z`. The packaging checksums are
 filled in after publishing (the release workflow's AUR job does the PKGBUILDs with `updpkgsums`;
 `packaging/bump-windows.sh` is run by hand for the Windows manifests).

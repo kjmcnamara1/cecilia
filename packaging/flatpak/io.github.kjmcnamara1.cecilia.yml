@@ -35,7 +35,7 @@ modules:
       - mv /app/share/applications/cecilia.desktop /app/share/applications/io.github.kjmcnamara1.cecilia.desktop
       - sed -i 's/^Icon=cecilia$/Icon=io.github.kjmcnamara1.cecilia/' /app/share/applications/io.github.kjmcnamara1.cecilia.desktop
       - mv /app/share/icons/hicolor/scalable/apps/cecilia.svg /app/share/icons/hicolor/scalable/apps/io.github.kjmcnamara1.cecilia.svg
-      - install -Dm644 packaging/flatpak/io.github.kjmcnamara1.cecilia.metainfo.xml /app/share/metainfo/io.github.kjmcnamara1.cecilia.metainfo.xml
+      - sed -i 's|>cecilia\.desktop<|>io.github.kjmcnamara1.cecilia.desktop<|' /app/share/metainfo/io.github.kjmcnamara1.cecilia.metainfo.xml
     sources:
       - type: dir
         path: ../..

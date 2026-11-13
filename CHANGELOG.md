@@ -7,6 +7,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+
+- The `.deb`, `.rpm`, AUR, AppImage and install-script packages now include the AppStream
+  metainfo, so software centres (Ubuntu App Center, GNOME Software) show cecilia's icon,
+  description and developer.
+
 ## [0.49.0] - 2026-11-13
 
 ### Added

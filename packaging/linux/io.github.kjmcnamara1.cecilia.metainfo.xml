@@ -13,7 +13,7 @@
     </p>
     <p>Chant is edited in a WYSIWYG square-notation editor, not as text.</p>
   </description>
-  <launchable type="desktop-id">io.github.kjmcnamara1.cecilia.desktop</launchable>
+  <launchable type="desktop-id">cecilia.desktop</launchable>
   <url type="homepage">https://github.com/kjmcnamara1/cecilia</url>
   <url type="bugtracker">https://github.com/kjmcnamara1/cecilia/issues</url>
   <provides>
