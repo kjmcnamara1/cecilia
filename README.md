@@ -161,8 +161,9 @@ Download `cecilia-win-Setup.exe` from the
 cecilia for your user only (no administrator rights; in `%LocalAppData%\cecilia`), adds a Start
 Menu shortcut that opens the window, and an entry under Settings > Apps to uninstall it. It is not
 signed yet, so SmartScreen warns: choose "More info", then "Run anyway". The shortcut runs
-`ceciliag.exe`, which is `cecilia --gui` without a console window; the installer does not put
-`cecilia.exe` (the terminal interface) on `PATH`.
+`ceciliag.exe`, which is `cecilia --gui` without a console window. The install folder
+(`%LocalAppData%\cecilia\current`) goes on your user `PATH`, so `cecilia` runs the terminal
+interface from a new terminal; uninstalling takes it off again.
 
 This install updates itself. `ui.auto_update` says how: `notify` (the default) says when a newer
 release is out, `ask` asks whether to install it, `on` downloads it in the background and installs

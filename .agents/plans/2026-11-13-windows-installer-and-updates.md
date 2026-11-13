@@ -29,7 +29,8 @@ degrades `on`/`ask` to `notify`, with the right command: `scoop update cecilia`,
 "your package manager" for `/usr/bin`, else a link to the releases page.
 
 Out of scope: macOS/Linux Velopack packages, Windows file associations, code signing, switching
-winget away from the zip, a PATH entry for the Velopack install.
+winget away from the zip. (A PATH entry for the Velopack install was added later:
+`crates/cecilia-app/src/update/user_path.rs`, from Velopack's install/update/uninstall hooks.)
 
 ## Context
 

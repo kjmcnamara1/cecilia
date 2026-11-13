@@ -15,6 +15,7 @@ use crate::app::App;
 use crate::config::{AutoUpdate, Mode};
 use crate::keys::{Key, KeyCode};
 
+mod user_path;
 #[cfg(windows)]
 mod velopack;
 

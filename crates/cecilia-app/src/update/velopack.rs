@@ -16,8 +16,13 @@ static READY: Mutex<Option<Box<UpdateInfo>>> = Mutex::new(None);
 /// Velopack's startup hooks: during install, update and uninstall the installer runs the
 /// executable with hook arguments, which this handles and exits on. A release downloaded but
 /// not installed (cecilia was killed before it could hand it over) is applied here too.
+/// Install and update put the install folder on the user's `PATH`; uninstall takes it off.
 pub fn startup() {
-    VelopackApp::build().run();
+    VelopackApp::build()
+        .on_after_install_fast_callback(|_| super::user_path::add())
+        .on_after_update_fast_callback(|_| super::user_path::add())
+        .on_before_uninstall_fast_callback(|_| super::user_path::remove())
+        .run();
 }
 
 /// The update manager, or None when this copy was not installed by the Windows installer.

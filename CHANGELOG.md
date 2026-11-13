@@ -7,6 +7,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- Windows installer: puts its folder on the user `PATH`, so `cecilia` runs the terminal interface
+  from any new terminal (uninstalling removes it). Installs from 0.47.0 get it with their next
+  update.
+
 ## [0.47.0] - 2026-11-13
 
 ### Added
