@@ -7,6 +7,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- A Windows installer, `cecilia-win-Setup.exe` (built with Velopack): a per-user install with a Start Menu shortcut and an uninstall entry, which updates itself.
+- `ceciliaw`, a second executable that always opens the window (`cecilia --gui`); on Windows it has no console window, so shortcuts open just the window. The Windows zip ships it, and the Scoop and Chocolatey shortcuts open it.
+- The Windows executables have cecilia's icon (Explorer, taskbar, shortcuts), and the window shows it on Windows and X11.
+- `ui.auto_update` (`on`, `ask`, `notify`, `off`; default `notify`): what to do about a newer release, looked for at most once a day at startup. `on` downloads it and installs it when cecilia exits, `ask` asks first, `notify` only says so, `off` never connects. Only the Windows installer's install updates itself; Scoop, winget, Chocolatey, `cargo install`, Linux packages and unpacked archives treat `on` and `ask` as `notify` and are told the command that updates them. `:update` looks now.
+
 ## [0.46.0] - 2026-11-12
 
 ### Added
