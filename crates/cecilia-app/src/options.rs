@@ -45,6 +45,7 @@ pub struct OptionSpec {
 
 const LAYOUTS: &[&str] = &["page", "vertical", "horizontal"];
 const MARK_LABELS: &[&str] = &["exact", "above", "off"];
+const RENDERERS: &[&str] = &["auto", "gpu", "software"];
 const TICKS: &[&str] = &["all", "major", "off"];
 const ANCHORS: &[&str] = &[
     "top_left",
@@ -263,6 +264,11 @@ pub static OPTIONS: LazyLock<Vec<OptionSpec>> = LazyLock::new(|| {
             "ui.mark_labels",
             Choice(MARK_LABELS),
             "Where the marks are drawn on the score while ' waits for a letter: on the exact position, above the staff, or not at all.",
+        ),
+        o(
+            "ui.renderer",
+            Choice(RENDERERS),
+            "GUI only: the renderer. auto tries the GPU, then falls back to software; takes effect at the next start (CECILIA_RENDERER overrides it).",
         ),
         o(
             "ui.waveform_time_ticks",

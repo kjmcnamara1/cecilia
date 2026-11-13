@@ -2,6 +2,7 @@
 //! notation from `cecilia-engrave`; all chrome (tabs, status and command lines) is drawn with the
 //! same outline fonts.
 
+mod backend;
 mod blur;
 mod design;
 mod draw;

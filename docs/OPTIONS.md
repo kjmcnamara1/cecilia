@@ -111,6 +111,7 @@ tables below that read _preset_ come from the theme (`theme.preset`).
 | `ui.lyrics_font_size` | number 4–96 | `12` | GUI: the lyrics text area's font size in points. | `-o ui.lyrics_font_size=10` |
 | `ui.chant_text_font` | choice: `noto-serif`, `source-sans` | `noto-serif` | The font of the lyrics of a chant score. | `:set ui.chant_text_font source-sans` |
 | `ui.mark_labels` | choice: `exact`, `above`, `off` | `exact` | Where the marks are drawn on the score while ' waits for a letter: on the exact position, above the staff, or not at all. | `:set ui.mark_labels off` |
+| `ui.renderer` | choice: `auto`, `gpu`, `software` | `auto` | GUI only: the renderer. auto tries the GPU, then falls back to software; takes effect at the next start (CECILIA_RENDERER overrides it). | `-o ui.renderer=software` |
 | `ui.waveform_time_ticks` | choice: `all`, `major`, `off` | `all` | GUI: which ticks of the waveform's time ruler are drawn. | `:set ui.waveform_time_ticks off` |
 | `ui.waveform_beat_ticks` | choice: `all`, `major`, `off` | `all` | GUI: which ticks of the waveform's score ruler are drawn. | `:set ui.waveform_beat_ticks off` |
 | `ui.waveform_time_labels` | bool | `true` | GUI: label the major ticks of the time ruler. | `:set ui.waveform_time_labels toggle` |
