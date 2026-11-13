@@ -123,7 +123,7 @@
 
 Finished once the Task 6 commit (`docs: CPU renderer and CI smoke test`) is in. Task 5 changed from the planned `Canvas` trait to a concrete recording `Canvas` type (one type that records commands and replays them into vello or `vello_cpu` avoids generics through all of `draw.rs`).
 
-Open items: retest on the real Windows VM (`ui.renderer cpu` and `auto`); check GPU-path frame time after the Canvas refactor (cached page scenes are now re-encoded each frame); optional `softbuffer` feature trimming.
+Open items: retest on the real Windows VM (`ui.renderer cpu` and `auto`); check GPU-path frame time after the Canvas refactor (cached page scenes are now re-encoded each frame: a follow-up optimisation, deliberately not done yet); optional `softbuffer` feature trimming.
 
 - [x] Task 1 (dd6cb48)  - [x] Task 2 (b8cb546, 2f0a20e)  - [x] Task 3 (21c6dff)  - [x] Task 4 (gate passed: GO)  - [x] Task 5  - [x] Task 6
 

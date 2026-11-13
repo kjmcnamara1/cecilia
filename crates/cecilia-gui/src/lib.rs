@@ -222,7 +222,6 @@ impl Surf {
             view_formats: vec![],
         };
         let target_view = Self::target_view(&device, config.width, config.height);
-        surface.configure(&device, &config);
         let blitter = wgpu::util::TextureBlitter::new(&device, format);
         Ok(Self {
             surface,
@@ -232,6 +231,12 @@ impl Surf {
             target_view,
             blitter,
         })
+    }
+
+    /// Configures the swapchain: the last step of opening a window, so a failing attempt never
+    /// leaves a configured surface behind.
+    fn configure(&self) {
+        self.surface.configure(&self.device, &self.config);
     }
 
     fn target_view(device: &wgpu::Device, width: u32, height: u32) -> wgpu::TextureView {
@@ -299,46 +304,101 @@ fn software_device(
     Ok((adapter, device, queue))
 }
 
+/// Runs `f` with validation errors on `device` captured, returning the first as an `Err`
+/// (wgpu's default handler would panic instead).
+fn validated<T>(device: &wgpu::Device, f: impl FnOnce() -> Result<T>) -> Result<T> {
+    device.push_error_scope(wgpu::ErrorFilter::Validation);
+    let result = f();
+    match pollster::block_on(device.pop_error_scope()) {
+        Some(e) => Err(anyhow!("wgpu validation error: {e}")),
+        None => result,
+    }
+}
+
+/// Reports wgpu errors after the renderer is chosen instead of panicking mid-session.
+fn report_wgpu_errors(device: &wgpu::Device) {
+    device.on_uncaptured_error(Box::new(|e| eprintln!("cecilia: wgpu error: {e}")));
+}
+
+/// The blur pipeline and vello renderer for `device`.
+fn make_renderer(device: &wgpu::Device, software: bool) -> Result<(blur::Blur, Renderer)> {
+    validated(device, || {
+        let blur = blur::Blur::new(device);
+        let renderer = Renderer::new(device, renderer_options(software))
+            .map_err(|e| anyhow!("renderer: {e}"))?;
+        Ok((blur, renderer))
+    })
+}
+
+/// The adapter the GPU attempt uses (`WGPU_ADAPTER_NAME` / `WGPU_POWER_PREF` honoured) with a
+/// device on it. A CPU-type adapter (WARP, llvmpipe, lavapipe) is refused before a device is
+/// made, unless `WGPU_ADAPTER_NAME` names one: those belong to the software attempt.
+fn gpu_device(
+    instance: &wgpu::Instance,
+    surface: Option<&wgpu::Surface<'_>>,
+) -> Result<(wgpu::Adapter, wgpu::Device, wgpu::Queue)> {
+    let adapter = pollster::block_on(wgpu::util::initialize_adapter_from_env_or_default(
+        instance, surface,
+    ))
+    .ok_or_else(|| anyhow!("no GPU adapter"))?;
+    let info = adapter.get_info();
+    if backend::reject_for_gpu(&info, std::env::var_os("WGPU_ADAPTER_NAME").is_some()) {
+        return Err(anyhow!(
+            "only a software adapter ({}) was found; use ui.renderer software or cpu",
+            info.name
+        ));
+    }
+    let (device, queue) = request_device(&adapter)?;
+    Ok((adapter, device, queue))
+}
+
 /// Opens the renderer for one `attempt`: the window's surface and device, vello's renderer and
-/// the blur pipeline. The GPU attempt uses vello's own device selection; the software one
-/// picks the adapter itself.
+/// the blur pipeline. The surface is configured last.
 fn open_wgpu(
     attempt: backend::Attempt,
     window: Arc<Window>,
     size: winit::dpi::PhysicalSize<u32>,
 ) -> Result<(Surf, Renderer, blur::Blur)> {
     let software = attempt == backend::Attempt::Software;
-    let surf = if software {
-        let instance = RenderContext::new().instance;
-        let surface = instance
-            .create_surface(window)
-            .map_err(|e| anyhow!("surface: {e}"))?;
-        let (adapter, device, queue) = software_device(&instance, Some(&surface))?;
-        Surf::new(surface, &adapter, device, queue, size)?
+    let instance = if software {
+        RenderContext::new().instance
     } else {
-        let mut cx = render_context();
-        let rs = pollster::block_on(cx.create_surface(
-            window,
-            size.width.max(1),
-            size.height.max(1),
-            wgpu::PresentMode::AutoVsync,
-        ))
-        .map_err(|e| anyhow!("surface: {e}"))?;
-        let dev = &cx.devices[rs.dev_id];
-        Surf {
-            surface: rs.surface,
-            config: rs.config,
-            device: dev.device.clone(),
-            queue: dev.queue.clone(),
-            target_view: rs.target_view,
-            blitter: rs.blitter,
-        }
+        render_context().instance
     };
-    let blur = blur::Blur::new(&surf.device);
-    let renderer = Renderer::new(&surf.device, renderer_options(software))
-        .map_err(|e| anyhow!("renderer: {e}"))?;
+    let surface = instance
+        .create_surface(window)
+        .map_err(|e| anyhow!("surface: {e}"))?;
+    let (adapter, device, queue) = if software {
+        software_device(&instance, Some(&surface))?
+    } else {
+        gpu_device(&instance, Some(&surface))?
+    };
+    let (blur, renderer) = make_renderer(&device, software)?;
+    let surf = Surf::new(surface, &adapter, device, queue, size)?;
+    validated(&surf.device, || {
+        surf.configure();
+        Ok(())
+    })?;
+    report_wgpu_errors(&surf.device);
     Ok((surf, renderer, blur))
 }
+
+/// A wgpu device with the renderer and blur pipeline for `--screenshot`, for one attempt.
+fn open_headless(attempt: backend::Attempt) -> Result<Headless> {
+    let software = attempt == backend::Attempt::Software;
+    let (device, queue) = if software {
+        let (_, d, q) = software_device(&RenderContext::new().instance, None)?;
+        (d, q)
+    } else {
+        let (_, d, q) = gpu_device(&render_context().instance, None)?;
+        (d, q)
+    };
+    let (blur, renderer) = make_renderer(&device, software)?;
+    report_wgpu_errors(&device);
+    Ok((blur, renderer, device, queue))
+}
+
+type Headless = (blur::Blur, Renderer, wgpu::Device, wgpu::Queue);
 
 /// The error for when every attempt in `tried` failed; `last` is the final attempt's error.
 fn no_renderer(tried: &[backend::Attempt], last: anyhow::Error) -> anyhow::Error {
@@ -862,21 +922,8 @@ pub fn screenshot(
     let mut opened = None;
     for (n, &attempt) in attempts.iter().enumerate() {
         let result = match attempt {
-            backend::Attempt::Gpu => {
-                let mut cx = render_context();
-                pollster::block_on(cx.device(None))
-                    .map(|id| {
-                        let d = &cx.devices[id];
-                        Some((d.device.clone(), d.queue.clone(), false))
-                    })
-                    .ok_or_else(|| anyhow!("no GPU adapter"))
-            }
-            backend::Attempt::Software => {
-                let instance = RenderContext::new().instance;
-                software_device(&instance, None)
-                    .map(|(_, device, queue)| Some((device, queue, true)))
-            }
             backend::Attempt::Cpu => Ok(None),
+            _ => open_headless(attempt).map(Some),
         };
         match result {
             Ok(o) => {
@@ -900,20 +947,13 @@ fn screenshot_with(
     height: u32,
     factor: f64,
     hover: Option<(f64, f64)>,
-    gpu: Option<(wgpu::Device, wgpu::Queue, bool)>,
+    mut gpu: Option<Headless>,
 ) -> Result<Vec<u8>> {
     let max_dimension = gpu
         .as_ref()
-        .map_or(16384, |(d, ..)| d.limits().max_texture_dimension_2d);
+        .map_or(16384, |(.., d, _)| d.limits().max_texture_dimension_2d);
     let (width, height) = clamp_image_size(width, height, max_dimension)
         .ok_or_else(|| anyhow!("screenshot size {width}x{height} is too large"))?;
-    let mut gpu = gpu
-        .map(|(device, queue, software)| {
-            Renderer::new(&device, renderer_options(software))
-                .map(|r| (blur::Blur::new(&device), r, device, queue))
-                .map_err(|e| anyhow!("renderer: {e}"))
-        })
-        .transpose()?;
     let mut views = Views::default();
     views.hover = hover.unwrap_or((-1.0, -1.0));
     // Load the focused buffer's audio so the waveform shows.

@@ -9,7 +9,7 @@ use std::sync::Arc;
 
 use vello::Scene;
 use vello::kurbo::{Affine, BezPath, Rect, Shape, Stroke};
-use vello::peniko::{BlendMode, Brush, BrushRef, Color, Fill, Image};
+use vello::peniko::{BlendMode, BrushRef, Color, Fill, Image};
 
 /// What a command paints with: draw.rs only uses solid colors and images.
 #[derive(Clone)]
@@ -27,16 +27,6 @@ impl From<Color> for Paint {
 impl From<&Image> for Paint {
     fn from(i: &Image) -> Self {
         Paint::Image(i.clone())
-    }
-}
-
-impl From<&Brush> for Paint {
-    fn from(b: &Brush) -> Self {
-        match b {
-            Brush::Solid(c) => Paint::Color(*c),
-            Brush::Image(i) => Paint::Image(i.clone()),
-            Brush::Gradient(_) => unreachable!("gradients are not drawn"),
-        }
     }
 }
 

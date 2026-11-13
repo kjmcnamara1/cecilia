@@ -59,7 +59,8 @@ jobs:
 
   # Informational: does the GPU renderer start on hosted macOS and Windows runners? These runners
   # may have no usable GPU, so a failure here is a finding, not a regression (hence
-  # continue-on-error). The second step (`ui.renderer = cpu`) needs no GPU or graphics API at all,
+  # continue-on-error). The default (`auto`) step must succeed even without a GPU, by ending on
+  # the CPU renderer. The second step (`ui.renderer = cpu`) needs no GPU or graphics API at all,
   # which the first cannot say: the Windows hosted runner has no GPU and the wgpu path segfaults
   # there. The images are uploaded to look at.
   render-smoke:
@@ -76,7 +77,6 @@ jobs:
       - run: cargo build --release --locked
       - name: Render the start screen headless
         shell: bash
-        continue-on-error: true
         run: ./target/release/cecilia -W ci --screenshot render.png
       - name: Render the start screen headless with the CPU renderer (no GPU needed)
         shell: bash

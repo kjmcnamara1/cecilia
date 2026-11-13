@@ -48,6 +48,12 @@ pub fn pick_software(infos: &[AdapterInfo], skip_dx12: bool) -> Option<usize> {
     })
 }
 
+/// Whether the GPU attempt must refuse `info`: a CPU-type adapter (WARP, llvmpipe, lavapipe) is
+/// the software attempt's, unless the user named an adapter (`WGPU_ADAPTER_NAME`).
+pub fn reject_for_gpu(info: &AdapterInfo, name_override: bool) -> bool {
+    info.device_type == DeviceType::Cpu && !name_override
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -78,6 +84,16 @@ mod tests {
         assert_eq!(pick_software(&infos, false), Some(1));
         assert_eq!(pick_software(&infos[..1], false), None);
         assert_eq!(pick_software(&[], false), None);
+    }
+
+    #[test]
+    fn gpu_attempt_refuses_cpu_adapters_unless_named() {
+        let cpu = info("llvmpipe", DeviceType::Cpu);
+        let gpu = info("NVIDIA", DeviceType::DiscreteGpu);
+        assert!(reject_for_gpu(&cpu, false));
+        assert!(!reject_for_gpu(&cpu, true));
+        assert!(!reject_for_gpu(&gpu, false));
+        assert!(!reject_for_gpu(&info("vm", DeviceType::VirtualGpu), false));
     }
 
     #[test]
