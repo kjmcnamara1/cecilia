@@ -59,6 +59,7 @@ assets = [
     { source = "../../target/stage/usr/share/applications/cecilia.desktop", dest = "/usr/share/applications/cecilia.desktop", mode = "644" },
     { source = "../../target/stage/usr/share/icons/hicolor/scalable/apps/cecilia.svg", dest = "/usr/share/icons/hicolor/scalable/apps/cecilia.svg", mode = "644" },
     { source = "../../target/stage/usr/share/mime/packages/cecilia.xml", dest = "/usr/share/mime/packages/cecilia.xml", mode = "644" },
+    { source = "../../target/stage/usr/share/metainfo/io.github.kjmcnamara1.cecilia.metainfo.xml", dest = "/usr/share/metainfo/io.github.kjmcnamara1.cecilia.metainfo.xml", mode = "644" },
     { source = "../../target/stage/usr/share/licenses/cecilia/LICENSE-MIT", dest = "/usr/share/licenses/cecilia/LICENSE-MIT", mode = "644" },
     { source = "../../target/stage/usr/share/licenses/cecilia/LICENSE-APACHE", dest = "/usr/share/licenses/cecilia/LICENSE-APACHE", mode = "644" },
     { source = "../../target/stage/usr/share/doc/cecilia/README.md", dest = "/usr/share/doc/cecilia/README.md", mode = "644", doc = true },

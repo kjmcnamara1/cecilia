@@ -41,6 +41,7 @@ run() { # run PREFIX [env...]: the installer, output in $tmp/out
 run "$tmp/p1" || { cat "$tmp/out"; fail "install failed"; }
 [ "$("$tmp/p1/bin/cecilia" --version)" = "cecilia $V" ] || fail "binary not installed"
 [ -f "$tmp/p1/share/applications/cecilia.desktop" ] || fail "no desktop entry"
+[ -f "$tmp/p1/share/metainfo/io.github.kjmcnamara1.cecilia.metainfo.xml" ] || fail "no AppStream metainfo"
 
 # 1b. the bin directory is put on PATH once, in the startup file of the user's shell
 rc=$tmp/home/.bashrc

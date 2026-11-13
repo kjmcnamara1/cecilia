@@ -3,7 +3,7 @@ set shell := ["bash", "-euo", "pipefail", "-c"]
 
 # Set the release version everywhere: `just bump major|minor|patch|X.Y.Z`. Edits the working
 # tree only (Cargo.toml and Cargo.lock, CHANGELOG.md, the AUR PKGBUILDs, the Scoop, Winget
-# and Chocolatey manifests and the Flatpak metainfo's release list); committing and tagging are
+# and Chocolatey manifests and the AppStream metainfo's release list); committing and tagging are
 # left to the caller. The packaging checksums are filled in after the release is published (the
 # release workflow's AUR job does the PKGBUILDs, packaging/bump-windows.sh the Windows manifests
 # by hand).
@@ -27,7 +27,7 @@ bump version:
     # Every packaging file must be at the current version, or it has drifted: stop before editing.
     win=(packaging/scoop/cecilia.json packaging/winget/*.yaml packaging/choco/cecilia.nuspec
       packaging/choco/tools/chocolateyinstall.ps1)
-    meta=packaging/flatpak/io.github.kjmcnamara1.cecilia.metainfo.xml
+    meta=packaging/linux/io.github.kjmcnamara1.cecilia.metainfo.xml
     for f in "${win[@]}" packaging/aur/cecilia{,-bin}/PKGBUILD "$meta"; do
       grep -qF "$cur" "$f" || { echo "$f is not at $cur" >&2; exit 1; }
     done

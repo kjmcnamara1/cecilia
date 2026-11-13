@@ -16,6 +16,10 @@ install -Dm755 "$BIN" "$DEST/bin/cecilia"
 install -Dm644 "$HERE/cecilia.desktop" "$DEST/share/applications/cecilia.desktop"
 install -Dm644 "$HERE/cecilia.svg" "$DEST/share/icons/hicolor/scalable/apps/cecilia.svg"
 install -Dm644 "$HERE/cecilia-mime.xml" "$DEST/share/mime/packages/cecilia.xml"
+# AppStream metadata: software centres (GNOME Software, Ubuntu App Center) take the app's name,
+# icon and developer from it.
+install -Dm644 "$HERE/io.github.kjmcnamara1.cecilia.metainfo.xml" \
+    "$DEST/share/metainfo/io.github.kjmcnamara1.cecilia.metainfo.xml"
 install -Dm644 "$TOP/LICENSE-MIT" "$DEST/share/licenses/cecilia/LICENSE-MIT"
 install -Dm644 "$TOP/LICENSE-APACHE" "$DEST/share/licenses/cecilia/LICENSE-APACHE"
 install -Dm644 "$TOP/README.md" "$DEST/share/doc/cecilia/README.md"

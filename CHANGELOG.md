@@ -17,6 +17,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- The `.deb`, `.rpm`, AUR, AppImage and install-script packages now include the AppStream
+  metainfo, so software centres (Ubuntu App Center, GNOME Software) show cecilia's icon,
+  description and developer.
 - The Flatpak and snap builds: both now have libclang (needed by `signalsmith-stretch`), and the
   snap installs its Rust toolchain with rustup itself, working around snapcraft 9.2's Rust plugin.
 
