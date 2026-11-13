@@ -403,6 +403,54 @@ fn open_headless(attempt: backend::Attempt) -> Result<Headless> {
 
 type Headless = (blur::Blur, Renderer, wgpu::Device, wgpu::Queue);
 
+/// The window's icon. On Windows it is the executable's icon resource (ID 1, embedded by the
+/// `cecilia` crate's build script; missing in other executables, which then keep the default);
+/// on X11 the lily rasterized. Wayland takes the icon from the `.desktop` file and macOS from
+/// the app bundle, so neither gets one here.
+fn with_icon(attrs: winit::window::WindowAttributes) -> winit::window::WindowAttributes {
+    #[cfg(windows)]
+    {
+        use winit::platform::windows::{IconExtWindows, WindowAttributesExtWindows};
+        use winit::window::Icon;
+        let small = Icon::from_resource(1, None).ok();
+        let big = Icon::from_resource(1, None).ok();
+        attrs.with_window_icon(small).with_taskbar_icon(big)
+    }
+    #[cfg(all(unix, not(target_os = "macos")))]
+    {
+        const PX: u32 = 64;
+        let icon = icon_rgba(PX).and_then(|rgba| winit::window::Icon::from_rgba(rgba, PX, PX).ok());
+        attrs.with_window_icon(icon)
+    }
+    #[cfg(not(any(windows, all(unix, not(target_os = "macos")))))]
+    attrs
+}
+
+/// The lily (`assets/lily.svg`, also the Linux and Windows app icon)
+/// as `px`×`px` straight-alpha RGBA.
+#[cfg(any(test, all(unix, not(target_os = "macos"))))]
+fn icon_rgba(px: u32) -> Option<Vec<u8>> {
+    let svg = include_str!("../assets/lily.svg");
+    let tree = resvg::usvg::Tree::from_str(svg, &resvg::usvg::Options::default()).ok()?;
+    let mut pixmap = resvg::tiny_skia::Pixmap::new(px, px)?;
+    let k = px as f32 / tree.size().width().max(tree.size().height());
+    resvg::render(
+        &tree,
+        resvg::tiny_skia::Transform::from_scale(k, k),
+        &mut pixmap.as_mut(),
+    );
+    Some(
+        pixmap
+            .pixels()
+            .iter()
+            .flat_map(|p| {
+                let c = p.demultiply();
+                [c.red(), c.green(), c.blue(), c.alpha()]
+            })
+            .collect(),
+    )
+}
+
 /// The error for when every attempt in `tried` failed; `last` is the final attempt's error.
 fn no_renderer(tried: &[backend::Attempt], last: anyhow::Error) -> anyhow::Error {
     let names: Vec<_> = tried
@@ -661,6 +709,7 @@ impl ApplicationHandler for Gui {
             let attrs = WindowAttributesExtWayland::with_name(attrs, "cecilia", "cecilia");
             WindowAttributesExtX11::with_name(attrs, "cecilia", "cecilia")
         };
+        let attrs = with_icon(attrs);
         let result = (|| -> Result<Backend> {
             let window = Arc::new(event_loop.create_window(attrs)?);
             let size = window.inner_size();
@@ -1100,5 +1149,15 @@ mod tests {
         // Huge requests are cut to the memory budget instead of overflowing.
         let (w, h) = clamp_image_size(u32::MAX, u32::MAX, u32::MAX).unwrap();
         assert!(u64::from(w) * u64::from(h) * 4 <= super::MAX_IMAGE_BYTES);
+    }
+
+    #[test]
+    fn the_window_icon_rasterizes_with_transparent_corners() {
+        let rgba = super::icon_rgba(64).unwrap();
+        assert_eq!(rgba.len(), 64 * 64 * 4);
+        // The lily leaves the corner clear and covers the middle.
+        assert_eq!(rgba[3], 0);
+        let mid = (32 * 64 + 32) * 4;
+        assert_eq!(rgba[mid + 3], 255);
     }
 }
