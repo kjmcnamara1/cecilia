@@ -147,8 +147,8 @@ the `CECILIA_RENDERER` environment variable overrides it:
 - `gpu`: the GPU only. `software`: the software wgpu adapter only.
 - `cpu`: draws on the CPU with no graphics API at all and shows the frame through the windowing
   system (`softbuffer`). It needs no driver, so it works in VMs without 3D acceleration, including
-  Windows, and also gives `--screenshot` without a GPU. It is slower (about 30-50 ms for a
-  1400x900 frame).
+  Windows, and also gives `--screenshot` without a GPU. It is slower (roughly 30-50 ms for a
+  full-window frame on the author's machine).
 
 On Windows, DX12's WARP adapter is skipped because it crashes, so on a Windows VM without 3D `auto`
 ends up on `cpu` (or set `ui.renderer cpu`); this is not verified on a real Windows VM yet.
