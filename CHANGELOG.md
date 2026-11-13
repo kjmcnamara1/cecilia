@@ -15,6 +15,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - The install script adds its `bin` folder to `PATH` in your shell's startup file (zsh, bash, fish
   or `~/.profile`) when it is not there already; `CECILIA_NO_MODIFY_PATH=1` turns that off.
 
+### Fixed
+
+- The Flatpak and snap builds: both now have libclang (needed by `signalsmith-stretch`), and the
+  snap installs its Rust toolchain with rustup itself, working around snapcraft 9.2's Rust plugin.
+
 ## [0.48.0] - 2026-11-13
 
 ### Added
