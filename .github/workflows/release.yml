@@ -206,3 +206,33 @@ jobs:
           commit_message: Update to ${{ github.ref_name }}
           ssh_keyscan_types: rsa,ecdsa,ed25519
           updpkgsums: true
+
+  # Updates the Homebrew tap (kjmcnamara1/homebrew-cecilia) once the release is published: the
+  # formula (CLI and TUI, macOS and Linux) and the cask (Cecilia.app). The token must be able to
+  # push to the tap. Skipped for pre-releases.
+  homebrew:
+    needs: [meta, release]
+    if: needs.meta.outputs.prerelease == 'false'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/checkout@v4
+        with:
+          repository: kjmcnamara1/homebrew-cecilia
+          token: ${{ secrets.HOMEBREW_TAP_TOKEN }}
+          path: tap
+      - name: Render the formula and the cask
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release download "$GITHUB_REF_NAME" --pattern SHA256SUMS
+          packaging/homebrew/render.sh ${{ needs.meta.outputs.version }} SHA256SUMS tap
+      - name: Push
+        working-directory: tap
+        run: |
+          git add -A
+          git diff --cached --quiet && exit 0
+          git -c user.name=github-actions[bot] \
+            -c user.email=41898282+github-actions[bot]@users.noreply.github.com \
+            commit -m "cecilia ${{ needs.meta.outputs.version }}"
+          git push

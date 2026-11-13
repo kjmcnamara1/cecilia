@@ -1,0 +1,22 @@
+cask "cecilia" do
+  version "@VERSION@"
+  sha256 "@SHA_DMG@"
+
+  url "https://github.com/kjmcnamara1/cecilia/releases/download/v#{version}/cecilia-v#{version}-universal-apple-darwin.dmg"
+  name "cecilia"
+  desc "Keyboard-first editor and player for guitar tab, standard notation and Gregorian chant"
+  homepage "https://github.com/kjmcnamara1/cecilia"
+
+  depends_on macos: ">= :big_sur"
+
+  app "Cecilia.app"
+  binary "#{appdir}/Cecilia.app/Contents/MacOS/cecilia"
+
+  # The app is not notarized (no Apple Developer account), so Gatekeeper would refuse it.
+  postflight do
+    system_command "/usr/bin/xattr",
+                   args: ["-dr", "com.apple.quarantine", "#{appdir}/Cecilia.app"]
+  end
+
+  zap trash: "~/Library/Application Support/cecilia"
+end
