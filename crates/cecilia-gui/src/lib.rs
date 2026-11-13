@@ -47,6 +47,8 @@ struct CpuWindow {
     size: (u32, u32),
     /// The backdrop placeholder popups fill with, for the size it was made for.
     placeholder: Option<((u32, u32), vello::peniko::Image)>,
+    /// Keeps the last frame so only what changed is drawn again.
+    renderer: cpu::Renderer,
 }
 
 impl CpuWindow {
@@ -60,6 +62,7 @@ impl CpuWindow {
             surface,
             size: (0, 0),
             placeholder: None,
+            renderer: cpu::Renderer::default(),
         })
     }
 
@@ -107,7 +110,7 @@ impl CpuWindow {
 /// What draws the window's frames.
 enum Backend {
     Wgpu(Box<Gpu>),
-    Cpu(CpuWindow),
+    Cpu(Box<CpuWindow>),
 }
 
 impl Backend {
@@ -604,15 +607,20 @@ impl Gui {
         let gpu = match backend {
             Backend::Wgpu(gpu) => gpu,
             Backend::Cpu(cpu) => {
-                let pixels = cpu::render(
-                    &self.scene,
-                    &popups,
-                    (width, height),
-                    draw::background(),
-                    blur_px * factor,
-                    backdrop.as_ref(),
-                )?;
-                return cpu.present(&pixels, (width, height));
+                // The renderer is taken out so the pixels it returns can be shown through `cpu`.
+                let mut renderer = std::mem::take(&mut cpu.renderer);
+                let shown = renderer
+                    .render(
+                        &self.scene,
+                        &popups,
+                        (width, height),
+                        draw::background(),
+                        blur_px * factor,
+                        backdrop.as_ref(),
+                    )
+                    .and_then(|pixels| cpu.present(pixels, (width, height)));
+                cpu.renderer = renderer;
+                return shown;
             }
         };
         gpu.blur.render(
@@ -710,7 +718,9 @@ impl ApplicationHandler for Gui {
             let mut opened = None;
             for (n, &attempt) in attempts.iter().enumerate() {
                 let result = match attempt {
-                    backend::Attempt::Cpu => CpuWindow::new(window.clone()).map(Backend::Cpu),
+                    backend::Attempt::Cpu => {
+                        CpuWindow::new(window.clone()).map(|c| Backend::Cpu(Box::new(c)))
+                    }
                     _ => {
                         open_wgpu(attempt, window.clone(), size).map(|(surface, renderer, blur)| {
                             Backend::Wgpu(Box::new(Gpu {

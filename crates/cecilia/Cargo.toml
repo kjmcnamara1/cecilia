@@ -58,3 +58,13 @@ assets = [
 ]
 [package.metadata.generate-rpm.requires]
 alsa-lib = "*"
+
+# `cargo binstall cecilia` downloads the release archive (see .github/workflows/release.yml)
+# instead of compiling.
+[package.metadata.binstall]
+pkg-url = "{ repo }/releases/download/v{ version }/cecilia-v{ version }-{ target }.{ archive-format }"
+bin-dir = "cecilia-v{ version }-{ target }/{ bin }{ binary-ext }"
+pkg-fmt = "tgz"
+
+[package.metadata.binstall.overrides.x86_64-pc-windows-msvc]
+pkg-fmt = "zip"

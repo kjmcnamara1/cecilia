@@ -19,6 +19,13 @@ Planned work. Finished items move to `CHANGELOG.md` under `[Unreleased]`.
   - [x] PKGBUILD for cecilia-git: written (version from `git describe`, untested with `makepkg`); the release workflow pushes it too
   - [ ] Wait on AUR adoption requests for cecilia and cecilia-git
   - [ ] .deb and .rpm: built by the release workflow; install-test the CI-built files
+- [ ] More Linux packages
+  - [ ] Push a `vX.Y.Z-rc.N` tag to exercise the AppImage, Flatpak and Snap jobs (written without being run), fix what breaks, install-test each
+  - [ ] `snapcraft register cecilia` and the `SNAPCRAFT_STORE_CREDENTIALS` secret; check the snap's file access and audio
+  - [ ] Flathub: submit to `flathub/flathub` (git-source manifest, see `docs/INSTALL.md`), add screenshots to the metainfo
+  - [ ] Nix flake (`rustPlatform.buildRustPackage`; needs wayland, vulkan-loader, libxkbcommon, alsa-lib at run time)
+  - [ ] Run the install script on a clean Linux and macOS machine after the first release
+  - [x] `cargo binstall` metadata (verify with `cargo binstall cecilia` after the first release)
 - [ ] Windows Release
   - [ ] Run the release zip on a Windows machine: `cecilia --version`, the TUI in Windows Terminal, `cecilia --gui`, audio playback, the file picker, the clipboard (`clip.exe` / PowerShell)
   - [ ] `cecilia --gui` crashes on a Windows 11 QEMU/KVM VM (VirtIO GPU, display-only driver, no 3D): `STATUS_ACCESS_VIOLATION` inside `d3d10warp.dll` (Windows' software renderer) with `WGPU_BACKEND=dx12` and the WARP adapter forced (`WGPU_ADAPTER_NAME`); Vulkan has no driver there ("Couldn't create wgpu surface"). Native crash, so not a cecilia bug as far as known. The hosted `windows-latest` runner (no GPU) segfaults the same way in the headless `--screenshot` render (CI job `render-smoke`, 2026-11-11), so it is not window-specific. `ui.renderer` / `CECILIA_RENDERER`, the `auto` fallback (WARP is skipped) and the GPU-free `cpu` renderer now exist; remaining: retest on the real Windows VM with `ui.renderer cpu` (and `auto`). The TUI works on the same VM.
@@ -30,6 +37,10 @@ Planned work. Finished items move to `CHANGELOG.md` under `[Unreleased]`.
   - [ ] Notification history times show UTC on Windows (`notify.rs` `local_time` only uses the local zone on Unix)
   - [ ] Typed paths: `~\` and `\` separators in the path completion and workspace names (`complete.rs`, `workspace.rs`) only understand `/`
 - [ ] MacOS Release
+  - [x] `.app` and universal `.dmg` in the release workflow, `install.sh`, Homebrew tap (formula and cask): written; CI tests the bundle on macOS but nothing has run on a real Mac
+  - [ ] Create `kjmcnamara1/homebrew-cecilia` and the `HOMEBREW_TAP_TOKEN` secret; test `brew install --cask` and `brew install` after the first release
+  - [ ] Notarize the app (needs an Apple Developer account) so Gatekeeper and the official `homebrew-cask` accept it
+  - [ ] Open files from Finder (double-click, drag onto the Dock icon): winit does not deliver the open-document Apple event, so `Info.plist` lists the file types but the app ignores the request
   - [ ] macOS SoundFont default paths, and the bundle's microphone prompt (`NSMicrophoneUsageDescription`) when opening the tuner
   - [ ] Never run on real hardware: the author's macOS VM (Intel, x86_64) has no Metal (Ghostty cannot start there) and no working audio output (CoreAudio: "unknown error"). Unverified: `--gui`, `--screenshot`, playback, the tuner and the microphone prompt, the Apple Silicon build. The TUI runs (Terminal.app and iTerm2) and renders; Homebrew does not support Intel Macs
 

@@ -80,7 +80,7 @@ practising with a recording from a terminal or a plain window. What it does and 
 - Platforms: Linux is the tested platform. On macOS (Intel, in a virtual machine) and Windows
   (virtual machine) the terminal interface was run and builds from source; the window, audio and
   tuner were never run there (the VMs had no GPU and no sound device).
-- Not there yet: binary releases, distribution packages, a plugin or scripting interface, and
+- Not there yet: signed or notarized macOS and Windows builds, a plugin or scripting interface, and
   the polish and community of older programs such as Guitar Pro, MuseScore or TuxGuitar.
 
 ## WYSIWYG chant editor
@@ -106,8 +106,25 @@ In the terminal, chant is shown as a text staff (the engraved view needs the GUI
 
 ## Installation
 
-On Windows the installer below is the easiest way. Otherwise, for now, you build cecilia from
-source. You need a [Rust toolchain](https://rustup.rs) (1.89 or newer) and git.
+The quickest way on Linux and macOS:
+
+```sh
+curl -fsSL https://github.com/kjmcnamara1/cecilia/releases/latest/download/install.sh | sh
+```
+
+| System  | Alternatives                                                                                   |
+| ------- | ---------------------------------------------------------------------------------------------- |
+| macOS   | `brew install --cask kjmcnamara1/cecilia/cecilia` (the app), or the `.dmg` from the releases   |
+| Linux   | Flatpak bundle, `snap install cecilia`, AppImage, AUR (`cecilia`, `cecilia-bin`), `.deb`, `.rpm` |
+| Windows | `cecilia-win-Setup.exe` (see below), or the release zip                                        |
+| any     | `cargo binstall cecilia`, or `cargo install --locked cecilia`                                  |
+
+[docs/INSTALL.md](docs/INSTALL.md) has every command and the details (macOS Gatekeeper, sandboxed
+config paths, checksums). The binaries are not signed.
+
+### Build from source
+
+You need a [Rust toolchain](https://rustup.rs) (1.89 or newer) and git.
 
 ```sh
 git clone https://github.com/kjmcnamara1/cecilia.git && cd cecilia
@@ -155,7 +172,7 @@ replace themselves: `on` and `ask` act as `notify` there, with the command that 
 
 ### macOS and Windows from source
 
-These platforms are not tested by the author. In principle the same build works:
+These platforms are not tested by the author on real hardware. To build from source:
 
 ```sh
 cargo install --locked --path crates/cecilia

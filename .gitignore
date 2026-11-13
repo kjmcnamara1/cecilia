@@ -2,3 +2,5 @@
 /test-corpus
 *.sf2
 *.sf3
+
+/packaging/flatpak/cargo-sources.json
