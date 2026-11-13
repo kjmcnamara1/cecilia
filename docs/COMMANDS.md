@@ -112,6 +112,7 @@ Keymap-only commands that drive the tool panes while they have the focus:
 | `notify [-s SUBJECT] [-t SECONDS] [-u info\|error] [-i ICON] MESSAGE` | Raise a notification (quotes group words; `-t 0` stays). Long flags `--subject`, `--timeout`, `--urgency`, `--icon`; urgency also takes `normal`, `low`, `critical`. |
 | `notify-dismiss` | Dismiss the notification cards on screen. |
 | `notifications` | Notification history picker. |
+| `update` | Look for a newer release now, whatever `ui.auto_update` says. The Windows installer's install downloads it and installs it when cecilia exits; any other install (Scoop, winget, Chocolatey, cargo, a Linux package, an unpacked archive) is told how to update. |
 | `command-mode` | Open the command line. |
 | `normal` | Back to Normal mode. |
 | `nop` | Do nothing (to unbind a key). |

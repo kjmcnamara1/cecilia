@@ -616,6 +616,8 @@ pub enum Command {
     SwapDiscard,
     /// Dismisses the notification cards on screen.
     NotifyDismiss,
+    /// `:update`: looks for a newer release now (and installs it where cecilia updates itself).
+    Update,
     /// `:notify`: raises a notification.
     Notify(NotifyArgs),
     /// Shows a notification of the history in a popup (by its key).
@@ -793,6 +795,7 @@ impl Command {
             "recover!" => Recover(arg.map(expand_tilde), true),
             "swap-discard" => SwapDiscard,
             "notify-dismiss" => NotifyDismiss,
+            "update" => Update,
             "notify" => return parse_notify(arg),
             "notifications" => Pick(crate::picker::PickerKind::Notification),
             "source" | "so" => Source,

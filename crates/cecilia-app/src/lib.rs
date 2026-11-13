@@ -44,6 +44,7 @@ mod textobj;
 pub mod theme;
 pub mod toolbar;
 pub mod tracks;
+pub mod update;
 pub mod viewer;
 mod wavesync;
 pub mod workspace;

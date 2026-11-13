@@ -271,6 +271,11 @@ pub static OPTIONS: LazyLock<Vec<OptionSpec>> = LazyLock::new(|| {
             "GUI only: the renderer. auto tries the GPU, then software, then cpu; cpu renders without any graphics API (slower), for machines with no GPU or driver; takes effect at the next start (CECILIA_RENDERER overrides it).",
         ),
         o(
+            "ui.auto_update",
+            Choice(&["on", "ask", "notify", "off"]),
+            "A newer release, looked for at most once a day at startup: on downloads it and installs it when cecilia exits, ask asks first, notify only says so (and how to update), off never looks. Only the Windows installer's install updates itself; others treat on and ask as notify.",
+        ),
+        o(
             "ui.waveform_time_ticks",
             Choice(TICKS),
             "GUI: which ticks of the waveform's time ruler are drawn.",

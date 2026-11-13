@@ -9,13 +9,25 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- Windows installer: puts its folder on the user `PATH`, so `cecilia` runs the terminal interface
+  from any new terminal (uninstalling removes it). Installs from 0.47.0 get it with their next
+  update.
+- `:soundfont-install` (and `cecilia soundfont install`) downloads the FluidR3_GM General MIDI SoundFont (148 MB, MIT) from Debian's `fluid-soundfont` source archive into cecilia's data folder in the background, checks its size and SHA-256, and the next playback uses it without a restart (`audio.soundfont` still wins; `!` downloads it again). Playback with the built-in synth says once per session how to get it. The Flatpak and the Snap get network access for it.
+
+## [0.47.0] - 2026-11-13
+
+### Added
+
+- A Windows installer, `cecilia-win-Setup.exe` (built with Velopack): a per-user install with a Start Menu shortcut and an uninstall entry, which updates itself.
+- `ceciliag`, a second executable that always opens the window (`cecilia --gui`); on Windows it has no console window, so shortcuts open just the window. The Windows zip ships it, and the Scoop and Chocolatey shortcuts open it.
+- The Windows executables have the lily icon (the Linux desktop icon) (Explorer, taskbar, shortcuts), and the window shows it on Windows and X11.
+- `ui.auto_update` (`on`, `ask`, `notify`, `off`; default `notify`): what to do about a newer release, looked for at most once a day at startup. `on` downloads it and installs it when cecilia exits, `ask` asks first, `notify` only says so, `off` never connects. Only the Windows installer's install updates itself; Scoop, winget, Chocolatey, `cargo install`, Linux packages and unpacked archives treat `on` and `ask` as `notify` and are told the command that updates them. `:update` looks now.
 - macOS `Cecilia.app` (opens the window, icon from the lily, file types registered) in a universal `.dmg` attached to each release; ad-hoc signed, not notarized.
 - An install script, `curl -fsSL https://github.com/kjmcnamara1/cecilia/releases/latest/download/install.sh | sh`, for Linux (x86_64) and macOS: checks the download against `SHA256SUMS` and installs without root.
 - A Homebrew tap (`kjmcnamara1/cecilia`) with a formula (command line, macOS and Linux) and a cask (the app), updated by the release workflow.
 - An AppImage, a Flatpak bundle (`io.github.kjmcnamara1.cecilia`, with AppStream metainfo) and a Snap (`cecilia`, window as `cecilia.gui`) built by the release workflow.
 - `cargo binstall cecilia` downloads the release archive instead of compiling.
 - `docs/INSTALL.md`: every way to install, with the macOS Gatekeeper and sandbox notes; `bash packaging/check.sh` tests the packaging scripts.
-- `:soundfont-install` (and `cecilia soundfont install`) downloads the FluidR3_GM General MIDI SoundFont (148 MB, MIT) from Debian's `fluid-soundfont` source archive into cecilia's data folder in the background, checks its size and SHA-256, and the next playback uses it without a restart (`audio.soundfont` still wins; `!` downloads it again). Playback with the built-in synth says once per session how to get it. The Flatpak and the Snap get network access for it.
 
 ### Changed
 

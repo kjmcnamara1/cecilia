@@ -62,13 +62,16 @@ jobs:
           exe=target/${{ matrix.target }}/release/cecilia
           [ "$RUNNER_OS" = Windows ] && exe=$exe.exe
           "$exe" --version
+          # ceciliag.exe has no console to print to: only check it was built.
+          if [ "$RUNNER_OS" = Windows ]; then test -f "${exe%cecilia.exe}ceciliag.exe"; fi
       - name: Package
         shell: bash
         run: |
           name=cecilia-v${{ needs.meta.outputs.version }}-${{ matrix.target }}
           mkdir "$name"
           if [ "$RUNNER_OS" = Windows ]; then
-            cp target/${{ matrix.target }}/release/cecilia.exe "$name/"
+            # ceciliag.exe: the window without a console (Start Menu shortcuts).
+            cp target/${{ matrix.target }}/release/{cecilia,ceciliag}.exe "$name/"
           else
             cp target/${{ matrix.target }}/release/cecilia "$name/"
           fi
@@ -82,6 +85,39 @@ jobs:
           else
             tar czf "dist/$name.tar.gz" "$name"
           fi
+      - uses: actions/setup-dotnet@v4
+        if: runner.os == 'Windows'
+        with:
+          dotnet-version: 8.0.x
+      - name: Windows installer (Velopack)
+        if: runner.os == 'Windows'
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          # vpk must be the version of the velopack crate cecilia links (Cargo.lock).
+          vpk_version=$(awk '{ sub(/\r$/, "") } $0 == "name = \"velopack\"" { getline; gsub(/version = |"|\r/, ""); print; exit }' Cargo.lock)
+          [ -n "$vpk_version" ] || { echo "::error::no velopack in Cargo.lock"; exit 1; }
+          dotnet tool install vpk --version "$vpk_version" --tool-path .vpk
+          # The tag, not Cargo.toml: a pre-release must sort below its final release in Velopack.
+          v=${GITHUB_REF_NAME#v}
+          mkdir pack
+          cp target/${{ matrix.target }}/release/{cecilia,ceciliag}.exe pack/
+          cp LICENSE-APACHE LICENSE-MIT README.md CHANGELOG.md pack/
+          # The latest release's feed and package, so this release gets a delta package and a
+          # feed listing both. There is none before the first release with an installer.
+          .vpk/vpk download github --repoUrl "https://github.com/${{ github.repository }}" \
+            --token "$GH_TOKEN" --outputDir Releases || echo "no earlier installer release"
+          # Per-user install with a Start Menu shortcut to ceciliag.exe and an uninstall entry.
+          .vpk/vpk pack --packId cecilia --packVersion "$v" --packDir pack \
+            --mainExe ceciliag.exe --icon crates/cecilia/assets/cecilia.ico \
+            --packTitle cecilia --packAuthors "The cecilia contributors" --runtime win-x64 \
+            --shortcuts StartMenuRoot --noPortable --outputDir Releases
+          ls -l Releases
+          # Released with the other assets: the installer, this version's packages and the feed
+          # (installed copies read releases.win.json from the latest release).
+          cp Releases/cecilia-win-Setup.exe Releases/releases.win.json dist/
+          cp Releases/cecilia-"$v"-*.nupkg dist/
       - name: .deb and .rpm
         if: runner.os == 'Linux'
         run: |
@@ -205,6 +241,7 @@ jobs:
           merge-multiple: true
       - name: Checksums
         working-directory: dist
+        # The archives, packages and cecilia-win-Setup.exe.
         run: sha256sum cecilia* > SHA256SUMS
       - name: Install script
         # Not in SHA256SUMS: it is what reads them.

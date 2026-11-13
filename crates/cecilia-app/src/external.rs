@@ -29,11 +29,7 @@ impl App {
     /// and the user is asked whether to load the new contents.
     pub(crate) fn check_external(&mut self) {
         // Not while another question is open or a command line is being typed.
-        if self.confirm_reload.is_some()
-            || self.confirm_close.is_some()
-            || self.confirm_delete_workspace.is_some()
-            || self.mode == Mode::Command
-        {
+        if self.question_open() || self.mode == Mode::Command {
             return;
         }
         for index in 0..self.buffers.len() {
