@@ -93,6 +93,61 @@ enum Cmd {
         #[arg(long)]
         speed: Option<f64>,
     },
+    /// Manage the SoundFont used for MIDI playback.
+    Soundfont {
+        #[command(subcommand)]
+        action: SoundfontCmd,
+    },
+}
+
+#[derive(Subcommand)]
+enum SoundfontCmd {
+    /// Download the FluidR3_GM SoundFont (148 MB) into cecilia's soundfonts folder, where
+    /// playback finds it (the `audio.soundfont` setting still takes precedence).
+    Install {
+        /// Download it again even if it is already installed.
+        #[arg(long)]
+        force: bool,
+    },
+}
+
+/// `cecilia soundfont install`: the download of `:soundfont-install`, in the foreground, with
+/// its progress on stderr.
+fn soundfont_install(config: &Config, force: bool) -> Result<()> {
+    use cecilia_app::soundfont::{self, FLUIDR3_GM, Outcome};
+    use std::io::Write as _;
+    let dir = soundfont::dir().context("no data folder to install the SoundFont into")?;
+    let mut last = None;
+    let outcome = soundfont::install(&FLUIDR3_GM, &dir, force, |done, total| {
+        let pct = done * 100 / total.max(1);
+        if last != Some(pct) {
+            last = Some(pct);
+            let (a, b) = (soundfont::mb(done), soundfont::mb(total));
+            eprint!(
+                "\rdownloading {}: {pct:3}% ({a} of {b} MB)",
+                FLUIDR3_GM.file
+            );
+            let _ = std::io::stderr().flush();
+        }
+    });
+    if last.is_some() {
+        eprintln!();
+    }
+    let outcome = outcome.map_err(anyhow::Error::msg)?;
+    match &outcome {
+        Outcome::Installed(p) => eprintln!("installed {}", p.display()),
+        Outcome::AlreadyInstalled(p) => eprintln!(
+            "already installed: {} (--force downloads it again)",
+            p.display()
+        ),
+    }
+    if let Some(set) = &config.file.audio.soundfont {
+        eprintln!(
+            "note: audio.soundfont ({}) still takes precedence",
+            set.display()
+        );
+    }
+    Ok(())
 }
 
 fn main() -> Result<()> {
@@ -112,6 +167,9 @@ fn main() -> Result<()> {
     match cli.command {
         Some(Cmd::Info { .. }) => unreachable!("handled above"),
         Some(Cmd::Play { file, speed }) => play(&file, &config, speed),
+        Some(Cmd::Soundfont {
+            action: SoundfontCmd::Install { force },
+        }) => soundfont_install(&config, force),
         Some(Cmd::Convert {
             input,
             output,

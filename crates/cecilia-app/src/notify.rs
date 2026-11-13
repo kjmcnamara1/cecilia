@@ -278,8 +278,9 @@ impl Notifications {
         self.raise(Notice::new(text, error), now, cfg);
     }
 
-    /// Adds a notification, merging it into a similar card still on screen.
-    pub fn raise(&mut self, n: Notice, now: Instant, cfg: &NotificationsConfig) {
+    /// Adds a notification, merging it into a similar card still on screen, and returns the
+    /// card's id.
+    pub fn raise(&mut self, n: Notice, now: Instant, cfg: &NotificationsConfig) -> u64 {
         self.expire(now);
         if n.error {
             self.errors += 1;
@@ -354,6 +355,18 @@ impl Notifications {
             },
             cfg,
         );
+        key
+    }
+
+    /// Changes the text of a card still on screen in place, as progress does: no repeat is
+    /// counted and nothing goes to the history. False when the card is gone.
+    pub fn update(&mut self, id: u64, text: String) -> bool {
+        let Some(card) = self.visible.iter_mut().find(|c| c.id == id) else {
+            return false;
+        };
+        card.body_at = classify(&text, card.error).1;
+        card.text = text;
+        true
     }
 
     /// Shows a question that stays until [`dismiss_prompts`](Self::dismiss_prompts).

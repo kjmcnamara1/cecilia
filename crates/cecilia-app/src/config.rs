@@ -1552,9 +1552,8 @@ pub fn default_config_path() -> Option<PathBuf> {
 /// cecilia's own data directory, then the conventional ones of the platform.
 fn soundfont_dirs() -> Vec<PathBuf> {
     let mut dirs: Vec<PathBuf> = Vec::new();
-    if let Some(d) = directories::ProjectDirs::from("", "", "cecilia") {
-        dirs.push(d.data_dir().join("soundfonts"));
-    }
+    // Where `:soundfont-install` puts FluidR3_GM.
+    dirs.extend(crate::soundfont::dir());
     if cfg!(target_os = "macos") {
         dirs.push("/opt/homebrew/share/soundfonts".into());
         dirs.push("/usr/local/share/soundfonts".into());

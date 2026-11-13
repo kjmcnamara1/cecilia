@@ -333,7 +333,7 @@ pub static OPTIONS: LazyLock<Vec<OptionSpec>> = LazyLock::new(|| {
         o(
             "audio.soundfont",
             Str,
-            "SoundFont (.sf2) for MIDI playback; empty: the built-in synth.",
+            "SoundFont (.sf2) for MIDI playback; empty: one found in the usual folders (:soundfont-install downloads FluidR3_GM), else the built-in synth.",
         ),
         o(
             "audio.speed",

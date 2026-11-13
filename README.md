@@ -76,7 +76,8 @@ practising with a recording from a terminal or a plain window. What it does and 
 
 - Reads Guitar Pro 3-5 (`.gp3`-`.gp5`) and 6-8 (`.gpx`, `.gp`); writes GP5, GPX and GP7/8.
 - Reads and writes MusicXML, MIDI and GABC (Gregorio), plus its own `.ccc` / `.ccm` files.
-- Sounds: a SoundFont (`.sf2`) you provide, or a basic built-in synth. No SoundFont is bundled.
+- Sounds: a SoundFont (`.sf2`) you provide, or a basic built-in synth. No SoundFont is bundled;
+  `:soundfont-install` (or `cecilia soundfont install`) downloads FluidR3_GM (148 MB).
 - Platforms: Linux is the tested platform. On macOS (Intel, in a virtual machine) and Windows
   (virtual machine) the terminal interface was run and builds from source; the window, audio and
   tuner were never run there (the VMs had no GPU and no sound device).
@@ -223,6 +224,7 @@ cecilia convert song.gp5 song.pdf --track 2 --layout page   # engrave to PDF / S
 cecilia convert song.gp song.flac                     # render MIDI + recording to audio
 cecilia convert hymn.gp5 hymn.gabc                    # melody and lyrics as chant (lossy)
 cecilia convert chant.gabc chant.pdf                  # square notation
+cecilia soundfont install                             # download FluidR3_GM (148 MB) for playback
 ```
 
 ### First steps in the editor
@@ -253,8 +255,11 @@ To practise with a recording: open the score, attach the audio file (`:audio rec
 On Linux, `~/.config/cecilia/config.toml` (`$XDG_CONFIG_HOME/cecilia/`; other platforms use their
 standard config directory, or pass `--config`); see [docs/config.example.toml](docs/config.example.toml) for
 every option, and [docs/keymap.md](docs/keymap.md) for key bindings (all can be overridden). For
-realistic instrument sounds set `audio.soundfont` to a General MIDI `.sf2` file (for example
-FluidR3_GM or GeneralUser GS); otherwise the built-in synth is used.
+realistic instrument sounds run `:soundfont-install` once (or `cecilia soundfont install`): it
+downloads the FluidR3_GM General MIDI SoundFont (148 MB, MIT licensed) into cecilia's data folder,
+checks it and uses it from then on. A General MIDI `.sf2` file of your own (for example GeneralUser
+GS) can be set as `audio.soundfont`, which always wins. Without either, a SoundFont found in the
+usual system folders is used, else the built-in synth.
 
 ## Documentation
 

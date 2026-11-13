@@ -502,7 +502,8 @@ pub enum Effect {
         bar: usize,
         tick: u32,
     },
-    /// The SoundFont setting changed: the player is recreated on next use.
+    /// The SoundFont setting changed, or a SoundFont was installed: the player is recreated on
+    /// next use (one playing or paused is kept until playback starts again).
     ConfigReloaded,
     /// A buffer's score was edited.
     ScoreChanged {
@@ -682,6 +683,12 @@ pub struct App {
     /// Record the active workspace for the next start (`cecilia` without arguments reopens it).
     /// Off in tests and screenshots.
     pub remember_workspace: bool,
+    /// Where `:soundfont-install` puts FluidR3_GM (`<data dir>/soundfonts`).
+    pub(crate) soundfont_dir: Option<PathBuf>,
+    /// The `:soundfont-install` download, while it runs.
+    pub(crate) soundfont_job: Option<crate::soundfont::Job>,
+    /// The "no SoundFont" hint was shown this session.
+    pub(crate) soundfont_hinted: bool,
 }
 
 impl App {
@@ -799,6 +806,9 @@ impl App {
             unopened_files: Vec::new(),
             disk_checked: None,
             remember_workspace: false,
+            soundfont_dir: crate::soundfont::dir(),
+            soundfont_job: None,
+            soundfont_hinted: false,
         };
         // Tool panes the config shows from the start.
         let ui = &app.config.file.ui;
@@ -1587,10 +1597,11 @@ impl App {
         self.raise(crate::notify::Notice::new(text, error));
     }
 
-    pub(crate) fn raise(&mut self, notice: crate::notify::Notice) {
+    /// Shows a notification; returns its card's id.
+    pub(crate) fn raise(&mut self, notice: crate::notify::Notice) -> u64 {
         let cfg = &self.config.file.notifications;
         self.notifications
-            .raise(notice, std::time::Instant::now(), cfg);
+            .raise(notice, std::time::Instant::now(), cfg)
     }
 
     /// Asks a question the next key answers: a card that stays until [`Self::answered`].
@@ -1972,11 +1983,13 @@ impl App {
 
     // ---- config ----
 
-    /// Reloads the config file if it changed on disk.
+    /// Reloads the config file if it changed on disk (and does the other once-a-second checks:
+    /// swap files, notification timeouts, files changed outside, the SoundFont download).
     pub fn poll_config(&mut self) {
         self.swap_tick(std::time::Instant::now());
         self.notifications.expire(std::time::Instant::now());
         self.poll_files();
+        self.poll_soundfont();
         let Some(path) = self.config_path.clone() else {
             return;
         };
@@ -2771,6 +2784,7 @@ impl App {
             }
             ResizeEqual => self.views[self.active_view].root.equalize(),
             Toolbar(on) => self.toolbar = on.unwrap_or(!self.toolbar),
+            SoundfontInstall { force } => self.soundfont_install(force),
             Set(name, value) => self.set_option(&name, value.as_deref()),
             Get(name) => match crate::options::get(&self.config.file, &name) {
                 Ok(v) => self.info(format!("{name} = {v}")),
@@ -2937,13 +2951,15 @@ impl App {
             Recover(path, force) => self.recover(path, force),
             SwapDiscard => self.swap_discard(),
             NotifyDismiss => self.notify_dismiss(),
-            Notify(a) => self.raise(crate::notify::Notice {
-                text: a.message,
-                error: a.error.unwrap_or(false),
-                subject: a.subject,
-                icon: a.icon,
-                timeout: a.timeout,
-            }),
+            Notify(a) => {
+                self.raise(crate::notify::Notice {
+                    text: a.message,
+                    error: a.error.unwrap_or(false),
+                    subject: a.subject,
+                    icon: a.icon,
+                    timeout: a.timeout,
+                });
+            }
             NotifyView(key) => self.notify_view(key),
             Edit(path) => match self.open(&path) {
                 Ok(b) => {

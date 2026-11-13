@@ -383,6 +383,11 @@ pub enum Command {
     Tuner(Option<bool>),
     /// Show or hide the toolbar (no argument: toggle).
     Toolbar(Option<bool>),
+    /// Download the FluidR3_GM SoundFont into cecilia's soundfonts folder (`force`: even if it
+    /// is there).
+    SoundfontInstall {
+        force: bool,
+    },
     /// `:set NAME [VALUE]`: change an option for this session (no value or `default`:
     /// reset to the default).
     Set(String, Option<String>),
@@ -1297,6 +1302,8 @@ impl Command {
                     _ => Fretboard(on),
                 }
             }
+            "soundfont-install" => SoundfontInstall { force: false },
+            "soundfont-install!" => SoundfontInstall { force: true },
             "toolbar" => Toolbar(match arg {
                 None => None,
                 Some("on") => Some(true),
