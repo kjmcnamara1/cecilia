@@ -1,0 +1,13 @@
+[Desktop Entry]
+Type=Application
+Name=cecilia
+GenericName=Tablature and Score Editor
+Comment=Edit and play guitar tablature, scores and chant
+Exec=cecilia.gui %F
+Icon=${SNAP}/meta/gui/cecilia.svg
+Terminal=false
+StartupNotify=true
+StartupWMClass=cecilia
+Categories=AudioVideo;Audio;Music;
+Keywords=guitar;tab;tablature;score;notation;guitar pro;musicxml;midi;chant;gregorian;
+MimeType=application/x-cecilia;application/x-guitar-pro;application/vnd.recordare.musicxml+xml;application/vnd.recordare.musicxml;audio/midi;text/x-gabc;

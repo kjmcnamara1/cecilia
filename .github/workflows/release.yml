@@ -178,8 +178,22 @@ jobs:
           name: flatpak
           path: cecilia-v${{ needs.meta.outputs.version }}.flatpak
 
+  # Snap (snap/snapcraft.yaml). Built blind until the first -rc tag, so it must not block a release.
+  snap:
+    needs: meta
+    runs-on: ubuntu-latest
+    continue-on-error: true
+    steps:
+      - uses: actions/checkout@v4
+      - uses: snapcore/action-build@v1
+        id: build
+      - uses: actions/upload-artifact@v4
+        with:
+          name: snap
+          path: ${{ steps.build.outputs.snap }}
+
   release:
-    needs: [meta, build, macos-app, appimage, flatpak]
+    needs: [meta, build, macos-app, appimage, flatpak, snap]
     runs-on: ubuntu-latest
     permissions:
       contents: write
@@ -290,3 +304,22 @@ jobs:
             -c user.email=41898282+github-actions[bot]@users.noreply.github.com \
             commit -m "cecilia ${{ needs.meta.outputs.version }}"
           git push
+
+  # Publishes the snap to the Snap Store (stable) after the release. The name must be registered
+  # once (`snapcraft register cecilia`) and SNAPCRAFT_STORE_CREDENTIALS set. Skipped for
+  # pre-releases.
+  snap-publish:
+    needs: [meta, release, snap]
+    if: needs.meta.outputs.prerelease == 'false'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          name: snap
+          path: snap
+      - uses: snapcore/action-publish@v1
+        env:
+          SNAPCRAFT_STORE_CREDENTIALS: ${{ secrets.SNAPCRAFT_STORE_CREDENTIALS }}
+        with:
+          snap: snap/cecilia_${{ needs.meta.outputs.version }}_amd64.snap
+          release: stable
