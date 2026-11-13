@@ -34,10 +34,23 @@ Sample score files (GP, GABC, etc.) for testing and screenshots live in `test-co
 
 `just bump major|minor|patch|X.Y.Z` sets the new version everywhere in the working tree:
 `Cargo.toml`/`Cargo.lock`, the `CHANGELOG.md` heading (needs entries under `[Unreleased]`), the AUR
-PKGBUILDs and the Scoop/Winget/Chocolatey manifests. Never edit those versions by hand. It does not
-commit or tag: commit as `chore(release): vX.Y.Z` and tag `vX.Y.Z`. The packaging checksums are
+PKGBUILDs, the Scoop/Winget/Chocolatey manifests and the release list in the Flatpak metainfo. Never edit those versions by hand. It does not commit or
+tag: commit as `chore(release): vX.Y.Z` and tag `vX.Y.Z`. The packaging checksums are
 filled in after publishing (the release workflow's AUR job does the PKGBUILDs with `updpkgsums`;
 `packaging/bump-windows.sh` is run by hand for the Windows manifests).
+
+Pushing the tag runs `.github/workflows/release.yml`, which publishes the release with the
+tarballs/zip, `.deb`/`.rpm`, the universal macOS `.dmg` (`packaging/macos`), the AppImage
+(`packaging/appimage`), the Flatpak bundle (`packaging/flatpak`), the snap (`snap/`), `install.sh`
+and `SHA256SUMS`, then updates crates.io, the AUR, the Homebrew tap (`packaging/homebrew`) and
+the Snap Store (the last four only for final tags, not `-rc`). Secrets: `CARGO_REGISTRY_TOKEN`,
+`AUR_SSH_PRIVATE_KEY`, `HOMEBREW_TAP_TOKEN` (push access to `kjmcnamara1/homebrew-cecilia`),
+`SNAPCRAFT_STORE_CREDENTIALS`. One-time steps: create the tap repository, `snapcraft register
+cecilia`, and submit the Flatpak to Flathub (see "For maintainers" in `docs/INSTALL.md`). The
+AppImage, Flatpak and snap jobs are `continue-on-error` and were written without being run: push a
+`vX.Y.Z-rc.N` tag first and read their logs. `bash packaging/check.sh` (part of `just ci`) tests the
+packaging scripts and metadata; the macOS bundle is tested by CI on macOS (`packaging/macos/test.sh`).
+Keep `docs/INSTALL.md` in step when a channel changes.
 
 ## Commits
 
