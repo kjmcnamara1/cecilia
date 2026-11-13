@@ -466,7 +466,7 @@ dependencies = [
 
 [[package]]
 name = "cecilia"
-version = "0.46.0"
+version = "0.47.0"
 dependencies = [
  "anyhow",
  "cecilia-app",
@@ -484,7 +484,7 @@ dependencies = [
 
 [[package]]
 name = "cecilia-app"
-version = "0.46.0"
+version = "0.47.0"
 dependencies = [
  "cecilia-audio",
  "cecilia-convert",
@@ -505,7 +505,7 @@ dependencies = [
 
 [[package]]
 name = "cecilia-audio"
-version = "0.46.0"
+version = "0.47.0"
 dependencies = [
  "cecilia-core",
  "cecilia-formats",
@@ -521,14 +521,14 @@ dependencies = [
 
 [[package]]
 name = "cecilia-convert"
-version = "0.46.0"
+version = "0.47.0"
 dependencies = [
  "cecilia-core",
 ]
 
 [[package]]
 name = "cecilia-core"
-version = "0.46.0"
+version = "0.47.0"
 dependencies = [
  "serde",
  "serde_json",
@@ -536,7 +536,7 @@ dependencies = [
 
 [[package]]
 name = "cecilia-engrave"
-version = "0.46.0"
+version = "0.47.0"
 dependencies = [
  "cecilia-core",
  "cecilia-formats",
@@ -548,7 +548,7 @@ dependencies = [
 
 [[package]]
 name = "cecilia-formats"
-version = "0.46.0"
+version = "0.47.0"
 dependencies = [
  "cecilia-convert",
  "cecilia-core",
@@ -560,7 +560,7 @@ dependencies = [
 
 [[package]]
 name = "cecilia-gui"
-version = "0.46.0"
+version = "0.47.0"
 dependencies = [
  "anyhow",
  "cecilia-app",
@@ -579,7 +579,7 @@ dependencies = [
 
 [[package]]
 name = "cecilia-tui"
-version = "0.46.0"
+version = "0.47.0"
 dependencies = [
  "anyhow",
  "cecilia-app",
