@@ -133,9 +133,27 @@ sudo packaging/linux/install.sh /usr/local   # system-wide
 packaging/linux/uninstall.sh [PREFIX]        # remove it again
 ```
 
-A Vulkan- or OpenGL-capable graphics driver is needed for the window (`--gui`). Without a GPU (a VM,
-say), install a software Vulkan driver (`mesa-vulkan-swrast` / lavapipe); the default
-`ui.renderer = auto` then falls back to it. See "Renderer selection" below.
+The window (`--gui`) normally uses the GPU (Vulkan or OpenGL on Linux, Metal on macOS, Vulkan or
+DX12 on Windows). No graphics driver is needed with `ui.renderer = cpu` or the `auto` fallback
+below.
+
+#### Renderer selection
+
+`ui.renderer` (`-o ui.renderer=cpu`, or `[ui] renderer` in `config.toml`) picks the GUI renderer;
+the `CECILIA_RENDERER` environment variable overrides it:
+
+- `auto` (default): tries the GPU, then a software wgpu adapter (CPU type, such as Vulkan
+  lavapipe/llvmpipe, with the shaders run on the CPU), then `cpu`.
+- `gpu`: the GPU only. `software`: the software wgpu adapter only.
+- `cpu`: draws on the CPU with no graphics API at all and shows the frame through the windowing
+  system (`softbuffer`). It needs no driver, so it works in VMs without 3D acceleration, including
+  Windows, and also gives `--screenshot` without a GPU. It is slower (about 30-50 ms for a
+  1400x900 frame).
+
+On Windows, DX12's WARP adapter is skipped because it crashes, so on a Windows VM without 3D `auto`
+ends up on `cpu` (or set `ui.renderer cpu`); this is not verified on a real Windows VM yet.
+`CECILIA_CPU=1` still forces the CPU shader stages on the wgpu path. If every attempt fails,
+`--gui` exits with an error naming `ui.renderer` / `CECILIA_RENDERER`; use the terminal UI then.
 
 ### macOS and Windows
 
@@ -153,17 +171,8 @@ are welcome. The terminal interface needs a modern terminal; on Windows use Wind
 Build requirements: on Windows the Visual Studio C++ Build Tools ("Desktop development with C++")
 and LLVM (the `bindgen` build step needs `libclang`; set `LIBCLANG_PATH` to LLVM's `bin` folder if
 it is not found). On macOS the Xcode command line tools (`xcode-select --install`). The window
-(`--gui`) needs a graphics driver with working compute shaders; on Windows it crashed inside
-Windows' software renderer on a virtual machine without 3D acceleration (see `TODO.md`).
-
-Renderer selection: `ui.renderer` (`auto`, `gpu` or `software`; `-o ui.renderer=software` or
-`[ui] renderer` in `config.toml`) picks the GUI renderer, and the `CECILIA_RENDERER` environment
-variable overrides it. `auto` tries the GPU, then a software adapter (a wgpu adapter of type CPU,
-such as Vulkan lavapipe/llvmpipe) with the shaders run on the CPU; `software` skips the GPU attempt.
-Windows' DX12 WARP adapter is deliberately never used, because it crashes, so on a Windows VM
-without 3D `software` does not help yet (a renderer without wgpu is planned). `CECILIA_CPU=1`
-still forces the CPU shader path. If no renderer works, `--gui` exits with an error; use the
-terminal UI then.
+(`--gui`) uses the GPU, or the driverless `cpu` renderer (see "Renderer selection" above); the
+Windows and macOS paths are untested by the author.
 
 Terminal notes: the default `tabline.icons = "nerd"` needs a [Nerd Font](https://www.nerdfonts.com)
 in the terminal; without one icons show as boxes, so run `:set tabline.icons unicode` (or `none`).

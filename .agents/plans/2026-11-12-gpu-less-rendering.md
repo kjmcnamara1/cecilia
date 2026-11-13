@@ -121,7 +121,11 @@
 
 ## Status
 
-- [x] Task 1 (dd6cb48)  - [x] Task 2 (b8cb546, 2f0a20e)  - [x] Task 3 (21c6dff)  - [x] Task 4 (gate passed: GO)  - [ ] Task 5  - [ ] Task 6
+Finished once the Task 6 commit (`docs: CPU renderer and CI smoke test`) is in. Task 5 changed from the planned `Canvas` trait to a concrete recording `Canvas` type (one type that records commands and replays them into vello or `vello_cpu` avoids generics through all of `draw.rs`).
+
+Open items: retest on the real Windows VM (`ui.renderer cpu` and `auto`); check GPU-path frame time after the Canvas refactor (cached page scenes are now re-encoded each frame); optional `softbuffer` feature trimming.
+
+- [x] Task 1 (dd6cb48)  - [x] Task 2 (b8cb546, 2f0a20e)  - [x] Task 3 (21c6dff)  - [x] Task 4 (gate passed: GO)  - [x] Task 5  - [x] Task 6
 
 Task 4 findings (spike, 2026-11-12): go for `vello_cpu` 0.4.0 + `softbuffer` 0.4.8 (no wgpu dep; fill, stroke, clip layers, images and `fill_blurred_rounded_rect` all render; 1400x900 with ~5000 draws ≈ 9-10 ms). `vello_cpu` uses kurbo 0.13 / peniko 0.6, vello 0.5 and cecilia-engrave use kurbo 0.11 / peniko 0.4: convert paths and brushes inside `cpu.rs` only. `vello_cpu` has no scene append, so the CPU canvas records commands (replayable with a transform) and `append` composes transforms. Workspace MSRV goes 1.88 → 1.89. Backdrop blur needs a CPU downscale + box blur; popup shadow uses `fill_blurred_rounded_rect`. softbuffer on the Windows VirtIO VM is untested.
 
