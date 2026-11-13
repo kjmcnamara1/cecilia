@@ -4,6 +4,7 @@
 
 mod backend;
 mod blur;
+mod canvas;
 mod design;
 mod draw;
 mod keys;
@@ -14,11 +15,12 @@ use std::sync::Arc;
 use std::time::{Duration, Instant};
 
 use anyhow::{Context, Result, anyhow};
+use canvas::Canvas;
 use cecilia_app::App;
 use cecilia_app::playback::Playback;
 use vello::kurbo::Affine;
 use vello::util::RenderContext;
-use vello::{AaSupport, Renderer, RendererOptions, Scene, wgpu};
+use vello::{AaSupport, Renderer, RendererOptions, wgpu};
 use winit::application::ApplicationHandler;
 use winit::event::{ElementState, MouseButton, MouseScrollDelta, WindowEvent};
 use winit::event_loop::{ActiveEventLoop, ControlFlow, EventLoop};
@@ -42,10 +44,10 @@ struct Gui {
     app: App,
     views: Views,
     playback: Playback,
-    scene: Scene,
+    scene: Canvas,
     /// The frame in logical units, before scaling to the window's pixels, and its popups.
-    logical: Scene,
-    popups: Scene,
+    logical: Canvas,
+    popups: Canvas,
     mods: ModifiersState,
     mouse: (f64, f64),
     /// The pointer shape shown (resize arrows over draggable edges).
@@ -312,9 +314,9 @@ pub fn run(app: App) -> Result<()> {
         app,
         views: Views::default(),
         playback: Playback::default(),
-        scene: Scene::new(),
-        logical: Scene::new(),
-        popups: Scene::new(),
+        scene: Canvas::new(),
+        logical: Canvas::new(),
+        popups: Canvas::new(),
         mods: ModifiersState::empty(),
         mouse: (0.0, 0.0),
         pointer: draw::Pointer::Default,
@@ -360,7 +362,7 @@ impl Gui {
         self.scene.reset();
         self.scene
             .append(&self.logical, Some(Affine::scale(factor)));
-        let mut popups = Scene::new();
+        let mut popups = Canvas::new();
         popups.append(&self.popups, Some(Affine::scale(factor)));
         gpu.blur.render(
             &mut gpu.renderer,
@@ -742,7 +744,7 @@ pub fn screenshot(
         .ok_or_else(|| anyhow!("screenshot size {width}x{height} is too large"))?;
     let mut renderer =
         Renderer::new(device, renderer_options(software)).map_err(|e| anyhow!("renderer: {e}"))?;
-    let mut scene = Scene::new();
+    let mut scene = Canvas::new();
     let mut blur = blur::Blur::new(device);
     let mut views = Views::default();
     views.hover = hover.unwrap_or((-1.0, -1.0));
@@ -757,8 +759,8 @@ pub fn screenshot(
         }
         std::thread::sleep(std::time::Duration::from_millis(50));
     }
-    let mut logical = Scene::new();
-    let mut popups = Scene::new();
+    let mut logical = Canvas::new();
+    let mut popups = Canvas::new();
     let blur_px = app.config.file.popups.blur;
     views.set_backdrop((blur_px > 0.0).then(|| {
         (
@@ -768,10 +770,10 @@ pub fn screenshot(
     }));
     // Hovering a toolbar button: draw once and wait, so its tooltip shows.
     if hover.is_some() {
-        let mut first = Scene::new();
+        let mut first = Canvas::new();
         draw::build(
             &mut first,
-            &mut Scene::new(),
+            &mut Canvas::new(),
             &mut app,
             &mut views,
             Some(&mut playback),
@@ -794,7 +796,7 @@ pub fn screenshot(
         height as f64 / factor,
     );
     scene.append(&logical, Some(Affine::scale(factor)));
-    let mut popups_dev = Scene::new();
+    let mut popups_dev = Canvas::new();
     popups_dev.append(&popups, Some(Affine::scale(factor)));
     let texture = device.create_texture(&wgpu::TextureDescriptor {
         label: Some("screenshot"),

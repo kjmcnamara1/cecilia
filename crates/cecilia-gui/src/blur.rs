@@ -2,7 +2,9 @@
 //! gaussian blurred on the GPU, and handed to vello as an image (`Renderer::override_image`) that
 //! the popups fill their shape with before their translucent surface.
 
+use crate::canvas::Canvas;
 use anyhow::{Result, anyhow};
+use vello::kurbo::Affine;
 use vello::peniko::{Image, ImageFormat};
 use vello::wgpu::{self, util::DeviceExt};
 use vello::{AaConfig, RenderParams, Renderer, Scene};
@@ -217,8 +219,8 @@ impl Blur {
         renderer: &mut Renderer,
         device: &wgpu::Device,
         queue: &wgpu::Queue,
-        base: &Scene,
-        popups: &Scene,
+        base: &Canvas,
+        popups: &Canvas,
         target: &wgpu::TextureView,
         base_color: vello::peniko::Color,
         size: (u32, u32),
@@ -235,6 +237,10 @@ impl Blur {
                 .render_to_texture(device, queue, scene, view, &params)
                 .map_err(|e| anyhow!("render: {e}"))
         };
+        let (mut base_scene, mut popups_scene) = (Scene::new(), Scene::new());
+        base.replay_vello(&mut base_scene, Affine::IDENTITY);
+        popups.replay_vello(&mut popups_scene, Affine::IDENTITY);
+        let (base, popups) = (&base_scene, &popups_scene);
         let blurred = sigma > 0.0
             && !popups.encoding().is_empty()
             && self.size == size
