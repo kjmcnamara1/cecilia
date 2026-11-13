@@ -1,5 +1,5 @@
 $ErrorActionPreference = 'Stop'
-$version = '0.45.1'
+$version = '0.46.0'
 $packageArgs = @{
   packageName   = $env:ChocolateyPackageName
   unzipLocation = (Split-Path -Parent $MyInvocation.MyCommand.Definition)

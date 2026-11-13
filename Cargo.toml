@@ -3,7 +3,7 @@ resolver = "3"
 members = ["crates/*"]
 
 [workspace.package]
-version = "0.45.1"
+version = "0.46.0"
 edition = "2024"
 license = "MIT OR Apache-2.0"
 rust-version = "1.89"
@@ -14,14 +14,14 @@ keywords = ["guitar", "tablature", "music-notation", "gregorian-chant", "midi"]
 categories = ["multimedia::audio", "text-editors"]
 
 [workspace.dependencies]
-cecilia-core = { path = "crates/cecilia-core", version = "0.45.1" }
-cecilia-formats = { path = "crates/cecilia-formats", version = "0.45.1" }
-cecilia-convert = { path = "crates/cecilia-convert", version = "0.45.1" }
-cecilia-engrave = { path = "crates/cecilia-engrave", version = "0.45.1" }
-cecilia-gui = { path = "crates/cecilia-gui", version = "0.45.1" }
-cecilia-audio = { path = "crates/cecilia-audio", version = "0.45.1" }
-cecilia-app = { path = "crates/cecilia-app", version = "0.45.1" }
-cecilia-tui = { path = "crates/cecilia-tui", version = "0.45.1" }
+cecilia-core = { path = "crates/cecilia-core", version = "0.46.0" }
+cecilia-formats = { path = "crates/cecilia-formats", version = "0.46.0" }
+cecilia-convert = { path = "crates/cecilia-convert", version = "0.46.0" }
+cecilia-engrave = { path = "crates/cecilia-engrave", version = "0.46.0" }
+cecilia-gui = { path = "crates/cecilia-gui", version = "0.46.0" }
+cecilia-audio = { path = "crates/cecilia-audio", version = "0.46.0" }
+cecilia-app = { path = "crates/cecilia-app", version = "0.46.0" }
+cecilia-tui = { path = "crates/cecilia-tui", version = "0.46.0" }
 anyhow = "1"
 thiserror = "2"
 serde = { version = "1", features = ["derive"] }
