@@ -33,6 +33,11 @@ winresource = { version = "0.1", default-features = false }
 # target/release/cecilia`, then runs `cargo deb --no-build` and `cargo generate-rpm`; both
 # package that staged tree so they match the PKGBUILDs.
 [package.metadata.deb]
+# Not `cecilia`: Debian and Ubuntu already have an unrelated package of that name (a Csound
+# frontend), which apt would offer as an "upgrade". It also ships /usr/bin/cecilia, so conflict.
+name = "cecilia-editor"
+conflicts = "cecilia"
+replaces = "cecilia"
 maintainer = "Kevin McNamara <kjmcnamara1@users.noreply.github.com>"
 section = "sound"
 priority = "optional"
@@ -46,6 +51,9 @@ assets = [
 ]
 
 [package.metadata.generate-rpm]
+# Not `cecilia`: Fedora already has an unrelated package of that name (a Csound frontend) that also
+# ships /usr/bin/cecilia.
+name = "cecilia-editor"
 assets = [
     { source = "../../target/stage/usr/bin/cecilia", dest = "/usr/bin/cecilia", mode = "755" },
     { source = "../../target/stage/usr/share/applications/cecilia.desktop", dest = "/usr/share/applications/cecilia.desktop", mode = "644" },
@@ -58,6 +66,10 @@ assets = [
 ]
 [package.metadata.generate-rpm.requires]
 alsa-lib = "*"
+[package.metadata.generate-rpm.conflicts]
+cecilia = "*"
+[package.metadata.generate-rpm.obsoletes]
+cecilia = "*"
 
 # `cargo binstall cecilia` downloads the release archive (see .github/workflows/release.yml)
 # instead of compiling.

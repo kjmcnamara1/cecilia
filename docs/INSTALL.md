@@ -14,8 +14,8 @@ in the [README](../README.md#installation).
 | Linux   | Snap                                   | `sudo snap install cecilia`                                              |
 | Linux   | AppImage                               | `chmod +x cecilia-vX.Y.Z-x86_64.AppImage && ./cecilia-vX.Y.Z-x86_64.AppImage` |
 | Arch    | AUR                                    | `yay -S cecilia` (builds), `cecilia-bin` (release binary), `cecilia-git` |
-| Debian  | `.deb`                                 | `sudo apt install ./cecilia_X.Y.Z_amd64.deb`                             |
-| Fedora  | `.rpm`                                 | `sudo dnf install ./cecilia-X.Y.Z-1.x86_64.rpm`                          |
+| Debian  | `.deb`                                 | `sudo apt install ./cecilia-editor_X.Y.Z_amd64.deb`                      |
+| Fedora  | `.rpm`                                 | `sudo dnf install ./cecilia-editor-X.Y.Z-1.x86_64.rpm`                   |
 | Windows | Scoop, Winget, Chocolatey, zip         | see [Windows](#windows)                                                  |
 | any     | `cargo binstall` (release binary)      | `cargo binstall cecilia`                                                 |
 | any     | `cargo install` (builds from source)   | `cargo install --locked cecilia`                                         |
