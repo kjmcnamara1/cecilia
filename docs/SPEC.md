@@ -21,8 +21,8 @@ neovim (modal keyboard control, buffers/windows/tabs, TOML-configurable keymaps)
 ## 2. Licensing & platforms
 
 - License: dual **MIT / Apache-2.0**. No GPL dependencies (keeps App Store distribution possible).
-- Bundled assets must be permissively licensed (fonts: SIL OFL). Planned: a bundled SoundFont (MIT or
-  equivalent); none is bundled today.
+- Bundled assets must be permissively licensed (fonts: SIL OFL). No SoundFont is bundled (too big):
+  `:soundfont-install` downloads FluidR3_GM (MIT) on demand, from Debian's `fluid-soundfont` source archive.
 - Platform order: **Linux → Windows/macOS → Android → iOS**. Core crates must be platform-neutral
   from day one (no direct filesystem/audio/windowing calls outside frontend/platform crates).
 
@@ -58,6 +58,7 @@ Dependency direction: `core ← formats/convert/engrave/audio ← app ← tui/gu
 | config | `toml`, `serde`, `directories` |
 | CLI | `clap` |
 | zip containers | `zip` |
+| HTTPS download (`:soundfont-install`) | `ureq` (rustls, no OpenSSL), `flate2` (unpacking the .tar.gz), `sha2` |
 | XML (GP7/GPX/MusicXML) | `roxmltree` (reading; the writers build the XML as text) |
 
 ## 4. Data model (`cecilia-core`)
@@ -275,9 +276,13 @@ rewritten.
 
 ## 7. Playback (`cecilia-audio`, `cecilia-app`)
 
-- MIDI playback through `rustysynth` with a SoundFont (`.sf2`) set as `audio.soundfont`; without one a
-  basic built-in plucked-string synth plays. **Planned**: a bundled General MIDI SoundFont (none is
-  bundled today).
+- MIDI playback through `rustysynth` with a SoundFont (`.sf2`): `audio.soundfont`, else one found in
+  cecilia's data folder (`<data dir>/soundfonts`) or the platform's usual folders; without one a
+  basic built-in plucked-string synth plays (and says once per session how to get one).
+- `:soundfont-install` (`cecilia soundfont install` from scripts) downloads the FluidR3_GM General
+  MIDI SoundFont (148 MB, MIT) from a GitHub release of the project into `<data dir>/soundfonts`, in
+  the background with its progress shown; it is checked against its size and SHA-256 before it
+  replaces anything, and the next playback uses it without a restart.
 - Effects rendered: bends/whammy (pitch bend), slides, vibrato, palm mute, dead notes, harmonics,
   let ring, tremolo picking, grace notes, strokes, swing/triplet feel, repeats and directions.
 - Audio track: load mp3/flac/ogg/wav/m4a per score; play alone or mixed with MIDI.
@@ -440,6 +445,8 @@ cecilia convert IN OUT            convert by output extension (gp5, gp, gpx, mus
                                   ccc, ccm, pdf, svg, png, wav, flac);
                                   --track N, --layout page|vertical|horizontal, --scale S
 cecilia info FILE [--json]        tracks, tunings, tempo, bar count, metadata; --json dumps the model
+cecilia soundfont install [--force]
+                                  download the FluidR3_GM SoundFont into <data dir>/soundfonts
 ```
 
 Global options: `-W/--workspace NAME`, `--config FILE`, `-o/--option NAME=VALUE ...`.

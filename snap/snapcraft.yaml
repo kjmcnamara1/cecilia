@@ -17,11 +17,11 @@ apps:
   cecilia:
     command: bin/cecilia
     extensions: [gnome]
-    plugs: [home, removable-media, audio-playback, audio-record]
+    plugs: [home, removable-media, audio-playback, audio-record, network]
   gui:
     command: bin/cecilia --gui
     extensions: [gnome]
-    plugs: [desktop, desktop-legacy, wayland, x11, opengl, home, removable-media, audio-playback, audio-record]
+    plugs: [desktop, desktop-legacy, wayland, x11, opengl, home, removable-media, audio-playback, audio-record, network]
 
 parts:
   cecilia:

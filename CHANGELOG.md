@@ -12,6 +12,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Windows installer: puts its folder on the user `PATH`, so `cecilia` runs the terminal interface
   from any new terminal (uninstalling removes it). Installs from 0.47.0 get it with their next
   update.
+- `:soundfont-install` (and `cecilia soundfont install`) downloads the FluidR3_GM General MIDI SoundFont (148 MB, MIT) from Debian's `fluid-soundfont` source archive into cecilia's data folder in the background, checks its size and SHA-256, and the next playback uses it without a restart (`audio.soundfont` still wins; `!` downloads it again). Playback with the built-in synth says once per session how to get it. The Flatpak and the Snap get network access for it.
 
 ## [0.47.0] - 2026-11-13
 

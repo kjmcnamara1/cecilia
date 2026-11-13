@@ -39,6 +39,9 @@ pub struct Playback {
     audio_on_player: Option<usize>,
     /// The tuner's input capture, while the tuner is shown.
     tuner: Option<cecilia_audio::tuner::Tuner>,
+    /// The SoundFont changed while the player was playing or paused: it is recreated when
+    /// playback next starts.
+    stale_player: bool,
 }
 
 impl Playback {
@@ -57,7 +60,11 @@ impl Playback {
     }
 
     fn ensure_player(&mut self, app: &mut App) -> bool {
+        if self.stale_player && !app.playing {
+            self.player = None;
+        }
         if self.player.is_none() {
+            self.stale_player = false;
             let soundfont = app
                 .config
                 .file
@@ -65,6 +72,9 @@ impl Playback {
                 .soundfont
                 .clone()
                 .or_else(crate::config::find_system_soundfont);
+            if soundfont.is_none() {
+                app.builtin_synth_hint();
+            }
             match Player::new(soundfont.as_deref()) {
                 Ok(p) => {
                     if let Some(w) = &p.warning {
@@ -349,8 +359,11 @@ impl Playback {
                 app.playing = false;
             }
             Effect::ConfigReloaded => {
-                // Recreate the player on next use so a changed SoundFont takes effect.
-                if !app.playing {
+                // Recreate the player on next use so a changed SoundFont takes effect; one
+                // playing or paused carries on until playback starts again.
+                if app.playing || app.paused {
+                    self.stale_player = self.player.is_some();
+                } else {
                     self.player = None;
                 }
             }

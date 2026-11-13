@@ -66,10 +66,12 @@ The first time the tuner opens, macOS asks for microphone access.
 - **Flatpak**: download `cecilia-vX.Y.Z.flatpak` from the release. The app ID is
   `io.github.kjmcnamara1.cecilia`. It can read your home folder; its configuration lives in
   `~/.var/app/io.github.kjmcnamara1.cecilia/config/cecilia`, and a SoundFont has to be somewhere
-  under your home directory. Flathub is planned.
+  under your home directory; `:soundfont-install` downloads one into
+  `~/.var/app/io.github.kjmcnamara1.cecilia/data/cecilia/soundfonts`. Flathub is planned.
 - **Snap**: `snap install cecilia`. `cecilia.gui` is the window (and the desktop entry),
   `cecilia` the terminal interface. A snap sees only your non-hidden home files and keeps its
-  configuration in `~/snap/cecilia/current/.config/cecilia`.
+  configuration in `~/snap/cecilia/current/.config/cecilia` (and a SoundFont from
+  `:soundfont-install` in `~/snap/cecilia/current/.local/share/cecilia/soundfonts`).
 - **AppImage**: runs as it is. It does not add a menu entry by itself; an AppImage manager does.
   Double-clicked from a file manager it starts the window; started from a terminal with no
   arguments it starts the terminal interface.

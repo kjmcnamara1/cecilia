@@ -298,6 +298,7 @@ Commands marked _(chant)_ only work on a chant score. See [CHANT.md](CHANT.md).
 | `sync-remove` | Remove the sync point of the cursor (or selection). |
 | `sync-here` | Sync the cursor note (chant) or beat (modern) at the playhead. |
 | `sync-nudge MS` | Move the sync point under the cursor by MS milliseconds. |
+| `soundfont-install`, `soundfont-install!` | Download the FluidR3_GM General MIDI SoundFont (148 MB, MIT) into cecilia's soundfonts folder, where playback finds it (`audio.soundfont` still takes precedence). Runs in the background; an installed copy is kept unless `!`. |
 
 ## Page design
 

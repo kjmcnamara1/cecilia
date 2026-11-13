@@ -140,7 +140,7 @@ tables below that read _preset_ come from the theme (`theme.preset`).
 
 | Option | Type | Default | Description | Example |
 |---|---|---|---|---|
-| `audio.soundfont` | string | _unset_ | SoundFont (.sf2) for MIDI playback; empty: the built-in synth. | `audio.soundfont = "~/sf/GeneralUser-GS.sf2"` |
+| `audio.soundfont` | string | _unset_ | SoundFont (.sf2) for MIDI playback; empty: one found in the usual folders (:soundfont-install downloads FluidR3_GM), else the built-in synth. | `audio.soundfont = "~/sf/GeneralUser-GS.sf2"` |
 | `audio.speed` | number 0.1–4 | `1` | Playback speed multiplier (1.0 = written tempo). | `:set audio.speed 0.75` |
 | `audio.tuner_a4` | number 380–500 | `440` | The tuner's reference pitch for A4, in Hz. | `:set audio.tuner_a4 442` |
 
