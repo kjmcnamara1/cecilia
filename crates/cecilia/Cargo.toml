@@ -15,7 +15,8 @@ categories.workspace = true
 cecilia-core.workspace = true
 cecilia-formats.workspace = true
 cecilia-convert.workspace = true
-cecilia-app.workspace = true
+# The message box `ceciliaw` shows its errors in.
+cecilia-app = { workspace = true, features = ["dialog"] }
 cecilia-audio.workspace = true
 cecilia-tui.workspace = true
 cecilia-engrave.workspace = true

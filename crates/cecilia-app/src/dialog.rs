@@ -74,6 +74,20 @@ fn pick_save_path(dir: Option<PathBuf>, name: &str) -> Result<Option<PathBuf>, S
     Ok(dialog.save_file())
 }
 
+/// Shows an error in a system message box, for a program with no console (`ceciliaw` on
+/// Windows); without the `dialog` feature it goes to stderr.
+pub fn error_box(title: &str, text: &str) {
+    #[cfg(feature = "dialog")]
+    rfd::MessageDialog::new()
+        .set_level(rfd::MessageLevel::Error)
+        .set_title(title)
+        .set_description(text)
+        .set_buttons(rfd::MessageButtons::Ok)
+        .show();
+    #[cfg(not(feature = "dialog"))]
+    eprintln!("{title}: {text}");
+}
+
 #[cfg(not(feature = "dialog"))]
 fn pick_save_path(_dir: Option<PathBuf>, _name: &str) -> Result<Option<PathBuf>, String> {
     Err("save-as: no file dialog in this build; use :write FILE".to_string())
