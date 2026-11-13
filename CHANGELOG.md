@@ -7,6 +7,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- The macOS `.dmg` opens a styled window: a background with an arrow from Cecilia to the
+  Applications folder, fixed icon places, no toolbar or sidebar, and the lily as the volume icon
+  (built with `dmgbuild`).
+- The install script adds its `bin` folder to `PATH` in your shell's startup file (zsh, bash, fish
+  or `~/.profile`) when it is not there already; `CECILIA_NO_MODIFY_PATH=1` turns that off.
+
 ## [0.48.0] - 2026-11-13
 
 ### Added

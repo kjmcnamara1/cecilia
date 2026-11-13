@@ -63,7 +63,7 @@ jobs:
     runs-on: macos-latest
     steps:
       - uses: actions/checkout@v4
-      - run: brew install librsvg
+      - run: brew install librsvg && pipx install dmgbuild
       - run: bash packaging/macos/test.sh
 
   test-windows:

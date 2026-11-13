@@ -14,6 +14,16 @@ done
 file "$tmp/i.iconset/icon_512x512@2x.png" | grep -q '1024 x 1024' || fail "512@2x is not 1024 px"
 file "$tmp/i.iconset/icon_16x16.png" | grep -q '16 x 16' || fail "16x16 is not 16 px"
 
+# .dmg window: background renders at both sizes, settings name the files bundle.sh stages
+for w in 640 1280; do
+    rsvg-convert -w "$w" -o "$tmp/bg$w.png" packaging/macos/dmg-background.svg
+    file "$tmp/bg$w.png" | grep -q "$w x $((w * 400 / 640))" || fail "background at $w px"
+done
+python3 -c "import sys; compile(open(sys.argv[1]).read(), sys.argv[1], 'exec')" packaging/macos/dmg-settings.py || fail "dmg-settings.py does not compile"
+for s in '"Cecilia.app"' '"Applications"' 'defines["background"]' 'defines["icon"]'; do
+    grep -qF "$s" packaging/macos/dmg-settings.py || fail "dmg-settings.py lacks $s"
+done
+
 # plist template
 plist=packaging/macos/Info.plist.in
 xmllint --noout "$plist" || fail "plist is not well-formed"

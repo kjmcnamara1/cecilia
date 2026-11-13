@@ -31,7 +31,7 @@ chmod +x "$tmp/bin/uname"
 
 run() { # run PREFIX [env...]: the installer, output in $tmp/out
     local prefix=$1; shift
-    env PATH="$tmp/bin:$PATH" HOME="$tmp/home" CECILIA_BASE_URL="file://$tmp/rel" \
+    env PATH="$tmp/bin:$PATH" HOME="$tmp/home" SHELL=/bin/bash CECILIA_BASE_URL="file://$tmp/rel" \
         CECILIA_VERSION=$V CECILIA_PREFIX="$prefix" "$@" sh "$ROOT/packaging/install.sh" \
         > "$tmp/out" 2>&1
 }
@@ -40,6 +40,25 @@ run() { # run PREFIX [env...]: the installer, output in $tmp/out
 run "$tmp/p1" || { cat "$tmp/out"; fail "install failed"; }
 [ "$("$tmp/p1/bin/cecilia" --version)" = "cecilia $V" ] || fail "binary not installed"
 [ -f "$tmp/p1/share/applications/cecilia.desktop" ] || fail "no desktop entry"
+
+# 1b. the bin directory is put on PATH once, in the startup file of the user's shell
+rc=$tmp/home/.bashrc
+grep -qxF "export PATH=\"$tmp/p1/bin:\$PATH\"" "$rc" || fail "bash: PATH not added: $(cat "$rc")"
+run "$tmp/p1" || fail "reinstall failed"
+[ "$(grep -c "$tmp/p1/bin" "$rc")" = 1 ] || fail "PATH line added twice"
+run "$tmp/p1" SHELL=/bin/zsh || fail "zsh install failed"
+grep -qF "$tmp/p1/bin" "$tmp/home/.zshrc" || fail "zsh: PATH not added"
+run "$tmp/p1" SHELL=/usr/bin/fish || fail "fish install failed"
+grep -qF "set -gx PATH \"$tmp/p1/bin\"" "$tmp/home/.config/fish/conf.d/cecilia.fish" \
+    || fail "fish: PATH not added"
+run "$tmp/p1" SHELL=/bin/dash || fail "sh install failed"
+grep -qF "$tmp/p1/bin" "$tmp/home/.profile" || fail "sh: PATH not added"
+rm -rf "${tmp:?}/home"
+run "$tmp/p1" CECILIA_NO_MODIFY_PATH=1 || fail "opt-out install failed"
+[ ! -e "$rc" ] || fail "CECILIA_NO_MODIFY_PATH=1 still wrote $rc"
+grep -q "add $tmp/p1/bin to your PATH" "$tmp/out" || fail "opt-out: no note"
+run "$tmp/p1" PATH="$tmp/p1/bin:$tmp/bin:$PATH" || fail "install with bin on PATH failed"
+[ ! -e "$rc" ] || fail "wrote $rc although the bin directory was on PATH"
 
 # 2. a tampered download is refused and nothing is installed
 printf x >> "$rel/$name.tar.gz"
