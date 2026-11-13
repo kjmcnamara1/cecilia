@@ -111,7 +111,7 @@ jobs:
           # Per-user install with a Start Menu shortcut to ceciliag.exe and an uninstall entry.
           .vpk/vpk pack --packId cecilia --packVersion "$v" --packDir pack \
             --mainExe ceciliag.exe --icon crates/cecilia/assets/cecilia.ico \
-            --packTitle cecilia --packAuthors "The cecilia contributors" \
+            --packTitle cecilia --packAuthors "The cecilia contributors" --runtime win-x64 \
             --shortcuts StartMenuRoot --noPortable --outputDir Releases
           ls -l Releases
           # Released with the other assets: the installer, this version's packages and the feed
