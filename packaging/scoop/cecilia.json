@@ -7,7 +7,7 @@
     "hash": "0000000000000000000000000000000000000000000000000000000000000000",
     "extract_dir": "cecilia-v0.46.0-x86_64-pc-windows-msvc",
     "bin": "cecilia.exe",
-    "shortcuts": [["cecilia.exe", "cecilia (window)", "--gui"]],
+    "shortcuts": [["ceciliaw.exe", "cecilia"]],
     "checkver": "github",
     "autoupdate": {
         "url": "https://github.com/kjmcnamara1/cecilia/releases/download/v$version/cecilia-v$version-x86_64-pc-windows-msvc.zip",
