@@ -121,6 +121,8 @@
 
 ## Status
 
-- [ ] Task 1  - [ ] Task 2  - [ ] Task 3  - [ ] Task 4 (gate)  - [ ] Task 5  - [ ] Task 6
+- [x] Task 1 (dd6cb48)  - [x] Task 2 (b8cb546, 2f0a20e)  - [x] Task 3 (21c6dff)  - [x] Task 4 (gate passed: GO)  - [ ] Task 5  - [ ] Task 6
+
+Task 4 findings (spike, 2026-11-12): go for `vello_cpu` 0.4.0 + `softbuffer` 0.4.8 (no wgpu dep; fill, stroke, clip layers, images and `fill_blurred_rounded_rect` all render; 1400x900 with ~5000 draws ≈ 9-10 ms). `vello_cpu` uses kurbo 0.13 / peniko 0.6, vello 0.5 and cecilia-engrave use kurbo 0.11 / peniko 0.4: convert paths and brushes inside `cpu.rs` only. `vello_cpu` has no scene append, so the CPU canvas records commands (replayable with a transform) and `append` composes transforms. Workspace MSRV goes 1.88 → 1.89. Backdrop blur needs a CPU downscale + box blur; popup shadow uses `fill_blurred_rounded_rect`. softbuffer on the Windows VirtIO VM is untested.
 
 Open questions: whether `vello_cpu` fits (Task 4); whether the Windows VM VirtIO display driver supports `softbuffer` (GDI, expected yes). Not planned: GPU selection by name/index, runtime renderer switching without restart.
