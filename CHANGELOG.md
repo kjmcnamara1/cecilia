@@ -15,7 +15,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - An AppImage, a Flatpak bundle (`io.github.kjmcnamara1.cecilia`, with AppStream metainfo) and a Snap (`cecilia`, window as `cecilia.gui`) built by the release workflow.
 - `cargo binstall cecilia` downloads the release archive instead of compiling.
 - `docs/INSTALL.md`: every way to install, with the macOS Gatekeeper and sandbox notes; `bash packaging/check.sh` tests the packaging scripts.
-- `:soundfont-install` (and `cecilia soundfont install`) downloads the FluidR3_GM General MIDI SoundFont (148 MB, MIT) into cecilia's data folder in the background, checks its size and SHA-256, and the next playback uses it without a restart (`audio.soundfont` still wins; `!` downloads it again). Playback with the built-in synth says once per session how to get it. The Flatpak and the Snap get network access for it.
+- `:soundfont-install` (and `cecilia soundfont install`) downloads the FluidR3_GM General MIDI SoundFont (148 MB, MIT) from Debian's `fluid-soundfont` source archive into cecilia's data folder in the background, checks its size and SHA-256, and the next playback uses it without a restart (`audio.soundfont` still wins; `!` downloads it again). Playback with the built-in synth says once per session how to get it. The Flatpak and the Snap get network access for it.
 
 ### Changed
 

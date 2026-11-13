@@ -481,6 +481,7 @@ dependencies = [
  "cecilia-core",
  "cecilia-formats",
  "directories",
+ "flate2",
  "libc",
  "rfd",
  "serde",

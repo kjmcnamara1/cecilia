@@ -22,7 +22,7 @@ neovim (modal keyboard control, buffers/windows/tabs, TOML-configurable keymaps)
 
 - License: dual **MIT / Apache-2.0**. No GPL dependencies (keeps App Store distribution possible).
 - Bundled assets must be permissively licensed (fonts: SIL OFL). No SoundFont is bundled (too big):
-  `:soundfont-install` downloads FluidR3_GM (MIT) from the project's releases on demand.
+  `:soundfont-install` downloads FluidR3_GM (MIT) on demand, from Debian's `fluid-soundfont` source archive.
 - Platform order: **Linux → Windows/macOS → Android → iOS**. Core crates must be platform-neutral
   from day one (no direct filesystem/audio/windowing calls outside frontend/platform crates).
 
@@ -58,7 +58,7 @@ Dependency direction: `core ← formats/convert/engrave/audio ← app ← tui/gu
 | config | `toml`, `serde`, `directories` |
 | CLI | `clap` |
 | zip containers | `zip` |
-| HTTPS download (`:soundfont-install`) | `ureq` (rustls, no OpenSSL), `sha2` |
+| HTTPS download (`:soundfont-install`) | `ureq` (rustls, no OpenSSL), `flate2` (unpacking the .tar.gz), `sha2` |
 | XML (GP7/GPX/MusicXML) | `roxmltree` (reading; the writers build the XML as text) |
 
 ## 4. Data model (`cecilia-core`)

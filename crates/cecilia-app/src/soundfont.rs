@@ -16,22 +16,27 @@ use sha2::{Digest, Sha256};
 use crate::App;
 use crate::notify::{Notice, NoticeIcon};
 
-/// A SoundFont that can be downloaded.
+/// A SoundFont that can be downloaded, as a member of a `.tar.gz` archive.
 #[derive(Debug, Clone, Copy)]
 pub struct Asset {
     /// The name it is installed under.
     pub file: &'static str,
+    /// The `.tar.gz` archive holding it.
     pub url: &'static str,
+    /// Its path inside the archive.
+    pub member: &'static str,
     /// Size in bytes.
     pub size: u64,
     /// SHA-256 of the file, in lowercase hex.
     pub sha256: &'static str,
 }
 
-/// FluidR3_GM 3.1 by Frank Wen (MIT), hosted with cecilia's releases.
+/// FluidR3_GM 3.1 by Frank Wen (MIT), from Debian's source archive of `fluid-soundfont` (the
+/// original site is gone; Arch packages it from the same archive).
 pub const FLUIDR3_GM: Asset = Asset {
     file: "FluidR3_GM.sf2",
-    url: "https://github.com/kjmcnamara1/cecilia/releases/download/soundfont-fluidr3-gm-3.1/FluidR3_GM.sf2",
+    url: "https://deb.debian.org/debian/pool/main/f/fluid-soundfont/fluid-soundfont_3.1.orig.tar.gz",
+    member: "fluid-soundfont-3.1/FluidR3_GM.sf2",
     size: 148_398_306,
     sha256: "74594e8f4250680adf590507a306655a299935343583256f3b722c48a1bc1cb0",
 };
@@ -81,7 +86,8 @@ pub fn install(
     install_with(asset, dir, force, || fetch(asset), progress)
 }
 
-/// Opens the download, refusing a response of the wrong size before reading it.
+/// Opens the download and reads its archive up to `asset.member`; the reader returned yields
+/// that file's bytes as they arrive.
 fn fetch(asset: &Asset) -> Result<impl Read + use<>, String> {
     let agent: ureq::Agent = ureq::Agent::config_builder()
         .timeout_connect(Some(Duration::from_secs(30)))
@@ -94,16 +100,47 @@ fn fetch(asset: &Asset) -> Result<impl Read + use<>, String> {
         .get(asset.url)
         .call()
         .map_err(|e| format!("download failed: {e}"))?;
-    let body = response.into_body();
-    if let Some(len) = body.content_length()
-        && len != asset.size
-    {
-        return Err(format!(
-            "download failed: the server offers {len} bytes, not {}",
-            asset.size
-        ));
+    let gz = flate2::read::GzDecoder::new(response.into_body().into_reader());
+    tar_member(gz, asset.member)
+}
+
+/// Skips through a tar stream to the regular file `name` and returns a reader of its bytes.
+/// Only what a plain ustar archive needs: 512-byte headers, octal sizes, zero padding.
+fn tar_member<R: Read>(mut tar: R, name: &str) -> Result<std::io::Take<R>, String> {
+    let fail = |e: std::io::Error| format!("download failed: {e}");
+    let missing = || format!("download failed: {name} is not in the archive");
+    let mut header = [0u8; 512];
+    loop {
+        tar.read_exact(&mut header).map_err(|e| match e.kind() {
+            std::io::ErrorKind::UnexpectedEof => missing(),
+            _ => fail(e),
+        })?;
+        if header.iter().all(|&b| b == 0) {
+            return Err(missing()); // end of archive
+        }
+        let field = |r: std::ops::Range<usize>| {
+            let f = &header[r];
+            String::from_utf8_lossy(&f[..f.iter().position(|&b| b == 0).unwrap_or(f.len())])
+                .into_owned()
+        };
+        let size = u64::from_str_radix(field(124..136).trim(), 8)
+            .map_err(|_| "download failed: not a tar archive".to_string())?;
+        let prefix = field(345..500);
+        let path = match prefix.is_empty() {
+            true => field(0..100),
+            false => format!("{prefix}/{}", field(0..100)),
+        };
+        let regular = matches!(header[156], b'0' | 0);
+        if regular && path == name {
+            return Ok(tar.take(size));
+        }
+        let padded = size.div_ceil(512) * 512;
+        let skipped =
+            std::io::copy(&mut (&mut tar).take(padded), &mut std::io::sink()).map_err(fail)?;
+        if skipped != padded {
+            return Err(missing());
+        }
     }
-    Ok(body.into_reader())
 }
 
 /// Installs `asset` into `dir` from what `open` reads: unless `force`, a file already there
@@ -392,6 +429,7 @@ mod tests {
         Asset {
             file: "Test.sf2",
             url: "http://unused.invalid/",
+            member: "dir/Test.sf2",
             size: DATA.len() as u64,
             // Not the hash of DATA (see `real_asset`).
             sha256: "0000000000000000000000000000000000000000000000000000000000000000",
@@ -492,6 +530,52 @@ mod tests {
         std::fs::write(dir.join("Test.sf2"), b"short").unwrap();
         assert_eq!(installed(&a, &dir), None);
         std::fs::remove_dir_all(&dir).unwrap();
+    }
+
+    /// A ustar archive of `(path, typeflag, bytes)` entries.
+    fn tar(entries: &[(&str, u8, &[u8])]) -> Vec<u8> {
+        let mut out = Vec::new();
+        for (path, kind, data) in entries {
+            let mut h = [0u8; 512];
+            h[..path.len()].copy_from_slice(path.as_bytes());
+            h[124..135].copy_from_slice(format!("{:011o}", data.len()).as_bytes());
+            h[156] = *kind;
+            out.extend_from_slice(&h);
+            out.extend_from_slice(data);
+            out.resize(out.len().div_ceil(512) * 512, 0);
+        }
+        out.extend_from_slice(&[0; 1024]);
+        out
+    }
+
+    #[test]
+    fn the_member_is_read_out_of_the_archive() {
+        let archive = tar(&[
+            ("dir/", b'5', b""),
+            ("dir/Other.sf2", b'0', &[7; 700]),
+            ("dir/Test.sf2", b'0', DATA),
+            ("dir/README", b'0', b"readme"),
+        ]);
+        let (dir, a) = (temp("tar"), real_asset());
+        let out = install_with(
+            &a,
+            &dir,
+            false,
+            || tar_member(Cursor::new(archive), a.member),
+            |_, _| {},
+        );
+        assert_eq!(out, Ok(Outcome::Installed(dir.join("Test.sf2"))));
+        assert_eq!(std::fs::read(dir.join("Test.sf2")).unwrap(), DATA);
+        std::fs::remove_dir_all(&dir).unwrap();
+
+        let without = tar(&[("dir/README", b'0', b"readme")]);
+        let err = tar_member(Cursor::new(without), "dir/Test.sf2")
+            .err()
+            .unwrap();
+        assert!(err.contains("not in the archive"), "{err}");
+        let cut = &tar(&[("dir/Other.sf2", b'0', &[7; 700])])[..600];
+        assert!(tar_member(Cursor::new(cut), "dir/Test.sf2").is_err());
+        assert!(tar_member(Cursor::new(b"<html>not found</html>"), "x").is_err());
     }
 
     fn message(a: &App) -> String {
