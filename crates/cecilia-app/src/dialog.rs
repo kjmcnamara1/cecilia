@@ -74,7 +74,7 @@ fn pick_save_path(dir: Option<PathBuf>, name: &str) -> Result<Option<PathBuf>, S
     Ok(dialog.save_file())
 }
 
-/// Shows an error in a system message box, for a program with no console (`ceciliaw` on
+/// Shows an error in a system message box, for a program with no console (`ceciliag` on
 /// Windows); without the `dialog` feature it goes to stderr.
 pub fn error_box(title: &str, text: &str) {
     #[cfg(feature = "dialog")]

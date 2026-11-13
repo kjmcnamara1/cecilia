@@ -44,7 +44,7 @@ winget away from the zip, a PATH entry for the Velopack install.
   `resvg` is already a dependency of cecilia-gui. On Windows, `winit::platform::windows::IconExtWindows::from_resource`
   can load the exe's icon resource; elsewhere rasterize the SVG (X11 uses it; Wayland ignores it
   and uses the `.desktop` file).
-- GUI exe name: **`ceciliaw.exe`** (like `pythonw`). Do not name a bin `cecilia-gui`: it collides
+- GUI exe name: **`ceciliag.exe`** (g for GUI). Do not name a bin `cecilia-gui`: it collides
   with the `cecilia-gui` library's output/PDB names on Windows. Add it as a second `[[bin]]` in
   `crates/cecilia` with `#![cfg_attr(windows, windows_subsystem = "windows")]`, always launching
   the GUI. Move what both bins share out of `main.rs` (e.g. a `run(args)` in a `lib.rs`) rather
@@ -74,7 +74,7 @@ winget away from the zip, a PATH entry for the Velopack install.
   `apply_updates_and_restart` / `wait_exit_then_apply_updates`.
 - CI: `dotnet tool install -g vpk`; `vpk download github --repoUrl …` (previous release, for
   deltas; tolerate none), then `vpk pack --packId cecilia --packVersion <v> --packDir <dir with
-  ceciliaw.exe, cecilia.exe, licenses> --mainExe ceciliaw.exe --icon crates/cecilia/assets/cecilia.ico
+  ceciliag.exe, cecilia.exe, licenses> --mainExe ceciliag.exe --icon crates/cecilia/assets/cecilia.ico
   --packTitle cecilia --shortcuts StartMenuRoot`; upload everything in `Releases/` to the GitHub
   release with the other assets (the feed `releases.win.json` and the `.nupkg` must be release
   assets). Velopack checks package hashes from the feed, fetched over HTTPS.
@@ -94,25 +94,25 @@ winget away from the zip, a PATH entry for the Velopack install.
    `winresource` only when `CARGO_CFG_TARGET_OS == "windows"` (build-dependency). Set the window
    icon in `cecilia-gui/src/lib.rs`. Verify: `cargo build`, `cargo package -p cecilia --list`
    includes the `.ico`.
-2. `ceciliaw` bin: shared code into `crates/cecilia/src/lib.rs`, second `[[bin]]`. Verify:
-   `cargo build -p cecilia` builds both; `target/debug/ceciliaw --help`-equivalent behaviour sane.
+2. `ceciliag` bin: shared code into `crates/cecilia/src/lib.rs`, second `[[bin]]`. Verify:
+   `cargo build -p cecilia` builds both; `target/debug/ceciliag --help`-equivalent behaviour sane.
 3. `ui.auto_update` option + docs rows. Verify: options/docs drift tests.
 4. `update.rs`: detection, decision table, GitHub check via `ureq`, notify path, `:update` command
    (+ COMMANDS.md). Unit tests for detection and the decision table (no network in tests).
 5. Velopack integration (`cfg(windows)`): `VelopackApp` in both mains, on/ask paths, apply on exit.
    Verify it compiles for Windows if a target is available (`cargo check --target
    x86_64-pc-windows-gnu` if installed; otherwise rely on CI and say so).
-6. Release workflow: build both bins, add `ceciliaw.exe` to the zip, Velopack pack + upload,
-   include Setup.exe in `SHA256SUMS`. Scoop shortcut → `ceciliaw.exe` (no `--gui`); Chocolatey
-   `Install-ChocolateyShortcut` for `ceciliaw.exe` (and remove it in an uninstall script, plus
-   `.ignore` the `ceciliaw.exe` shim / or `.gui` file so choco shims it as GUI).
+6. Release workflow: build both bins, add `ceciliag.exe` to the zip, Velopack pack + upload,
+   include Setup.exe in `SHA256SUMS`. Scoop shortcut → `ceciliag.exe` (no `--gui`); Chocolatey
+   `Install-ChocolateyShortcut` for `ceciliag.exe` (and remove it in an uninstall script, plus
+   `.ignore` the `ceciliag.exe` shim / or `.gui` file so choco shims it as GUI).
 7. Docs: README install section (Windows installer), CHANGELOG `[Unreleased]`.
 8. `cargo fmt`, `cargo clippy --workspace --all-targets`, `cargo test --workspace`, `just ci`.
 
 ## Status
 
 - [x] 1 Icon (`cc2bbcb`)
-- [x] 2 ceciliaw bin (`45dd719`)
+- [x] 2 ceciliag bin (`45dd719`)
 - [x] 3 option (in `5f3adc8`)
 - [x] 4 update.rs + :update (in `5f3adc8`)
 - [x] 5 Velopack (in `5f3adc8`)
@@ -127,19 +127,19 @@ check time with other persisted state, if there is a place for it; otherwise eve
 
 ### What was done, and changes from the plan
 
-- Icon: `crates/cecilia/assets/cecilia.ico` (16–256 px; the 256 px entry is PNG-compressed, the
-  others BMP; 167 KB) from `assets/cecilia-transparent.svg`. `build.rs` embeds it with
+- Icon (user: the lily everywhere): `crates/cecilia/assets/cecilia.ico` (16–256 px, all entries
+  PNG, 60 KB) rendered from `crates/cecilia-gui/assets/lily.svg` (`rsvg-convert` per size, then
+  packed into an ICO with PNG entries). `build.rs` embeds it with
   `winresource` (`default-features = false`, icon ID 1) only for a Windows target; a resource
   compile failure is a build *warning*, not an error. The GUI loads it with
   `Icon::from_resource(1)` (window and taskbar icon) on Windows; on X11 it rasterizes
-  `crates/cecilia-gui/assets/cecilia.svg` (a copy of `assets/cecilia-transparent.svg`, since
-  cecilia-gui is published too) at 64 px. Note the Linux `.desktop` icon is still the lily
-  (`packaging/linux/cecilia.svg`), so X11's window icon now differs from the desktop entry's.
-- ceciliaw: `crates/cecilia/src/bin/ceciliaw.rs` (auto-discovered, no `[[bin]]` table needed);
+  `crates/cecilia-gui/assets/lily.svg` at 64 px. The Linux `.desktop` icon
+  (`packaging/linux/cecilia.svg`) is the same lily.
+- ceciliag (renamed from `ceciliaw` at the user's request; "g" for GUI): `crates/cecilia/src/bin/ceciliag.rs` (auto-discovered, no `[[bin]]` table needed);
   the CLI is `crates/cecilia/src/lib.rs` (`cecilia::main(force_gui)`, `cecilia::show_error`).
-  ceciliaw turns a clap usage error into an error (help/version still print and exit) and shows
+  ceciliag turns a clap usage error into an error (help/version still print and exit) and shows
   errors with `cecilia_app::dialog::error_box` (rfd message box; cecilia now enables
-  cecilia-app's `dialog` feature itself). ceciliaw is also built and installed on Linux/macOS
+  cecilia-app's `dialog` feature itself). ceciliag is also built and installed on Linux/macOS
   (`cargo install`), where it is just `cecilia --gui`.
 - Option: `ui.auto_update` is a typed enum (`config::AutoUpdate`, like `RendererMode`), so an
   invalid value in the file is a parse error (as for `ui.renderer`), not a warning.
@@ -162,18 +162,24 @@ check time with other persisted state, if there is a place for it; otherwise eve
   that fails, `VelopackApp`'s default auto-apply-on-startup installs it at the next start.
 - Release workflow: `actions/setup-dotnet` (8.0.x), `dotnet tool install vpk --version <velopack
   version from Cargo.lock> --tool-path .vpk`, `vpk download github` (failure tolerated), `vpk
-  pack … --mainExe ceciliaw.exe --shortcuts StartMenuRoot --noPortable`; uploads
+  pack … --mainExe ceciliag.exe --shortcuts StartMenuRoot --noPortable`; uploads
   `cecilia-win-Setup.exe`, `releases.win.json` and `cecilia-<v>-*.nupkg` (not `RELEASES` or
   `assets.win.json`). `SHA256SUMS` already covered `cecilia*`. Pre-releases get an installer too,
-  but installed copies never see them (`latest` skips pre-releases).
-- Chocolatey: a `ceciliaw.exe.gui` file makes its shim a GUI one (instead of `.ignore`), a
+  but installed copies never see them (`latest` skips pre-releases). The Velopack package
+  version is the tag (`0.47.0-rc.1`), not Cargo.toml's `0.47.0`, so an rc install upgrades to
+  the final release.
+- Pre-release flow (first: `v0.47.0-rc.1` from the feature branch): Cargo and packaging files
+  at 0.47.0 via `just bump minor`, but the CHANGELOG entries stay under `[Unreleased]` (the
+  release notes fall back to it); the `## [0.47.0]` heading is added by hand at the final
+  release, since `just bump` will then say "already at 0.47.0".
+- Chocolatey: a `ceciliag.exe.gui` file makes its shim a GUI one (instead of `.ignore`), a
   Start Menu shortcut in `CommonPrograms`, and `chocolateyuninstall.ps1` removes it. `just bump`
   checked in a scratch copy: still works.
 
 ### Verified / not verified
 
 - Verified on Linux: build, all tests, clippy, `just ci`; `cargo package -p cecilia --list`
-  includes `assets/cecilia.ico`; `ceciliaw --version` and usage errors.
+  includes `assets/cecilia.ico`; `ceciliag --version` and usage errors.
 - Windows: the full workspace cannot be checked here (`signalsmith-stretch` needs MSVC's C++
   headers and `lib.exe`). The Windows-only Rust code was type-checked for
   `x86_64-pc-windows-msvc` in scratch crates (clang-cl, llvm-lib and stub CRT headers for ring):
@@ -185,8 +191,8 @@ check time with other persisted state, if there is a place for it; otherwise eve
 
 ### Open questions
 
-- winget still installs the zip as a portable `cecilia` alias only (no `ceciliaw` alias, no
+- winget still installs the zip as a portable `cecilia` alias only (no `ceciliag` alias, no
   shortcut): out of scope per the plan.
 - The Velopack `vpk pack` VelopackApp check (`--skipVeloAppCheck` not passed) is expected to find
-  `VelopackApp::build().run()` in ceciliaw.exe; if CI rejects it, check how vpk detects it in
+  `VelopackApp::build().run()` in ceciliag.exe; if CI rejects it, check how vpk detects it in
   Rust binaries.

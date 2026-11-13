@@ -62,16 +62,16 @@ jobs:
           exe=target/${{ matrix.target }}/release/cecilia
           [ "$RUNNER_OS" = Windows ] && exe=$exe.exe
           "$exe" --version
-          # ceciliaw.exe has no console to print to: only check it was built.
-          if [ "$RUNNER_OS" = Windows ]; then test -f "${exe%cecilia.exe}ceciliaw.exe"; fi
+          # ceciliag.exe has no console to print to: only check it was built.
+          if [ "$RUNNER_OS" = Windows ]; then test -f "${exe%cecilia.exe}ceciliag.exe"; fi
       - name: Package
         shell: bash
         run: |
           name=cecilia-v${{ needs.meta.outputs.version }}-${{ matrix.target }}
           mkdir "$name"
           if [ "$RUNNER_OS" = Windows ]; then
-            # ceciliaw.exe: the window without a console (Start Menu shortcuts).
-            cp target/${{ matrix.target }}/release/{cecilia,ceciliaw}.exe "$name/"
+            # ceciliag.exe: the window without a console (Start Menu shortcuts).
+            cp target/${{ matrix.target }}/release/{cecilia,ceciliag}.exe "$name/"
           else
             cp target/${{ matrix.target }}/release/cecilia "$name/"
           fi
@@ -99,17 +99,18 @@ jobs:
           vpk_version=$(awk '{ sub(/\r$/, "") } $0 == "name = \"velopack\"" { getline; gsub(/version = |"|\r/, ""); print; exit }' Cargo.lock)
           [ -n "$vpk_version" ] || { echo "::error::no velopack in Cargo.lock"; exit 1; }
           dotnet tool install vpk --version "$vpk_version" --tool-path .vpk
-          v=${{ needs.meta.outputs.version }}
+          # The tag, not Cargo.toml: a pre-release must sort below its final release in Velopack.
+          v=${GITHUB_REF_NAME#v}
           mkdir pack
-          cp target/${{ matrix.target }}/release/{cecilia,ceciliaw}.exe pack/
+          cp target/${{ matrix.target }}/release/{cecilia,ceciliag}.exe pack/
           cp LICENSE-APACHE LICENSE-MIT README.md CHANGELOG.md pack/
           # The latest release's feed and package, so this release gets a delta package and a
           # feed listing both. There is none before the first release with an installer.
           .vpk/vpk download github --repoUrl "https://github.com/${{ github.repository }}" \
             --token "$GH_TOKEN" --outputDir Releases || echo "no earlier installer release"
-          # Per-user install with a Start Menu shortcut to ceciliaw.exe and an uninstall entry.
+          # Per-user install with a Start Menu shortcut to ceciliag.exe and an uninstall entry.
           .vpk/vpk pack --packId cecilia --packVersion "$v" --packDir pack \
-            --mainExe ceciliaw.exe --icon crates/cecilia/assets/cecilia.ico \
+            --mainExe ceciliag.exe --icon crates/cecilia/assets/cecilia.ico \
             --packTitle cecilia --packAuthors "The cecilia contributors" \
             --shortcuts StartMenuRoot --noPortable --outputDir Releases
           ls -l Releases

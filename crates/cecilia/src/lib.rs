@@ -1,5 +1,5 @@
 //! The `cecilia` command line, shared by the two executables: `cecilia` (the terminal UI by
-//! default, `--gui` for the window) and `ceciliaw` (always the window; on Windows a program of
+//! default, `--gui` for the window) and `ceciliag` (always the window; on Windows a program of
 //! the GUI subsystem, so a Start Menu shortcut opens no console window next to it).
 
 use std::fmt::Write as _;
@@ -99,13 +99,13 @@ enum Cmd {
     },
 }
 
-/// Runs cecilia with the process's arguments; `ceciliaw` passes `force_gui` (it always opens
+/// Runs cecilia with the process's arguments; `ceciliag` passes `force_gui` (it always opens
 /// the window). Velopack's install, update and uninstall hooks run (and exit) before anything
 /// else, and an update downloaded while running is handed to its updater on the way out.
 pub fn main(force_gui: bool) -> Result<()> {
     cecilia_app::update::startup();
     let mut cli = if force_gui {
-        // No console to print a usage error to: it becomes the error ceciliaw shows.
+        // No console to print a usage error to: it becomes the error ceciliag shows.
         match Cli::try_parse() {
             Ok(cli) => cli,
             Err(e) if e.use_stderr() => bail!("{e}"),
@@ -123,7 +123,7 @@ pub fn main(force_gui: bool) -> Result<()> {
     result
 }
 
-/// Shows an error of `ceciliaw`, which has no console on Windows: in a message box there, on
+/// Shows an error of `ceciliag`, which has no console on Windows: in a message box there, on
 /// stderr elsewhere.
 pub fn show_error(error: &anyhow::Error) {
     let text = format!("{error:#}");

@@ -449,7 +449,7 @@ mod tests {
                 Winget,
             ),
             (
-                r"C:\ProgramData\chocolatey\lib\cecilia\tools\cecilia-v0.46.0-x86_64-pc-windows-msvc\ceciliaw.exe",
+                r"C:\ProgramData\chocolatey\lib\cecilia\tools\cecilia-v0.46.0-x86_64-pc-windows-msvc\ceciliag.exe",
                 Chocolatey,
             ),
             (r"\\?\C:\Users\me\.cargo\bin\cecilia.exe", Cargo),
@@ -465,14 +465,14 @@ mod tests {
         // Velopack's own check wins over the path.
         assert_eq!(
             InstallKind::detect(
-                &p(r"C:\Users\me\AppData\Local\cecilia\current\ceciliaw.exe"),
+                &p(r"C:\Users\me\AppData\Local\cecilia\current\ceciliag.exe"),
                 true
             ),
             Velopack
         );
         assert_eq!(
             InstallKind::detect(
-                &p(r"C:\Users\me\AppData\Local\cecilia\current\ceciliaw.exe"),
+                &p(r"C:\Users\me\AppData\Local\cecilia\current\ceciliag.exe"),
                 false
             ),
             Manual

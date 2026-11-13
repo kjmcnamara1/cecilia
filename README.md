@@ -144,7 +144,7 @@ Download `cecilia-win-Setup.exe` from the
 cecilia for your user only (no administrator rights; in `%LocalAppData%\cecilia`), adds a Start
 Menu shortcut that opens the window, and an entry under Settings > Apps to uninstall it. It is not
 signed yet, so SmartScreen warns: choose "More info", then "Run anyway". The shortcut runs
-`ceciliaw.exe`, which is `cecilia --gui` without a console window; the installer does not put
+`ceciliag.exe`, which is `cecilia --gui` without a console window; the installer does not put
 `cecilia.exe` (the terminal interface) on `PATH`.
 
 This install updates itself. `ui.auto_update` says how: `notify` (the default) says when a newer
@@ -161,7 +161,7 @@ These platforms are not tested by the author. In principle the same build works:
 cargo install --locked --path crates/cecilia
 ```
 
-This puts `cecilia` on your `PATH` (in `~/.cargo/bin`), with `ceciliaw`, which always opens the
+This puts `cecilia` on your `PATH` (in `~/.cargo/bin`), with `ceciliag`, which always opens the
 window (on Windows without a console). This way there is no file association or desktop entry;
 run `cecilia --gui song.gp5` from a terminal. Bug reports from these platforms
 are welcome. The terminal interface needs a modern terminal; on Windows use Windows Terminal.

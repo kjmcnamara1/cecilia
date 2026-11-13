@@ -402,7 +402,7 @@ type Headless = (blur::Blur, Renderer, wgpu::Device, wgpu::Queue);
 
 /// The window's icon. On Windows it is the executable's icon resource (ID 1, embedded by the
 /// `cecilia` crate's build script; missing in other executables, which then keep the default);
-/// on X11 the emblem rasterized. Wayland takes the icon from the `.desktop` file and macOS from
+/// on X11 the lily rasterized. Wayland takes the icon from the `.desktop` file and macOS from
 /// the app bundle, so neither gets one here.
 fn with_icon(attrs: winit::window::WindowAttributes) -> winit::window::WindowAttributes {
     #[cfg(windows)]
@@ -423,11 +423,11 @@ fn with_icon(attrs: winit::window::WindowAttributes) -> winit::window::WindowAtt
     attrs
 }
 
-/// The emblem (`assets/cecilia.svg`, a copy of the repository's `assets/cecilia-transparent.svg`)
+/// The lily (`assets/lily.svg`, also the Linux and Windows app icon)
 /// as `px`×`px` straight-alpha RGBA.
 #[cfg(any(test, all(unix, not(target_os = "macos"))))]
 fn icon_rgba(px: u32) -> Option<Vec<u8>> {
-    let svg = include_str!("../assets/cecilia.svg");
+    let svg = include_str!("../assets/lily.svg");
     let tree = resvg::usvg::Tree::from_str(svg, &resvg::usvg::Options::default()).ok()?;
     let mut pixmap = resvg::tiny_skia::Pixmap::new(px, px)?;
     let k = px as f32 / tree.size().width().max(tree.size().height());
@@ -1145,7 +1145,7 @@ mod tests {
     fn the_window_icon_rasterizes_with_transparent_corners() {
         let rgba = super::icon_rgba(64).unwrap();
         assert_eq!(rgba.len(), 64 * 64 * 4);
-        // The emblem is round: the corner is clear, the middle opaque.
+        // The lily leaves the corner clear and covers the middle.
         assert_eq!(rgba[3], 0);
         let mid = (32 * 64 + 32) * 4;
         assert_eq!(rgba[mid + 3], 255);
