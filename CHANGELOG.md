@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+
+- The `.deb` and `.rpm` are now named `cecilia-editor` (they conflict with `cecilia`). On Debian, Ubuntu and Fedora the package manager offered the unrelated `cecilia` package (a Csound frontend) as an upgrade. Remove the old `cecilia` package before installing the new one: `sudo apt remove cecilia` or `sudo dnf remove cecilia`.
+
 ## [0.46.0] - 2026-11-12
 
 ### Added
