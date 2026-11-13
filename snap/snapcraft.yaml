@@ -1,0 +1,35 @@
+name: cecilia
+title: cecilia
+adopt-info: cecilia
+summary: Edit and play guitar tab, notation and Gregorian chant
+description: |
+  A keyboard-first editor and player for guitar tablature, standard notation and
+  Gregorian chant. Reads and writes Guitar Pro, MusicXML, MIDI and GABC and plays along
+  with a recording.
+
+  `cecilia` is the terminal interface, `cecilia.gui` the window (the desktop entry).
+license: MIT OR Apache-2.0
+base: core24
+grade: stable
+confinement: strict
+
+apps:
+  cecilia:
+    command: bin/cecilia
+    extensions: [gnome]
+    plugs: [home, removable-media, audio-playback, audio-record]
+  gui:
+    command: bin/cecilia --gui
+    extensions: [gnome]
+    plugs: [desktop, desktop-legacy, wayland, x11, opengl, home, removable-media, audio-playback, audio-record]
+
+parts:
+  cecilia:
+    plugin: rust
+    source: .
+    rust-path: [crates/cecilia]
+    build-packages: [libasound2-dev, pkg-config]
+    stage-packages: [libasound2t64]
+    override-pull: |
+      craftctl default
+      craftctl set version="$(sed -n 's/^version = "\(.*\)"$/\1/p' Cargo.toml | head -1)"

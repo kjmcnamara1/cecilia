@@ -1,0 +1,52 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+    <key>CFBundleName</key>
+    <string>Cecilia</string>
+    <key>CFBundleDisplayName</key>
+    <string>Cecilia</string>
+    <key>CFBundleIdentifier</key>
+    <string>io.github.kjmcnamara1.cecilia</string>
+    <key>CFBundleExecutable</key>
+    <string>cecilia-gui</string>
+    <key>CFBundleIconFile</key>
+    <string>cecilia</string>
+    <key>CFBundlePackageType</key>
+    <string>APPL</string>
+    <key>CFBundleShortVersionString</key>
+    <string>@VERSION@</string>
+    <key>CFBundleVersion</key>
+    <string>@VERSION@</string>
+    <key>LSMinimumSystemVersion</key>
+    <string>11.0</string>
+    <key>LSApplicationCategoryType</key>
+    <string>public.app-category.music</string>
+    <key>NSHighResolutionCapable</key>
+    <true/>
+    <key>NSMicrophoneUsageDescription</key>
+    <string>cecilia listens to the microphone for the tuner.</string>
+    <key>CFBundleDocumentTypes</key>
+    <array>
+        <dict>
+            <key>CFBundleTypeName</key>
+            <string>Score</string>
+            <key>CFBundleTypeRole</key>
+            <string>Editor</string>
+            <key>CFBundleTypeExtensions</key>
+            <array>
+                <string>gp3</string>
+                <string>gp4</string>
+                <string>gp5</string>
+                <string>gp</string>
+                <string>gpx</string>
+                <string>musicxml</string>
+                <string>mid</string>
+                <string>gabc</string>
+                <string>ccc</string>
+                <string>ccm</string>
+            </array>
+        </dict>
+    </array>
+</dict>
+</plist>
