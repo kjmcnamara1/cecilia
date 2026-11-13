@@ -138,6 +138,9 @@ jobs:
       - name: Checksums
         working-directory: dist
         run: sha256sum cecilia* > SHA256SUMS
+      - name: Install script
+        # Not in SHA256SUMS: it is what reads them.
+        run: cp packaging/install.sh dist/install.sh
       - name: Release notes
         run: |
           v=${{ needs.meta.outputs.version }}

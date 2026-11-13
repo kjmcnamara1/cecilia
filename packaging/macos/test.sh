@@ -21,4 +21,15 @@ grep -q '<string>0.0.1</string>' "$app/Contents/Info.plist" || fail "version not
 [ -L "$tmp/mnt/Applications" ] || fail "no Applications link"
 [ "$("$app/Contents/MacOS/cecilia-gui" x)" = "$(printf -- '--gui\nx')" ] || fail "launcher"
 codesign --verify "$app" || fail "signature"
+
+# the install script's macOS path, from a fake release holding this dmg
+rel=$tmp/rel/download/v0.0.1
+mkdir -p "$rel"
+cp "$tmp/cecilia.dmg" "$rel/cecilia-v0.0.1-universal-apple-darwin.dmg"
+(cd "$rel" && shasum -a 256 cecilia-v0.0.1-universal-apple-darwin.dmg > SHA256SUMS)
+env HOME="$tmp/home" CECILIA_BASE_URL="file://$tmp/rel" CECILIA_VERSION=0.0.1 \
+    CECILIA_APP_DIR="$tmp/apps" CECILIA_BIN_DIR="$tmp/bin" sh packaging/install.sh \
+    || fail "install.sh"
+[ -x "$tmp/apps/Cecilia.app/Contents/MacOS/cecilia-gui" ] || fail "app not installed"
+[ "$("$tmp/bin/cecilia" a)" = a ] || fail "cecilia command"
 echo "macos bundle: ok"
