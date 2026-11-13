@@ -47,7 +47,8 @@ ci:
     cargo fmt --check && \
     cargo clippy --workspace --all-targets && \
     cargo test --workspace && \
-    cargo check --workspace --all-targets --locked
+    cargo check --workspace --all-targets --locked && \
+    bash packaging/check.sh
     if rustup toolchain list | grep -q '^1\.89'; then \
       RUSTFLAGS="-D warnings" cargo +1.89 check --workspace --locked; \
     else echo "skipping msrv: rustup toolchain install 1.89"; fi

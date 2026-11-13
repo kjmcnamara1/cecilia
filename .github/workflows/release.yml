@@ -95,8 +95,37 @@ jobs:
           name: ${{ matrix.target }}
           path: dist/*
 
-  release:
+  # The universal macOS app: the two macOS binaries joined with lipo, wrapped in Cecilia.app
+  # (packaging/macos) and packed into a .dmg. Strict (not continue-on-error): the install
+  # script and the Homebrew cask download it.
+  macos-app:
     needs: [meta, build]
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/download-artifact@v4
+        with:
+          pattern: "*-apple-darwin"
+          path: in
+      - name: Universal binary and .dmg
+        run: |
+          v=${{ needs.meta.outputs.version }}
+          for t in aarch64 x86_64; do
+            tar xzf in/$t-apple-darwin/cecilia-v$v-$t-apple-darwin.tar.gz -C in/$t-apple-darwin
+          done
+          lipo -create -output cecilia \
+            in/aarch64-apple-darwin/cecilia-v$v-aarch64-apple-darwin/cecilia \
+            in/x86_64-apple-darwin/cecilia-v$v-x86_64-apple-darwin/cecilia
+          brew install librsvg
+          mkdir dist
+          packaging/macos/bundle.sh "$v" cecilia dist/cecilia-v$v-universal-apple-darwin.dmg
+      - uses: actions/upload-artifact@v4
+        with:
+          name: macos-app
+          path: dist/*.dmg
+
+  release:
+    needs: [meta, build, macos-app]
     runs-on: ubuntu-latest
     permissions:
       contents: write

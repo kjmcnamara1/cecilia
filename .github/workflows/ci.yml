@@ -49,6 +49,23 @@ jobs:
       - uses: Swatinem/rust-cache@v2
       - run: cargo check --workspace --all-targets --locked
 
+  # The packaging scripts and metadata (packaging/tests/*.sh).
+  packaging:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - run: sudo apt-get update && sudo apt-get install -y librsvg2-bin shellcheck desktop-file-utils appstream libxml2-utils jq
+      - run: bash packaging/check.sh
+
+  # Builds Cecilia.app and the .dmg around a stub binary; the real binary is bundled by the
+  # release workflow.
+  macos-bundle:
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v4
+      - run: brew install librsvg
+      - run: bash packaging/macos/test.sh
+
   test-windows:
     runs-on: windows-latest
     steps:

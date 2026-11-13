@@ -1,0 +1,15 @@
+#!/bin/sh
+# The executable of Cecilia.app: opens the window. Old macOS versions pass a -psn_* argument
+# when launching from Finder; drop it. (Not called "cecilia": the file system is
+# case-insensitive and the real binary sits next to this script.)
+n=$#
+while [ "$n" -gt 0 ]; do
+    a=$1
+    shift
+    n=$((n - 1))
+    case $a in
+        -psn_*) ;;
+        *) set -- "$@" "$a" ;;
+    esac
+done
+exec "$(dirname "$0")/cecilia" --gui "$@"
