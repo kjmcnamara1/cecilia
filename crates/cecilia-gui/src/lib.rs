@@ -5,6 +5,7 @@
 mod backend;
 mod blur;
 mod canvas;
+mod cpu;
 mod design;
 mod draw;
 mod keys;
@@ -704,13 +705,18 @@ impl ApplicationHandler for Gui {
 /// Renders one frame offscreen to a PNG (for tests and documentation), `width` × `height`
 /// physical pixels at a display scale factor (1.5 = a 150% scaled monitor).
 pub fn screenshot(
-    mut app: App,
+    app: App,
     width: u32,
     height: u32,
     factor: f64,
     hover: Option<(f64, f64)>,
 ) -> Result<Vec<u8>> {
     let factor = factor.max(0.1);
+    // Temporary escape hatch, removed in 5c when `Attempt::Cpu` exists: render with `cpu::render`
+    // and never touch wgpu.
+    if std::env::var_os("CECILIA_CPU_RENDER").is_some() {
+        return screenshot_with(app, width, height, factor, hover, None);
+    }
     let attempts = renderer_attempts(&app);
     let mut failure = None;
     let mut opened = None;
@@ -739,13 +745,37 @@ pub fn screenshot(
         let (n, e) = failure.expect("at least one renderer attempt");
         return Err(no_renderer(&attempts[..=n], e));
     };
-    let (device, queue) = (&device, &queue);
-    let (width, height) = clamp_image_size(width, height, device.limits().max_texture_dimension_2d)
+    screenshot_with(
+        app,
+        width,
+        height,
+        factor,
+        hover,
+        Some((device, queue, software)),
+    )
+}
+
+/// [`screenshot`] on a wgpu device, or on the CPU renderer without one.
+fn screenshot_with(
+    mut app: App,
+    width: u32,
+    height: u32,
+    factor: f64,
+    hover: Option<(f64, f64)>,
+    gpu: Option<(wgpu::Device, wgpu::Queue, bool)>,
+) -> Result<Vec<u8>> {
+    let max_dimension = gpu
+        .as_ref()
+        .map_or(16384, |(d, ..)| d.limits().max_texture_dimension_2d);
+    let (width, height) = clamp_image_size(width, height, max_dimension)
         .ok_or_else(|| anyhow!("screenshot size {width}x{height} is too large"))?;
-    let mut renderer =
-        Renderer::new(device, renderer_options(software)).map_err(|e| anyhow!("renderer: {e}"))?;
+    let mut gpu = gpu.map(|(device, queue, software)| {
+        let renderer = Renderer::new(&device, renderer_options(software))
+            .map_err(|e| anyhow!("renderer: {e}"));
+        renderer.map(|r| (blur::Blur::new(&device), r, device, queue))
+    });
+    let mut gpu = gpu.take().transpose()?;
     let mut scene = Canvas::new();
-    let mut blur = blur::Blur::new(device);
     let mut views = Views::default();
     views.hover = hover.unwrap_or((-1.0, -1.0));
     // Load the focused buffer's audio so the waveform shows.
@@ -762,12 +792,15 @@ pub fn screenshot(
     let mut logical = Canvas::new();
     let mut popups = Canvas::new();
     let blur_px = app.config.file.popups.blur;
-    views.set_backdrop((blur_px > 0.0).then(|| {
-        (
-            blur.backdrop((width, height)),
-            f64::from(blur::DOWNSCALE) / factor,
-        )
-    }));
+    let placeholder = (blur_px > 0.0).then(|| match gpu.as_mut() {
+        Some((blur, ..)) => blur.backdrop((width, height)),
+        None => blur::placeholder((width, height)),
+    });
+    views.set_backdrop(
+        placeholder
+            .clone()
+            .map(|image| (image, f64::from(blur::DOWNSCALE) / factor)),
+    );
     // Hovering a toolbar button: draw once and wait, so its tooltip shows.
     if hover.is_some() {
         let mut first = Canvas::new();
@@ -798,6 +831,21 @@ pub fn screenshot(
     scene.append(&logical, Some(Affine::scale(factor)));
     let mut popups_dev = Canvas::new();
     popups_dev.append(&popups, Some(Affine::scale(factor)));
+    let Some((mut blur, mut renderer, device, queue)) = gpu else {
+        let pixels = cpu::render(
+            &scene,
+            &popups_dev,
+            (width, height),
+            draw::background(),
+            blur_px * factor,
+            placeholder.as_ref(),
+        )?;
+        let size = tiny_skia::IntSize::from_wh(width, height).ok_or_else(|| anyhow!("bad size"))?;
+        let pixmap =
+            tiny_skia::Pixmap::from_vec(pixels, size).ok_or_else(|| anyhow!("bad pixmap"))?;
+        return pixmap.encode_png().map_err(|e| anyhow!("png: {e}"));
+    };
+    let (device, queue) = (&device, &queue);
     let texture = device.create_texture(&wgpu::TextureDescriptor {
         label: Some("screenshot"),
         size: wgpu::Extent3d {

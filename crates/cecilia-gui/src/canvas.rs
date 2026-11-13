@@ -50,7 +50,7 @@ impl Paint {
 }
 
 #[derive(Clone)]
-enum Cmd {
+pub(crate) enum Cmd {
     Fill {
         style: Fill,
         transform: Affine,
@@ -192,6 +192,11 @@ impl Canvas {
     pub fn append(&mut self, other: &Self, transform: Option<Affine>) {
         self.cmds
             .push(Cmd::Append(Arc::new(other.cmds.clone()), transform));
+    }
+
+    /// The recorded commands, for a renderer that replays them itself.
+    pub(crate) fn commands(&self) -> &[Cmd] {
+        &self.cmds
     }
 
     /// Replays the recording into a vello scene, under `transform`.
