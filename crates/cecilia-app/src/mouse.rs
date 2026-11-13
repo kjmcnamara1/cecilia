@@ -43,7 +43,15 @@ impl App {
     /// A plain press places the cursor, as a click always did; in Visual mode that leaves it
     /// (a drag from the press then selects afresh). A drag then selects. With `extend` the selection runs from the
     /// anchor (the cursor, when not in Visual mode) to the beat; a double click selects the bar.
+    ///
+    /// While playing with follow on, the click takes the play position with it, as a key would.
     pub fn mouse_press(&mut self, pane: PaneId, at: Cursor, mods: MouseMods) {
+        let before = (self.focused(), self.pane().buffer, self.pane().cursor);
+        self.press(pane, at, mods);
+        self.seek_to_cursor(before);
+    }
+
+    fn press(&mut self, pane: PaneId, at: Cursor, mods: MouseMods) {
         self.mouse_sel = None;
         self.set_focus(pane);
         let Some(p) = self.panes.get(&pane) else {
@@ -190,6 +198,37 @@ mod tests {
         app.mouse_release();
         assert_eq!(app.mode, Mode::Normal);
         assert!(app.selection().is_none());
+    }
+
+    #[test]
+    fn a_click_while_playing_and_following_moves_the_playhead() {
+        use crate::app::Effect;
+        let mut app = app();
+        let pane = app.focused();
+        keys(&mut app, "0<Space><Space>");
+        app.take_effects();
+        app.set_playing(true);
+        assert!(app.config.file.ui.follow_playback);
+        app.mouse_press(pane, at(&app, 0, 3), MouseMods::default());
+        app.mouse_release();
+        let buffer = app.pane().buffer;
+        let tick = crate::app::cursor_tick(&app.buffers[buffer].score, &app.pane().cursor);
+        assert_eq!(
+            app.take_effects(),
+            vec![Effect::Seek {
+                buffer,
+                bar: 0,
+                tick
+            }]
+        );
+        // A playhead update from before the player caught up doesn't pull the cursor back.
+        app.follow_playback(buffer, 0, 0);
+        assert_eq!(app.pane().cursor.beat, 3);
+        // Without following, a click only moves the cursor.
+        keys(&mut app, "<Space>f");
+        app.take_effects();
+        app.mouse_press(pane, at(&app, 0, 1), MouseMods::default());
+        assert!(app.take_effects().is_empty());
     }
 
     #[test]
