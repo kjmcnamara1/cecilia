@@ -1,5 +1,6 @@
 # Easy Install Implementation Plan
 
+> **Status: implemented on branch feat/easy-install (2026-11-13); awaiting the user's review. Only CI on macOS and the first `-rc` tag can run the macOS bundle, AppImage, Flatpak and Snap jobs.**
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:executing-plans (inline) to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
 **Goal:** Make cecilia installable without a Rust toolchain on macOS (`.app` + `.dmg`, Homebrew), Linux (AppImage, Flatpak, Snap, existing deb/rpm/AUR) and anywhere with `curl` (an install script), plus `cargo binstall`.
@@ -166,14 +167,18 @@
 
 ## Status
 
-- [ ] Task 1: macOS `.app` and `.dmg`
-- [ ] Task 2: curl install script
-- [ ] Task 3: Homebrew tap
-- [ ] Task 4: AppImage
-- [ ] Task 5: Flatpak
-- [ ] Task 6: Snap
-- [ ] Task 7: cargo-binstall
-- [ ] Task 8: Documentation
-- [ ] Final review, push, open PR (do not merge; the user reviews)
+- [x] Task 1: macOS `.app` and `.dmg`
+- [x] Task 2: curl install script
+- [x] Task 3: Homebrew tap
+- [x] Task 4: AppImage
+- [x] Task 5: Flatpak
+- [x] Task 6: Snap
+- [x] Task 7: cargo-binstall
+- [x] Task 8: Documentation
+- [x] Final review done (one fix pass); [ ] push and open the PR (do not merge; the user reviews)
 
 Notes: branch renamed from `docs/macos-install-guide` to `feat/easy-install` (it held no commits of its own).
+
+Final review fixes (one pass): the AppImage opens the window on a double-click via a custom
+`AppRun` (test: `packaging/tests/appimage.sh`), the Flatpak targets runtime/container 25.08,
+`snap-publish` is `continue-on-error`. Deferred minors: see the PR description.

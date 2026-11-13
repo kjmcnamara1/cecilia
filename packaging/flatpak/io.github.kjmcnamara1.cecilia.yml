@@ -3,7 +3,7 @@
 # source becomes `type: git` with the release tag and commit (see docs/INSTALL.md).
 app-id: io.github.kjmcnamara1.cecilia
 runtime: org.freedesktop.Platform
-runtime-version: "24.08"
+runtime-version: "25.08"
 sdk: org.freedesktop.Sdk
 sdk-extensions:
   - org.freedesktop.Sdk.Extension.rust-stable

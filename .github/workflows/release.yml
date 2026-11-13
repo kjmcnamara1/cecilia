@@ -158,7 +158,7 @@ jobs:
     runs-on: ubuntu-latest
     continue-on-error: true
     container:
-      image: ghcr.io/flathub-infra/flatpak-github-actions:freedesktop-24.08
+      image: ghcr.io/flathub-infra/flatpak-github-actions:freedesktop-25.08
       options: --privileged
     steps:
       - uses: actions/checkout@v4
@@ -312,6 +312,8 @@ jobs:
     needs: [meta, release, snap]
     if: needs.meta.outputs.prerelease == 'false'
     runs-on: ubuntu-latest
+    # A snap that failed to build (or is not registered yet) must not turn the release red.
+    continue-on-error: true
     steps:
       - uses: actions/download-artifact@v4
         with:

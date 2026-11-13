@@ -1,0 +1,8 @@
+#!/bin/sh
+# The AppImage's entry point. Started with no arguments and no terminal (a double-click in a
+# file manager) cecilia opens the window; the terminal interface would have nowhere to draw.
+here=$(dirname "$(readlink -f "$0")")
+if [ $# -eq 0 ] && [ ! -t 0 ]; then
+    set -- --gui
+fi
+exec "$here/usr/bin/cecilia" "$@"

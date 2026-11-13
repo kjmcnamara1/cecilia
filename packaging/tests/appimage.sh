@@ -25,4 +25,17 @@ for flag in --desktop-file --icon-file; do
     [ -f "$tmp/out/$path" ] || fail "$flag points at a missing file: $path"
 done
 [ -f "$tmp/out/cecilia-v0.0.1-x86_64.AppImage" ] || fail "output not named cecilia-v0.0.1-x86_64.AppImage"
+
+# The custom AppRun opens the window when started without arguments and without a terminal
+# (a double-click), and passes arguments through otherwise.
+apprun=$(grep -o -- '--custom-apprun=[^ ]*' "$tmp/log" | cut -d= -f2) || fail "no --custom-apprun"
+[ -f "$tmp/out/$apprun" ] || [ -f "$apprun" ] || fail "custom AppRun missing: $apprun"
+[ -f "$apprun" ] || apprun=$tmp/out/$apprun
+mkdir -p "$tmp/ar/usr/bin"
+cp "$apprun" "$tmp/ar/AppRun"
+# shellcheck disable=SC2016
+printf '#!/bin/sh\nfor a in "$@"; do echo "$a"; done\n' > "$tmp/ar/usr/bin/cecilia"
+chmod +x "$tmp/ar/AppRun" "$tmp/ar/usr/bin/cecilia"
+[ "$("$tmp/ar/AppRun" < /dev/null)" = "--gui" ] || fail "double-click does not open the window"
+[ "$("$tmp/ar/AppRun" song.gp5 < /dev/null)" = "song.gp5" ] || fail "arguments not passed through"
 echo "appimage: ok"

@@ -1,6 +1,7 @@
 #!/bin/sh
 # Builds cecilia-vVERSION-x86_64.AppImage in OUT_DIR from a cecilia binary:
 #   build.sh VERSION BINARY OUT_DIR
+# linuxdeploy uses AppRun from this directory as the AppImage's entry point.
 # The AppDir is laid out by packaging/linux/stage.sh; linuxdeploy ($LINUXDEPLOY, default
 # linuxdeploy-x86_64.AppImage on PATH) bundles the shared libraries and packs it. Run it with
 # APPIMAGE_EXTRACT_AND_RUN=1 where FUSE is missing (CI).
@@ -22,4 +23,5 @@ export LDAI_OUTPUT="cecilia-v$VERSION-x86_64.AppImage"
 "${LINUXDEPLOY:-linuxdeploy-x86_64.AppImage}" --appdir AppDir \
     --desktop-file AppDir/usr/share/applications/cecilia.desktop \
     --icon-file AppDir/usr/share/icons/hicolor/scalable/apps/cecilia.svg \
+    --custom-apprun="$HERE/AppRun" \
     --output appimage
