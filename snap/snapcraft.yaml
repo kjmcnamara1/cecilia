@@ -24,11 +24,25 @@ apps:
     plugs: [desktop, desktop-legacy, wayland, x11, opengl, home, removable-media, audio-playback, audio-record, network]
 
 parts:
+  # The Rust toolchain (rust-version 1.89; Ubuntu's rustc is older) from rustup. The rust plugin
+  # should provision rustup itself, but snapcraft before 9.3 fails to in a clean instance
+  # (canonical/snapcraft#6330), so this part does it and `cecilia` uses rust-channel: none.
+  rust-deps:
+    plugin: nil
+    build-packages: [curl, ca-certificates]
+    override-build: |
+      curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs \
+        | sh -s -- -y --profile minimal --default-toolchain stable --no-modify-path
+      ln -sf "$HOME/.cargo/bin/cargo" "$HOME/.cargo/bin/rustc" /usr/local/bin/
+
   cecilia:
+    after: [rust-deps]
     plugin: rust
+    rust-channel: none
     source: .
     rust-path: [crates/cecilia]
-    build-packages: [libasound2-dev, pkg-config]
+    # libclang-dev and g++: signalsmith-stretch builds C++ through bindgen.
+    build-packages: [libasound2-dev, pkg-config, libclang-dev, g++]
     stage-packages: [libasound2t64]
     override-pull: |
       craftctl default
