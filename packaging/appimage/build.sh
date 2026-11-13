@@ -18,7 +18,7 @@ rm -rf "$OUT/AppDir"
 
 cd "$OUT"
 export VERSION
-export LDAI_OUTPUT=cecilia-v$VERSION-x86_64.AppImage
+export LDAI_OUTPUT="cecilia-v$VERSION-x86_64.AppImage"
 "${LINUXDEPLOY:-linuxdeploy-x86_64.AppImage}" --appdir AppDir \
     --desktop-file AppDir/usr/share/applications/cecilia.desktop \
     --icon-file AppDir/usr/share/icons/hicolor/scalable/apps/cecilia.svg \
