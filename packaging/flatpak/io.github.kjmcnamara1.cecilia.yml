@@ -7,6 +7,8 @@ runtime-version: "25.08"
 sdk: org.freedesktop.Sdk
 sdk-extensions:
   - org.freedesktop.Sdk.Extension.rust-stable
+  # libclang for bindgen (signalsmith-stretch); the SDK has none.
+  - org.freedesktop.Sdk.Extension.llvm21
 command: cecilia
 finish-args:
   - --share=ipc
@@ -21,9 +23,11 @@ modules:
   - name: cecilia
     buildsystem: simple
     build-options:
-      append-path: /usr/lib/sdk/rust-stable/bin
+      append-path: /usr/lib/sdk/rust-stable/bin:/usr/lib/sdk/llvm21/bin
+      prepend-ld-library-path: /usr/lib/sdk/llvm21/lib
       env:
         CARGO_HOME: /run/build/cecilia/cargo
+        LIBCLANG_PATH: /usr/lib/sdk/llvm21/lib
     build-commands:
       - cargo --offline fetch --manifest-path Cargo.toml --verbose
       - cargo --offline build --release --locked -p cecilia
