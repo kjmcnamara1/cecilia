@@ -36,16 +36,19 @@ pub fn attempts(mode: RendererMode) -> Vec<Attempt> {
     }
 }
 
-/// Index of the first software (CPU) adapter among `infos`, e.g. lavapipe or llvmpipe.
-pub fn pick_software(infos: &[AdapterInfo]) -> Option<usize> {
-    infos.iter().position(|i| i.device_type == DeviceType::Cpu)
+/// Index of the first software (CPU) adapter among `infos`, e.g. lavapipe or llvmpipe. With
+/// `skip_dx12` (Windows) DX12 adapters are ignored: that is WARP, whose crashes cannot be caught.
+pub fn pick_software(infos: &[AdapterInfo], skip_dx12: bool) -> Option<usize> {
+    infos.iter().position(|i| {
+        i.device_type == DeviceType::Cpu && !(skip_dx12 && i.backend == vello::wgpu::Backend::Dx12)
+    })
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
 
-    fn info(name: &str, device_type: DeviceType) -> AdapterInfo {
+    fn info_on(name: &str, device_type: DeviceType, backend: vello::wgpu::Backend) -> AdapterInfo {
         AdapterInfo {
             name: name.into(),
             vendor: 0,
@@ -53,8 +56,12 @@ mod tests {
             device_type,
             driver: String::new(),
             driver_info: String::new(),
-            backend: vello::wgpu::Backend::Vulkan,
+            backend,
         }
+    }
+
+    fn info(name: &str, device_type: DeviceType) -> AdapterInfo {
+        info_on(name, device_type, vello::wgpu::Backend::Vulkan)
     }
 
     #[test]
@@ -64,9 +71,9 @@ mod tests {
             info("llvmpipe", DeviceType::Cpu),
             info("other", DeviceType::Cpu),
         ];
-        assert_eq!(pick_software(&infos), Some(1));
-        assert_eq!(pick_software(&infos[..1]), None);
-        assert_eq!(pick_software(&[]), None);
+        assert_eq!(pick_software(&infos, false), Some(1));
+        assert_eq!(pick_software(&infos[..1], false), None);
+        assert_eq!(pick_software(&[], false), None);
     }
 
     #[test]
@@ -94,5 +101,17 @@ mod tests {
         );
         assert_eq!(attempts(RendererMode::Gpu), vec![Attempt::Gpu]);
         assert_eq!(attempts(RendererMode::Software), vec![Attempt::Software]);
+    }
+
+    #[test]
+    fn software_attempt_skips_dx12_warp_when_asked() {
+        use vello::wgpu::Backend::{Dx12, Vulkan};
+        let infos = [
+            info_on("WARP", DeviceType::Cpu, Dx12),
+            info_on("lavapipe", DeviceType::Cpu, Vulkan),
+        ];
+        assert_eq!(pick_software(&infos, true), Some(1));
+        assert_eq!(pick_software(&infos, false), Some(0));
+        assert_eq!(pick_software(&infos[..1], true), None);
     }
 }

@@ -17,7 +17,7 @@ use anyhow::{Context, Result, anyhow};
 use cecilia_app::App;
 use cecilia_app::playback::Playback;
 use vello::kurbo::Affine;
-use vello::util::{RenderContext, RenderSurface};
+use vello::util::RenderContext;
 use vello::{AaSupport, Renderer, RendererOptions, Scene, wgpu};
 use winit::application::ApplicationHandler;
 use winit::event::{ElementState, MouseButton, MouseScrollDelta, WindowEvent};
@@ -29,7 +29,7 @@ pub use draw::Views;
 
 struct Gpu {
     window: Arc<Window>,
-    surface: RenderSurface<'static>,
+    surface: Surf,
     renderer: Renderer,
     blur: blur::Blur,
 }
@@ -38,7 +38,6 @@ struct Gui {
     /// The peeking tracks were drawn last frame (one more redraw hides them).
     tracks_peek_drawn: bool,
     notifications_drawn: bool,
-    cx: RenderContext,
     gpu: Option<Gpu>,
     app: App,
     views: Views,
@@ -95,79 +94,165 @@ fn render_context() -> RenderContext {
     RenderContext::new()
 }
 
-/// A fresh wgpu context (all backends) and the name of its first software (CPU) adapter, such as
-/// lavapipe or llvmpipe.
-///
-/// vello's `RenderContext` cannot be handed a device made by hand (`DeviceHandle`'s adapter is
-/// private), so the adapter is chosen through the `WGPU_ADAPTER_NAME` variable it honours, set
-/// only around the device request (see `with_adapter_name`). wgpu's `force_fallback_adapter`
-/// only ever yields CPU-type adapters too, so "no CPU adapter enumerated" and "no fallback
-/// adapter" are the same failure.
-fn software_adapter() -> Result<(RenderContext, String)> {
-    let cx = RenderContext::new();
-    let infos: Vec<_> = cx
-        .instance
-        .enumerate_adapters(wgpu::Backends::all())
-        .iter()
-        .map(|a| a.get_info())
-        .collect();
-    let i = backend::pick_software(&infos).ok_or_else(|| anyhow!("no software adapter found"))?;
-    let name = infos[i].name.clone();
-    Ok((cx, name))
+/// The window surface with the device that draws to it, from either renderer attempt. vello's
+/// `RenderSurface` cannot be built for a device we create ourselves (its adapter is private),
+/// so both attempts end up in this struct.
+struct Surf {
+    surface: wgpu::Surface<'static>,
+    config: wgpu::SurfaceConfiguration,
+    device: wgpu::Device,
+    queue: wgpu::Queue,
+    /// Vello draws here; it is blitted to the swapchain image.
+    target_view: wgpu::TextureView,
+    blitter: wgpu::util::TextureBlitter,
 }
 
-/// Runs `f` with `WGPU_ADAPTER_NAME` set to `name` (vello's device selection reads it), then
-/// restores the previous value.
-fn with_adapter_name<T>(name: &str, f: impl FnOnce() -> T) -> T {
-    let previous = std::env::var_os("WGPU_ADAPTER_NAME");
-    // SAFETY: only called while opening the renderer at start-up; nothing else writes the
-    // environment, and the window system's own threads do not read this variable.
-    unsafe { std::env::set_var("WGPU_ADAPTER_NAME", name) };
-    let out = f();
-    // SAFETY: as above.
-    unsafe {
-        match previous {
-            Some(v) => std::env::set_var("WGPU_ADAPTER_NAME", v),
-            None => std::env::remove_var("WGPU_ADAPTER_NAME"),
-        }
+impl Surf {
+    fn new(
+        surface: wgpu::Surface<'static>,
+        adapter: &wgpu::Adapter,
+        device: wgpu::Device,
+        queue: wgpu::Queue,
+        size: winit::dpi::PhysicalSize<u32>,
+    ) -> Result<Self> {
+        let format = surface
+            .get_capabilities(adapter)
+            .formats
+            .into_iter()
+            .find(|f| {
+                matches!(
+                    f,
+                    wgpu::TextureFormat::Rgba8Unorm | wgpu::TextureFormat::Bgra8Unorm
+                )
+            })
+            .ok_or_else(|| anyhow!("surface: no supported format"))?;
+        let config = wgpu::SurfaceConfiguration {
+            usage: wgpu::TextureUsages::RENDER_ATTACHMENT,
+            format,
+            width: size.width.max(1),
+            height: size.height.max(1),
+            present_mode: wgpu::PresentMode::AutoVsync,
+            desired_maximum_frame_latency: 2,
+            alpha_mode: wgpu::CompositeAlphaMode::Auto,
+            view_formats: vec![],
+        };
+        let target_view = Self::target_view(&device, config.width, config.height);
+        surface.configure(&device, &config);
+        let blitter = wgpu::util::TextureBlitter::new(&device, format);
+        Ok(Self {
+            surface,
+            config,
+            device,
+            queue,
+            target_view,
+            blitter,
+        })
     }
-    out
+
+    fn target_view(device: &wgpu::Device, width: u32, height: u32) -> wgpu::TextureView {
+        device
+            .create_texture(&wgpu::TextureDescriptor {
+                label: None,
+                size: wgpu::Extent3d {
+                    width,
+                    height,
+                    depth_or_array_layers: 1,
+                },
+                mip_level_count: 1,
+                sample_count: 1,
+                dimension: wgpu::TextureDimension::D2,
+                usage: wgpu::TextureUsages::STORAGE_BINDING | wgpu::TextureUsages::TEXTURE_BINDING,
+                format: wgpu::TextureFormat::Rgba8Unorm,
+                view_formats: &[],
+            })
+            .create_view(&wgpu::TextureViewDescriptor::default())
+    }
+
+    fn resize(&mut self, width: u32, height: u32) {
+        self.config.width = width.max(1);
+        self.config.height = height.max(1);
+        self.target_view = Self::target_view(&self.device, self.config.width, self.config.height);
+        self.surface.configure(&self.device, &self.config);
+    }
 }
 
-/// Opens the renderer for one `attempt` in `cx` (a fresh GPU context; the software attempt
-/// replaces it): the window's surface, vello's renderer and the blur pipeline.
+/// Device and queue for `adapter`, with the optional features vello benefits from.
+fn request_device(adapter: &wgpu::Adapter) -> Result<(wgpu::Device, wgpu::Queue)> {
+    let maybe = wgpu::Features::CLEAR_TEXTURE | wgpu::Features::PIPELINE_CACHE;
+    pollster::block_on(adapter.request_device(
+        &wgpu::DeviceDescriptor {
+            label: None,
+            required_features: adapter.features() & maybe,
+            required_limits: wgpu::Limits::default(),
+            memory_hints: wgpu::MemoryHints::default(),
+        },
+        None,
+    ))
+    .map_err(|e| anyhow!("device: {e}"))
+}
+
+/// The first software (CPU) adapter of `instance` that can present to `surface` (any, without
+/// one), such as lavapipe or llvmpipe, with a device on it. Never panics: no adapter or a
+/// failing device is an `Err`.
+fn software_device(
+    instance: &wgpu::Instance,
+    surface: Option<&wgpu::Surface<'_>>,
+) -> Result<(wgpu::Adapter, wgpu::Device, wgpu::Queue)> {
+    let adapters: Vec<_> = instance
+        .enumerate_adapters(wgpu::Backends::all())
+        .into_iter()
+        .filter(|a| surface.is_none_or(|s| a.is_surface_supported(s)))
+        .collect();
+    let infos: Vec<_> = adapters.iter().map(|a| a.get_info()).collect();
+    let i = backend::pick_software(&infos, cfg!(windows))
+        .ok_or_else(|| anyhow!("no software adapter found"))?;
+    let adapter = adapters
+        .into_iter()
+        .nth(i)
+        .expect("index from pick_software");
+    let (device, queue) = request_device(&adapter)?;
+    Ok((adapter, device, queue))
+}
+
+/// Opens the renderer for one `attempt`: the window's surface and device, vello's renderer and
+/// the blur pipeline. The GPU attempt uses vello's own device selection; the software one
+/// picks the adapter itself.
 fn open_wgpu(
-    cx: &mut RenderContext,
     attempt: backend::Attempt,
     window: Arc<Window>,
     size: winit::dpi::PhysicalSize<u32>,
-) -> Result<(RenderSurface<'static>, Renderer, blur::Blur)> {
+) -> Result<(Surf, Renderer, blur::Blur)> {
     let software = attempt == backend::Attempt::Software;
-    let adapter = if software {
-        let (fresh, name) = software_adapter()?;
-        *cx = fresh;
-        Some(name)
+    let surf = if software {
+        let instance = RenderContext::new().instance;
+        let surface = instance
+            .create_surface(window)
+            .map_err(|e| anyhow!("surface: {e}"))?;
+        let (adapter, device, queue) = software_device(&instance, Some(&surface))?;
+        Surf::new(surface, &adapter, device, queue, size)?
     } else {
-        None
-    };
-    let create = |cx: &mut RenderContext| {
-        pollster::block_on(cx.create_surface(
-            window.clone(),
+        let mut cx = render_context();
+        let rs = pollster::block_on(cx.create_surface(
+            window,
             size.width.max(1),
             size.height.max(1),
             wgpu::PresentMode::AutoVsync,
         ))
-        .map_err(|e| anyhow!("surface: {e}"))
+        .map_err(|e| anyhow!("surface: {e}"))?;
+        let dev = &cx.devices[rs.dev_id];
+        Surf {
+            surface: rs.surface,
+            config: rs.config,
+            device: dev.device.clone(),
+            queue: dev.queue.clone(),
+            target_view: rs.target_view,
+            blitter: rs.blitter,
+        }
     };
-    let surface = match &adapter {
-        Some(name) => with_adapter_name(name, || create(cx))?,
-        None => create(cx)?,
-    };
-    let dev = &cx.devices[surface.dev_id];
-    let blur = blur::Blur::new(&dev.device);
-    let renderer = Renderer::new(&dev.device, renderer_options(software))
+    let blur = blur::Blur::new(&surf.device);
+    let renderer = Renderer::new(&surf.device, renderer_options(software))
         .map_err(|e| anyhow!("renderer: {e}"))?;
-    Ok((surface, renderer, blur))
+    Ok((surf, renderer, blur))
 }
 
 /// The error for when every attempt in `tried` failed; `last` is the final attempt's error.
@@ -223,7 +308,6 @@ pub fn run(app: App) -> Result<()> {
     let mut gui = Gui {
         tracks_peek_drawn: false,
         notifications_drawn: false,
-        cx: render_context(),
         gpu: None,
         app,
         views: Views::default(),
@@ -278,11 +362,10 @@ impl Gui {
             .append(&self.logical, Some(Affine::scale(factor)));
         let mut popups = Scene::new();
         popups.append(&self.popups, Some(Affine::scale(factor)));
-        let dev = &self.cx.devices[gpu.surface.dev_id];
         gpu.blur.render(
             &mut gpu.renderer,
-            &dev.device,
-            &dev.queue,
+            &gpu.surface.device,
+            &gpu.surface.queue,
             &self.scene,
             &popups,
             &gpu.surface.target_view,
@@ -295,8 +378,7 @@ impl Gui {
             // The surface no longer matches the window (resized, minimized, device reset):
             // configure it again and draw the next frame instead of reporting an error.
             Err(wgpu::SurfaceError::Outdated | wgpu::SurfaceError::Lost) => {
-                self.cx
-                    .resize_surface(&mut gpu.surface, width.max(1), height.max(1));
+                gpu.surface.resize(width, height);
                 gpu.window.request_redraw();
                 return Ok(());
             }
@@ -306,21 +388,21 @@ impl Gui {
             }
             Err(e) => return Err(anyhow!("surface texture: {e}")),
         };
-        let dev = &self.cx.devices[gpu.surface.dev_id];
-        let mut encoder = dev
-            .device
-            .create_command_encoder(&wgpu::CommandEncoderDescriptor {
-                label: Some("blit"),
-            });
+        let mut encoder =
+            gpu.surface
+                .device
+                .create_command_encoder(&wgpu::CommandEncoderDescriptor {
+                    label: Some("blit"),
+                });
         gpu.surface.blitter.copy(
-            &dev.device,
+            &gpu.surface.device,
             &mut encoder,
             &gpu.surface.target_view,
             &frame
                 .texture
                 .create_view(&wgpu::TextureViewDescriptor::default()),
         );
-        dev.queue.submit([encoder.finish()]);
+        gpu.surface.queue.submit([encoder.finish()]);
         frame.present();
         Ok(())
     }
@@ -367,7 +449,7 @@ impl ApplicationHandler for Gui {
             let mut failure = None;
             let mut opened = None;
             for (n, &attempt) in attempts.iter().enumerate() {
-                match open_wgpu(&mut self.cx, attempt, window.clone(), size) {
+                match open_wgpu(attempt, window.clone(), size) {
                     Ok(o) => {
                         opened = Some(o);
                         break;
@@ -407,8 +489,7 @@ impl ApplicationHandler for Gui {
             }
             WindowEvent::Resized(size) => {
                 if let Some(gpu) = self.gpu.as_mut() {
-                    self.cx
-                        .resize_surface(&mut gpu.surface, size.width.max(1), size.height.max(1));
+                    gpu.surface.resize(size.width, size.height);
                     gpu.window.request_redraw();
                 }
             }
@@ -636,14 +717,13 @@ pub fn screenshot(
             backend::Attempt::Gpu => {
                 let mut cx = render_context();
                 pollster::block_on(cx.device(None))
-                    .map(|id| (cx, id))
+                    .map(|id| (cx.devices[id].device.clone(), cx.devices[id].queue.clone()))
                     .ok_or_else(|| anyhow!("no GPU adapter"))
             }
-            backend::Attempt::Software => software_adapter().and_then(|(mut cx, name)| {
-                with_adapter_name(&name, || pollster::block_on(cx.device(None)))
-                    .map(|id| (cx, id))
-                    .ok_or_else(|| anyhow!("cannot open the software adapter {name:?}"))
-            }),
+            backend::Attempt::Software => {
+                let instance = RenderContext::new().instance;
+                software_device(&instance, None).map(|(_, device, queue)| (device, queue))
+            }
         };
         match result {
             Ok(o) => {
@@ -653,12 +733,11 @@ pub fn screenshot(
             Err(e) => failure = Some((n, e)),
         }
     }
-    let Some(((cx, dev_id), software)) = opened else {
+    let Some(((device, queue), software)) = opened else {
         let (n, e) = failure.expect("at least one renderer attempt");
         return Err(no_renderer(&attempts[..=n], e));
     };
-    let dev = &cx.devices[dev_id];
-    let (device, queue) = (&dev.device, &dev.queue);
+    let (device, queue) = (&device, &queue);
     let (width, height) = clamp_image_size(width, height, device.limits().max_texture_dimension_2d)
         .ok_or_else(|| anyhow!("screenshot size {width}x{height} is too large"))?;
     let mut renderer =
