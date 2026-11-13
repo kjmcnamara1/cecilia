@@ -26,7 +26,7 @@ bump version:
     # Every packaging file must be at the current version, or it has drifted: stop before editing.
     win=(packaging/scoop/cecilia.json packaging/winget/*.yaml packaging/choco/cecilia.nuspec
       packaging/choco/tools/chocolateyinstall.ps1)
-    for f in "${win[@]}" packaging/aur/*/PKGBUILD; do
+    for f in "${win[@]}" packaging/aur/cecilia{,-bin}/PKGBUILD; do
       grep -qF "$cur" "$f" || { echo "$f is not at $cur" >&2; exit 1; }
     done
 
@@ -36,7 +36,7 @@ bump version:
     cargo update --workspace --offline
     sed -i "s/^## \[Unreleased\]/&\n\n## [$new] - $(date +%F)/" CHANGELOG.md
 
-    sed -i -e "s/^pkgver=.*/pkgver=$new/" -e "s/^pkgrel=.*/pkgrel=1/" packaging/aur/*/PKGBUILD
+    sed -i -e "s/^pkgver=.*/pkgver=$new/" -e "s/^pkgrel=.*/pkgrel=1/" packaging/aur/cecilia{,-bin}/PKGBUILD
     sed -i "s/$old/$new/g" "${win[@]}"
     echo "$cur -> $new"
 
