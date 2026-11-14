@@ -69,12 +69,10 @@ jobs:
         run: |
           name=cecilia-v${{ needs.meta.outputs.version }}-${{ matrix.target }}
           mkdir "$name"
-          if [ "$RUNNER_OS" = Windows ]; then
-            # ceciliag.exe: the window without a console (Start Menu shortcuts).
-            cp target/${{ matrix.target }}/release/{cecilia,ceciliag}.exe "$name/"
-          else
-            cp target/${{ matrix.target }}/release/cecilia "$name/"
-          fi
+          # Every binary of the crate: cargo-binstall refuses an archive that lacks one.
+          # ceciliag(.exe) is `cecilia --gui`; on Windows without a console (Start Menu shortcuts).
+          exe=; [ "$RUNNER_OS" = Windows ] && exe=.exe
+          cp target/${{ matrix.target }}/release/{cecilia,ceciliag}$exe "$name/"
           cp LICENSE-APACHE LICENSE-MIT README.md CHANGELOG.md "$name/"
           if [ "$RUNNER_OS" = Linux ]; then
             cp -r packaging/linux "$name/"

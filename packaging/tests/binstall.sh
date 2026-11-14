@@ -11,4 +11,10 @@ check '.["pkg-url"]' '{ repo }/releases/download/v{ version }/cecilia-v{ version
 check '.["bin-dir"]' 'cecilia-v{ version }-{ target }/{ bin }{ binary-ext }'
 check '.["pkg-fmt"]' 'tgz'
 check '.overrides["x86_64-pc-windows-msvc"]["pkg-fmt"]' 'zip'
+# binstall needs every binary of the crate in the archive, so the Package step must copy them all.
+bins=$(cargo metadata --no-deps --format-version 1 \
+    | jq -r '[.packages[] | select(.name == "cecilia") | .targets[]
+              | select(.kind | index("bin")) | .name] | sort | join(",")')
+grep -qF "release/{$bins}\$exe \"\$name/\"" .github/workflows/release.yml \
+    || fail "release.yml's Package step does not copy every binary ({$bins})"
 echo "binstall: ok"
