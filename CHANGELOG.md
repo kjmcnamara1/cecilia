@@ -7,6 +7,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+
+- The AppImage shows the lily in the dock and task bar instead of a generic icon: it keeps a
+  hidden desktop entry and the icon in `~/.local/share`, which is how GNOME, KDE and others find a
+  window's icon on Wayland.
+- 0.49.1 said the `.deb` and `.rpm` would show cecilia's icon and developer in software centres
+  before installing. They can't: GNOME Software and the Ubuntu App Center read only the package
+  header from a downloaded package file. The metainfo is used once cecilia is installed.
+
 ## [0.49.1] - 2026-11-13
 
 ### Fixed
