@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.49.1] - 2026-11-13
+
 ### Fixed
 
 - The `.deb`, `.rpm`, AUR, AppImage and install-script packages now include the AppStream
