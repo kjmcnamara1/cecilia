@@ -1,6 +1,6 @@
 ---
 name: feature-branch
-description: Workflow for adding a new feature to cecilia - creates a herdr worktree branch, delegates the work to a bounded subagent, merges main into the branch and tests, then merges into main. Use this whenever the user wants to add, implement, build or prototype a feature, command, setting, pane, tool or format support, even if they don't mention branches or worktrees. Skip it for small bug fixes, renames and docs-only edits unless asked.
+description: Workflow for adding a new feature to cecilia - creates a worktree branch (via T3 Code, herdr or plain git worktree, whichever the user is using), delegates the work to a bounded subagent, merges main into the branch and tests, then merges into main. Use this whenever the user wants to add, implement, build or prototype a feature, command, setting, pane, tool or format support, even if they don't mention branches or worktrees. Skip it for small bug fixes, renames and docs-only edits unless asked.
 ---
 
 # Feature branch workflow
@@ -9,14 +9,21 @@ Use for every new feature (not for small fixes or docs-only edits unless asked).
 
 ## 1. Create the worktree
 
-From the main checkout, on an up-to-date `main`:
+Always work in a separate worktree, never in the main checkout. Create it with whatever tool
+the user is working in or asks for (T3 Code, herdr, or plain `git worktree`). If the user hasn't
+said which, ask. Start from an up-to-date `main`, on a branch named `feat/<short-name>`
+(kebab-case). Examples:
 
 ```sh
+# plain git
+git worktree add -b feat/<short-name> ../cecilia-<short-name> main
+# herdr
 herdr worktree create --cwd /home/kjm/Projects/cecilia --branch feat/<short-name> --base main --label <short-name> --no-focus
 ```
 
-Note the worktree path and workspace ID it reports. Branch names are kebab-case with a
-`feat/` prefix.
+For T3 Code, create the worktree through its own UI/flow with the same branch name and base.
+
+Note the worktree path (and workspace ID, if the tool reports one).
 
 `test-corpus/` is gitignored (and holds symlinks), so a new worktree doesn't have it. Link it
 in so the subagent can use the sample scores for tests and screenshots:
@@ -80,5 +87,6 @@ bump, and a breaking change a minor bump while on 0.x. Then:
 
 State the chosen version and why when reporting. Do not push the commit or tag unless asked.
 
-Afterwards offer to remove the worktree (`herdr worktree remove --workspace <ID>`) and delete
-the branch. Do not push unless asked.
+Afterwards offer to remove the worktree (with the same tool that created it: `git worktree remove
+<path>`, `herdr worktree remove --workspace <ID>`, or T3 Code's own cleanup) and delete the
+branch. Do not push unless asked.
