@@ -2,6 +2,52 @@
 # The AppImage's entry point. Started with no arguments and no terminal (a double-click in a
 # file manager) cecilia opens the window; the terminal interface would have nowhere to draw.
 here=$(dirname "$(readlink -f "$0")")
+
+# Docks and task bars find a window's icon through the desktop entry whose name or
+# StartupWMClass matches its app ID (`cecilia`); on Wayland there is no other way. An AppImage
+# installs none, so the dock showed a generic icon. Keep a hidden entry (NoDisplay: no menu item,
+# that is left to AppImage managers) and the icon in the user's data folder, pointing at this
+# AppImage; TryExec hides the entry once the AppImage is gone. When a package already installs
+# cecilia.desktop, that entry does the job and ours is removed.
+integrate() {
+    [ -n "${APPIMAGE:-}" ] && [ -n "${HOME:-}" ] || return 0
+    data=${XDG_DATA_HOME:-$HOME/.local/share}
+    entry=$data/applications/cecilia-appimage.desktop
+    icon=$data/icons/hicolor/scalable/apps/cecilia-appimage.svg
+    IFS=:
+    for dir in $data ${XDG_DATA_DIRS:-/usr/local/share:/usr/share}; do
+        if [ -f "$dir/applications/cecilia.desktop" ]; then
+            unset IFS
+            rm -f "$entry" "$icon"
+            return 0
+        fi
+    done
+    unset IFS
+    # Desktop entry escaping: string values double backslashes; a quoted Exec argument also
+    # escapes " ` $ and \ (so a backslash becomes four), and % is doubled.
+    tryexec=$(printf '%s' "$APPIMAGE" | sed 's/\\/\\\\/g')
+    exec_path=$(printf '%s' "$APPIMAGE" | sed -e 's/\\/\\\\\\\\/g' -e 's/["`$]/\\\\&/g' -e 's/%/%%/g')
+    new=$(cat <<EOF
+[Desktop Entry]
+Type=Application
+Name=cecilia
+Comment=Edit and play guitar tablature, scores and chant
+Exec="$exec_path" --gui %F
+TryExec=$tryexec
+Icon=$icon
+Terminal=false
+NoDisplay=true
+StartupWMClass=cecilia
+EOF
+)
+    mkdir -p "$(dirname "$entry")" "$(dirname "$icon")"
+    cmp -s "$here/usr/share/icons/hicolor/scalable/apps/cecilia.svg" "$icon" ||
+        cp "$here/usr/share/icons/hicolor/scalable/apps/cecilia.svg" "$icon"
+    # Rewrite only on change: desktop shells reload their app list whenever the folder changes.
+    [ "$(cat "$entry" 2>/dev/null)" = "$new" ] || printf '%s\n' "$new" > "$entry"
+}
+(integrate) 2>/dev/null || true
+
 if [ $# -eq 0 ] && [ ! -t 0 ]; then
     set -- --gui
 fi

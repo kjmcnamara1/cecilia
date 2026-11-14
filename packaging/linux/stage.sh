@@ -16,8 +16,9 @@ install -Dm755 "$BIN" "$DEST/bin/cecilia"
 install -Dm644 "$HERE/cecilia.desktop" "$DEST/share/applications/cecilia.desktop"
 install -Dm644 "$HERE/cecilia.svg" "$DEST/share/icons/hicolor/scalable/apps/cecilia.svg"
 install -Dm644 "$HERE/cecilia-mime.xml" "$DEST/share/mime/packages/cecilia.xml"
-# AppStream metadata: software centres (GNOME Software, Ubuntu App Center) take the app's name,
-# icon and developer from it.
+# AppStream metadata, for software centres once cecilia is installed. A package file opened
+# before installing shows only its header (name, summary, licence, URL): GNOME Software and the
+# Ubuntu App Center read no metainfo or icon from inside it.
 install -Dm644 "$HERE/io.github.kjmcnamara1.cecilia.metainfo.xml" \
     "$DEST/share/metainfo/io.github.kjmcnamara1.cecilia.metainfo.xml"
 install -Dm644 "$TOP/LICENSE-MIT" "$DEST/share/licenses/cecilia/LICENSE-MIT"

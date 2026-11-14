@@ -77,7 +77,10 @@ The first time the tuner opens, macOS asks for microphone access.
   configuration in `~/snap/cecilia/current/.config/cecilia` (and a SoundFont from
   `:soundfont-install` in `~/snap/cecilia/current/.local/share/cecilia/soundfonts`).
 - **AppImage**: runs as it is. It does not add a menu entry by itself; an AppImage manager does.
-  Double-clicked from a file manager it starts the window; started from a terminal with no
+  So that docks show its icon, it keeps a hidden desktop entry and the icon in
+  `~/.local/share/applications/cecilia-appimage.desktop` and
+  `~/.local/share/icons/hicolor/scalable/apps/cecilia-appimage.svg` (removed again when a package
+  installs `cecilia.desktop`; the entry hides itself once the AppImage is deleted). Double-clicked from a file manager it starts the window; started from a terminal with no
   arguments it starts the terminal interface.
 - **Arch, Debian/Ubuntu, Fedora**: the AUR packages, `.deb` and `.rpm` also install the desktop
   entry, icon and file types.
