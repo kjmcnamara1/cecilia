@@ -1348,6 +1348,10 @@ impl App {
                 p.query.clear();
                 p.selected = 0;
             }
+            KeyCode::Char('v') if key.ctrl => {
+                p.query += &crate::clipboard::get_line();
+                p.selected = 0;
+            }
             KeyCode::Backspace => {
                 p.query.pop();
                 p.selected = 0;
@@ -1587,6 +1591,21 @@ mod tests {
         keys(&mut app, ":<Up><Up><CR>");
         assert_eq!(app.mode, Mode::Normal);
         assert_ne!(app.pane().cursor.bar, bar);
+    }
+
+    #[test]
+    fn ctrl_v_pastes_the_clipboard_into_the_command_line_and_pickers() {
+        let mut app = App::new(Config::default(), None);
+        app.run(Command::New);
+        // Line breaks and tabs become spaces: the field is one line.
+        crate::clipboard::set("one\ttwo\r\nthree\n");
+        keys(&mut app, ":open <C-v>");
+        assert_eq!(app.cmdline, "open one two three");
+        keys(&mut app, "<Esc><Space>?");
+        crate::clipboard::set("file picker");
+        keys(&mut app, "<C-v>");
+        let p = app.palette().unwrap();
+        assert_eq!(p.items[0].text, "<C-o>");
     }
 
     #[test]
