@@ -2202,6 +2202,7 @@ impl App {
             KeyCode::Esc => self.leave_command_mode(),
             KeyCode::Char('c') if key.ctrl => self.leave_command_mode(),
             KeyCode::Char('u') if key.ctrl => self.cmdline.clear(),
+            KeyCode::Char('v') if key.ctrl => self.cmdline += &crate::clipboard::get_line(),
             KeyCode::Enter => {
                 let line = std::mem::take(&mut self.cmdline);
                 let from_visual = std::mem::take(&mut self.cmd_from_visual);

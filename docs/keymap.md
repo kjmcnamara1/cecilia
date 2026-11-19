@@ -204,7 +204,7 @@ that moves.
 ● when modified), the views (with their files) or the saved workspaces (with their view and file
 counts). Typing filters the list with the same matching as completion (fuzzy, case-insensitive
 by default) and highlights what matched; the top match, nearest the input, is selected — the
-list grows down from the input, so `<Down>` (or `<Tab>`, `<A-j>`, `<C-n>`) goes further down and `<Up>` (`<S-Tab>`, `<A-k>`, `<C-p>`) back; `<Enter>` switches, `<Esc>` cancels. The buffer and
+list grows down from the input, so `<Down>` (or `<Tab>`, `<A-j>`, `<C-n>`) goes further down and `<Up>` (`<S-Tab>`, `<A-k>`, `<C-p>`) back; `<Enter>` switches, `<Esc>` cancels; `<C-u>` clears what you typed and `<C-v>` pastes the system clipboard. The buffer and
 view pickers also work while a song plays.
 
 | command                                                                                          |                                                                                                     |
@@ -732,7 +732,8 @@ typed, with when each was run on the right (`ui.command_history_time`: "5m ago" 
 command line as usual (`:pick history` also opens it). The box sits `ui.picker_position` percent
 (default 25) down the window and lists at most `ui.picker_max_items` (12) candidates; the pickers
 list downward from the input and only the command history upward, so a large position leaves little room below and a small one little above. `<Enter>`
-runs the line, `<Esc>` closes the palette, `<C-p>`/`<C-n>` recall earlier commands.
+runs the line, `<Esc>` closes the palette, `<C-p>`/`<C-n>` recall earlier commands, `<C-u>` clears the
+line and `<C-v>` pastes the system clipboard into it (line breaks become spaces).
 
 Matching is **fuzzy** by default: the typed letters may appear anywhere in a candidate, in order
 (`:sd` finds `sync-detect`, `speed-down`), with prefix matches first, then matches at word

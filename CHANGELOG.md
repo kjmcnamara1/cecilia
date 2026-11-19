@@ -7,6 +7,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- `<C-v>` pastes the system clipboard into the command palette (the `:` line) and pickers'
+  queries; line breaks become spaces.
+
 ## [0.49.1] - 2026-11-13
 
 ### Fixed
