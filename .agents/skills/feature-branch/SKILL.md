@@ -79,7 +79,7 @@ Right after the merge, on `main`, pick the semantic version bump (the project is
 the user decides when to reach 1.0.0): a new feature is a minor bump, a fix-only change a patch
 bump, and a breaking change a minor bump while on 0.x. Then:
 
-1. Run `just bump minor` (or `patch`, or an explicit `just bump X.Y.Z`). It sets the version in
+1. Run `mise run bump minor` (or `patch`, or an explicit `mise run bump X.Y.Z`). It sets the version in
    `Cargo.toml` and `Cargo.lock`, moves the `[Unreleased]` entries in `CHANGELOG.md` under a new
    dated heading, and updates the AUR PKGBUILDs and the Scoop, Winget and Chocolatey manifests. It
    refuses an empty `[Unreleased]`.

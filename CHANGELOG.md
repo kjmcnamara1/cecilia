@@ -20,6 +20,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- Development tasks are mise tasks (`mise.toml`) instead of a justfile: `mise run bump`,
+  `mise run ci`, and the new `mise run gui` / `mise run tui` to run a release build.
 - `y` yanks the notes only, without their lyrics (on a chant, a whole syllable's notes come
   without its text); `Y` keeps them. `d` and `c` still keep the lyrics.
 - `G` goes to the very end of the score (the last beat of the last bar), not the start of the
