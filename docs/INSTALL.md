@@ -16,6 +16,7 @@ in the [README](../README.md#installation).
 | Arch    | AUR                                    | `yay -S cecilia` (builds), `cecilia-bin` (release binary), `cecilia-git` |
 | Debian  | `.deb`                                 | `sudo apt install ./cecilia-editor_X.Y.Z_amd64.deb`                      |
 | Fedora  | `.rpm`                                 | `sudo dnf install ./cecilia-editor-X.Y.Z-1.x86_64.rpm`                   |
+| Nix     | flake (builds from source)             | `nix profile add github:kjmcnamara1/cecilia` (NixOS: see [Nix](#nix-and-nixos)) |
 | Windows | Scoop, Winget, Chocolatey, zip         | see [Windows](#windows)                                                  |
 | any     | `cargo binstall` (release binary)      | `cargo binstall cecilia`                                                 |
 | any     | `cargo install` (builds from source)   | `cargo install --locked cecilia`                                         |
@@ -84,6 +85,80 @@ The first time the tuner opens, macOS asks for microphone access.
 
 The window loads Vulkan or OpenGL at run time (`ui.renderer` falls back to the CPU renderer when
 there is no GPU, see the README).
+
+## Nix and NixOS
+
+The repository is a Nix flake. It builds cecilia from source (there is no binary cache, so the
+first install compiles for a few minutes) and installs `cecilia`, `ceciliag`, the desktop entry,
+icon and file types. Flakes must be enabled: add `experimental-features = nix-command flakes` to
+`~/.config/nix/nix.conf` (or `/etc/nix/nix.conf`), or pass
+`--extra-experimental-features 'nix-command flakes'` to each command.
+
+Try it without installing:
+
+```sh
+nix run github:kjmcnamara1/cecilia -- --gui song.gp5
+```
+
+### With Nix on any Linux or macOS
+
+Install into your user profile:
+
+```sh
+nix profile add github:kjmcnamara1/cecilia            # latest main
+nix profile add github:kjmcnamara1/cecilia/vX.Y.Z     # a release tag (from the first release with the flake)
+nix profile upgrade cecilia                           # update later
+nix profile remove cecilia
+```
+
+Older Nix versions only have `nix profile install`, which newer ones still accept.
+
+Outside NixOS the system's own GPU drivers cannot be loaded by Nix-built programs, so cecilia falls
+back to nixpkgs' Mesa: this covers AMD, Intel and software rendering. With NVIDIA's proprietary
+driver, run it through [nixGL](https://github.com/nix-community/nixGL)
+(`nixGL cecilia --gui`). For the desktop entry to show in your menu, `~/.nix-profile/share` must
+be in `XDG_DATA_DIRS` (the Nix installer sets this up for login shells).
+
+### On NixOS
+
+Add the flake as an input of your system flake and the package to your system:
+
+```nix
+# flake.nix
+{
+  inputs = {
+    nixpkgs.url = "github:NixOS/nixpkgs/nixos-unstable";
+    cecilia.url = "github:kjmcnamara1/cecilia";   # or ".../cecilia/vX.Y.Z" for a release
+    cecilia.inputs.nixpkgs.follows = "nixpkgs";  # build against your nixpkgs
+  };
+
+  outputs = { nixpkgs, cecilia, ... }: {
+    nixosConfigurations.myhost = nixpkgs.lib.nixosSystem {
+      system = "x86_64-linux";
+      modules = [
+        ./configuration.nix
+        ({ pkgs, ... }: {
+          environment.systemPackages = [
+            cecilia.packages.${pkgs.stdenv.hostPlatform.system}.default
+          ];
+        })
+      ];
+    };
+  };
+}
+```
+
+then `sudo nixos-rebuild switch`. `nix flake update cecilia` followed by a rebuild updates it. The
+window uses the system's graphics drivers, so `hardware.graphics.enable = true;` must be set (desktop
+environments turn it on). Sound goes through ALSA, which PipeWire and PulseAudio both provide.
+
+With Home Manager, put the same package in `home.packages` instead.
+
+### Working on cecilia
+
+`nix develop` in a checkout gives a shell with the Rust toolchain, clippy, rustfmt, `just` and the
+libraries cecilia needs, so `cargo build`, `cargo test` and `just ci` work as described in the
+README.
 
 ## Windows
 

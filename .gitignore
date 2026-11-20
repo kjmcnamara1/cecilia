@@ -4,3 +4,4 @@
 *.sf3
 
 /packaging/flatpak/cargo-sources.json
+/result

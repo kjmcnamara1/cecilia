@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- Nix flake: `nix profile install github:kjmcnamara1/cecilia` (or `nix run`), plus a dev shell.
+
 ## [0.49.1] - 2026-11-13
 
 ### Fixed

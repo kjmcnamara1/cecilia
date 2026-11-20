@@ -132,6 +132,7 @@ curl -fsSL https://github.com/kjmcnamara1/cecilia/releases/latest/download/insta
 | ------- | ------------------------------------------------------------------------------------------------ |
 | macOS   | `brew install --cask kjmcnamara1/cecilia/cecilia` (the app), or the `.dmg` from the releases     |
 | Linux   | Flatpak bundle, `snap install cecilia`, AppImage, AUR (`cecilia`, `cecilia-bin`), `.deb`, `.rpm` |
+| Nix     | `nix profile add github:kjmcnamara1/cecilia`, or the flake as a NixOS input                      |
 | Windows | `cecilia-win-Setup.exe` (see below), or the release zip                                          |
 | any     | `cargo binstall cecilia`, or `cargo install --locked cecilia`                                    |
 
