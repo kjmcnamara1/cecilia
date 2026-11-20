@@ -4124,7 +4124,10 @@ mod render_tests {
             eprintln!("skipped: {path} not found (test-corpus is not in git)");
             return None;
         }
-        let mut app = App::new(cecilia_app::Config::default(), None);
+        // Pin the glyphs: "auto" guesses from the terminal (TERM=linux gives ASCII).
+        let mut config = cecilia_app::Config::default();
+        config.file.tabline.icons = "unicode".into();
+        let mut app = App::new(config, None);
         app.set_tool(PaneKind::Properties, Some(false));
         app.run(cecilia_app::Command::Edit(path.into()));
         Some(app)
