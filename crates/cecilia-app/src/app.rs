@@ -2202,6 +2202,7 @@ impl App {
             KeyCode::Esc => self.leave_command_mode(),
             KeyCode::Char('c') if key.ctrl => self.leave_command_mode(),
             KeyCode::Char('u') if key.ctrl => self.cmdline.clear(),
+            KeyCode::Char('v') if key.ctrl => self.cmdline += &crate::clipboard::get_line(),
             KeyCode::Enter => {
                 let line = std::mem::take(&mut self.cmdline);
                 let from_visual = std::mem::take(&mut self.cmd_from_visual);
@@ -2655,7 +2656,11 @@ impl App {
                 let here = (self.pane().buffer, self.pane().cursor);
                 match cmd {
                     GotoFirst => self.move_cursor(|s, c| set_bar(s, c, 0)),
-                    GotoLast => self.move_cursor(|s, c| set_bar(s, c, usize::MAX)),
+                    // The very end: the last beat of the last bar.
+                    GotoLast => self.move_cursor(|s, c| {
+                        set_bar(s, c, usize::MAX);
+                        c.beat = beats(s, c).len().saturating_sub(1);
+                    }),
                     GotoBar(n) => self.move_cursor(|s, c| set_bar(s, c, n.saturating_sub(1))),
                     // A chant: `bar:syllable.note` (a missing note is the first, a division 0).
                     GotoPos(n, pos) if self.cursor_on_chant() => {

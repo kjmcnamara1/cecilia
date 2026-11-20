@@ -42,8 +42,17 @@ pub enum Direction {
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Operator {
     Delete,
+    /// Yanks the notes only: lyrics are left behind.
     Yank,
+    /// Yanks the notes and their lyrics.
+    YankLyrics,
     Change,
+}
+
+impl Operator {
+    pub fn is_yank(self) -> bool {
+        matches!(self, Self::Yank | Self::YankLyrics)
+    }
 }
 
 /// Where `i`, `a`, `I` and `A` put the beat they start typing into.
@@ -833,6 +842,7 @@ impl Command {
             "reflow" => Reflow,
             "delete" => Operator(self::Operator::Delete),
             "yank" => Operator(self::Operator::Yank),
+            "yank-lyrics" => Operator(self::Operator::YankLyrics),
             "change" => Operator(self::Operator::Change),
             "put" => Put { before: false },
             "put-before" => Put { before: true },

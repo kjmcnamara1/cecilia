@@ -156,8 +156,8 @@ With Home Manager, put the same package in `home.packages` instead.
 
 ### Working on cecilia
 
-`nix develop` in a checkout gives a shell with the Rust toolchain, clippy, rustfmt, `just` and the
-libraries cecilia needs, so `cargo build`, `cargo test` and `just ci` work as described in the
+`nix develop` in a checkout gives a shell with the Rust toolchain, clippy, rustfmt, mise and the
+libraries cecilia needs, so `cargo build`, `cargo test` and `mise run ci` work as described in the
 README.
 
 ## Windows

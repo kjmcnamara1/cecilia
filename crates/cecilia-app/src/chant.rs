@@ -83,6 +83,24 @@ fn toggle_modifier(chant: &mut Chant, n: usize, m: &str) -> Result<(), String> {
     }
 }
 
+/// The division that ends a phrase (a bar of the transcription) in syllable `s`, as written:
+/// any but a virgula.
+fn phrase_end(s: &Syllable) -> Option<&str> {
+    s.items.iter().rev().find_map(|i| match i {
+        NeumeItem::Bar(b) if chant::Division::of(b) != chant::Division::Virgula => Some(b.as_str()),
+        _ => None,
+    })
+}
+
+/// The empty group `o` / `O` added to a chant (see [`App::chant_open`]).
+#[derive(Debug, Clone)]
+pub(crate) struct ChantOpen {
+    buffer: usize,
+    track: usize,
+    /// The empty group's id.
+    slot: u32,
+}
+
 /// Where the cursor goes after an edit of a chant.
 enum Target {
     /// The note with this index in reading order.
@@ -294,6 +312,83 @@ impl App {
             };
             Ok(Some(Target::Syllable(chant.insert_slot(index))))
         });
+    }
+
+    /// `o` (`after`) and `O` on a chant: a new phrase, an empty group `()` and a division
+    /// closing it, then Insert mode on the group. `o` puts it after the division that ends the
+    /// cursor's phrase, closed by the same division; where none follows, the phrase is closed
+    /// first by the division that began it, and the new one by a finalis at the end (`(:) ()
+    /// (::)`). `O` puts it after the division that ends the phrase before, closed by the same
+    /// one; in the first phrase, at the start, closed by the division that ends that phrase.
+    /// `:` stands in where there is no division to copy. Leaving Insert mode with nothing
+    /// entered keeps all of it.
+    fn chant_open(&mut self, after: bool) {
+        self.ed.group = Some(false);
+        self.chant_line_follows_note();
+        let buffer = self.pane().buffer;
+        let track = self.pane().cursor.track;
+        let mut opened = None;
+        self.chant_cell_op(|chant, _, cell| {
+            let len = chant.syllables.len();
+            let here = cell.map_or(len, |c| c.syllable);
+            let sign = |i: usize| phrase_end(&chant.syllables[i]).map(String::from);
+            let next = (here..len).find(|&i| sign(i).is_some());
+            let prev = (0..here.min(len)).rev().find(|&i| sign(i).is_some());
+            let or_colon = |i: Option<usize>| i.and_then(sign).unwrap_or_else(|| ":".into());
+            // Where the group goes, a division before it, and the one after it.
+            let (at, lead, close) = match (after, next, prev) {
+                (true, Some(n), _) => (n + 1, None, or_colon(Some(n))),
+                (true, None, p) => (len, Some(or_colon(p)), "::".to_string()),
+                (false, _, Some(p)) => (p + 1, None, or_colon(Some(p))),
+                (false, n, None) => {
+                    let start = chant
+                        .syllables
+                        .iter()
+                        .position(|s| !s.is_clef_line())
+                        .unwrap_or(len);
+                    (start, None, or_colon(n))
+                }
+            };
+            let mut k = at;
+            if let Some(sign) = lead {
+                chant.insert_slot(k);
+                chant.set_group_division(k, Some(&sign))?;
+                k += 1;
+            }
+            let slot = chant.insert_slot(k);
+            chant.syllables[slot].word_start = true;
+            chant.insert_slot(k + 1);
+            chant.set_group_division(k + 1, Some(&close))?;
+            chant.assign_ids();
+            opened = Some(ChantOpen {
+                buffer,
+                track,
+                slot: chant.syllables[slot].id,
+            });
+            Ok(Some(Target::Syllable(slot)))
+        });
+        if opened.is_some() {
+            self.ed.chant_open = opened;
+            self.enter_insert();
+        }
+    }
+
+    /// Whether the empty group `o` / `O` added is still there with nothing entered in it:
+    /// leaving Insert mode then keeps it and its divisions, the new phrase staying open.
+    fn chant_open_untouched(&self, open: &ChantOpen) -> bool {
+        self.pane().buffer == open.buffer
+            && self
+                .buffer()
+                .score
+                .tracks
+                .get(open.track)
+                .and_then(|t| t.chant.as_deref())
+                .is_some_and(|chant| {
+                    chant
+                        .syllables
+                        .iter()
+                        .any(|s| s.id == open.slot && s.is_slot() && s.text.is_empty())
+                })
     }
 
     /// `:lyrics TEXT` on a chant: `text` is the whole text of the cursor syllable.
@@ -798,12 +893,31 @@ impl App {
     }
 
     /// `p` and `P` on a chant: the groups of the register go in after (before) the cursor
-    /// cell's syllable, `count` times over, and the cursor goes to the first.
-    pub(crate) fn chant_paste(&mut self, groups: Vec<Syllable>, before: bool, count: usize) {
+    /// cell's syllable, or with `bars` after (before) the cursor's bar, `count` times over, and
+    /// the cursor goes to the first.
+    pub(crate) fn chant_paste(
+        &mut self,
+        groups: Vec<Syllable>,
+        bars: bool,
+        before: bool,
+        count: usize,
+    ) {
+        let bar = self.pane().cursor.bar;
         self.chant_cell_op(move |chant, _, cell| {
-            let at = match cell {
-                Some(c) => c.syllable + usize::from(!before),
-                None => chant.syllables.len(),
+            let in_bar = || {
+                let t = transcribe(chant);
+                let mut s = t.cells.iter().filter(|c| c.bar == bar).map(|c| c.syllable);
+                let first = s.next()?;
+                Some((first, s.next_back().unwrap_or(first)))
+            };
+            let at = match (bars, cell) {
+                (true, _) => match in_bar() {
+                    Some((first, _)) if before => first,
+                    Some((_, last)) => last + 1,
+                    None => chant.syllables.len(),
+                },
+                (false, Some(c)) => c.syllable + usize::from(!before),
+                (false, None) => chant.syllables.len(),
             };
             for (k, g) in std::iter::repeat_n(groups, count).flatten().enumerate() {
                 chant.syllables.insert(at + k, g);
@@ -897,7 +1011,10 @@ impl App {
                 let (from, to) = ((at.bar, at.beat), (at.bar, at.beat));
                 let clip = self.chant_clip(from, to);
                 if !clip.is_empty() {
-                    self.store(crate::editor::Clip::Chant(clip));
+                    self.store(crate::editor::Clip::Chant {
+                        groups: clip,
+                        bars: false,
+                    });
                 }
                 self.chant_delete_cells(from, to, true);
             }
@@ -925,13 +1042,14 @@ impl App {
             Put { .. }
                 if matches!(
                     self.ed.registers.get(&self.ed.register.unwrap_or('"')),
-                    Some(crate::editor::Clip::Chant(_))
+                    Some(crate::editor::Clip::Chant { .. })
                 ) =>
             {
                 return false;
             }
             Put { .. } => refuse(self, "paste"),
-            BarInsert { .. } | BarOpen { .. } | BarDelete => refuse(self, "bar edit"),
+            BarOpen { after } => self.chant_open(*after),
+            BarInsert { .. } | BarDelete => refuse(self, "bar edit"),
             _ => return false,
         }
         true
@@ -949,6 +1067,11 @@ impl App {
                     && self.cursor_on_chant()
                     && !self.ed.replace =>
             {
+                if let Some(open) = self.ed.chant_open.take()
+                    && self.chant_open_untouched(&open)
+                {
+                    return false;
+                }
                 self.chant_drop_slot();
                 return false;
             }
@@ -2051,6 +2174,125 @@ mod tests {
         sorted.sort();
         sorted.dedup();
         assert_eq!(ids.len(), sorted.len());
+    }
+
+    #[test]
+    fn y_yanks_the_notes_and_capital_y_the_lyrics_too() {
+        // `y`: the groups go in again without their lyrics.
+        let mut a = app();
+        keys(&mut a, "vlyp");
+        assert_eq!(gabc(&a), "(c4) Al(fg) (fg) le(h) lu(g) ia.(f.) (::)");
+        // `Y`: with them.
+        let mut b = app();
+        keys(&mut b, "vlYp");
+        assert_eq!(gabc(&b), "(c4) Al(fg) Al(fg) le(h) lu(g) ia.(f.) (::)");
+        // `Y` with a motion.
+        let mut c = app();
+        keys(&mut c, "Y2l");
+        keys(&mut c, "P");
+        assert!(gabc(&c).starts_with("(c4) Al(fg) Al(fg)"), "{}", gabc(&c));
+        // `d` keeps the lyrics, so `dp` puts back what was there.
+        let mut d = app();
+        keys(&mut d, "vldP");
+        assert_eq!(gabc(&d), "(c4) Al(fg) le(h) lu(g) ia.(f.) (::)");
+    }
+
+    const PHRASES: &str = "name: t;\n%%\n(c4) Al(fg)le(h) (;) lu(g)ia.(f.) (::)\n";
+
+    #[test]
+    fn whole_bars_are_yanked_and_put_after_or_before_the_cursors_bar() {
+        // `YY` takes the first phrase, lyrics and all; `p` in the second puts it after that.
+        let mut a = app_of(PHRASES);
+        keys(&mut a, "YY");
+        go(&mut a, 1, 0);
+        keys(&mut a, "p");
+        assert_eq!(
+            gabc(&a),
+            "(c4) Al(fg) le(h) (;) lu(g) ia.(f.) (::) Al(fg) le(h) (;)"
+        );
+        // `P` before the cursor's bar.
+        let mut b = app_of(PHRASES);
+        keys(&mut b, "YY");
+        go(&mut b, 1, 1);
+        keys(&mut b, "P");
+        assert_eq!(
+            gabc(&b),
+            "(c4) Al(fg) le(h) (;) Al(fg) le(h) (;) lu(g) ia.(f.) (::)"
+        );
+        // `yy` and `Vy` leave the lyrics behind.
+        for k in ["yy", "Vy"] {
+            let mut c = app_of(PHRASES);
+            keys(&mut c, k);
+            keys(&mut c, "P");
+            assert_eq!(
+                gabc(&c),
+                "(c4) (fg) (h) (;) Al(fg) le(h) (;) lu(g) ia.(f.) (::)",
+                "{k}"
+            );
+        }
+        // `dd` takes the bar out, and `p` puts it back after the next.
+        let mut d = app_of(PHRASES);
+        keys(&mut d, "dd");
+        assert_eq!(gabc(&d), "(c4) lu(g) ia.(f.) (::)");
+        keys(&mut d, "p");
+        assert_eq!(gabc(&d), "(c4) lu(g) ia.(f.) (::) Al(fg) le(h) (;)");
+    }
+
+    #[test]
+    fn capital_g_goes_to_the_very_end() {
+        let mut a = app_of(PHRASES);
+        keys(&mut a, "G");
+        assert_eq!(a.chant_cursor_cell().unwrap().kind, CellKind::Division);
+        keys(&mut a, "ggdG");
+        assert_eq!(gabc(&a), "(c4)");
+    }
+
+    #[test]
+    fn o_opens_a_phrase_after_the_cursors_division() {
+        let mut a = app_of(PHRASES);
+        keys(&mut a, "o");
+        assert_eq!(a.mode, crate::config::Mode::Insert);
+        assert_eq!(a.chant_cursor_cell().unwrap().kind, CellKind::Slot);
+        assert_eq!(gabc(&a), "(c4) Al(fg) le(h) (;) () (;) lu(g) ia.(f.) (::)");
+        // Nothing entered: leaving Insert mode keeps it all.
+        keys(&mut a, "<Esc>");
+        assert_eq!(gabc(&a), "(c4) Al(fg) le(h) (;) () (;) lu(g) ia.(f.) (::)");
+        assert_eq!(a.chant_cursor_cell().unwrap().kind, CellKind::Slot);
+        // A note entered stays, and the empty group after it goes.
+        let mut a = app_of(PHRASES);
+        keys(&mut a, "o<CR><Esc>");
+        assert!(gabc(&a).contains("(;) (f) (;) lu(g)"), "{}", gabc(&a));
+        // In the last phrase: after the finalis, closed by one.
+        let mut b = app_of(PHRASES);
+        go(&mut b, 1, 0);
+        keys(&mut b, "o");
+        assert!(gabc(&b).ends_with("(::) () (::)"), "{}", gabc(&b));
+        // No division after the cursor: the phrase is closed by the one that began it.
+        let mut c = app_of("name: t;\n%%\n(c4) Al(fg) (;) le(h)\n");
+        go(&mut c, 1, 0);
+        keys(&mut c, "o");
+        assert_eq!(gabc(&c), "(c4) Al(fg) (;) le(h) (;) () (::)");
+        assert_eq!(c.chant_cursor_cell().unwrap().kind, CellKind::Slot);
+        keys(&mut c, "<Esc>");
+        assert_eq!(gabc(&c), "(c4) Al(fg) (;) le(h) (;) () (::)");
+    }
+
+    #[test]
+    fn capital_o_opens_a_phrase_after_the_division_before() {
+        let mut a = app_of(PHRASES);
+        go(&mut a, 1, 0);
+        keys(&mut a, "O");
+        assert_eq!(a.chant_cursor_cell().unwrap().kind, CellKind::Slot);
+        assert_eq!(gabc(&a), "(c4) Al(fg) le(h) (;) () (;) lu(g) ia.(f.) (::)");
+        keys(&mut a, "<Esc>");
+        assert_eq!(gabc(&a), "(c4) Al(fg) le(h) (;) () (;) lu(g) ia.(f.) (::)");
+        // In the first phrase: at the start, closed by the division that ends it.
+        let mut b = app_of(PHRASES);
+        keys(&mut b, "O");
+        assert_eq!(a.mode, crate::config::Mode::Normal);
+        assert_eq!(b.mode, crate::config::Mode::Insert);
+        assert_eq!(gabc(&b), "(c4) () (;) Al(fg) le(h) (;) lu(g) ia.(f.) (::)");
+        assert_eq!(b.chant_cursor_cell().unwrap().kind, CellKind::Slot);
     }
 
     #[test]

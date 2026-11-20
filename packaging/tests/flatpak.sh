@@ -25,5 +25,5 @@ else
 fi
 
 version=$(sed -n 's/^version = "\(.*\)"$/\1/p' Cargo.toml | head -1)
-grep -q "<release version=\"$version\"" "$meta" || fail "metainfo has no release $version (just bump keeps it)"
+grep -q "<release version=\"$version\"" "$meta" || fail "metainfo has no release $version (mise run bump keeps it)"
 echo "flatpak: ok"

@@ -30,7 +30,7 @@
             libxrandr
           ]
         );
-      # The version lives in Cargo.toml only (`just bump` sets it), so read it from there.
+      # The version lives in Cargo.toml only (`mise run bump` sets it), so read it from there.
       version = (builtins.fromTOML (builtins.readFile ./Cargo.toml)).workspace.package.version;
     in
     {
@@ -101,7 +101,7 @@
             rustc
             clippy
             rustfmt
-            just
+            mise
           ];
           LD_LIBRARY_PATH = pkgs.lib.makeLibraryPath (runtimeLibsFor pkgs);
         };

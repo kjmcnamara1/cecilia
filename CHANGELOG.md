@@ -9,7 +9,24 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
-- Nix flake: `nix profile install github:kjmcnamara1/cecilia` (or `nix run`), plus a dev shell.
+- Nix flake: `nix profile add github:kjmcnamara1/cecilia` (or `nix run`), plus a dev shell.
+- `<C-v>` pastes the system clipboard into the command palette (the `:` line) and pickers'
+  queries; line breaks become spaces.
+- `Y{motion}` / `YY` (`:yank-lyrics`, also in Visual mode) yanks notes with their lyrics.
+- Chant: `o` / `O` open a new phrase, `() (:)` after the cursor's division / the one before it,
+  closed by a copy of that division, then Insert mode on the empty group; `<Esc>` with nothing
+  entered keeps it.
+- Chant: `yy` `YY` `dd` and Visual-bar `y` `Y` `d` take whole phrases, and `p` / `P` put them
+  after / before the cursor's phrase.
+
+### Changed
+
+- Development tasks are mise tasks (`mise.toml`) instead of a justfile: `mise run bump`,
+  `mise run ci`, and the new `mise run gui` / `mise run tui` to run a release build.
+- `y` yanks the notes only, without their lyrics (on a chant, a whole syllable's notes come
+  without its text); `Y` keeps them. `d` and `c` still keep the lyrics.
+- `G` goes to the very end of the score (the last beat of the last bar), not the start of the
+  last bar; `dG` takes that beat too.
 
 ## [0.49.1] - 2026-11-13
 

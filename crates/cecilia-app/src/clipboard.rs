@@ -97,3 +97,15 @@ pub fn get() -> String {
     }
     local(|l| l.lock().unwrap().clone())
 }
+
+/// The clipboard's text for a one-line field (the command line, a picker's query): its lines
+/// joined by spaces, other control characters (tabs) made spaces.
+pub fn get_line() -> String {
+    get()
+        .lines()
+        .collect::<Vec<_>>()
+        .join(" ")
+        .chars()
+        .map(|c| if c.is_control() { ' ' } else { c })
+        .collect()
+}
