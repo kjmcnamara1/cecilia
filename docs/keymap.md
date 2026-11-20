@@ -50,7 +50,7 @@ only be used in the GUI there, and `<D-…>` bindings never fire.
 | `}` / `{`                 | next / previous bar                                                                                                                                      | _(M1)_ |
 | `^` / `$`, `gh` / `gl`    | first / last beat of the bar that has a note, on any string or line; a bar without notes: its first / last beat (`:bar-first-note`, `:bar-last-note`)   | |
 | `0` `<Home>` / `<End>`    | first / last beat of the bar, note or not (`:bar-start`, `:bar-end`)                                                                                      | _(M1)_ |
-| `gg` / `G`                | first bar / last bar (`[count]G` = bar _count_)                                                                                                          | _(M1)_ |
+| `gg` / `G`                | first bar / the very end: the last beat of the last bar (`[count]G` = bar _count_)                                                                       | _(M1)_ |
 | `J` / `K`                 | next / previous track                                                                                                                                    | _(M1)_ |
 | `]v` / `[v` (insert mode: `<A-v>` / `<A-V>`) | edit the next / previous voice of the bar: voices go round through those with notes and one more, which is created empty (`:voice-next`, `:voice-prev`) | |
 | `<A-F1>`…`<A-F4>` (also insert mode) | edit voice 1…4 of the bar (`:voice N`); a voice the bar doesn't have yet is created empty. The cursor stays at the same time position, on the beat of that voice sounding there | |
@@ -686,6 +686,8 @@ bars of a chant track are only a transcription made from it, so every key below 
 | `h` `j` `k` `l`                           | move the cursor, as on a standard staff (beat back / position down / up / beat on) |
 | `i` `a`                                   | a new empty beat `()` before / after the cursor cell, then Insert mode on it (an empty beat you leave without entering anything is taken away again by `<Esc>`) |
 | `I` `A`                                   | a new empty beat at the start of the bar (phrase) / at its end, before the division that closes it |
+| `o` / `O`                                 | a new phrase, an empty beat closed by a division `() (:)`, then Insert mode on the empty beat. `o` puts it after the division that ends the cursor's phrase, closed by the same division (`(::) () (::)` after the finalis); where no division follows, the phrase is closed by the division that began it and the new one by a finalis at the end (`(;) () (::)`). `O` puts it after the division that ends the phrase before, closed by that same division; in the first phrase at the start (after the clef), closed by the division that ends the first phrase. `:` where there is no division to copy. `<Esc>` with nothing entered keeps the empty beat and its divisions; once notes are entered, `<Esc>` drops the empty beat after them as with `i` `a` (`:bar-open-after`, `:bar-open-before`) |
+| `yy` `YY` `dd`, Visual-bar `y` `Y` `d` | yank / delete whole phrases (bars); `p` / `P` put them after / before the cursor's phrase. Cells yanked with `y`, `x` or `d{motion}` go after / before the cursor syllable |
 | `<CR>` `<Space>` (Insert, modern scores)  | finish the beat the cursor is on (a standard staff: a note on the cursor's line, a slash staff: a slash; a tab's fret is already in) and add an empty beat after it; the cursor stays on the beat, `hjkl` move on. A bar that is full gets no empty beat. `<Esc>` takes away the empty beat nothing was entered in (`:insert-enter`, `:insert-next`) |
 | `<CR>` `<Space>` (Insert, chant)          | a punctum on the staff line the cursor is on goes into the empty beat the cursor is on (after the cursor cell otherwise), and a new empty beat follows it; the cursor stays on the note (`l` goes on to the empty beat for the next note). On a note: another staff line moves it there keeping its modifiers, its own line adds another note of that pitch after it in the same group (`(g)` → `(gg)`). `<Esc>` drops the empty beat after the cursor. A group entered this way is written without a space before it; spaces come with the lyrics (`:lyric-mode`) (`:insert-enter`, `:insert-next`) |
 | `R` (`:replace-mode`)                     | Replace mode (also on modern scores, where it is Insert mode without the empty beats): as Insert mode, but no empty beats are added after the notes entered. `<CR>` and `<Space>` move the note under the cursor to the cursor's line, keeping its modifiers, or, on its own line, add another note of the same pitch after it in the same group: `(g)` → `(gg)` → `(ggg)`; in an empty beat they put a note in. The cursor stays. `<Esc>` leaves |
@@ -713,8 +715,8 @@ bars of a chant track are only a transcription made from it, so every key below 
 Everything that
 edits the bars of a modern track reports **"not in chant"** and changes nothing: durations
 (`:duration`, `+` `-` `<A-1>`…`<A-7>` in insert mode), tuplets, rests, ties and the other
-`:toggle` effects, dynamics, beams, stems, `:note-letter`, double sharps and flats, bar insert /
-open / delete, `p` `P` paste, Visual `c`, `:reflow`, and digits (no frets). The same refusal covers
+`:toggle` effects, dynamics, beams, stems, `:note-letter`, double sharps and flats, `:bar-insert-*`,
+`:bar-delete`, `p` `P` of a modern register, `c`, `:reflow`, and digits (no frets). The same refusal covers
 any other edit that would change the bars of a chant track without changing its chant.
 
 ## Command mode (selected)

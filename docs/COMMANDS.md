@@ -138,7 +138,7 @@ Keymap-only commands that drive the tool panes while they have the focus:
 | `bar-start` / `bar-end` | First / last beat of the bar. |
 | `bar-first-note` / `bar-last-note` | First / last beat of the bar with a note. |
 | `goto-bar N`, `bar N` | Go to bar N (a bare `:N` works too). |
-| `goto-first`, `goto-last` | First / last bar (or bar `count`). |
+| `goto-first`, `goto-last` | First bar / the last beat of the last bar (or bar `count`). |
 | `track-next` / `track-prev` _(modern)_ | Next / previous track. |
 | `track N` _(modern)_ | Go to track N. |
 | `voice N` / `voice-next` / `voice-prev` _(modern)_ | Edit voice N, or the next / previous (one more is created past the last). |
