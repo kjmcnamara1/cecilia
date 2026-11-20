@@ -138,7 +138,7 @@ Keymap-only commands that drive the tool panes while they have the focus:
 | `bar-start` / `bar-end` | First / last beat of the bar. |
 | `bar-first-note` / `bar-last-note` | First / last beat of the bar with a note. |
 | `goto-bar N`, `bar N` | Go to bar N (a bare `:N` works too). |
-| `goto-first`, `goto-last` | First / last bar (or bar `count`). |
+| `goto-first`, `goto-last` | First bar / the last beat of the last bar (or bar `count`). |
 | `track-next` / `track-prev` _(modern)_ | Next / previous track. |
 | `track N` _(modern)_ | Go to track N. |
 | `voice N` / `voice-next` / `voice-prev` _(modern)_ | Edit voice N, or the next / previous (one more is created past the last). |
@@ -164,7 +164,8 @@ Keymap-only commands that drive the tool panes while they have the focus:
 | `visual-insert` / `visual-append` | Visual mode: insert a beat before / after the selection. |
 | `replace-mode` | Insert mode where entering notes only changes the notes there. |
 | `lyric-mode` _(chant)_ | Insert mode typing the cursor syllable's text (`<Esc>` leaves). |
-| `delete`, `yank`, `change` | Operators, applied to a motion or the selection. |
+| `delete`, `yank`, `change` | Operators, applied to a motion or the selection. `yank` takes the notes without their lyrics. |
+| `yank-lyrics` | Yank operator taking the notes with their lyrics. |
 | `put` / `put-before` | Paste after / before the cursor. |
 | `delete-note`, `delete-beat` | Delete the cursor note / the whole beat. |
 | `undo`, `u` / `redo`, `red` | Undo / redo. |

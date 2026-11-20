@@ -1406,3 +1406,18 @@ fn completion_help_and_which_key_follow_the_kind() {
     let rows = which(&mut a);
     assert!(!rows.iter().any(|(_, c)| c.contains("chant-")), "{rows:?}");
 }
+
+#[test]
+fn capital_g_goes_to_the_last_beat_of_the_score() {
+    let mut a = app();
+    set_bar(
+        &mut a,
+        7,
+        &[&[(0, 1, false)], &[(0, 2, false)], &[(0, 3, false)]],
+    );
+    keys(&mut a, "G");
+    assert_eq!(at(&a), (7, 2));
+    // `dG` takes the last beat too.
+    keys(&mut a, "hdG");
+    assert_eq!(frets(&a, 7), vec![vec![1]]);
+}

@@ -17,8 +17,30 @@ use crate::{App, Buffer, Cursor, Effect};
 pub enum Clip {
     Beats(Vec<Beat>),
     Bars(BarClip),
-    /// Cells of a chant: groups of notes without lyrics, empty groups and divisions.
-    Chant(Vec<cecilia_core::chant::Syllable>),
+    /// Cells of a chant: groups of notes without lyrics, empty groups and divisions. `bars`:
+    /// whole bars (`yy`, `V`), put after (before) the cursor's bar rather than its syllable.
+    Chant {
+        groups: Vec<cecilia_core::chant::Syllable>,
+        bars: bool,
+    },
+}
+
+impl Clip {
+    /// The clip with its lyrics taken out (what `y` yanks; `Y` keeps them).
+    fn without_lyrics(mut self) -> Self {
+        let clear = |beats: &mut [Beat]| beats.iter_mut().for_each(|b| b.lyrics.clear());
+        match &mut self {
+            Clip::Beats(beats) => clear(beats),
+            Clip::Bars(clip) => clip
+                .tracks
+                .iter_mut()
+                .flatten()
+                .flat_map(|bar| &mut bar.voices)
+                .for_each(|v| clear(&mut v.beats)),
+            Clip::Chant { groups, .. } => groups.iter_mut().for_each(|g| g.text.clear()),
+        }
+        self
+    }
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -72,6 +94,9 @@ pub(crate) struct EditorState {
     /// The empty beat Insert mode added after the cursor's, which leaving it takes away if
     /// nothing was entered there.
     pub(crate) slot: Option<(usize, usize)>,
+    /// What `o` / `O` added to a chant, which leaving Insert mode takes away again if nothing
+    /// was entered in its empty group.
+    pub(crate) chant_open: Option<crate::chant::ChantOpen>,
 }
 
 pub(crate) fn is_motion(cmd: &Command) -> bool {
@@ -902,19 +927,31 @@ impl App {
         self.ed.registers.insert('"', clip);
     }
 
+    /// Stores what an operator takes: `y` leaves the lyrics behind, `Y`, `d` and `c` keep them.
+    fn store_taken(&mut self, op: Operator, clip: Clip) {
+        self.store(if op == Operator::Yank {
+            clip.without_lyrics()
+        } else {
+            clip
+        });
+    }
+
     fn operate_bars(&mut self, op: Operator, n: usize) {
         let c = self.pane().cursor;
         if self.syncing {
             return self.sync_operate(op, (c.bar, 0), (c.bar + n.max(1) - 1, usize::MAX));
         }
-        if self.cursor_on_chant() && op != Operator::Yank {
-            return self.error("bar delete or change: not in chant");
-        }
         let (from, to) = (c.bar, c.bar + n.max(1) - 1);
+        // A chant's bars are its phrases: what they hold is taken as chant cells.
+        if self.cursor_on_chant() {
+            return self.chant_operate(op, (from, 0), (to, usize::MAX), true);
+        }
         let clip = edit::yank_bars(&self.buffer().score, from, to);
-        self.store(Clip::Bars(clip));
+        self.store_taken(op, Clip::Bars(clip));
         match op {
-            Operator::Yank => self.info(format!("{n} bar{} yanked", if n == 1 { "" } else { "s" })),
+            Operator::Yank | Operator::YankLyrics => {
+                self.info(format!("{n} bar{} yanked", if n == 1 { "" } else { "s" }))
+            }
             Operator::Delete => {
                 self.edit(|cx| edit::delete_bars(cx, from, to));
             }
@@ -954,7 +991,7 @@ impl App {
         let score = &self.buffer().score;
         let inclusive = matches!(
             motion,
-            Command::BarEnd | Command::BarLastNote | Command::RowEnd
+            Command::BarEnd | Command::BarLastNote | Command::RowEnd | Command::GotoLast
         );
         let (s, t) = ((start.bar, start.beat), (target.bar, target.beat));
         let range = if t > s {
@@ -996,40 +1033,43 @@ impl App {
         self.operate_range(op, from, to);
     }
 
+    /// An operator on a chant score: only deleting and yanking mean something. Notes are
+    /// deleted from the chant, nothing is cleared; what is taken goes in the register for `p`
+    /// and `P` (`bars`: as whole bars).
+    fn chant_operate(&mut self, op: Operator, from: Pos, to: Pos, bars: bool) {
+        if op == Operator::Change {
+            return self.error("change: not in chant");
+        }
+        let groups = self.chant_clip(from, to);
+        if groups.is_empty() {
+            return self.error("nothing there");
+        }
+        let n = groups.len();
+        self.store_taken(op, Clip::Chant { groups, bars });
+        if op.is_yank() {
+            self.info(format!("{n} group{} yanked", if n == 1 { "" } else { "s" }));
+            let p = self.panes.get_mut(&self.focused()).unwrap();
+            p.cursor.bar = from.0;
+            p.cursor.beat = if bars { 0 } else { from.1 };
+        } else {
+            self.chant_delete_range(from, to);
+        }
+    }
+
     fn operate_range(&mut self, op: Operator, from: Pos, to: Pos) {
         // Syncing: the operators act on the sync points only.
         if self.syncing {
             return self.sync_operate(op, from, to);
         }
         let c = self.pane().cursor;
-        // On a chant score only deleting (and yanking) mean something: notes are deleted from
-        // the chant, nothing is cleared or pasted into its bars.
         if self.cursor_on_chant() {
-            if op == Operator::Change {
-                return self.error("change: not in chant");
-            }
-            // What is taken goes in the register for `p` and `P`.
-            let clip = self.chant_clip(from, to);
-            if clip.is_empty() {
-                return self.error("nothing there");
-            }
-            let n = clip.len();
-            self.store(Clip::Chant(clip));
-            return match op {
-                Operator::Yank => {
-                    self.info(format!("{n} group{} yanked", if n == 1 { "" } else { "s" }));
-                    let p = self.panes.get_mut(&self.focused()).unwrap();
-                    p.cursor.bar = from.0;
-                    p.cursor.beat = from.1;
-                }
-                _ => self.chant_delete_range(from, to),
-            };
+            return self.chant_operate(op, from, to, false);
         }
         let beats = edit::collect(&self.buffer().score, c.track, c.voice, from, to);
         let n = beats.len();
-        self.store(Clip::Beats(beats));
+        self.store_taken(op, Clip::Beats(beats));
         match op {
-            Operator::Yank => {
+            Operator::Yank | Operator::YankLyrics => {
                 self.info(format!("{n} beat{} yanked", if n == 1 { "" } else { "s" }));
                 let p = self.panes.get_mut(&self.focused()).unwrap();
                 p.cursor.bar = from.0;
@@ -1065,11 +1105,11 @@ impl App {
                     Ok(())
                 });
             }
-            Clip::Chant(groups) => {
+            Clip::Chant { groups, bars } => {
                 if !self.cursor_on_chant() {
                     return self.error("put: the register holds chant cells");
                 }
-                self.chant_paste(groups, before, count.max(1));
+                self.chant_paste(groups, bars, before, count.max(1));
             }
             Clip::Bars(bars) => {
                 let at = self.pane().cursor.bar + usize::from(!before);
