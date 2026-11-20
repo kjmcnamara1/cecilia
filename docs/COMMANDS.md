@@ -164,7 +164,8 @@ Keymap-only commands that drive the tool panes while they have the focus:
 | `visual-insert` / `visual-append` | Visual mode: insert a beat before / after the selection. |
 | `replace-mode` | Insert mode where entering notes only changes the notes there. |
 | `lyric-mode` _(chant)_ | Insert mode typing the cursor syllable's text (`<Esc>` leaves). |
-| `delete`, `yank`, `change` | Operators, applied to a motion or the selection. |
+| `delete`, `yank`, `change` | Operators, applied to a motion or the selection. `yank` takes the notes without their lyrics. |
+| `yank-lyrics` | Yank operator taking the notes with their lyrics. |
 | `put` / `put-before` | Paste after / before the cursor. |
 | `delete-note`, `delete-beat` | Delete the cursor note / the whole beat. |
 | `undo`, `u` / `redo`, `red` | Undo / redo. |

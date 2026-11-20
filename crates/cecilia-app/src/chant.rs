@@ -2054,6 +2054,27 @@ mod tests {
     }
 
     #[test]
+    fn y_yanks_the_notes_and_capital_y_the_lyrics_too() {
+        // `y`: the groups go in again without their lyrics.
+        let mut a = app();
+        keys(&mut a, "vlyp");
+        assert_eq!(gabc(&a), "(c4) Al(fg) (fg) le(h) lu(g) ia.(f.) (::)");
+        // `Y`: with them.
+        let mut b = app();
+        keys(&mut b, "vlYp");
+        assert_eq!(gabc(&b), "(c4) Al(fg) Al(fg) le(h) lu(g) ia.(f.) (::)");
+        // `Y` with a motion.
+        let mut c = app();
+        keys(&mut c, "Y2l");
+        keys(&mut c, "P");
+        assert!(gabc(&c).starts_with("(c4) Al(fg) Al(fg)"), "{}", gabc(&c));
+        // `d` keeps the lyrics, so `dp` puts back what was there.
+        let mut d = app();
+        keys(&mut d, "vldP");
+        assert_eq!(gabc(&d), "(c4) Al(fg) le(h) lu(g) ia.(f.) (::)");
+    }
+
+    #[test]
     fn x_and_del_put_the_deleted_cell_in_the_register_for_p() {
         let mut a = app();
         // `x` deletes the note under the cursor (f) and `p` puts it back after the cursor cell.

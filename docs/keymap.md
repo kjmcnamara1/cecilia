@@ -240,12 +240,13 @@ is typed after it, is one undo step.
 | `x`                                                    | delete the one note under the cursor: on the cursor string, or at the cursor line / space (`[count]x`); on a slash staff the beat's slash, i.e. all its notes |
 | `d{motion}` / `dd`                                     | delete beats / bars (`[count]dd`). `dl` the beat under the cursor, `dh` the one before it, `dw` `de` `db` `d$` `d^` …  |
 | `y{motion}` / `yy`, `p` / `P`                          | yank beats or bars (`yl`, `yh` …, `yy` the bar) / put after / before the cursor                   |
+| `Y{motion}` / `YY`                                     | yank with the lyrics: `y` takes the notes only, leaving the lyrics (on a chant, the syllables' text) behind; `d` and `c` keep them (`:yank-lyrics`) |
 | `c{motion}` / `cc`                                     | change: the beats become rests of the same lengths (the cursor beat for `cl`, the one before it for `ch`, which the cursor moves to) and Insert mode starts on them; `cc` clears the bar of the cursor's track, leaving an empty bar |
 | `"{reg}`                                               | use register for the next yank/delete/put                                                         |
 | `.`                                                    | repeat the last change (including an insert session), or the last palette tool: applied again at the cursor (a toggle toggles there; a tool used over a Visual selection repeats over as many beats or bars from the cursor; a tool that asked for an argument, like `:direction`, with the same one) |
 | `u` / `U` / `g-` / `g+`                                | undo / redo / older / newer state across undo branches                                            |
 | `q{reg}` … `q` / `[count]@{reg}` / `@@`                | record / play / replay a macro; `q{A-Z}` appends to the lowercase register                        |
-| `v` / `V`                                              | visual beats / visual bars (then `d`, `y`, `c`, `x`; `i` / `a` below)                            |
+| `v` / `V`                                              | visual beats / visual bars (then `d`, `y`, `Y`, `c`, `x`; `i` / `a` below)                            |
 | `gv`                                                   | reselect the last Visual selection of this file (same kind; in Visual mode: swap with the current one) (`:visual-reselect`) |
 | `+` / `-`                                              | longer / shorter note value                                                                       |
 | `<C-a>` / `<C-x>`                                      | pitch up / down a semitone (moves string when the fret runs out)                                  |

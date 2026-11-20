@@ -340,7 +340,7 @@ impl App {
         from: (usize, usize),
         to: (usize, usize),
     ) {
-        if op == crate::command::Operator::Yank {
+        if op.is_yank() {
             return self.info("yank: sync points are not yanked");
         }
         let chant = self.buffer().score.is_chant();

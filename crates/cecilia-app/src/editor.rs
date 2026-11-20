@@ -21,6 +21,24 @@ pub enum Clip {
     Chant(Vec<cecilia_core::chant::Syllable>),
 }
 
+impl Clip {
+    /// The clip with its lyrics taken out (what `y` yanks; `Y` keeps them).
+    fn without_lyrics(mut self) -> Self {
+        let clear = |beats: &mut [Beat]| beats.iter_mut().for_each(|b| b.lyrics.clear());
+        match &mut self {
+            Clip::Beats(beats) => clear(beats),
+            Clip::Bars(clip) => clip
+                .tracks
+                .iter_mut()
+                .flatten()
+                .flat_map(|bar| &mut bar.voices)
+                .for_each(|v| clear(&mut v.beats)),
+            Clip::Chant(groups) => groups.iter_mut().for_each(|g| g.text.clear()),
+        }
+        self
+    }
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) enum Awaiting {
     Register,
@@ -902,19 +920,30 @@ impl App {
         self.ed.registers.insert('"', clip);
     }
 
+    /// Stores what an operator takes: `y` leaves the lyrics behind, `Y`, `d` and `c` keep them.
+    fn store_taken(&mut self, op: Operator, clip: Clip) {
+        self.store(if op == Operator::Yank {
+            clip.without_lyrics()
+        } else {
+            clip
+        });
+    }
+
     fn operate_bars(&mut self, op: Operator, n: usize) {
         let c = self.pane().cursor;
         if self.syncing {
             return self.sync_operate(op, (c.bar, 0), (c.bar + n.max(1) - 1, usize::MAX));
         }
-        if self.cursor_on_chant() && op != Operator::Yank {
+        if self.cursor_on_chant() && !op.is_yank() {
             return self.error("bar delete or change: not in chant");
         }
         let (from, to) = (c.bar, c.bar + n.max(1) - 1);
         let clip = edit::yank_bars(&self.buffer().score, from, to);
-        self.store(Clip::Bars(clip));
+        self.store_taken(op, Clip::Bars(clip));
         match op {
-            Operator::Yank => self.info(format!("{n} bar{} yanked", if n == 1 { "" } else { "s" })),
+            Operator::Yank | Operator::YankLyrics => {
+                self.info(format!("{n} bar{} yanked", if n == 1 { "" } else { "s" }))
+            }
             Operator::Delete => {
                 self.edit(|cx| edit::delete_bars(cx, from, to));
             }
@@ -1014,9 +1043,9 @@ impl App {
                 return self.error("nothing there");
             }
             let n = clip.len();
-            self.store(Clip::Chant(clip));
+            self.store_taken(op, Clip::Chant(clip));
             return match op {
-                Operator::Yank => {
+                Operator::Yank | Operator::YankLyrics => {
                     self.info(format!("{n} group{} yanked", if n == 1 { "" } else { "s" }));
                     let p = self.panes.get_mut(&self.focused()).unwrap();
                     p.cursor.bar = from.0;
@@ -1027,9 +1056,9 @@ impl App {
         }
         let beats = edit::collect(&self.buffer().score, c.track, c.voice, from, to);
         let n = beats.len();
-        self.store(Clip::Beats(beats));
+        self.store_taken(op, Clip::Beats(beats));
         match op {
-            Operator::Yank => {
+            Operator::Yank | Operator::YankLyrics => {
                 self.info(format!("{n} beat{} yanked", if n == 1 { "" } else { "s" }));
                 let p = self.panes.get_mut(&self.focused()).unwrap();
                 p.cursor.bar = from.0;
