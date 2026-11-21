@@ -2,7 +2,6 @@
 title: A keyboard-first editor for tab, notation and chant
 template: home.html
 hide:
-  - navigation
   - toc
   - footer
 ---

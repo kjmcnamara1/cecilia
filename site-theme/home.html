@@ -5,6 +5,7 @@
 {% set releases = "https://github.com/kjmcnamara1/cecilia/releases/latest" %}
 
 {% block hero %}
+{% include "partials/tabs.html" %}
 <div class="cc-home">
 
   <section class="cc-hero">
@@ -138,6 +139,7 @@
 </div>
 {% endblock %}
 
-{#- The page is the hero alone: no sidebars, no article. -#}
-{% block site_nav %}{% endblock %}
+{#- The page is the hero alone: the tabs sit above it (they are not in their usual place under the
+    hero), and the article is dropped. The sidebar stays, because it is the mobile drawer. -#}
+{% block tabs %}{% endblock %}
 {% block container %}{% endblock %}

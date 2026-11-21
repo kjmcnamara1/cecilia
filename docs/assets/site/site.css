@@ -61,9 +61,18 @@
 
 /* ---------- Home page ---------- */
 
-/* The home page is the hero block alone: hide the empty docs column. */
-.cc-home ~ .md-main {
+/* The home page has no article. Its navigation is the header tabs on wide screens and the drawer
+   on narrow ones, so only the (empty) content column is hidden, not the sidebar markup. */
+.cc-home ~ .md-main .md-content {
   display: none;
+}
+.cc-home ~ .md-main .md-main__inner {
+  margin: 0;
+}
+@media (min-width: 76.25em) {
+  .cc-home ~ .md-main .md-sidebar {
+    display: none;
+  }
 }
 
 .cc-home {
