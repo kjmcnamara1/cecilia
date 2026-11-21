@@ -5,7 +5,8 @@ pkgver=0.45.1.r0.g0000000
 pkgrel=1
 pkgdesc='Keyboard-first editor and player for guitar tab, standard notation and Gregorian chant (git version)'
 arch=('x86_64' 'aarch64')
-url='https://github.com/kjmcnamara1/cecilia'
+url='https://kjmcnamara1.github.io/cecilia/'
+_repo='https://github.com/kjmcnamara1/cecilia'
 license=('MIT' 'Apache-2.0')
 depends=('alsa-lib' 'gcc-libs' 'glibc')
 makedepends=('cargo' 'git')
@@ -19,7 +20,7 @@ optdepends=('vulkan-icd-loader: GPU drawing in the window'
             'libxcursor: X11 mouse cursors')
 provides=("$_name=${pkgver%%.r*}")
 conflicts=("$_name")
-source=("$_name::git+$url.git")
+source=("$_name::git+$_repo.git")
 sha256sums=('SKIP')
 
 pkgver() {

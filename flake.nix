@@ -74,7 +74,7 @@
 
             meta = {
               description = "Tablature, notation and chant editor and player";
-              homepage = "https://github.com/kjmcnamara1/cecilia";
+              homepage = "https://kjmcnamara1.github.io/cecilia/";
               license = with lib.licenses; [
                 mit
                 asl20

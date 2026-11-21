@@ -14,7 +14,8 @@
     <p>Chant is edited in a WYSIWYG square-notation editor, not as text.</p>
   </description>
   <launchable type="desktop-id">cecilia.desktop</launchable>
-  <url type="homepage">https://github.com/kjmcnamara1/cecilia</url>
+  <url type="homepage">https://kjmcnamara1.github.io/cecilia/</url>
+  <url type="vcs-browser">https://github.com/kjmcnamara1/cecilia</url>
   <url type="bugtracker">https://github.com/kjmcnamara1/cecilia/issues</url>
   <provides>
     <binary>cecilia</binary>

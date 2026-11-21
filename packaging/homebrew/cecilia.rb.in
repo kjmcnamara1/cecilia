@@ -1,6 +1,6 @@
 class Cecilia < Formula
   desc "Keyboard-first editor and player for guitar tab, standard notation and Gregorian chant"
-  homepage "https://github.com/kjmcnamara1/cecilia"
+  homepage "https://kjmcnamara1.github.io/cecilia/"
   version "@VERSION@"
   license any_of: ["MIT", "Apache-2.0"]
 

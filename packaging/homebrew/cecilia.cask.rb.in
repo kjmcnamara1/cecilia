@@ -5,7 +5,7 @@ cask "cecilia" do
   url "https://github.com/kjmcnamara1/cecilia/releases/download/v#{version}/cecilia-v#{version}-universal-apple-darwin.dmg"
   name "cecilia"
   desc "Keyboard-first editor and player for guitar tab, standard notation and Gregorian chant"
-  homepage "https://github.com/kjmcnamara1/cecilia"
+  homepage "https://kjmcnamara1.github.io/cecilia/"
 
   depends_on macos: ">= :big_sur"
 

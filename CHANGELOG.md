@@ -13,6 +13,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   the latest release for your system, and the documentation, with new Getting started, Playing
   along, Configuration and Command line pages. `mise run docs` previews it.
 
+### Changed
+
+- The homepage in the crate metadata, the Nix flake and the package manifests (AUR, Homebrew,
+  Scoop, Winget, Chocolatey, AppStream) is now the website instead of the GitHub repository.
+
 ## [0.50.0] - 2026-11-20
 
 ### Added

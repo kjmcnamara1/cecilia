@@ -5,7 +5,7 @@ PackageLocale: en-US
 Publisher: The cecilia contributors
 PublisherUrl: https://github.com/kjmcnamara1
 PackageName: cecilia
-PackageUrl: https://github.com/kjmcnamara1/cecilia
+PackageUrl: https://kjmcnamara1.github.io/cecilia/
 License: MIT OR Apache-2.0
 LicenseUrl: https://github.com/kjmcnamara1/cecilia/blob/main/LICENSE-MIT
 ShortDescription: Keyboard-first editor and player for guitar tab, standard notation and Gregorian chant

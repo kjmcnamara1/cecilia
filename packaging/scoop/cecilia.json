@@ -1,7 +1,7 @@
 {
     "version": "0.50.0",
     "description": "Keyboard-first editor and player for guitar tab, standard notation and Gregorian chant",
-    "homepage": "https://github.com/kjmcnamara1/cecilia",
+    "homepage": "https://kjmcnamara1.github.io/cecilia/",
     "license": "MIT OR Apache-2.0",
     "url": "https://github.com/kjmcnamara1/cecilia/releases/download/v0.50.0/cecilia-v0.50.0-x86_64-pc-windows-msvc.zip",
     "hash": "0000000000000000000000000000000000000000000000000000000000000000",
