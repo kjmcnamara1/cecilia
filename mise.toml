@@ -3,6 +3,8 @@
 [tools]
 # The packaging tests read the Flatpak and Snap YAML and check the Homebrew formula with Ruby.
 ruby = "4.0"
+# uvx runs Zensical for the website (the `docs` task).
+uv = "latest"
 
 [tasks.gui]
 description = "Run the window (ceciliag); extra arguments go to cecilia: `mise run gui song.gp5`"
@@ -12,10 +14,17 @@ run = "cargo run --release --bin ceciliag --"
 description = "Run the terminal UI; extra arguments go to cecilia: `mise run tui song.gp5`"
 run = "cargo run --release --bin cecilia --"
 
-# The CI checks that can run here (the `test` job; `msrv` too when toolchain 1.89 is installed).
+# The website, from docs/ and site-theme/ (zensical.toml). Keep the Zensical version in step with
+# .github/workflows/pages.yml.
+[tasks.docs]
+description = "Preview the website at http://localhost:8000/cecilia/, rebuilt as files change"
+run = "uvx zensical@0.1.3 serve"
+
+# The CI checks that can run here (the `test` job, the Pages build; `msrv` too when toolchain
+# 1.89 is installed).
 # Run before every push. The macOS and Windows jobs need those platforms.
 [tasks.ci]
-description = "Run the CI checks that can run locally (fmt, clippy, tests, packaging, msrv)"
+description = "Run the CI checks that can run locally (fmt, clippy, tests, packaging, website, msrv)"
 shell = "bash -euo pipefail -c"
 env = { RUSTFLAGS = "-D warnings" }
 run = '''
@@ -24,6 +33,7 @@ cargo clippy --workspace --all-targets
 cargo test --workspace
 cargo check --workspace --all-targets --locked
 bash packaging/check.sh
+uvx zensical@0.1.3 build --strict   # the website: fails on broken links
 if rustup toolchain list | grep -q '^1\.89'; then
   cargo +1.89 check --workspace --locked
 else

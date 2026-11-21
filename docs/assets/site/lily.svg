@@ -1,0 +1,54 @@
+<svg xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink" viewBox="-76 -87 152 152" width="512" height="512" role="img" aria-label="Ivory lily">
+  <title>Ivory lily</title>
+  <defs>
+    <linearGradient id="petal-fill" gradientUnits="userSpaceOnUse" x1="0" y1="0" x2="0" y2="-72">
+      <stop offset="0" stop-color="#D6BF88"/>
+      <stop offset="0.34" stop-color="#F4E9CD"/>
+      <stop offset="0.75" stop-color="#FBF3DC"/>
+      <stop offset="1" stop-color="#FFF9E8"/>
+    </linearGradient>
+    <linearGradient id="anther" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#EDBB4E"/>
+      <stop offset="1" stop-color="#D39A32"/>
+    </linearGradient>
+    <!-- Lily petal, straight, base at origin, tip up -->
+    <g id="petal">
+      <path d="M0 0C-5-10-17-24-17-40C-17-52-7-61 0-72C7-61 17-52 17-40C17-24 5-10 0 0Z" fill="url(#petal-fill)" stroke="#C7B184" stroke-width="0.6"/>
+      <path d="M0 0C4-12 10-27 10-41C10-52 5-62 0-72C7-61 17-52 17-40C17-24 5-10 0 0Z" fill="#DCC99E" opacity="0.4"/>
+      <path d="M0-8C.8-26 .8-46 0-62" fill="none" stroke="#D2BE90" stroke-width="0.8" stroke-linecap="round"/>
+    </g>
+    <!-- Lily petal with the tip swept over to one side -->
+    <g id="petal-swept">
+      <path d="M0 0C-5-10-18-24-18-42C-18-56-4-68 18-78C10-70 17-54 16-38C15-24 5-10 0 0Z" fill="url(#petal-fill)" stroke="#C7B184" stroke-width="0.6"/>
+      <path d="M0 0C4-13 9-29 9-43C9-56 12-68 18-78C10-70 17-54 16-38C15-24 5-10 0 0Z" fill="#DCC99E" opacity="0.4"/>
+      <path d="M0-8C1-26 1-48 11-68" fill="none" stroke="#D2BE90" stroke-width="0.8" stroke-linecap="round"/>
+    </g>
+    <g id="stamens" fill="none" stroke="#D39A32" stroke-linecap="round">
+      <path d="M0 0C-.4-14-.4-30 0-44" stroke-width="1.9"/>
+      <path d="M0 0C-3-9-6-18-10-27" stroke-width="1.7"/>
+      <path d="M0 0C3-9 6-18 10-27" stroke-width="1.7"/>
+      <g fill="url(#anther)" stroke="#A87532" stroke-width="0.4">
+        <ellipse cx="0" cy="-49" rx="3.3" ry="7.4"/>
+        <ellipse cx="-11" cy="-31" rx="3.1" ry="6.6" transform="rotate(-20 -11 -31)"/>
+        <ellipse cx="11" cy="-31" rx="3.1" ry="6.6" transform="rotate(20 11 -31)"/>
+      </g>
+    </g>
+    <!-- A six-petalled lily: back whorl, side whorl, then the near petal -->
+    <g id="lily">
+      <use xlink:href="#petal-swept" transform="rotate(54) scale(1.06,0.92)" filter="url(#drop-small)"/>
+      <use xlink:href="#petal-swept" transform="rotate(-54) scale(-1.06,0.92)" filter="url(#drop-small)"/>
+      <use xlink:href="#petal" transform="scale(1.24,0.96)" filter="url(#drop-small)"/>
+      <use xlink:href="#petal-swept" transform="rotate(114) scale(1.02,0.9)" filter="url(#drop-small)"/>
+      <use xlink:href="#petal-swept" transform="rotate(-114) scale(-1.02,0.9)" filter="url(#drop-small)"/>
+      <use xlink:href="#petal" transform="rotate(180) scale(1.2,0.66)" filter="url(#drop-small)"/>
+      <use xlink:href="#stamens"/>
+    </g>
+    <filter id="drop-small" x="-30%" y="-30%" width="160%" height="160%" color-interpolation-filters="sRGB">
+      <feGaussianBlur in="SourceAlpha" stdDeviation="1.3"/>
+      <feOffset dy="0.9"/>
+      <feComponentTransfer><feFuncA type="linear" slope="0.3"/></feComponentTransfer>
+      <feMerge><feMergeNode/><feMergeNode in="SourceGraphic"/></feMerge>
+    </filter>
+  </defs>
+  <use xlink:href="#lily"/>
+</svg>

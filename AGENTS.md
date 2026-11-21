@@ -11,6 +11,15 @@ config reference, `docs/OPTIONS.md` the option table (tests fail when COMMANDS.m
 drift from the parser or the registry). Keep the last four in sync when adding commands, keys or
 settings (a new command needs an entry in COMMANDS.md, a new option a row in OPTIONS.md).
 
+`docs/` is also the website (https://kjmcnamara1.github.io/cecilia/, Zensical, `zensical.toml`):
+every Markdown file there is a page, so links between docs must resolve (`mise run docs` previews,
+`mise run ci` fails on a broken link) and a new page needs a `nav` entry in `zensical.toml`. Links
+to files outside `docs/` (README, SPEC.md, source) use full GitHub URLs. The home page is
+`site-theme/home.html`, its styles and the download script (which reads the latest release from
+the GitHub API) are in `docs/assets/site/`; `.github/workflows/pages.yml` publishes on push to
+`main`. When a feature changes what the home page or a guide page shows, update it, and retake
+its screenshot (`docs/assets/site/*.png`, made with `--screenshot`).
+
 ## Commands
 
 ```sh
@@ -22,6 +31,7 @@ cargo fmt                                  # rustfmt.toml: max_width 100
 mise run ci                                # the CI checks that can run locally; run before every push
 mise run gui song.gp5                      # window (ceciliag, release build)
 mise run tui song.gp5                      # terminal UI (cecilia, release build)
+mise run docs                              # preview the website (Zensical) at localhost:8000
 # headless GUI screenshot, for checking engraving/layout changes:
 target/release/cecilia -W <scratch-workspace> --screenshot out.png --keys "<keys>" song.gp5
 ```

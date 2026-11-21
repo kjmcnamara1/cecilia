@@ -1,0 +1,143 @@
+{#- The home page (docs/index.md sets `template: home.html`). Styles: docs/assets/site/site.css;
+    download links: docs/assets/site/releases.js. Every link works without JavaScript. -#}
+{% extends "main.html" %}
+
+{% set releases = "https://github.com/kjmcnamara1/cecilia/releases/latest" %}
+
+{% block hero %}
+<div class="cc-home">
+
+  <section class="cc-hero">
+    <div class="cc-hero__inner">
+      <div class="cc-hero__text">
+        <h1 class="cc-hero__title">Tab, notation and chant, all from the keyboard.</h1>
+        <p class="cc-hero__lede">
+          cecilia opens your Guitar Pro files, plays them along with the real recording, and lets
+          you edit with vim-style keys, in a window or in your terminal. It is free and open source.
+        </p>
+        <div class="cc-actions">
+          <a class="cc-button cc-button--primary" data-download="primary" href="{{ 'download/' | url }}">Download cecilia</a>
+          <a class="cc-button cc-button--secondary" href="{{ 'getting-started/' | url }}">Get started</a>
+        </div>
+        <p class="cc-hero__meta">
+          Version <span data-release="version">0.50</span> for Linux, macOS and Windows.
+          <a href="{{ 'download/' | url }}">All downloads</a>
+        </p>
+      </div>
+      <figure class="cc-hero__media">
+        <img src="{{ 'assets/site/demo.gif' | url }}" width="1000" height="643"
+             alt="cecilia reading a Guitar Pro tab with a live fretboard and the tracks panel, then a Gregorian chant in square notation">
+      </figure>
+    </div>
+
+    {#- Six guitar strings with a phrase of fret numbers, as in tablature. Decorative. -#}
+    <div class="cc-tab" aria-hidden="true">
+      <span class="cc-tab__clef"><span>T</span><span>A</span><span>B</span></span>
+      {% for s in range(6) %}<span class="cc-tab__string" style="--s: {{ s }}"></span>{% endfor %}
+      {% set phrase = [(5,3),(4,2),(3,0),(2,0),(1,0),(0,3),(1,0),(2,0),(3,2),(4,3),(2,2),(1,3),(0,2),(0,3),(1,3),(2,2),(3,0),(4,2),(5,3)] %}
+      {% for string, fret in phrase %}<span class="cc-tab__fret" style="--s: {{ string }}; --i: {{ loop.index0 }}; --n: {{ phrase | length }}">{{ fret }}</span>{% endfor %}
+    </div>
+  </section>
+
+  <section class="cc-feature">
+    <div class="cc-feature__text">
+      <h2>Guitar Pro in, Guitar Pro out</h2>
+      <p>
+        cecilia reads Guitar Pro 3 to 8 and saves GP5, GPX and GP7/8, so you are never locked in.
+        Bends, slides, harmonics, palm mutes, up to four voices, drum tab and grand staves come
+        through, as do MusicXML and MIDI.
+      </p>
+      <p>See the score as tab, standard notation or both, with a fretboard and piano that light up
+        as it plays.</p>
+    </div>
+    <figure class="cc-feature__media">
+      <img src="{{ 'assets/site/score.png' | url }}" loading="lazy"
+           alt="A Guitar Pro score in cecilia as standard notation over tablature, with the fretboard below">
+    </figure>
+  </section>
+
+  <section class="cc-feature">
+    <div class="cc-feature__text">
+      <h2>Play along with the real recording</h2>
+      <p>
+        Attach an mp3 or flac, or use the one inside a GP7/8 file. Tap the bars to sync it, or let
+        beat detection do it. Then loop the hard passage, slow it down without changing the pitch,
+        and let the speed trainer bring it back up to tempo.
+      </p>
+      <p><a href="{{ 'playing-along/' | url }}">How playing along works</a></p>
+    </div>
+    <figure class="cc-feature__media">
+      <img src="{{ 'assets/site/play-along.png' | url }}" loading="lazy"
+           alt="A score with the recording's waveform underneath, marked with sync points">
+    </figure>
+  </section>
+
+  <section class="cc-feature">
+    <div class="cc-feature__text">
+      <h2>Gregorian chant you edit on the page</h2>
+      <p>
+        Square notation is drawn as you type: neumes, clefs, divisions, custodes, episemata and the
+        drop-cap initial. There is no GABC to compile, though cecilia opens and saves
+        <code>.gabc</code> from GregoBase and Gregorio whenever you want it.
+      </p>
+      <p><a href="{{ 'CHANT/' | url }}">Writing chant in cecilia</a></p>
+    </div>
+    <figure class="cc-feature__media">
+      <img src="{{ 'assets/site/chant.png' | url }}" loading="lazy"
+           alt="A Gregorian chant engraved in square notation, with the cursor on a neume">
+    </figure>
+  </section>
+
+  <section class="cc-feature">
+    <div class="cc-feature__text">
+      <h2>Your hands stay on the keyboard</h2>
+      <p>
+        Normal, Insert and Visual modes, counts, macros, marks and an undo tree. The same keys work
+        in the window and in the terminal interface, which runs over SSH too. The mouse works when
+        you want it.
+      </p>
+      <p><a href="{{ 'keymap/' | url }}">Every key binding</a></p>
+    </div>
+    <figure class="cc-feature__media">
+      <img src="{{ 'assets/site/terminal.png' | url }}" loading="lazy"
+           alt="cecilia's terminal interface showing a guitar tab">
+    </figure>
+  </section>
+
+  <section class="cc-download" id="download">
+    <div class="cc-download__inner">
+      <h2>Download cecilia <span data-release="version"></span></h2>
+      <p class="cc-download__lede">Free and open source, for Linux, macOS and Windows.</p>
+      <div class="cc-download__systems">
+        <div class="cc-os cc-os--linux">
+          <h3>Linux</h3>
+          <p>AppImage, .deb, .rpm, Flatpak, the AUR or Nix.</p>
+          <a class="cc-button cc-button--primary" data-asset="appimage" href="{{ releases }}">Download the AppImage</a>
+          <pre><code>curl -fsSL https://github.com/kjmcnamara1/cecilia/releases/latest/download/install.sh | sh</code></pre>
+        </div>
+        <div class="cc-os cc-os--macos">
+          <h3>macOS</h3>
+          <p>One disk image for Apple silicon and Intel Macs.</p>
+          <a class="cc-button cc-button--primary" data-asset="dmg" href="{{ releases }}">Download the .dmg</a>
+          <pre><code>curl -fsSL https://github.com/kjmcnamara1/cecilia/releases/latest/download/install.sh | sh</code></pre>
+        </div>
+        <div class="cc-os cc-os--windows">
+          <h3>Windows</h3>
+          <p>An installer that keeps cecilia up to date, or a zip.</p>
+          <a class="cc-button cc-button--primary" data-asset="win-setup" href="{{ releases }}">Download the installer</a>
+          <p class="cc-os__alt"><a data-asset="win-zip" href="{{ releases }}">Or the .zip, with nothing to install</a></p>
+        </div>
+      </div>
+      <p class="cc-download__more">
+        <a href="{{ 'download/' | url }}">All downloads and checksums</a>
+        <a href="{{ 'INSTALL/' | url }}">Package managers and building from source</a>
+      </p>
+    </div>
+  </section>
+
+</div>
+{% endblock %}
+
+{#- The page is the hero alone: no sidebars, no article. -#}
+{% block site_nav %}{% endblock %}
+{% block container %}{% endblock %}

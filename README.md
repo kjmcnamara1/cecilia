@@ -16,10 +16,12 @@
 
 **A keyboard-first editor and player for guitar tab, standard notation and Gregorian chant.**
 
+**[Website](https://kjmcnamara1.github.io/cecilia/) · [Download](https://kjmcnamara1.github.io/cecilia/download/) · [Getting started](https://kjmcnamara1.github.io/cecilia/getting-started/)**
+
 Open Guitar Pro files, play along with a recording, and edit square-note chant in a real
 WYSIWYG editor. Free and open source, written in Rust, with a window _and_ a terminal interface.
 
-![cecilia: reading a Guitar Pro tab, a live fretboard, the tracks panel, then Gregorian chant](assets/demo.gif)
+![cecilia: reading a Guitar Pro tab, a live fretboard, the tracks panel, then Gregorian chant](docs/assets/site/demo.gif)
 
 </div>
 
@@ -296,6 +298,8 @@ GS) can be set as `audio.soundfont`, which always wins. Without either, a SoundF
 usual system folders is used, else the built-in synth.
 
 ## Documentation
+
+The [website](https://kjmcnamara1.github.io/cecilia/) has all of it, with search. In this repository:
 
 - [docs/keymap.md](docs/keymap.md): every key binding and command
 - [docs/CHANT.md](docs/CHANT.md): chant model and conversion

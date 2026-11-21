@@ -7,6 +7,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- A website at <https://kjmcnamara1.github.io/cecilia/>: a home page, a Download page that offers
+  the latest release for your system, and the documentation, with new Getting started, Playing
+  along, Configuration and Command line pages. `mise run docs` previews it.
+
 ## [0.50.0] - 2026-11-20
 
 ### Added

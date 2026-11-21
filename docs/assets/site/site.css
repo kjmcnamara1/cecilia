@@ -1,0 +1,520 @@
+/* cecilia website. Palette: paper, graphite, brass and string steel, after a page of tablature.
+   The docs pages keep Zensical's layout and take these colours; the home page (.cc-home, from
+   site-theme/home.html) is drawn here in full. */
+
+:root {
+  --cc-paper: #fafaf7;
+  --cc-paper-deep: #f0f0ea;
+  --cc-graphite: #23262b;
+  --cc-graphite-soft: #4a4f57;
+  --cc-brass: #b8862b;
+  --cc-brass-ink: #86601a; /* brass dark enough for text on paper */
+  --cc-steel: #8a949e;
+  --cc-rule: #e2e2db;
+}
+
+/* Zensical colour variables, light scheme. */
+[data-md-color-scheme="default"] {
+  --md-default-bg-color: var(--cc-paper);
+  --md-default-fg-color: rgba(35, 38, 43, 0.9);
+  --md-primary-fg-color: var(--cc-graphite);
+  --md-primary-fg-color--light: var(--cc-graphite-soft);
+  --md-primary-fg-color--dark: #16181b;
+  --md-primary-bg-color: var(--cc-paper);
+  --md-primary-bg-color--light: rgba(250, 250, 247, 0.7);
+  --md-accent-fg-color: var(--cc-brass-ink);
+  --md-accent-fg-color--transparent: rgba(184, 134, 43, 0.12);
+  --md-typeset-a-color: var(--cc-brass-ink);
+  --md-code-bg-color: var(--cc-paper-deep);
+}
+
+/* Dark scheme: graphite paper, light strings, brighter brass. */
+[data-md-color-scheme="slate"] {
+  --cc-paper: #1d1f23;
+  --cc-paper-deep: #26292e;
+  --cc-graphite: #ecebe6;
+  --cc-graphite-soft: #b9bcc1;
+  --cc-brass: #d1a04a;
+  --cc-brass-ink: #dcae5c;
+  --cc-steel: #7b858f;
+  --cc-rule: #33363c;
+  --md-default-bg-color: var(--cc-paper);
+  --md-primary-fg-color: #15171a;
+  --md-primary-fg-color--light: #2a2d32;
+  --md-primary-fg-color--dark: #0f1012;
+  --md-primary-bg-color: #ecebe6;
+  --md-accent-fg-color: var(--cc-brass-ink);
+  --md-accent-fg-color--transparent: rgba(209, 160, 74, 0.14);
+  --md-typeset-a-color: var(--cc-brass-ink);
+}
+
+.md-typeset h1 {
+  font-weight: 700;
+  letter-spacing: -0.02em;
+  color: var(--cc-graphite);
+}
+
+.md-typeset h2 {
+  font-weight: 600;
+  letter-spacing: -0.01em;
+}
+
+/* ---------- Home page ---------- */
+
+/* The home page is the hero block alone: hide the empty docs column. */
+.cc-home ~ .md-main {
+  display: none;
+}
+
+.cc-home {
+  background: var(--cc-paper);
+  color: var(--cc-graphite);
+  font-size: 1rem; /* Zensical sets html to 62.5%; 1rem here is 16px at 125% */
+}
+
+.cc-home h1,
+.cc-home h2,
+.cc-home h3 {
+  color: var(--cc-graphite);
+  margin: 0;
+}
+
+.cc-home p {
+  margin: 0;
+}
+
+.cc-home a:not(.cc-button) {
+  color: var(--cc-brass-ink);
+  text-decoration: underline;
+  text-decoration-thickness: 1px;
+  text-underline-offset: 0.2em;
+}
+
+.cc-home a:not(.cc-button):hover {
+  text-decoration-thickness: 2px;
+}
+
+.cc-home code {
+  font-family: var(--md-code-font-family, monospace);
+  font-size: 0.85em;
+  background: var(--cc-paper-deep);
+  padding: 0.1em 0.35em;
+  border-radius: 3px;
+}
+
+.cc-button {
+  display: inline-block;
+  padding: 0.75rem 1.25rem;
+  border-radius: 4px;
+  font-weight: 600;
+  font-size: 0.95rem;
+  line-height: 1.2;
+  text-decoration: none;
+  border: 1.5px solid transparent;
+  transition: background-color 120ms ease, color 120ms ease;
+}
+
+.cc-button--primary {
+  background: var(--cc-graphite);
+  color: var(--cc-paper);
+}
+
+.cc-button--primary:hover {
+  background: var(--cc-graphite-soft);
+  color: var(--cc-paper);
+}
+
+.cc-button--secondary {
+  border-color: var(--cc-graphite);
+  color: var(--cc-graphite);
+}
+
+.cc-button--secondary:hover {
+  background: var(--cc-graphite);
+  color: var(--cc-paper);
+}
+
+.cc-button:focus-visible,
+.cc-home a:focus-visible {
+  outline: 3px solid var(--cc-brass);
+  outline-offset: 3px;
+}
+
+/* Hero */
+
+.cc-hero {
+  position: relative;
+  padding: clamp(2.5rem, 6vw, 5rem) 0 0;
+  overflow: hidden;
+}
+
+.cc-hero__inner {
+  max-width: 76rem;
+  margin: 0 auto;
+  padding: 0 clamp(1.25rem, 4vw, 3rem);
+  display: grid;
+  grid-template-columns: minmax(0, 5fr) minmax(0, 6fr);
+  gap: clamp(2rem, 4vw, 4rem);
+  align-items: center;
+  position: relative;
+  z-index: 1;
+}
+
+.cc-hero__title {
+  font-size: clamp(2.6rem, 5.4vw, 4.4rem);
+  line-height: 1;
+  font-weight: 700;
+  letter-spacing: -0.035em;
+  max-width: 11ch;
+  font-variation-settings: "opsz" 96;
+}
+
+.cc-hero__lede {
+  margin-top: 1.5rem !important;
+  font-size: 1.15rem;
+  line-height: 1.55;
+  max-width: 34em;
+  color: var(--cc-graphite-soft);
+}
+
+.cc-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.75rem;
+  margin-top: 2rem;
+}
+
+.cc-hero__meta {
+  margin-top: 1rem !important;
+  font-size: 0.85rem;
+  color: var(--cc-graphite-soft);
+}
+
+.cc-hero__meta a {
+  margin-left: 0.35em;
+}
+
+.cc-hero__media {
+  margin: 0;
+}
+
+.cc-hero__media img,
+.cc-feature__media img {
+  display: block;
+  width: 100%;
+  height: auto;
+  border-radius: 6px;
+  box-shadow: 0 1px 0 var(--cc-rule), 0 18px 40px -18px rgba(35, 38, 43, 0.45);
+}
+
+/* The tablature band: six strings (thin to thick, top to bottom, as on the guitar) with a phrase
+   of fret numbers that appears note by note when the page loads. */
+
+.cc-tab {
+  --gap: clamp(0.85rem, 1.6vw, 1.25rem);
+  --top: clamp(2.5rem, 5vw, 4rem);
+  --edge: clamp(1.25rem, 4vw, 3rem);
+  position: relative;
+  height: calc(var(--gap) * 5);
+  margin: 0 0 clamp(2.5rem, 5vw, 4rem);
+  padding-top: var(--top);
+  box-sizing: content-box;
+}
+
+/* The barline that opens the staff. */
+.cc-tab::before {
+  content: "";
+  position: absolute;
+  left: var(--edge);
+  top: var(--top);
+  height: calc(var(--gap) * 5 + 2.5px);
+  width: 1.5px;
+  background: var(--cc-steel);
+}
+
+.cc-tab__string {
+  position: absolute;
+  left: var(--edge);
+  right: 0;
+  top: calc(var(--top) + var(--gap) * var(--s));
+  height: calc(1px + var(--s) * 0.3px);
+  background: var(--cc-steel);
+  opacity: 0.55;
+}
+
+.cc-tab__clef {
+  position: absolute;
+  left: calc(var(--edge) + var(--gap) * 0.6);
+  top: calc(var(--top) + var(--gap) * 0.1);
+  height: calc(var(--gap) * 4.8);
+  display: flex;
+  flex-direction: column;
+  justify-content: space-between;
+  font-weight: 700;
+  font-size: calc(var(--gap) * 1.3);
+  line-height: 1;
+  color: var(--cc-graphite);
+  background: var(--cc-paper);
+  padding: 0 0.15em;
+  z-index: 1;
+}
+
+.cc-tab__fret {
+  position: absolute;
+  top: calc(var(--top) + var(--gap) * var(--s));
+  left: calc(var(--edge) + var(--gap) * 4 + (var(--i) / (var(--n) - 1)) * (100% - var(--edge) - var(--gap) * 6));
+  transform: translate(-50%, -50%);
+  font-weight: 700;
+  font-size: calc(var(--gap) * 0.95);
+  line-height: 1;
+  padding: 0 0.22em;
+  color: var(--cc-brass-ink);
+  background: var(--cc-paper);
+  font-variant-numeric: tabular-nums;
+  animation: cc-pluck 360ms cubic-bezier(0.2, 0.7, 0.3, 1) both;
+  animation-delay: calc(400ms + var(--i) * 110ms);
+}
+
+@keyframes cc-pluck {
+  from {
+    opacity: 0;
+    transform: translate(-50%, -50%) scale(0.6);
+  }
+  to {
+    opacity: 1;
+    transform: translate(-50%, -50%) scale(1);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .cc-tab__fret {
+    animation: none;
+  }
+}
+
+/* Feature rows */
+
+.cc-feature {
+  max-width: 76rem;
+  margin: 0 auto;
+  padding: clamp(3rem, 7vw, 5.5rem) clamp(1.25rem, 4vw, 3rem);
+  display: grid;
+  grid-template-columns: minmax(0, 4fr) minmax(0, 7fr);
+  gap: clamp(2rem, 5vw, 4.5rem);
+  align-items: center;
+  border-top: 1px solid var(--cc-rule);
+}
+
+.cc-feature:nth-of-type(odd) .cc-feature__text {
+  order: 2;
+}
+
+.cc-feature:nth-of-type(odd) {
+  grid-template-columns: minmax(0, 7fr) minmax(0, 4fr);
+}
+
+.cc-feature h2 {
+  font-size: clamp(1.7rem, 3vw, 2.3rem);
+  line-height: 1.1;
+  font-weight: 700;
+  letter-spacing: -0.02em;
+  max-width: 14ch;
+}
+
+.cc-feature p {
+  margin-top: 1rem;
+  font-size: 1.05rem;
+  line-height: 1.6;
+  max-width: 34em;
+  color: var(--cc-graphite-soft);
+}
+
+.cc-feature__media {
+  margin: 0;
+}
+
+/* Download band: the only dark section, so the decision stands out. */
+
+.cc-download {
+  background: #23262b;
+  color: #fafaf7;
+  padding: clamp(3.5rem, 8vw, 6rem) 0;
+  --cc-graphite: #fafaf7;
+  --cc-graphite-soft: #c4c8cd;
+  --cc-paper: #23262b;
+  --cc-paper-deep: #30343a;
+  --cc-brass-ink: #dcae5c;
+}
+
+[data-md-color-scheme="slate"] .cc-download {
+  background: #121316;
+  --cc-paper: #121316;
+}
+
+.cc-download__inner {
+  max-width: 76rem;
+  margin: 0 auto;
+  padding: 0 clamp(1.25rem, 4vw, 3rem);
+}
+
+.cc-download h2 {
+  font-size: clamp(1.9rem, 3.4vw, 2.6rem);
+  font-weight: 700;
+  letter-spacing: -0.02em;
+}
+
+.cc-download__lede {
+  margin-top: 0.75rem !important;
+  color: var(--cc-graphite-soft);
+}
+
+.cc-download__systems {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 1rem;
+  margin-top: 2.25rem;
+}
+
+.cc-os {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 0.75rem;
+  padding: 1.5rem;
+  border: 1px solid #454a52;
+  border-radius: 6px;
+}
+
+.cc-os h3 {
+  font-size: 1.25rem;
+  font-weight: 700;
+}
+
+.cc-os p {
+  color: var(--cc-graphite-soft);
+  font-size: 0.95rem;
+  line-height: 1.5;
+}
+
+.cc-os .cc-button--primary {
+  background: #fafaf7;
+  color: #23262b;
+}
+
+.cc-os__alt {
+  margin-top: auto !important;
+}
+
+.cc-os pre {
+  margin: auto 0 0;
+  width: 100%;
+  box-sizing: border-box;
+  padding: 0.6rem 0.75rem;
+  background: var(--cc-paper-deep);
+  border-radius: 4px;
+  overflow-x: auto;
+}
+
+.cc-os pre code {
+  background: none;
+  padding: 0;
+  font-size: 0.78rem;
+  white-space: pre;
+  color: #e6e4dc;
+}
+
+/* The visitor's system, as detected by releases.js, comes first and in brass. */
+html[data-os="linux"] .cc-os--linux,
+html[data-os="macos"] .cc-os--macos,
+html[data-os="windows"] .cc-os--windows {
+  order: -1;
+  border-color: var(--cc-brass);
+  background: #2b2e34;
+}
+
+html[data-os="linux"] .cc-os--linux .cc-button--primary,
+html[data-os="macos"] .cc-os--macos .cc-button--primary,
+html[data-os="windows"] .cc-os--windows .cc-button--primary {
+  background: var(--cc-brass);
+  color: #1d1f23;
+}
+
+.cc-download__more {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem 2rem;
+  margin-top: 2rem !important;
+}
+
+/* Narrow screens: one column, text before pictures. */
+@media (max-width: 60em) {
+  .cc-hero__inner,
+  .cc-feature,
+  .cc-feature:nth-of-type(odd) {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .cc-feature:nth-of-type(odd) .cc-feature__text {
+    order: 0;
+  }
+
+  .cc-hero__title {
+    max-width: 14ch;
+  }
+
+  .cc-download__systems {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}
+
+/* ---------- Download page ---------- */
+
+.cc-release-line {
+  font-size: 0.85rem;
+}
+
+.cc-release-line a {
+  margin-left: 0.5em;
+}
+
+.cc-systems {
+  display: flex;
+  flex-direction: column;
+}
+
+html[data-os="linux"] .cc-system--linux,
+html[data-os="macos"] .cc-system--macos,
+html[data-os="windows"] .cc-system--windows {
+  order: -1;
+}
+
+html[data-os="linux"] .cc-system--linux h2::after,
+html[data-os="macos"] .cc-system--macos h2::after,
+html[data-os="windows"] .cc-system--windows h2::after {
+  content: "your system";
+  margin-left: 0.75em;
+  padding: 0.15em 0.6em;
+  font-size: 0.6em;
+  font-weight: 600;
+  vertical-align: middle;
+  border-radius: 999px;
+  background: var(--md-accent-fg-color--transparent);
+  color: var(--cc-brass-ink);
+}
+
+.md-typeset table.cc-files:not([class*="highlight"]) {
+  display: table;
+  width: 100%;
+  font-size: 0.75rem;
+}
+
+.md-typeset table.cc-files td:first-child {
+  white-space: nowrap;
+  font-weight: 600;
+}
+
+.md-typeset table.cc-files td:last-child {
+  white-space: nowrap;
+  text-align: right;
+  color: var(--md-default-fg-color--light);
+}

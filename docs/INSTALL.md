@@ -2,7 +2,7 @@
 
 Pick the line that fits your system. Every release is on the
 [releases page](https://github.com/kjmcnamara1/cecilia/releases); building from source is covered
-in the [README](../README.md#installation).
+in the [README](https://github.com/kjmcnamara1/cecilia#build-from-source).
 
 | System  | Way                                    | Command                                                                  |
 | ------- | -------------------------------------- | ------------------------------------------------------------------------ |
@@ -84,7 +84,7 @@ The first time the tuner opens, macOS asks for microphone access.
   entry, icon and file types.
 
 The window loads Vulkan or OpenGL at run time (`ui.renderer` falls back to the CPU renderer when
-there is no GPU, see the README).
+there is no GPU, see [Renderer selection](https://github.com/kjmcnamara1/cecilia#renderer-selection) in the README).
 
 ## Nix and NixOS
 

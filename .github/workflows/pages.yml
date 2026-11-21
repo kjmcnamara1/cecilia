@@ -1,0 +1,51 @@
+# The website (https://kjmcnamara1.github.io/cecilia/): built with Zensical from docs/ and
+# site-theme/ (see zensical.toml). Pull requests only build it, to catch broken links; pushes to
+# main also publish it. The download links read the latest release in the browser, so a release
+# needs no rebuild. One-time setup: Settings > Pages > Source: GitHub Actions.
+name: Pages
+
+on:
+  push:
+    branches: [main]
+    paths: [docs/**, site-theme/**, zensical.toml, CHANGELOG.md, .github/workflows/pages.yml]
+  pull_request:
+    paths: [docs/**, site-theme/**, zensical.toml, CHANGELOG.md, .github/workflows/pages.yml]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: pages-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.13"
+      # Keep in step with the `docs` task in mise.toml.
+      - run: pip install zensical==0.1.3
+      # --strict fails the build on any issue, such as a broken link or a missing page.
+      - run: zensical build --clean --strict
+      - uses: actions/upload-pages-artifact@v3
+        if: github.event_name != 'pull_request'
+        with:
+          path: site
+
+  deploy:
+    if: github.event_name != 'pull_request'
+    needs: build
+    runs-on: ubuntu-latest
+    permissions:
+      pages: write
+      id-token: write
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - id: deployment
+        uses: actions/deploy-pages@v4

@@ -1,7 +1,7 @@
 # Lyrics
 
 How cecilia keeps, edits, lays out, draws, imports and exports lyrics. Key bindings are also
-listed in [keymap.md](keymap.md); the design is summarised in [SPEC.md](SPEC.md) (4.3).
+listed in [keymap.md](keymap.md); the design is summarised in [SPEC.md](https://github.com/kjmcnamara1/cecilia/blob/main/docs/SPEC.md) (4.3).
 
 1. [Overview](#1-overview)
 2. [Lyrics syntax](#2-lyrics-syntax)
