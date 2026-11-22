@@ -1,7 +1,7 @@
 # Maintainer: Kevin McNamara (github.com/kjmcnamara1)
 pkgname=cecilia-git
 _name=cecilia
-pkgver=0.45.1.r0.g0000000
+pkgver=0.51.0.r0.g0000000
 pkgrel=1
 pkgdesc='Keyboard-first editor and player for guitar tab, standard notation and Gregorian chant (git version)'
 arch=('x86_64' 'aarch64')

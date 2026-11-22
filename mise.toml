@@ -137,7 +137,7 @@ awk '/^## \[Unreleased\]/ { on = 1; next } /^## \[/ { on = 0 } on' CHANGELOG.md 
 win=(packaging/scoop/cecilia.json packaging/winget/*.yaml packaging/choco/cecilia.nuspec
   packaging/choco/tools/chocolateyinstall.ps1)
 meta=packaging/linux/io.github.kjmcnamara1.cecilia.metainfo.xml
-for f in "${win[@]}" packaging/aur/cecilia{,-bin}/PKGBUILD "$meta"; do
+for f in "${win[@]}" packaging/aur/cecilia{,-bin,-git}/PKGBUILD "$meta"; do
   grep -qF "$cur" "$f" || { echo "$f is not at $cur" >&2; exit 1; }
 done
 
@@ -148,6 +148,9 @@ cargo update --workspace --offline
 sed -i "s/^## \[Unreleased\]/&\n\n## [$new] - $(date +%F)/" CHANGELOG.md
 
 sed -i -e "s/^pkgver=.*/pkgver=$new/" -e "s/^pkgrel=.*/pkgrel=1/" packaging/aur/cecilia{,-bin}/PKGBUILD
+# The -git package's pkgver() replaces this at build time; it only shows the release on the AUR.
+sed -i -e "s/^pkgver=.*/pkgver=$new.r0.g0000000/" -e "s/^pkgrel=.*/pkgrel=1/" \
+  packaging/aur/cecilia-git/PKGBUILD
 sed -i "s/$old/$new/g" "${win[@]}"
 sed -i "s|^\( *\)<releases>|&\n\1  <release version=\"$new\" date=\"$(date +%F)\"/>|" "$meta"
 echo "$cur -> $new"

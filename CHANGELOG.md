@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+
+- `mise run bump` also sets the version in the `cecilia-git` AUR PKGBUILD.
+
 ## [0.51.0] - 2026-11-22
 
 ### Added
