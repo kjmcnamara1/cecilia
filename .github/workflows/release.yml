@@ -2,12 +2,19 @@ name: Release
 
 # Pushing a tag `vX.Y.Z` (or a pre-release `vX.Y.Z-rc.N`) builds the binaries and publishes a
 # GitHub release. The tag must match the workspace version in Cargo.toml.
+# The build steps are the `release:*` mise tasks (scripts in packaging/release/), so each can be
+# run locally; the workflow keeps the runners, system packages, artifacts and publishing.
 on:
   push:
     tags: ["v*"]
 
 env:
   CARGO_TERM_COLOR: always
+
+# Git Bash on Windows, so the tasks' `bash` is not WSL's.
+defaults:
+  run:
+    shell: bash
 
 jobs:
   meta:
@@ -17,18 +24,10 @@ jobs:
       prerelease: ${{ steps.v.outputs.prerelease }}
     steps:
       - uses: actions/checkout@v4
+      - uses: jdx/mise-action@v5
+      # Writes version= and prerelease= to $GITHUB_OUTPUT.
       - id: v
-        run: |
-          version=$(cargo metadata --no-deps --format-version 1 \
-            | jq -r '.packages[] | select(.name == "cecilia") | .version')
-          tag=${GITHUB_REF_NAME#v}
-          if [ "${tag%%-*}" != "$version" ]; then
-            echo "::error::tag $GITHUB_REF_NAME does not match the workspace version $version"
-            exit 1
-          fi
-          echo "version=$version" >> "$GITHUB_OUTPUT"
-          case "$tag" in *-*) pre=true ;; *) pre=false ;; esac
-          echo "prerelease=$pre" >> "$GITHUB_OUTPUT"
+        run: mise run release:meta "$GITHUB_REF_NAME"
 
   build:
     needs: meta
@@ -37,10 +36,10 @@ jobs:
       matrix:
         include:
           # Built on the oldest Ubuntu runner for the oldest glibc.
-          - { target: x86_64-unknown-linux-gnu, os: ubuntu-22.04, ext: tar.gz }
-          - { target: x86_64-pc-windows-msvc, os: windows-latest, ext: zip }
-          - { target: aarch64-apple-darwin, os: macos-latest, ext: tar.gz }
-          - { target: x86_64-apple-darwin, os: macos-latest, ext: tar.gz }
+          - { target: x86_64-unknown-linux-gnu, os: ubuntu-22.04 }
+          - { target: x86_64-pc-windows-msvc, os: windows-latest }
+          - { target: aarch64-apple-darwin, os: macos-latest }
+          - { target: x86_64-apple-darwin, os: macos-latest }
     runs-on: ${{ matrix.os }}
     steps:
       - uses: actions/checkout@v4
@@ -50,80 +49,28 @@ jobs:
       - uses: Swatinem/rust-cache@v2
         with:
           key: ${{ matrix.target }}
+      # cargo-deb and cargo-generate-rpm, which release:linux-packages installs, are cached after
+      # the job (cache_save_post).
+      - uses: jdx/mise-action@v5
+        with:
+          cache_save_post: true
       - name: System libraries (ALSA for cpal)
         if: runner.os == 'Linux'
         run: sudo apt-get update && sudo apt-get install -y libasound2-dev pkg-config dpkg-dev
-      - run: cargo build --release --locked -p cecilia --target ${{ matrix.target }}
-      - name: Smoke test
-        # The Intel macOS binary is cross-built on an Apple silicon runner and not run here.
-        if: matrix.target != 'x86_64-apple-darwin'
-        shell: bash
-        run: |
-          exe=target/${{ matrix.target }}/release/cecilia
-          [ "$RUNNER_OS" = Windows ] && exe=$exe.exe
-          "$exe" --version
-          # ceciliag.exe has no console to print to: only check it was built.
-          if [ "$RUNNER_OS" = Windows ]; then test -f "${exe%cecilia.exe}ceciliag.exe"; fi
-      - name: Package
-        shell: bash
-        run: |
-          name=cecilia-v${{ needs.meta.outputs.version }}-${{ matrix.target }}
-          mkdir "$name"
-          # Every binary of the crate: cargo-binstall refuses an archive that lacks one.
-          # ceciliag(.exe) is `cecilia --gui`; on Windows without a console (Start Menu shortcuts).
-          exe=; [ "$RUNNER_OS" = Windows ] && exe=.exe
-          cp target/${{ matrix.target }}/release/{cecilia,ceciliag}$exe "$name/"
-          cp LICENSE-APACHE LICENSE-MIT README.md CHANGELOG.md "$name/"
-          if [ "$RUNNER_OS" = Linux ]; then
-            cp -r packaging/linux "$name/"
-          fi
-          mkdir dist
-          if [ "${{ matrix.ext }}" = zip ]; then
-            7z a "dist/$name.zip" "$name"
-          else
-            tar czf "dist/$name.tar.gz" "$name"
-          fi
+      # Build, smoke test (not the Intel macOS binary, cross-built here) and archive into dist/.
+      - run: mise run release:build ${{ matrix.target }}
       - uses: actions/setup-dotnet@v4
         if: runner.os == 'Windows'
         with:
           dotnet-version: 8.0.x
       - name: Windows installer (Velopack)
         if: runner.os == 'Windows'
-        shell: bash
         env:
           GH_TOKEN: ${{ github.token }}
-        run: |
-          # vpk must be the version of the velopack crate cecilia links (Cargo.lock).
-          vpk_version=$(awk '{ sub(/\r$/, "") } $0 == "name = \"velopack\"" { getline; gsub(/version = |"|\r/, ""); print; exit }' Cargo.lock)
-          [ -n "$vpk_version" ] || { echo "::error::no velopack in Cargo.lock"; exit 1; }
-          dotnet tool install vpk --version "$vpk_version" --tool-path .vpk
-          # The tag, not Cargo.toml: a pre-release must sort below its final release in Velopack.
-          v=${GITHUB_REF_NAME#v}
-          mkdir pack
-          cp target/${{ matrix.target }}/release/{cecilia,ceciliag}.exe pack/
-          cp LICENSE-APACHE LICENSE-MIT README.md CHANGELOG.md pack/
-          # The latest release's feed and package, so this release gets a delta package and a
-          # feed listing both. There is none before the first release with an installer.
-          .vpk/vpk download github --repoUrl "https://github.com/${{ github.repository }}" \
-            --token "$GH_TOKEN" --outputDir Releases || echo "no earlier installer release"
-          # Per-user install with a Start Menu shortcut to ceciliag.exe and an uninstall entry.
-          .vpk/vpk pack --packId cecilia --packVersion "$v" --packDir pack \
-            --mainExe ceciliag.exe --icon crates/cecilia/assets/cecilia.ico \
-            --packTitle cecilia --packAuthors "The cecilia contributors" --runtime win-x64 \
-            --shortcuts StartMenuRoot --noPortable --outputDir Releases
-          ls -l Releases
-          # Released with the other assets: the installer, this version's packages and the feed
-          # (installed copies read releases.win.json from the latest release).
-          cp Releases/cecilia-win-Setup.exe Releases/releases.win.json dist/
-          cp Releases/cecilia-"$v"-*.nupkg dist/
+        run: mise run release:velopack ${{ matrix.target }}
       - name: .deb and .rpm
         if: runner.os == 'Linux'
-        run: |
-          # cargo-deb and cargo-generate-rpm package the tree stage.sh lays out.
-          packaging/linux/stage.sh target/stage /usr target/${{ matrix.target }}/release/cecilia
-          cargo install --locked cargo-deb cargo-generate-rpm
-          cargo deb -p cecilia --no-build --no-strip --output dist/
-          cargo generate-rpm -p crates/cecilia --output dist/
+        run: mise run release:linux-packages ${{ matrix.target }}
       - uses: actions/upload-artifact@v4
         with:
           name: ${{ matrix.target }}
@@ -141,19 +88,10 @@ jobs:
         with:
           pattern: "*-apple-darwin"
           path: in
+      - uses: jdx/mise-action@v5
+      - run: brew install librsvg && pipx install dmgbuild
       - name: Universal binary and .dmg
-        run: |
-          v=${{ needs.meta.outputs.version }}
-          for t in aarch64 x86_64; do
-            tar xzf in/$t-apple-darwin/cecilia-v$v-$t-apple-darwin.tar.gz -C in/$t-apple-darwin
-          done
-          lipo -create -output cecilia \
-            in/aarch64-apple-darwin/cecilia-v$v-aarch64-apple-darwin/cecilia \
-            in/x86_64-apple-darwin/cecilia-v$v-x86_64-apple-darwin/cecilia
-          brew install librsvg
-          pipx install dmgbuild
-          mkdir dist
-          packaging/macos/bundle.sh "$v" cecilia dist/cecilia-v$v-universal-apple-darwin.dmg
+        run: mise run release:macos-app in
       - uses: actions/upload-artifact@v4
         with:
           name: macos-app
@@ -171,20 +109,15 @@ jobs:
         with:
           name: x86_64-unknown-linux-gnu
           path: in
+      - uses: jdx/mise-action@v5
       - name: Build the AppImage
         env:
           APPIMAGE_EXTRACT_AND_RUN: "1"
-        run: |
-          v=${{ needs.meta.outputs.version }}
-          tar xzf in/cecilia-v$v-x86_64-unknown-linux-gnu.tar.gz -C in
-          curl -fsSL -o linuxdeploy https://github.com/linuxdeploy/linuxdeploy/releases/download/continuous/linuxdeploy-x86_64.AppImage
-          chmod +x linuxdeploy
-          LINUXDEPLOY=$PWD/linuxdeploy packaging/appimage/build.sh "$v" \
-            in/cecilia-v$v-x86_64-unknown-linux-gnu/cecilia out
+        run: mise run release:appimage in
       - uses: actions/upload-artifact@v4
         with:
           name: appimage
-          path: out/*.AppImage
+          path: dist/*.AppImage
 
   # Flatpak bundle (packaging/flatpak), built offline from Cargo.lock. Built blind until the first
   # -rc tag, so it must not block a release.
@@ -238,29 +171,9 @@ jobs:
         with:
           path: dist
           merge-multiple: true
-      - name: Checksums
-        working-directory: dist
-        # The archives, packages and cecilia-win-Setup.exe.
-        run: sha256sum cecilia* > SHA256SUMS
-      - name: Install script
-        # Not in SHA256SUMS: it is what reads them.
-        run: cp packaging/install.sh dist/install.sh
-      - name: Release notes
-        run: |
-          v=${{ needs.meta.outputs.version }}
-          # The CHANGELOG section of this version, or [Unreleased] for a pre-release before it.
-          section() {
-            awk -v h="## [$1]" 'index($0, h) == 1 { on = 1; next } /^## \[/ { on = 0 } on' CHANGELOG.md
-          }
-          section "$v" > notes.md
-          [ -n "$(tr -d '[:space:]' < notes.md)" ] || section Unreleased > notes.md
-          [ -s notes.md ] || echo "See CHANGELOG.md." > notes.md
-          cat >> notes.md <<'NOTE'
-
-          The binaries are not signed: Windows SmartScreen and macOS Gatekeeper will warn. On
-          macOS run `xattr -d com.apple.quarantine cecilia` after unpacking. Check downloads
-          against `SHA256SUMS`.
-          NOTE
+      - uses: jdx/mise-action@v5
+      # SHA256SUMS and install.sh in dist/, the release notes (from CHANGELOG.md) in notes.md.
+      - run: mise run release:assets
       - name: Publish
         env:
           GH_TOKEN: ${{ github.token }}

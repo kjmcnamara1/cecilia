@@ -29,6 +29,8 @@ cargo test -p cecilia-app tracks::            # one crate / one module or test n
 cargo clippy --workspace --all-targets     # keep clean
 cargo fmt                                  # rustfmt.toml: max_width 100
 mise run ci                                # the CI checks that can run locally; run before every push
+mise run msrv                              # check with the minimum supported Rust (installs it)
+mise tasks                                 # every task; each CI job and release step is one
 mise run gui song.gp5                      # window (ceciliag, release build)
 mise run tui song.gp5                      # terminal UI (cecilia, release build)
 mise run docs                              # preview the website (Zensical) at localhost:8000
@@ -50,7 +52,8 @@ tag: commit as `chore(release): vX.Y.Z` and tag `vX.Y.Z`. The packaging checksum
 filled in after publishing (the release workflow's AUR job does the PKGBUILDs with `updpkgsums`;
 `packaging/bump-windows.sh` is run by hand for the Windows manifests).
 
-Pushing the tag runs `.github/workflows/release.yml`, which publishes the release with the
+Pushing the tag runs `.github/workflows/release.yml` (its build steps are the `release:*` mise
+tasks, scripts in `packaging/release/`), which publishes the release with the
 tarballs/zip, `.deb`/`.rpm`, the universal macOS `.dmg` (`packaging/macos`), the AppImage
 (`packaging/appimage`), the Flatpak bundle (`packaging/flatpak`), the snap (`snap/`), `install.sh`
 and `SHA256SUMS`, then updates crates.io, the AUR, the Homebrew tap (`packaging/homebrew`) and
@@ -59,7 +62,7 @@ the Snap Store (the last four only for final tags, not `-rc`). Secrets: `CARGO_R
 `SNAPCRAFT_STORE_CREDENTIALS`. One-time steps: create the tap repository, `snapcraft register
 cecilia`, and submit the Flatpak to Flathub (see "For maintainers" in `docs/INSTALL.md`). The
 AppImage, Flatpak and snap jobs are `continue-on-error` and were written without being run: push a
-`vX.Y.Z-rc.N` tag first and read their logs. `bash packaging/check.sh` (part of `mise run ci`) tests the
+`vX.Y.Z-rc.N` tag first and read their logs. `mise run packaging` (part of `mise run ci`) tests the
 packaging scripts and metadata; the macOS bundle is tested by CI on macOS (`packaging/macos/test.sh`).
 Keep `docs/INSTALL.md` in step when a channel changes.
 

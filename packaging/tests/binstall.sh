@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# cargo-binstall finds the release archives (names must match release.yml's Package step).
+# cargo-binstall finds the release archives (names must match packaging/release/build.sh).
 set -eu
 cd "$(dirname "$0")/../.."
 fail() { echo "FAIL: $*" >&2; exit 1; }
@@ -11,10 +11,10 @@ check '.["pkg-url"]' '{ repo }/releases/download/v{ version }/cecilia-v{ version
 check '.["bin-dir"]' 'cecilia-v{ version }-{ target }/{ bin }{ binary-ext }'
 check '.["pkg-fmt"]' 'tgz'
 check '.overrides["x86_64-pc-windows-msvc"]["pkg-fmt"]' 'zip'
-# binstall needs every binary of the crate in the archive, so the Package step must copy them all.
+# binstall needs every binary of the crate in the archive, so build.sh must copy them all.
 bins=$(cargo metadata --no-deps --format-version 1 \
     | jq -r '[.packages[] | select(.name == "cecilia") | .targets[]
               | select(.kind | index("bin")) | .name] | sort | join(",")')
-grep -qF "release/{$bins}\$exe \"\$name/\"" .github/workflows/release.yml \
-    || fail "release.yml's Package step does not copy every binary ({$bins})"
+grep -qF "release/{$bins}\"\$exe\" \"\$stage/\$name/\"" packaging/release/build.sh \
+    || fail "packaging/release/build.sh does not copy every binary ({$bins})"
 echo "binstall: ok"
