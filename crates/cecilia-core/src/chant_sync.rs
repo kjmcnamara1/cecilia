@@ -11,15 +11,11 @@ use crate::{ChantSyncPoint, Score, SyncPoint, TICKS_PER_QUARTER};
 /// Audio frames per second of sync points.
 pub const SYNC_FRAME_RATE: f64 = 44_100.0;
 
-/// How long (ticks) a division takes in the singing, on the sync timeline.
-const DIVISION_TICKS: u64 = TICKS_PER_QUARTER as u64 / 2;
-
 /// The sync timeline of the cells of a chant.
 struct CellTiming {
-    /// Start tick of each cell on the sync timeline (divisions take time there).
+    /// Start tick of each cell in the performance of the cached bars (a division's pause
+    /// counted, see [`crate::MasterBar::pause`]).
     ticks: Vec<u64>,
-    /// Start tick of each cell in the performance of the cached bars.
-    perf: Vec<u64>,
     /// Stable id of each cell (a note's, or that of a division or empty group).
     ids: Vec<Option<u32>>,
 }
@@ -115,9 +111,7 @@ impl NoteWarp {
 
 impl Score {
     /// The sync timeline of a chant: the start tick of every cell (a note, an empty group, a
-    /// division) in the performance of the cached bars, with a division taking
-    /// [`DIVISION_TICKS`] more than the performance gives it (it takes time in the singing, not
-    /// in the bars), and each cell's id.
+    /// division) in the performance of the cached bars, and each cell's id.
     fn chant_cell_timing(&self, chant: &Chant, tr: &crate::chant::Transcription) -> CellTiming {
         let mut bar_start = Vec::with_capacity(self.master_bars.len());
         let mut tick = 0u64;
@@ -126,9 +120,7 @@ impl Score {
             tick += self.played_ticks(b) as u64;
         }
         let note_ids = chant.note_ids();
-        let mut shift = 0u64;
         let mut ticks = Vec::with_capacity(tr.cells.len());
-        let mut perf = Vec::with_capacity(tr.cells.len());
         let mut ids = Vec::with_capacity(tr.cells.len());
         for c in &tr.cells {
             let before: u64 = tr
@@ -139,8 +131,7 @@ impl Score {
                     v.beats.iter().take(c.beat).map(|b| b.ticks() as u64).sum()
                 });
             let at = bar_start.get(c.bar).copied().unwrap_or(tick) + before;
-            perf.push(at);
-            ticks.push(at + shift);
+            ticks.push(at);
             ids.push(match c.note {
                 Some(n) => note_ids.get(n).copied(),
                 None => chant
@@ -149,11 +140,8 @@ impl Score {
                     .map(|s| s.id)
                     .filter(|&i| i != 0),
             });
-            if c.kind == CellKind::Division {
-                shift += DIVISION_TICKS;
-            }
         }
-        CellTiming { ticks, perf, ids }
+        CellTiming { ticks, ids }
     }
 
     /// The sync timeline and the warp through the points that anchor it (notes and divisions;
@@ -215,7 +203,7 @@ impl Score {
             .filter(|(_, c)| c.note.is_some())
         {
             let frame = warp.frame_at(timing.ticks[i] as f64).round() as i64;
-            let tick = timing.perf[i];
+            let tick = timing.ticks[i];
             if anchors.last().is_some_and(|a| a.0 >= tick || a.1 >= frame) {
                 continue;
             }
@@ -463,10 +451,14 @@ mod tests {
         let mut s = score();
         assert_eq!(chant_mut(&mut s).note_ids(), [1, 2, 3, 4, 5]);
         assert!(bar_frames(&s).is_empty());
-        // Ten frames a tick: bar 1 starts three eighths and a division (an eighth) in.
+        // Ten frames a tick: bar 1 starts three eighths and a minor division's pause (half a
+        // punctum) in.
         point(&mut s, 1, 10_000);
-        point(&mut s, 5, 10_000 + 10 * 5 * 480);
-        assert_eq!(bar_frames(&s), [(0, 10_000), (1, 10_000 + 10 * 4 * 480)]);
+        point(&mut s, 5, 10_000 + 10 * (3 * 480 + 240 + 480));
+        assert_eq!(
+            bar_frames(&s),
+            [(0, 10_000), (1, 10_000 + 10 * (3 * 480 + 240))]
+        );
         let tempo = s.audio.as_ref().unwrap().points[0].tempo;
         assert!((tempo - 44_100.0 * 60.0 / (10.0 * 960.0)).abs() < 1e-6);
     }
@@ -478,9 +470,9 @@ mod tests {
         chant_mut(&mut s).set_mora(0, 1).unwrap();
         retranscribe(&mut s, 0);
         point(&mut s, 1, 10_000);
-        // The division takes an eighth, and the last note starts an eighth after the bar.
-        point(&mut s, 5, 10_000 + 10 * (1920 + 480 + 480));
-        assert_eq!(bar_frames(&s)[1], (1, 10_000 + 10 * (1920 + 480)));
+        // The division pauses half a punctum, and the last note starts an eighth after the bar.
+        point(&mut s, 5, 10_000 + 10 * (1920 + 240 + 480));
+        assert_eq!(bar_frames(&s)[1], (1, 10_000 + 10 * (1920 + 240)));
         // Both notes of the pes share the time by length: the second starts a half in.
         let frames = s.chant_note_frames().unwrap();
         assert_eq!(frames[1] - frames[0], 9600);
@@ -491,8 +483,8 @@ mod tests {
     fn before_the_first_and_after_the_last_point_the_nearest_rate_is_used() {
         let mut s = score();
         point(&mut s, 2, 100_000);
-        // (An eighth of division lies between the third note and the fourth.)
-        point(&mut s, 4, 100_000 + 10 * (960 + 480));
+        // (Half a punctum of division lies between the third note and the fourth.)
+        point(&mut s, 4, 100_000 + 10 * (960 + 240));
         let f = s.chant_note_frames().unwrap();
         // Ten frames a tick in the stretch; the same before and after it.
         assert_eq!(f[0], 100_000 - 4_800);

@@ -79,7 +79,7 @@ pub struct Syllable {
     pub items: Vec<NeumeItem>,
 }
 
-fn is_zero(n: &u32) -> bool {
+pub(crate) fn is_zero(n: &u32) -> bool {
     *n == 0
 }
 
@@ -476,6 +476,18 @@ pub enum Division {
 }
 
 impl Division {
+    /// The silence a division leaves in playback, in ticks: the breath, a quarter of a punctum
+    /// (an eighth) at a minima, a half at a minor, one at a maior, two at a finalis.
+    pub fn pause(self) -> u32 {
+        match self {
+            Division::Virgula => 0,
+            Division::Minima => EIGHTH / 4,
+            Division::Minor => EIGHTH / 2,
+            Division::Maior => EIGHTH,
+            Division::Finalis => 2 * EIGHTH,
+        }
+    }
+
     pub fn of(token: &str) -> Division {
         match token.trim_end_matches(['?', '0']) {
             "::" => Division::Finalis,
@@ -1375,10 +1387,16 @@ pub fn transcribe(chant: &Chant) -> Transcription {
     let notes = chant.resolved();
     let mut out = Transcription::default();
     let mut beats: Vec<Beat> = Vec::new();
+    // The bar before a division gets its pause (the longest, when divisions follow each other)
+    // and a final division's double bar.
+    let close = |last: &mut MasterBar, division: Option<Division>| {
+        last.double_bar |= division == Some(Division::Finalis);
+        last.pause = last.pause.max(division.map_or(0, Division::pause));
+    };
     let finish = |beats: &mut Vec<Beat>, out: &mut Transcription, division: Option<Division>| {
         if beats.is_empty() {
-            if let (Some(Division::Finalis), Some(last)) = (division, out.master_bars.last_mut()) {
-                last.double_bar = true;
+            if let Some(last) = out.master_bars.last_mut() {
+                close(last, division);
             }
             return;
         }
@@ -1398,10 +1416,8 @@ pub fn transcribe(chant: &Chant) -> Transcription {
                     c.beat += offset;
                 }
                 out.bars[prev].voices[0].beats.append(beats);
-                if let (Some(Division::Finalis), Some(last)) =
-                    (division, out.master_bars.last_mut())
-                {
-                    last.double_bar = true;
+                if let Some(last) = out.master_bars.last_mut() {
+                    close(last, division);
                 }
                 return;
             }
@@ -1415,6 +1431,7 @@ pub fn transcribe(chant: &Chant) -> Transcription {
             },
             free_time: true,
             double_bar: division == Some(Division::Finalis),
+            pause: division.map_or(0, Division::pause),
             ..MasterBar::default()
         });
         out.bars.push(Bar {
@@ -1525,8 +1542,27 @@ pub fn transcribe(chant: &Chant) -> Transcription {
         }
     }
     finish(&mut beats, &mut out, None);
+    // A note sung again at once (on the next syllable, or a stropha's next beat) is let go a
+    // little early, so the second is heard as a note of its own.
+    for bar in &mut out.bars {
+        let beats = &mut bar.voices[0].beats;
+        let sounding: Vec<usize> = (0..beats.len())
+            .filter(|&i| !beats[i].notes.is_empty())
+            .collect();
+        for w in sounding.windows(2) {
+            let next = &beats[w[1]].notes[0];
+            let (tie, pitch) = (next.tie, next.fret);
+            let note = &mut beats[w[0]].notes[0];
+            if !tie && note.fret == pitch {
+                note.duration_percent = REPEAT_LENGTH;
+            }
+        }
+    }
     out
 }
+
+/// The part of its length a note sounds when the same pitch is sung again right after it.
+const REPEAT_LENGTH: f32 = 0.75;
 
 /// Rewrites a chant track's bars (and the score's master bars) from its chant notation. Other
 /// tracks keep their bars, padded or cut to the new bar count.
@@ -2057,6 +2093,46 @@ mod tests {
         assert_eq!(t.cells.len(), 5);
         assert_eq!(t.positions, [(0, 0), (0, 1), (0, 2), (1, 0)]);
         assert_eq!(t.master_bars[0].time_signature.numerator, 4);
+    }
+
+    #[test]
+    fn divisions_pause_and_repeated_notes_are_sung_again() {
+        let syl = |text: &str, items: Vec<NeumeItem>| Syllable {
+            text: text.into(),
+            word_start: true,
+            items,
+            ..Default::default()
+        };
+        let bar = |b: &str| syl("", vec![NeumeItem::Bar(b.into())]);
+        let chant = Chant {
+            syllables: vec![
+                // `la(gg) la(g)`: the same pitch goes on within a syllable, comes again on the
+                // next.
+                syl("la", vec![note(6, &[]), note(6, &[])]),
+                syl("la", vec![note(6, &[])]),
+                bar(","),
+                syl("la", vec![note(6, &[])]),
+                bar(";"),
+                bar(":"),
+                syl("la", vec![note(6, &[])]),
+                bar("::"),
+            ],
+            ..Chant::default()
+        };
+        let t = transcribe(&chant);
+        let pauses: Vec<u32> = t.master_bars.iter().map(|m| m.pause).collect();
+        assert_eq!(pauses, [EIGHTH / 4, EIGHTH, 2 * EIGHTH]);
+        let notes: Vec<&Note> = t.bars[0].voices[0]
+            .beats
+            .iter()
+            .filter(|b| !b.empty)
+            .map(|b| &b.notes[0])
+            .collect();
+        assert!(notes[1].tie);
+        assert_eq!(notes[0].duration_percent, 1.0, "held into its tie");
+        assert_eq!(notes[1].duration_percent, REPEAT_LENGTH);
+        // The last note before a division breathes in the pause instead.
+        assert_eq!(notes[2].duration_percent, 1.0);
     }
 
     #[test]
