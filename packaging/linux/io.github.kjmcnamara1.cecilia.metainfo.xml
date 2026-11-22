@@ -30,6 +30,7 @@
   </developer>
   <content_rating type="oars-1.1"/>
   <releases>
+    <release version="0.51.0" date="2026-11-22"/>
     <release version="0.50.0" date="2026-11-20"/>
     <release version="0.49.1" date="2026-11-13"/>
     <release version="0.49.0" date="2026-11-13"/>

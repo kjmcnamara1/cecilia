@@ -2,7 +2,7 @@
 <package xmlns="http://schemas.microsoft.com/packaging/2015/06/nuspec.xsd">
   <metadata>
     <id>cecilia</id>
-    <version>0.50.0</version>
+    <version>0.51.0</version>
     <title>cecilia</title>
     <authors>The cecilia contributors</authors>
     <projectUrl>https://kjmcnamara1.github.io/cecilia/</projectUrl>
