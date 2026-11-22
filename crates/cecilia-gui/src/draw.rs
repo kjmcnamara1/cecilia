@@ -3436,7 +3436,17 @@ fn playhead_at(
                 beat: i,
             };
             if let Some(p) = layout.beats.get(&r) {
-                points.push((t, p.page, p.x + 4.0, p.top, p.bottom));
+                // A note that does not stand to the right of the one before on its line (the
+                // upper note of a podatus, over the lower) is no stop of its own: the playhead
+                // goes on at an even pace through both instead of waiting there.
+                let advances = points.last().is_none_or(
+                    |&(_, page, x, top, _): &(u32, usize, f64, f64, f64)| {
+                        page != p.page || (top - p.top).abs() >= 0.5 || p.x + 4.0 > x + 0.5
+                    },
+                );
+                if advances {
+                    points.push((t, p.page, p.x + 4.0, p.top, p.bottom));
+                }
             }
         }
         t += b.ticks();
@@ -7588,6 +7598,51 @@ mod tests {
                 .fold(f64::MIN, f64::max);
             assert!(x <= right, "tick {tick}: {x} > {right}");
             tick += 120;
+        }
+    }
+
+    #[test]
+    fn the_playhead_keeps_moving_through_a_podatus() {
+        use cecilia_core::chant::{Chant, ChantNote, NeumeItem, Syllable, retranscribe};
+        let syllable = |notes: &[u8]| Syllable {
+            text: "la".into(),
+            word_start: true,
+            items: notes
+                .iter()
+                .map(|&p| NeumeItem::Note(ChantNote::new(p)))
+                .collect(),
+            ..Default::default()
+        };
+        let mut score = Score::default();
+        score.tracks.push(Track {
+            kind: TrackKind::Chant,
+            chant: Some(Box::new(Chant {
+                syllables: vec![syllable(&[3]), syllable(&[5, 7]), syllable(&[6])],
+                ..Chant::default()
+            })),
+            ..Track::default()
+        });
+        retranscribe(&mut score, 0);
+        let layout = cecilia_engrave::engrave(&score, 0, &Options::default());
+        let beat_x = |beat| {
+            layout.beats[&BeatRef {
+                track: 0,
+                bar: 0,
+                voice: 0,
+                beat,
+            }]
+                .x
+        };
+        assert!(
+            (beat_x(1) - beat_x(2)).abs() < 0.5,
+            "the podatus's notes stand one over the other"
+        );
+        // Through the first note and both of the podatus, up to the last note.
+        let mut last = f64::MIN;
+        for tick in (0..3 * 480).step_by(60) {
+            let x = playhead_at(&layout, &score, 0, 0, tick).unwrap().1;
+            assert!(x > last, "tick {tick}: the playhead stopped at {x}");
+            last = x;
         }
     }
 }

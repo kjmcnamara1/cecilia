@@ -15,6 +15,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- Chant playback breathes at the divisions: a pause after each, from a quarter of a punctum at a
+  minima to two puncta at a finalis. A note sung again at once on the next syllable is heard as a new note
+  instead of running on into it. The playhead moves at an even pace through a podatus (and any
+  notes set one over the other) instead of stopping before it.
+- GABC files open at a tempo of 60 (was 72).
 - The homepage in the crate metadata, the Nix flake and the package manifests (AUR, Homebrew,
   Scoop, Winget, Chocolatey, AppStream) is now the website instead of the GitHub repository.
 - The CI, Pages and release workflows run mise tasks, so every CI job and release build step can

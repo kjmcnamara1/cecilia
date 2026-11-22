@@ -329,6 +329,9 @@ pub struct MasterBar {
     pub tempo_changes: Vec<TempoChange>,
     /// Free time: the bar lasts as long as its contents, regardless of time signature.
     pub free_time: bool,
+    /// Silence after a free-time bar's contents, in ticks: the breath at a chant division.
+    #[serde(default, skip_serializing_if = "crate::chant::is_zero")]
+    pub pause: u32,
 }
 
 /// A tempo change at a tick offset within a bar.
@@ -1422,7 +1425,7 @@ impl Score {
     }
 
     /// Played length of a bar: the time signature length, or the length of the longest voice
-    /// for free-time bars and a pickup first bar.
+    /// (and the bar's pause after it) for free-time bars and a pickup first bar.
     pub fn played_ticks(&self, bar: usize) -> u32 {
         let mb = &self.master_bars[bar];
         if !(mb.free_time || (bar == 0 && self.anacrusis)) {
@@ -1436,7 +1439,11 @@ impl Score {
             .map(|v| v.beats.iter().map(Beat::ticks).sum::<u32>())
             .max()
             .unwrap_or(0);
-        if content == 0 { mb.ticks() } else { content }
+        if content == 0 {
+            mb.ticks()
+        } else {
+            content + mb.pause
+        }
     }
 
     /// Start tick of every master bar (written order, ignoring repeats).

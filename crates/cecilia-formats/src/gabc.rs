@@ -17,7 +17,7 @@ use crate::{Error, Result};
 /// MIDI program for chant playback (Choir Aahs).
 pub const CHANT_PROGRAM: u8 = 52;
 /// Default chant tempo in quarter notes per minute (a note is an eighth).
-pub const CHANT_TEMPO: u32 = 72;
+pub const CHANT_TEMPO: u32 = 60;
 
 /// Reads a GABC file into a score with one chant track.
 pub fn read_gabc(bytes: &[u8]) -> Result<Score> {

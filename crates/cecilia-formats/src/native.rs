@@ -121,6 +121,15 @@ pub fn read_cecilia(bytes: &[u8]) -> Result<Score> {
             // The kept GABC text comes back with its map (a text that no longer reads as the
             // chant is dropped).
             crate::gabc::refresh_source(c);
+            // The bars are a cache of the chant's transcription: an older file's lack the pauses
+            // at the divisions and the articulation of repeated notes.
+            let tr = cecilia_core::chant::transcribe(c);
+            if tr.master_bars.len() == score.master_bars.len() {
+                for (mb, new) in score.master_bars.iter_mut().zip(&tr.master_bars) {
+                    mb.pause = new.pause;
+                }
+                score.tracks[t].bars = tr.bars;
+            }
         }
         if score
             .audio

@@ -137,7 +137,8 @@ A chant track holds `chant` (syllables with their GABC text and items: notes wit
 their modifiers kept in written order, spaces, clefs, divisions, alterations, custodes, anything
 else verbatim) and, in its ordinary bars, a transcription of it: one free-time bar per phrase
 between divisions, one eighth-note beat per sounded note (a mora doubles it; the `solesmes`
-reading also lengthens episemata and the note before a quilisma). Do under a C clef is C5. The
+reading also lengthens episemata and the note before a quilisma), and a pause for breath after
+each division, longer the stronger the division. Do under a C clef is C5. The
 transcription is what plays, exports to modern formats and carries the cursor, but it is only a
 **cache**: the chant is the source of truth, and the bars of a chant track are never edited. Every
 edit is an operation on the `Chant` (`cecilia-core/src/chant_edit.rs`) that addresses notes by

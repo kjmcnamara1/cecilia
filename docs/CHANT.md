@@ -195,6 +195,12 @@ sync and the modern file formats work on it.
   `vv`, `vvv` beats of the same pitch.
 - **Bars.** One *free-time* bar per phrase: a bar ends at each division except a virgula; its time
   signature is the number of eighths over 8; a finalis `::` marks the bar a double bar.
+- **Breaths.** A division leaves a pause after its bar (`MasterBar::pause`): a quarter of a
+  punctum (an eighth) for a minima `,`, half a punctum for a minor `;`, one punctum for a maior
+  `:`, two for a finalis `::`.
+- **Repeated notes.** A note followed at once by the same pitch on a new attack (the next
+  syllable, a stropha's next beat) sounds three quarters of its length, so the second is heard; the
+  same pitch again within a syllable's neume (`gg`) is tied and sounds as one note.
 - **Lyrics.** The first beat of each syllable carries its plain text (markup removed), with a
   trailing `-` when the next syllable continues the word.
 - `chant::retranscribe` rewrites the track's bars and the score's master bars after every chant
@@ -275,7 +281,7 @@ by dynamic programming over the 24 half-semitone transpositions modulo the octav
 each syllable's (or, by note unit, each) first note that found a sung note.
 
 A sync point can be on any note, rest `()` or division of its own. A division takes time in the singing
-(an eighth by default, on the sync timeline only), so its point shapes the timing like a note's and the ruler
+(its pause, see Breaths above), so its point shapes the timing like a note's and the ruler
 shows a tick for it (a rest `()` takes none and its point is only drawn); a tap snaps to the strongest onset of the audio
 within `ui.sync_snap` ms. `:sync-unit` chooses what a tap steps over: a syllable's first cell, or every cell.
 A place in a chant is written `bar:syllable.note` in the status line, on the waveform's ruler and for going there
