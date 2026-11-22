@@ -1,5 +1,7 @@
 name: CI
 
+# Each job runs a mise task (mise.toml), so `mise run <task>` repeats it locally; `mise run ci`
+# runs the Linux ones. The workflow keeps the runners, system packages and caches.
 on:
   push:
     branches: [main]
@@ -11,7 +13,11 @@ concurrency:
 
 env:
   CARGO_TERM_COLOR: always
-  RUSTFLAGS: -D warnings
+
+# Git Bash on Windows, so the tasks' `bash` is not WSL's.
+defaults:
+  run:
+    shell: bash
 
 jobs:
   # fmt, clippy and the tests. test-corpus/ is not in git, so the tests that read it skip
@@ -24,21 +30,23 @@ jobs:
         with:
           components: rustfmt, clippy
       - uses: Swatinem/rust-cache@v2
+      - uses: jdx/mise-action@v5
       - name: System libraries (ALSA for cpal)
         run: sudo apt-get update && sudo apt-get install -y libasound2-dev pkg-config
-      - run: cargo fmt --check
-      - run: cargo clippy --workspace --all-targets
-      - run: cargo test --workspace
+      - run: mise run fmt
+      - run: mise run clippy
+      - run: mise run test
 
-  # The oldest compiler the workspace claims to support (`rust-version` in Cargo.toml).
+  # The oldest compiler the workspace claims to support (`rust-version` in Cargo.toml); the task
+  # installs that toolchain.
   msrv:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      - uses: dtolnay/rust-toolchain@1.89
       - uses: Swatinem/rust-cache@v2
+      - uses: jdx/mise-action@v5
       - run: sudo apt-get update && sudo apt-get install -y libasound2-dev pkg-config
-      - run: cargo check --workspace --locked
+      - run: mise run msrv
 
   # macOS only has to compile for now; the release workflow builds its binaries.
   check-macos:
@@ -47,15 +55,20 @@ jobs:
       - uses: actions/checkout@v4
       - uses: dtolnay/rust-toolchain@stable
       - uses: Swatinem/rust-cache@v2
-      - run: cargo check --workspace --all-targets --locked
+      - uses: jdx/mise-action@v5
+      - run: mise run check
 
-  # The packaging scripts and metadata (packaging/tests/*.sh).
+  # The packaging scripts and metadata (packaging/tests/*.sh). The task installs Ruby, cached
+  # after the job (cache_save_post).
   packaging:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+      - uses: jdx/mise-action@v5
+        with:
+          cache_save_post: true
       - run: sudo apt-get update && sudo apt-get install -y librsvg2-bin shellcheck desktop-file-utils appstream libxml2-utils jq
-      - run: bash packaging/check.sh
+      - run: mise run packaging
 
   # Builds Cecilia.app and the .dmg around a stub binary; the real binary is bundled by the
   # release workflow.
@@ -63,8 +76,9 @@ jobs:
     runs-on: macos-latest
     steps:
       - uses: actions/checkout@v4
+      - uses: jdx/mise-action@v5
       - run: brew install librsvg && pipx install dmgbuild
-      - run: bash packaging/macos/test.sh
+      - run: mise run macos-bundle
 
   test-windows:
     runs-on: windows-latest
@@ -72,14 +86,15 @@ jobs:
       - uses: actions/checkout@v4
       - uses: dtolnay/rust-toolchain@stable
       - uses: Swatinem/rust-cache@v2
-      - run: cargo test --workspace --locked --no-fail-fast
+      - uses: jdx/mise-action@v5
+      - run: mise run test --locked --no-fail-fast
 
   # Informational: does the GPU renderer start on hosted macOS and Windows runners? These runners
   # may have no usable GPU, so a failure here is a finding, not a regression (hence
-  # continue-on-error). The default (`auto`) step must succeed even without a GPU, by ending on
-  # the CPU renderer. The second step (`ui.renderer = cpu`) needs no GPU or graphics API at all,
-  # which the first cannot say: the Windows hosted runner has no GPU and the wgpu path segfaults
-  # there. The images are uploaded to look at.
+  # continue-on-error). The default renderer (`auto`) must succeed even without a GPU, by ending
+  # on the CPU renderer. The CPU renderer (`ui.renderer = cpu`) needs no GPU or graphics API at
+  # all, which the first cannot say: the Windows hosted runner has no GPU and the wgpu path
+  # segfaults there. The images are uploaded to look at.
   render-smoke:
     strategy:
       fail-fast: false
@@ -91,13 +106,8 @@ jobs:
       - uses: actions/checkout@v4
       - uses: dtolnay/rust-toolchain@stable
       - uses: Swatinem/rust-cache@v2
-      - run: cargo build --release --locked
-      - name: Render the start screen headless
-        shell: bash
-        run: ./target/release/cecilia -W ci --screenshot render.png
-      - name: Render the start screen headless with the CPU renderer (no GPU needed)
-        shell: bash
-        run: CECILIA_RENDERER=cpu ./target/release/cecilia -W ci --screenshot render-cpu.png
+      - uses: jdx/mise-action@v5
+      - run: mise run render-smoke
       - uses: actions/upload-artifact@v4
         if: always()
         with:

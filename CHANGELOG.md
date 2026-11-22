@@ -17,6 +17,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - The homepage in the crate metadata, the Nix flake and the package manifests (AUR, Homebrew,
   Scoop, Winget, Chocolatey, AppStream) is now the website instead of the GitHub repository.
+- The CI, Pages and release workflows run mise tasks, so every CI job and release build step can
+  be run locally by name: `mise run fmt`, `clippy`, `test`, `check`, `msrv` (installs the
+  `rust-version` toolchain), `packaging`, `docs-build`, `macos-bundle`, `render-smoke` and the
+  `release:*` tasks (scripts in `packaging/release/`). Ruby and uv are installed by the tasks
+  that use them instead of for the whole project.
 
 ## [0.50.0] - 2026-11-20
 

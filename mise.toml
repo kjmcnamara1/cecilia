@@ -1,10 +1,13 @@
 # https://mise.jdx.dev/tasks/ — `mise tasks` lists these, `mise run <task>` runs one.
-
-[tools]
-# The packaging tests read the Flatpak and Snap YAML and check the Homebrew formula with Ruby.
-ruby = "4.0"
-# uvx runs Zensical for the website (the `docs` task).
-uv = "latest"
+#
+# The GitHub workflows run these tasks (jdx/mise-action), so a CI job can be run here by name:
+# ci.yml's jobs are `fmt`, `clippy`, `test`, `check`, `msrv`, `packaging`, `macos-bundle` and
+# `render-smoke`, pages.yml's build is `docs-build`, release.yml's steps are the `release:*` tasks
+# (scripts in packaging/release/). The workflows keep what only GitHub can do: triggers, runners,
+# the job graph, artifacts, secrets, system packages and the third-party actions.
+#
+# Tools are declared by the tasks that need them, so a job installs only its own. Cargo-only
+# tasks set RUSTFLAGS like CI (-D warnings), so they share one build cache.
 
 [tasks.gui]
 description = "Run the window (ceciliag); extra arguments go to cecilia: `mise run gui song.gp5`"
@@ -14,30 +17,93 @@ run = "cargo run --release --bin ceciliag --"
 description = "Run the terminal UI; extra arguments go to cecilia: `mise run tui song.gp5`"
 run = "cargo run --release --bin cecilia --"
 
-# The website, from docs/ and site-theme/ (zensical.toml). Keep the Zensical version in step with
-# .github/workflows/pages.yml.
+# The website, from docs/ and site-theme/ (zensical.toml). The Zensical version is pinned here
+# only: the Pages workflow builds with `docs-build`.
 [tasks.docs]
 description = "Preview the website at http://localhost:8000/cecilia/, rebuilt as files change"
+tools = { uv = "latest" }
 run = "uvx zensical@0.1.3 serve"
 
-# The CI checks that can run here (the `test` job, the Pages build; `msrv` too when toolchain
-# 1.89 is installed).
+[tasks.docs-build]
+description = "Build the website into site/; fails on any issue, such as a broken link"
+tools = { uv = "latest" }
+run = "uvx zensical@0.1.3 build --clean --strict"
+
+[tasks.fmt]
+description = "Check the formatting (cargo fmt)"
+run = "cargo fmt --check"
+
+[tasks.clippy]
+description = "Lint the workspace (clippy, warnings are errors)"
+env = { RUSTFLAGS = "-D warnings" }
+run = "cargo clippy --workspace --all-targets"
+
+[tasks.test]
+description = "Run the tests; extra arguments go to cargo test: `mise run test -- --no-fail-fast`"
+env = { RUSTFLAGS = "-D warnings" }
+run = "cargo test --workspace"
+
+[tasks.check]
+description = "Check every target compiles with the locked dependencies"
+env = { RUSTFLAGS = "-D warnings" }
+run = "cargo check --workspace --all-targets --locked"
+
+# The CI `msrv` job: check the workspace with the oldest compiler it claims to support
+# (`rust-version` in Cargo.toml), installing that toolchain with rustup first if needed.
+[tasks.msrv]
+description = "Check the workspace builds with the minimum supported Rust (rust-version)"
+shell = "bash -euo pipefail -c"
+env = { RUSTFLAGS = "-D warnings" }
+run = '''
+msrv=$(sed -n 's/^rust-version = "\(.*\)"$/\1/p' Cargo.toml | head -1)
+[ -n "$msrv" ] || { echo "no rust-version in Cargo.toml" >&2; exit 1; }
+rustup toolchain list | grep -q "^$msrv" || rustup toolchain install "$msrv" --profile minimal
+cargo "+$msrv" check --workspace --locked
+'''
+
+# The packaging scripts and metadata (packaging/tests/*.sh); a test whose tool is missing
+# (shellcheck, desktop-file-validate, appstreamcli, xmllint, jq, rsvg-convert) skips itself.
+# Ruby reads the Flatpak and Snap YAML and checks the Homebrew formula.
+[tasks.packaging]
+description = "Test the packaging scripts and metadata"
+tools = { ruby = "4.0" }
+run = "bash packaging/check.sh"
+
+# macOS only: builds Cecilia.app and the .dmg around a stub binary (needs librsvg and dmgbuild).
+[tasks.macos-bundle]
+description = "Test the macOS app bundle and .dmg (macOS only)"
+run = "bash packaging/macos/test.sh"
+
+# Does the GPU renderer start? Renders the start screen headless with the default renderer
+# (which falls back to the CPU one) and with the CPU renderer, to render.png and render-cpu.png.
+[tasks.render-smoke]
+description = "Render the start screen headless, with the default and the CPU renderer"
+env = { RUSTFLAGS = "-D warnings" }
+shell = "bash -euo pipefail -c"
+run = '''
+cargo build --release --locked
+./target/release/cecilia -W ci --screenshot render.png
+CECILIA_RENDERER=cpu ./target/release/cecilia -W ci --screenshot render-cpu.png
+'''
+
+# The CI checks that can run here (the `test` job, the Pages build; `msrv` too when the
+# rust-version toolchain is installed: `mise run msrv` installs it).
 # Run before every push. The macOS and Windows jobs need those platforms.
 [tasks.ci]
 description = "Run the CI checks that can run locally (fmt, clippy, tests, packaging, website, msrv)"
 shell = "bash -euo pipefail -c"
-env = { RUSTFLAGS = "-D warnings" }
 run = '''
-cargo fmt --check
-cargo clippy --workspace --all-targets
-cargo test --workspace
-cargo check --workspace --all-targets --locked
-bash packaging/check.sh
-uvx zensical@0.1.3 build --strict   # the website: fails on broken links
-if rustup toolchain list | grep -q '^1\.89'; then
-  cargo +1.89 check --workspace --locked
+mise run fmt
+mise run clippy
+mise run test
+mise run check
+mise run packaging
+mise run docs-build
+msrv=$(sed -n 's/^rust-version = "\(.*\)"$/\1/p' Cargo.toml | head -1)
+if rustup toolchain list | grep -q "^$msrv"; then
+  mise run msrv
 else
-  echo "skipping msrv: rustup toolchain install 1.89"
+  echo "skipping msrv: run \`mise run msrv\` to install $msrv and check"
 fi
 '''
 
@@ -86,3 +152,34 @@ sed -i "s/$old/$new/g" "${win[@]}"
 sed -i "s|^\( *\)<releases>|&\n\1  <release version=\"$new\" date=\"$(date +%F)\"/>|" "$meta"
 echo "$cur -> $new"
 '''
+
+# The release workflow's steps (.github/workflows/release.yml), scripts in packaging/release/.
+# Each takes its arguments after the task name; dist/ collects the assets.
+[tasks."release:meta"]
+description = "Check a tag matches the workspace version: `mise run release:meta vX.Y.Z`"
+run = "bash packaging/release/meta.sh"
+
+[tasks."release:build"]
+description = "Build, smoke-test and archive the binaries for a target into dist/: `mise run release:build TARGET`"
+run = "bash packaging/release/build.sh"
+
+[tasks."release:velopack"]
+description = "Build the Windows installer into dist/ (Windows, .NET SDK): `mise run release:velopack TARGET`"
+run = "bash packaging/release/velopack.sh"
+
+[tasks."release:linux-packages"]
+description = "Build the .deb and .rpm into dist/: `mise run release:linux-packages TARGET`"
+tools = { "cargo:cargo-deb" = "latest", "cargo:cargo-generate-rpm" = "latest" }
+run = "bash packaging/release/linux-packages.sh"
+
+[tasks."release:macos-app"]
+description = "Build the universal .dmg into dist/ from the macOS archives (macOS): `mise run release:macos-app IN_DIR`"
+run = "bash packaging/release/macos-app.sh"
+
+[tasks."release:appimage"]
+description = "Build the AppImage into dist/ from the Linux archive: `mise run release:appimage IN_DIR`"
+run = "bash packaging/release/appimage.sh"
+
+[tasks."release:assets"]
+description = "Add SHA256SUMS and install.sh to dist/ and write the release notes to notes.md"
+run = "bash packaging/release/assets.sh"

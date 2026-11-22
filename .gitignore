@@ -6,3 +6,9 @@
 /packaging/flatpak/cargo-sources.json
 /result
 /site
+# Release assets made by the release:* mise tasks
+/dist
+/notes.md
+# The render-smoke task
+/render.png
+/render-cpu.png
